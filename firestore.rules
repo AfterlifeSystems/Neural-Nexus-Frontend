@@ -1,26 +1,25 @@
 rules_version = '2';
-
 service cloud.firestore {
   match /databases/{database}/documents {
-    // Users can read/write their own user document
+    // Users
     match /users/{userId} {
       allow read, write: if request.auth != null && request.auth.uid == userId;
     }
     
-    // Users can read/write their own avatars
-    match /avatars/{avatarId} {
+    // Digital Twins
+    match /digital_twins/{digitalTwinId} {
       allow read, write: if request.auth != null && 
-        resource.data.user_id == request.auth.uid;
+        request.auth.uid == resource.data.user_id;
       
       // Conversations subcollection
       match /conversations/{conversationId} {
         allow read, write: if request.auth != null && 
-          get(/databases/$(database)/documents/avatars/$(avatarId)).data.user_id == request.auth.uid;
+          request.auth.uid == get(/databases/$(database)/documents/digital_twins/$(digitalTwinId)).data.user_id;
         
-        // Messages subcollection within conversations
+        // Messages subcollection
         match /messages/{messageId} {
           allow read, write: if request.auth != null && 
-            get(/databases/$(database)/documents/avatars/$(avatarId)).data.user_id == request.auth.uid;
+            request.auth.uid == get(/databases/$(database)/documents/digital_twins/$(digitalTwinId)).data.user_id;
         }
       }
     }
