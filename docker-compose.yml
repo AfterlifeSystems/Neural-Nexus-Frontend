@@ -10,7 +10,6 @@ services:
       - ./:/app:cached # bind your code
       - /app/node_modules # keep container modules separate
     env_file:
-      # - .env.dev
       - .env.local
       # - .env.production
     environment:

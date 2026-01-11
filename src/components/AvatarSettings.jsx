@@ -7,12 +7,41 @@ import {
   Trash2,
   Edit3,
   Upload,
-  Link as LinkIcon,
+  Link,
   File,
+  Image,
+  Video,
+  Music,
+  FileText,
+  Globe,
+  Youtube,
+  Facebook,
+  Instagram,
+  Twitter,
+  Twitch,
+  X,
+  Camera,
+  Mic,
 } from 'lucide-react';
 import { useNgrokApiUrl } from '../context/NgrokAPIContext';
 import { useAuth } from '../context/AuthContext';
 import { AvatarService } from '../services/AvatarService';
+
+// Social Media Platform Configuration
+const SOCIAL_PLATFORMS = [
+  { id: 'youtube', name: 'YouTube', icon: Youtube, color: '#FF0000' },
+  { id: 'google', name: 'Google', icon: Globe, color: '#4285F4' },
+  { id: 'apple', name: 'Apple', icon: Globe, color: '#000000' },
+  { id: 'facebook', name: 'Facebook', icon: Facebook, color: '#1877F2' },
+  { id: 'instagram', name: 'Instagram', icon: Instagram, color: '#E4405F' },
+  { id: 'twitch', name: 'Twitch', icon: Twitch, color: '#9146FF' },
+  { id: 'twitter', name: 'X.com', icon: Twitter, color: '#000000' },
+  { id: 'grok', name: 'Grok', icon: Globe, color: '#1DA1F2' },
+  { id: 'claude', name: 'Claude', icon: Globe, color: '#8B4513' },
+  { id: 'chatgpt', name: 'ChatGPT', icon: Globe, color: '#10A37F' },
+  { id: 'microsoft', name: 'Microsoft', icon: Globe, color: '#00A4EF' },
+  { id: 'reddit', name: 'Reddit', icon: Globe, color: '#FF4500' },
+];
 
 const AvatarSettings = ({ avatarId, accessToken, onAvatarDeleted }) => {
   const { dbHttpsUrl } = useNgrokApiUrl();
@@ -26,9 +55,74 @@ const AvatarSettings = ({ avatarId, accessToken, onAvatarDeleted }) => {
   const [editingName, setEditingName] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
 
-  const { activeAvatar, setActiveAvatar, deleteAvatar, getAvatars } = useAuth();
+  // New state for document management
+  const [isDragging, setIsDragging] = useState(false);
+  const [documents, setDocuments] = useState([]);
+  const [socialLogins, setSocialLogins] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const [showLoginModal, setShowLoginModal] = useState(false);
+  const [selectedPlatform, setSelectedPlatform] = useState(null);
+  const [loginCredentials, setLoginCredentials] = useState({
+    username: '',
+    password: '',
+  });
+  const [manualUrl, setManualUrl] = useState('');
 
+  const { activeAvatar, setActiveAvatar, deleteAvatar, getAvatars } = useAuth();
   const hasRun = useRef(false);
+
+  // Global drag and drop handlers
+  useEffect(() => {
+    const handleDragEnter = (e) => {
+      e.preventDefault();
+      if (
+        e.dataTransfer.types.includes('Files') ||
+        e.dataTransfer.types.includes('text/uri-list')
+      ) {
+        setIsDragging(true);
+      }
+    };
+
+    const handleDragOver = (e) => {
+      e.preventDefault();
+    };
+
+    const handleDragLeave = (e) => {
+      if (
+        e.target === document.body ||
+        !document.body.contains(e.relatedTarget)
+      ) {
+        setIsDragging(false);
+      }
+    };
+
+    const handleDrop = async (e) => {
+      e.preventDefault();
+      setIsDragging(false);
+      await handleFileUpload(e);
+    };
+
+    const handlePaste = async (e) => {
+      const text = e.clipboardData.getData('text/plain');
+      if (text.startsWith('http://') || text.startsWith('https://')) {
+        await handleUrlUpload(text);
+      }
+    };
+
+    document.addEventListener('dragenter', handleDragEnter);
+    document.addEventListener('dragover', handleDragOver);
+    document.addEventListener('dragleave', handleDragLeave);
+    document.addEventListener('drop', handleDrop);
+    document.addEventListener('paste', handlePaste);
+
+    return () => {
+      document.removeEventListener('dragenter', handleDragEnter);
+      document.removeEventListener('dragover', handleDragOver);
+      document.removeEventListener('dragleave', handleDragLeave);
+      document.removeEventListener('drop', handleDrop);
+      document.removeEventListener('paste', handlePaste);
+    };
+  }, []);
 
   const initialPopulationOfAvatarData = async () => {
     if (hasRun.current) return;
@@ -44,6 +138,14 @@ const AvatarSettings = ({ avatarId, accessToken, onAvatarDeleted }) => {
       setUpdatedDesc(avatarProfileData.description);
       setUpdatedIcon(avatarProfileData.icon_url);
       setUpdatedAvatarName(avatarProfileData.name);
+
+      // Load existing documents and social logins if available
+      if (avatarProfileData.documents) {
+        setDocuments(avatarProfileData.documents);
+      }
+      if (avatarProfileData.socialLogins) {
+        setSocialLogins(avatarProfileData.socialLogins);
+      }
     } catch (err) {
       console.error('Failed to fetch avatar profile:', err);
     }
@@ -68,6 +170,391 @@ const AvatarSettings = ({ avatarId, accessToken, onAvatarDeleted }) => {
     initialPopulationOfAvatarData();
   }, []);
 
+  const determineContentType = (file) => {
+    const type = file.type;
+    if (type.startsWith('image/')) return 'image';
+    if (type.startsWith('audio/')) return 'audio';
+    if (type.startsWith('video/')) return 'video';
+    if (type === 'application/pdf') return 'pdf';
+    if (type.startsWith('text/') || type === 'application/json') return 'text';
+
+    const filename = file.name.toLowerCase();
+    if (filename.endsWith('.pdf')) return 'pdf';
+    if (
+      filename.endsWith('.txt') ||
+      filename.endsWith('.md') ||
+      filename.endsWith('.json')
+    )
+      return 'text';
+    return 'file';
+  };
+
+  const handleFileUpload = async (e) => {
+    setLoading(true);
+    const items = e.dataTransfer?.items || [];
+    const filesList = e.dataTransfer?.files || e.target?.files || [];
+
+    const formData = new FormData();
+    formData.append('avatar_id', activeAvatar.avatar_id);
+
+    // Handle files
+    for (let i = 0; i < filesList.length; i++) {
+      formData.append('files', filesList[i]);
+    }
+
+    try {
+      const response = await fetch(
+        `${dbHttpsUrl}/management/avatars/upload-documents`,
+        {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${accessToken}` },
+          body: formData,
+        }
+      );
+
+      if (!response.ok) throw new Error('Upload failed');
+
+      const data = await response.json();
+      if (data.documents) {
+        setDocuments((prev) => [...prev, ...data.documents]);
+      }
+      toast.success('Files uploaded successfully');
+    } catch (err) {
+      toast.error('Upload failed: ' + err.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleUrlUpload = async (url) => {
+    setLoading(true);
+
+    try {
+      const response = await fetch(
+        `${dbHttpsUrl}/management/avatars/upload-url`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${accessToken}`,
+          },
+          body: JSON.stringify({
+            avatar_id: activeAvatar.avatar_id,
+            url,
+          }),
+        }
+      );
+
+      if (!response.ok) throw new Error('URL upload failed');
+
+      const data = await response.json();
+      if (data.document) {
+        setDocuments((prev) => [...prev, data.document]);
+      }
+      toast.success('URL added successfully');
+    } catch (err) {
+      toast.error('URL upload failed: ' + err.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleSocialLogin = (platform) => {
+    setSelectedPlatform(platform);
+    setShowLoginModal(true);
+  };
+
+  const submitSocialLogin = async () => {
+    if (!loginCredentials.username || !loginCredentials.password) return;
+
+    try {
+      const response = await fetch(
+        `${dbHttpsUrl}/management/avatars/connect-social`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${accessToken}`,
+          },
+          body: JSON.stringify({
+            avatar_id: activeAvatar.avatar_id,
+            platform: selectedPlatform,
+            username: loginCredentials.username,
+            password: loginCredentials.password,
+          }),
+        }
+      );
+
+      if (!response.ok) throw new Error('Social login failed');
+
+      const data = await response.json();
+      setSocialLogins((prev) => [...prev, data.socialLogin]);
+      toast.success(
+        `Connected to ${
+          SOCIAL_PLATFORMS.find((p) => p.id === selectedPlatform)?.name
+        }`
+      );
+
+      setShowLoginModal(false);
+      setLoginCredentials({ username: '', password: '' });
+      setSelectedPlatform(null);
+    } catch (err) {
+      toast.error('Social login failed: ' + err.message);
+    }
+  };
+
+  const removeSocialLogin = async (id) => {
+    try {
+      await fetch(`${dbHttpsUrl}/management/avatars/disconnect-social`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${accessToken}`,
+        },
+        body: JSON.stringify({
+          avatar_id: activeAvatar.avatar_id,
+          login_id: id,
+        }),
+      });
+
+      setSocialLogins((prev) => prev.filter((login) => login.id !== id));
+      toast.success('Social account disconnected');
+    } catch (err) {
+      toast.error('Failed to disconnect: ' + err.message);
+    }
+  };
+
+  const getSocialUrl = (platform, username) => {
+    const urls = {
+      youtube: `https://youtube.com/@${username}`,
+      google: `https://myaccount.google.com/`,
+      apple: `https://appleid.apple.com/`,
+      facebook: `https://facebook.com/${username}`,
+      instagram: `https://instagram.com/${username}`,
+      twitch: `https://twitch.tv/${username}`,
+      twitter: `https://x.com/${username}`,
+      grok: `https://x.com/i/grok`,
+      claude: `https://claude.ai/`,
+      chatgpt: `https://chat.openai.com/`,
+      microsoft: `https://account.microsoft.com/`,
+      reddit: `https://reddit.com/user/${username}`,
+    };
+    return urls[platform] || '#';
+  };
+
+  const deleteDocument = async (id) => {
+    try {
+      await fetch(`${dbHttpsUrl}/management/avatars/delete-document`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${accessToken}`,
+        },
+        body: JSON.stringify({
+          avatar_id: activeAvatar.avatar_id,
+          document_id: id,
+        }),
+      });
+
+      setDocuments((prev) => prev.filter((doc) => doc.id !== id));
+      toast.success('Document deleted');
+    } catch (err) {
+      toast.error('Failed to delete: ' + err.message);
+    }
+  };
+
+  const groupedDocuments = documents.reduce((acc, doc) => {
+    if (!acc[doc.type]) acc[doc.type] = [];
+    acc[doc.type].push(doc);
+    return acc;
+  }, {});
+
+  const renderDocumentPreview = (doc) => {
+    switch (doc.type) {
+      case 'image':
+        return (
+          <div className="relative w-full h-48 bg-white/5 rounded-lg overflow-hidden">
+            <img
+              src={doc.url}
+              alt={doc.name}
+              className="w-full h-full object-cover"
+            />
+          </div>
+        );
+
+      case 'video':
+        return (
+          <div className="relative w-full h-48 bg-white/5 rounded-lg overflow-hidden">
+            <video
+              src={doc.url}
+              controls
+              className="w-full h-full object-cover"
+            />
+          </div>
+        );
+
+      case 'audio':
+        return (
+          <div className="flex items-center gap-3 p-4 bg-white/5 rounded-lg">
+            <Music className="text-blue-400" size={32} />
+            <audio src={doc.url} controls className="flex-1" />
+          </div>
+        );
+
+      case 'pdf':
+        return (
+          <div className="flex items-center gap-3 p-4 bg-white/5 rounded-lg">
+            <FileText className="text-red-400" size={32} />
+            <a
+              href={doc.url}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-blue-400 hover:underline flex items-center gap-2"
+            >
+              Open PDF <ExternalLink size={16} />
+            </a>
+          </div>
+        );
+
+      case 'youtube':
+      case 'twitter':
+      case 'web':
+        return (
+          <div className="p-4 bg-white/5 rounded-lg">
+            <a
+              href={doc.url}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-blue-400 hover:underline flex items-center gap-2"
+            >
+              <Globe size={20} />
+              {doc.url}
+              <ExternalLink size={16} />
+            </a>
+          </div>
+        );
+
+      default:
+        return (
+          <div className="flex items-center gap-3 p-4 bg-white/5 rounded-lg">
+            <File className="text-white/50" size={32} />
+            <span className="text-white">{doc.name}</span>
+          </div>
+        );
+    }
+  };
+
+  const getTypeIcon = (type) => {
+    switch (type) {
+      case 'image':
+        return <Image className="text-green-400" />;
+      case 'video':
+        return <Video className="text-purple-400" />;
+      case 'audio':
+        return <Music className="text-blue-400" />;
+      case 'pdf':
+        return <FileText className="text-red-400" />;
+      case 'text':
+        return <FileText className="text-yellow-400" />;
+      default:
+        return <Globe className="text-cyan-400" />;
+    }
+  };
+
+  // Camera capture handler
+  const handleCameraCapture = async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: 'user' },
+        audio: false,
+      });
+
+      mediaStreamRef.current = stream;
+      setCaptureMode('camera');
+      setShowCaptureModal(true);
+
+      setTimeout(() => {
+        if (videoRef.current) {
+          videoRef.current.srcObject = stream;
+        }
+      }, 100);
+    } catch (err) {
+      toast.error('Camera access denied or unavailable');
+    }
+  };
+
+  const capturePhoto = async () => {
+    const video = videoRef.current;
+    const canvas = canvasRef.current;
+
+    canvas.width = video.videoWidth;
+    canvas.height = video.videoHeight;
+
+    const ctx = canvas.getContext('2d');
+    ctx.drawImage(video, 0, 0);
+
+    const blob = await new Promise((resolve) =>
+      canvas.toBlob(resolve, 'image/jpeg', 0.95)
+    );
+
+    const formData = new FormData();
+    formData.append('avatar_id', activeAvatar.avatar_id);
+    formData.append('files', blob, 'avatar-photo.jpg');
+
+    await fetch(`${dbHttpsUrl}/management/avatars/upload-documents`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${accessToken}` },
+      body: formData,
+    });
+
+    cleanupMedia();
+    toast.success('Photo captured successfully');
+  };
+
+  const VOICE_SCRIPT = `
+  Please read the following naturally.
+  
+  1. Today is a beautiful day, and I am speaking clearly and comfortably.
+  2. The quick brown fox jumps over the lazy dog.
+  3. I enjoy learning new things and explaining ideas calmly.
+  4. Sometimes I speak softly, and sometimes I speak with confidence.
+  5. Numbers: zero, one, two, three, four, five, six, seven, eight, nine.
+  6. Emotions: I am happy. I am curious. I am thoughtful. I am focused.
+  7. Finally, describe something you enjoy doing in your free time.
+  `;
+
+  // Audio recording handler
+  const handleAudioRecord = async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: {
+          echoCancellation: true,
+          noiseSuppression: true,
+          sampleRate: 48000,
+        },
+      });
+
+      mediaStreamRef.current = stream;
+      recordedChunksRef.current = [];
+
+      const recorder = new MediaRecorder(stream, {
+        mimeType: 'audio/webm',
+      });
+
+      recorder.ondataavailable = (e) => {
+        if (e.data.size > 0) recordedChunksRef.current.push(e.data);
+      };
+
+      recorder.onstop = uploadAudioRecording;
+
+      mediaRecorderRef.current = recorder;
+      setCaptureMode('audio');
+      setShowCaptureModal(true);
+    } catch (err) {
+      toast.error('Microphone access denied or unavailable');
+    }
+  };
+
   const handleIconUpload = async (acceptedFiles) => {
     const formData = new FormData();
     formData.append('icon', acceptedFiles[0]);
@@ -82,41 +569,6 @@ const AvatarSettings = ({ avatarId, accessToken, onAvatarDeleted }) => {
     const avatarProfileData = await fetchAvatarData();
     setUpdatedIcon(avatarProfileData.icon_url);
     toast.success('Avatar icon updated');
-  };
-
-  const handleAddLink = async () => {
-    if (!newLink.trim()) return;
-
-    await fetch(`${dbHttpsUrl}/management/avatars/update`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${accessToken}`,
-      },
-      body: JSON.stringify({ avatar_id: avatarId, url: newLink }),
-    });
-
-    setLinks([...links, { url: newLink, status: 'pending' }]);
-    setNewLink('');
-    toast.success('Social media link added, ready to collect data...');
-  };
-
-  const handleUpload = async (acceptedFiles) => {
-    const formData = new FormData();
-    formData.append('file', acceptedFiles[0]);
-    formData.append('avatar_id', avatarId);
-
-    await fetch(`${dbHttpsUrl}/management/avatars/update`, {
-      method: 'POST',
-      headers: { Authorization: `Bearer ${accessToken}` },
-      body: formData,
-    });
-
-    setFiles([
-      ...files,
-      { name: acceptedFiles[0].name, status: 'preprocessing' },
-    ]);
-    toast.success('File uploaded & preprocessing started');
   };
 
   const handleDescSave = async (updatedDesc) => {
@@ -171,12 +623,9 @@ const AvatarSettings = ({ avatarId, accessToken, onAvatarDeleted }) => {
     setIsDeleting(true);
 
     try {
-      // Use the deleteAvatar method from AuthContext
       await deleteAvatar(activeAvatar.avatar_id);
-
       toast.success('Avatar deleted successfully');
 
-      // Call the onAvatarDeleted callback if provided
       if (onAvatarDeleted) {
         onAvatarDeleted();
       }
@@ -190,6 +639,80 @@ const AvatarSettings = ({ avatarId, accessToken, onAvatarDeleted }) => {
 
   return (
     <div className="flex flex-col gap-6 w-full max-w-4xl mx-auto">
+      {/* Drag Overlay */}
+      {isDragging && (
+        <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm flex items-center justify-center">
+          <div className="text-center">
+            <Upload
+              className="mx-auto mb-4 text-white animate-bounce"
+              size={80}
+            />
+            <h2 className="text-3xl font-bold text-white mb-4">
+              Drop to Upload
+            </h2>
+            <p className="text-white/80 text-lg mb-2">
+              Supported: Images, Videos, Audio, PDFs, Text Files, URLs
+            </p>
+            <p className="text-white/60">
+              YouTube • Twitter • Wikipedia • Twitch • Web Pages
+            </p>
+          </div>
+        </div>
+      )}
+
+      {/* Social Login Modal */}
+      {showLoginModal && (
+        <div className="fixed inset-0 z-40 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-white/5 backdrop-blur-lg rounded-2xl p-6 max-w-md w-full border border-white/20">
+            <div className="flex justify-between items-center mb-6">
+              <h3 className="text-xl font-bold text-white">
+                Connect{' '}
+                {SOCIAL_PLATFORMS.find((p) => p.id === selectedPlatform)?.name}
+              </h3>
+              <button
+                onClick={() => setShowLoginModal(false)}
+                className="text-white/60 hover:text-white"
+              >
+                <X size={24} />
+              </button>
+            </div>
+
+            <div className="space-y-4">
+              <input
+                type="text"
+                placeholder="Username"
+                value={loginCredentials.username}
+                onChange={(e) =>
+                  setLoginCredentials((prev) => ({
+                    ...prev,
+                    username: e.target.value,
+                  }))
+                }
+                className="w-full px-4 py-3 bg-white/10 border border-white/20 rounded-lg text-white placeholder-white/40 focus:outline-none focus:ring-2 focus:ring-blue-500"
+              />
+              <input
+                type="password"
+                placeholder="Password"
+                value={loginCredentials.password}
+                onChange={(e) =>
+                  setLoginCredentials((prev) => ({
+                    ...prev,
+                    password: e.target.value,
+                  }))
+                }
+                className="w-full px-4 py-3 bg-white/10 border border-white/20 rounded-lg text-white placeholder-white/40 focus:outline-none focus:ring-2 focus:ring-blue-500"
+              />
+              <button
+                onClick={submitSocialLogin}
+                className="w-full px-6 py-3 bg-blue-500/20 hover:bg-blue-500/30 text-blue-400 font-semibold rounded-lg transition-all duration-300 border border-blue-500/30"
+              >
+                Connect Account
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Header with Delete Button */}
       <div className="flex justify-between items-center">
         <h2 className="text-2xl font-bold text-white">Avatar Settings</h2>
@@ -211,43 +734,62 @@ const AvatarSettings = ({ avatarId, accessToken, onAvatarDeleted }) => {
 
         <div className="flex gap-6 items-start">
           {/* Icon Upload */}
-          {updatedIcon ? (
-            <Dropzone
-              onDrop={handleIconUpload}
-              multiple={false}
-              accept={{ 'image/*': [] }}
-              noClick
-            >
-              {({ getRootProps, getInputProps, open }) => (
-                <div className="relative w-32 h-32 rounded-2xl overflow-hidden cursor-pointer group">
-                  <img
-                    src={updatedIcon}
-                    alt="avatar"
-                    className="w-full h-full object-cover"
-                  />
-                  <div
-                    className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity duration-300 flex items-center justify-center"
-                    onClick={open}
-                  >
-                    <Edit3 size={24} color="white" />
+          <div className="flex flex-col gap-3">
+            {updatedIcon ? (
+              <Dropzone
+                onDrop={handleIconUpload}
+                multiple={false}
+                accept={{ 'image/*': [] }}
+                noClick
+              >
+                {({ getRootProps, getInputProps, open }) => (
+                  <div className="relative w-32 h-32 rounded-2xl overflow-hidden cursor-pointer group">
+                    <img
+                      src={updatedIcon}
+                      alt="avatar"
+                      className="w-full h-full object-cover"
+                    />
+                    <div
+                      className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity duration-300 flex items-center justify-center"
+                      onClick={open}
+                    >
+                      <Edit3 size={24} color="white" />
+                    </div>
+                    <input {...getInputProps()} />
                   </div>
-                  <input {...getInputProps()} />
-                </div>
-              )}
-            </Dropzone>
-          ) : (
-            <Dropzone onDrop={handleIconUpload} multiple={false}>
-              {({ getRootProps, getInputProps }) => (
-                <div
-                  {...getRootProps()}
-                  className="w-32 h-32 border-2 border-dashed border-white/30 hover:border-white/50 flex items-center justify-center cursor-pointer rounded-2xl bg-white/5 transition-all duration-300"
-                >
-                  <input {...getInputProps()} />
-                  <Upload size={32} className="text-white/50" />
-                </div>
-              )}
-            </Dropzone>
-          )}
+                )}
+              </Dropzone>
+            ) : (
+              <Dropzone onDrop={handleIconUpload} multiple={false}>
+                {({ getRootProps, getInputProps }) => (
+                  <div
+                    {...getRootProps()}
+                    className="w-32 h-32 border-2 border-dashed border-white/30 hover:border-white/50 flex items-center justify-center cursor-pointer rounded-2xl bg-white/5 transition-all duration-300"
+                  >
+                    <input {...getInputProps()} />
+                    <Upload size={32} className="text-white/50" />
+                  </div>
+                )}
+              </Dropzone>
+            )}
+
+            {/* Horizontal Button Group */}
+            <div className="flex gap-2">
+              <button
+                onClick={handleCameraCapture}
+                className="flex-1 px-3 py-2 bg-blue-500/20..."
+              >
+                <Camera size={16} />
+              </button>
+              <button
+                onClick={handleAudioRecord}
+                className="flex-1 px-3 py-2 bg-purple-500/20..."
+              >
+                <Mic size={16} />
+              </button>
+            </div>
+          </div>
+          {/*  */}
 
           {/* Name and Description */}
           <div className="flex-grow space-y-4">
@@ -346,172 +888,210 @@ const AvatarSettings = ({ avatarId, accessToken, onAvatarDeleted }) => {
         </div>
       </div>
 
-      {/* Media Files Section */}
+      {/* Social Media Section */}
       <div className="bg-white/5 backdrop-blur-lg rounded-2xl border border-white/20 p-6">
-        <div className="flex items-center gap-2 mb-4">
-          <File size={20} className="text-white/70" />
-          <h3 className="text-lg font-semibold text-white">Media Files</h3>
-        </div>
+        <h2 className="text-2xl font-semibold text-white mb-4 flex items-center gap-2">
+          <Link size={24} />
+          Social Media Accounts
+        </h2>
 
-        <Dropzone onDrop={handleUpload}>
-          {({ getRootProps, getInputProps, isDragActive }) => (
-            <div
-              {...getRootProps()}
-              className={`border-2 border-dashed rounded-lg p-8 text-center cursor-pointer transition-all duration-300 ${
-                isDragActive
-                  ? 'border-blue-500/50 bg-blue-500/10'
-                  : 'border-white/30 bg-white/5 hover:border-white/50 hover:bg-white/10'
-              }`}
-            >
-              <input {...getInputProps()} />
-              <Upload size={40} className="mx-auto mb-3 text-white/50" />
-              <p className="text-white/70">
-                {isDragActive
-                  ? 'Drop the files here...'
-                  : 'Drag & drop media here or click to upload'}
-              </p>
-            </div>
-          )}
-        </Dropzone>
-
-        {files.length > 0 && (
-          <ul className="space-y-3 mt-4">
-            {files.map((file) => (
-              <li
-                key={file._id || file.name}
-                className="px-4 py-3 bg-white/5 border border-white/10 rounded-lg"
-              >
-                <div className="flex justify-between items-center mb-2">
-                  <span className="text-white font-medium">{file.name}</span>
-                  <span className="text-xs text-white/50 bg-white/10 px-2 py-1 rounded">
-                    {file.status}
-                  </span>
-                </div>
-                <div className="w-full bg-white/10 rounded-full h-2 overflow-hidden">
-                  <div
-                    className="bg-blue-500 h-full rounded-full transition-all duration-300"
-                    style={{
-                      width: `${
-                        file.status === 'preprocessing'
-                          ? 50
-                          : file.status === 'trained'
-                          ? 100
-                          : 0
-                      }%`,
+        {socialLogins.length > 0 && (
+          <div className="space-y-3 mb-4">
+            {socialLogins.map((login) => {
+              const platform = SOCIAL_PLATFORMS.find(
+                (p) => p.id === login.platform
+              );
+              const Icon = platform?.icon;
+              return (
+                <div
+                  key={login.id}
+                  className="bg-white/10 border border-white/20 rounded-lg p-4 flex items-center justify-between hover:bg-white/15 transition-all duration-300"
+                >
+                  <a
+                    href={getSocialUrl(login.platform, login.username)}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="flex items-center gap-3 flex-1"
+                  >
+                    {Icon && (
+                      <Icon size={32} style={{ color: platform.color }} />
+                    )}
+                    <div>
+                      <p className="text-white font-semibold">
+                        {platform?.name}
+                      </p>
+                      <p className="text-white/60 text-sm">@{login.username}</p>
+                      <p className="text-white/40 text-xs">
+                        Connected{' '}
+                        {new Date(login.connectedAt).toLocaleDateString()}
+                      </p>
+                    </div>
+                    <ExternalLink size={16} className="text-white/40 ml-auto" />
+                  </a>
+                  <button
+                    onClick={(e) => {
+                      e.preventDefault();
+                      removeSocialLogin(login.id);
                     }}
-                  />
+                    className="text-red-400 hover:text-red-300 ml-4 p-2 hover:bg-red-500/20 rounded-lg transition-all duration-300"
+                  >
+                    <Trash2 size={20} />
+                  </button>
                 </div>
-              </li>
-            ))}
-          </ul>
+              );
+            })}
+          </div>
         )}
-      </div>
 
-      {/* Social Media Links Section */}
-      <div className="bg-white/5 backdrop-blur-lg rounded-2xl border border-white/20 p-6">
-        <div className="flex items-center gap-2 mb-4">
-          <LinkIcon size={20} className="text-white/70" />
-          <h3 className="text-lg font-semibold text-white">
-            Social Media Links
-          </h3>
-        </div>
-        <p className="text-white/60 text-sm mb-4">
-          These links will appear on your avatar in the chat area.
-        </p>
-
-        <div className="flex gap-2 mb-4">
-          <input
-            type="url"
-            value={newLink}
-            onChange={(e) => setNewLink(e.target.value)}
-            placeholder="https://example.com"
-            className="flex-grow px-4 py-2 bg-white/10 border border-white/20 rounded-lg text-white placeholder-white/40 focus:outline-none focus:ring-2 focus:ring-blue-500/50"
-          />
-          <button
-            onClick={handleAddLink}
-            className="px-6 py-2 bg-blue-500/20 hover:bg-blue-500/30 text-blue-400 rounded-lg transition-all duration-300 border border-blue-500/30"
-          >
-            Add
-          </button>
-        </div>
-
-        {links.length > 0 && (
-          <ul className="space-y-2">
-            {links.map((link, idx) => (
-              <li
-                key={idx}
-                className="flex justify-between items-center px-4 py-3 bg-white/5 border border-white/10 rounded-lg hover:bg-white/10 transition-all duration-300"
+        <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-3">
+          {SOCIAL_PLATFORMS.map((platform) => {
+            const Icon = platform.icon;
+            const isConnected = socialLogins.some(
+              (login) => login.platform === platform.id
+            );
+            return (
+              <button
+                key={platform.id}
+                onClick={() => !isConnected && handleSocialLogin(platform.id)}
+                disabled={isConnected}
+                className={`p-3 rounded-lg border transition-all duration-300 flex flex-col items-center gap-2 ${
+                  isConnected
+                    ? 'bg-green-500/20 border-green-500/50 cursor-not-allowed'
+                    : 'bg-white/5 border-white/20 hover:bg-white/10 hover:border-white/40'
+                }`}
               >
-                <a
-                  href={link.url}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="text-blue-400 hover:text-blue-300 flex items-center gap-2 transition-colors duration-300"
-                >
-                  <ExternalLink size={16} />
-                  {link.url}
-                </a>
-                <span className="text-xs text-white/50 bg-white/10 px-2 py-1 rounded">
-                  {link.status || 'scraping'}
-                </span>
-              </li>
-            ))}
-          </ul>
-        )}
+                <Icon size={24} style={{ color: platform.color }} />
+                <span className="text-white text-xs">{platform.name}</span>
+                {isConnected && (
+                  <span className="text-xs text-green-400">Connected</span>
+                )}
+              </button>
+            );
+          })}
+        </div>
       </div>
 
-      {/* Website Data Links Section */}
+      {/* Upload Section */}
       <div className="bg-white/5 backdrop-blur-lg rounded-2xl border border-white/20 p-6">
-        <div className="flex items-center gap-2 mb-4">
-          <LinkIcon size={20} className="text-white/70" />
-          <h3 className="text-lg font-semibold text-white">
-            Website Data Links
-          </h3>
-        </div>
-        <p className="text-white/60 text-sm mb-4">
-          These links will be used to train your avatar in the future.
-        </p>
+        <h2 className="text-2xl font-semibold text-white mb-4 flex items-center gap-2">
+          <Upload size={24} />
+          Upload
+        </h2>
 
-        <div className="flex gap-2 mb-4">
-          <input
-            type="url"
-            value={newLink}
-            onChange={(e) => setNewLink(e.target.value)}
-            placeholder="https://example.com"
-            className="flex-grow px-4 py-2 bg-white/10 border border-white/20 rounded-lg text-white placeholder-white/40 focus:outline-none focus:ring-2 focus:ring-blue-500/50"
-          />
-          <button
-            onClick={handleAddLink}
-            className="px-6 py-2 bg-blue-500/20 hover:bg-blue-500/30 text-blue-400 rounded-lg transition-all duration-300 border border-blue-500/30"
-          >
-            Add
-          </button>
+        {/* Manual URL Input */}
+        <div className="mb-6">
+          <label className="block text-sm font-medium text-white/70 mb-2">
+            Add URL
+          </label>
+          <div className="flex gap-2">
+            <input
+              type="url"
+              placeholder="https://example.com or paste any URL"
+              value={manualUrl}
+              onChange={(e) => setManualUrl(e.target.value)}
+              onKeyPress={(e) => {
+                if (e.key === 'Enter' && manualUrl) {
+                  handleUrlUpload(manualUrl);
+                  setManualUrl('');
+                }
+              }}
+              className="flex-1 px-4 py-3 bg-white/10 border border-white/20 rounded-lg text-white placeholder-white/40 focus:outline-none focus:ring-2 focus:ring-blue-500"
+            />
+            <button
+              onClick={() => {
+                if (manualUrl) {
+                  handleUrlUpload(manualUrl);
+                  setManualUrl('');
+                }
+              }}
+              disabled={!manualUrl || loading}
+              className="px-6 py-3 bg-blue-500/20 hover:bg-blue-500/30 text-blue-400 font-semibold rounded-lg transition-all duration-300 flex items-center gap-2 border border-blue-500/30 disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              <Upload size={20} />
+              Add
+            </button>
+          </div>
         </div>
 
-        {links.length > 0 && (
-          <ul className="space-y-2">
-            {links.map((link, idx) => (
-              <li
-                key={idx}
-                className="flex justify-between items-center px-4 py-3 bg-white/5 border border-white/10 rounded-lg hover:bg-white/10 transition-all duration-300"
-              >
-                <a
-                  href={link.url}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="text-blue-400 hover:text-blue-300 flex items-center gap-2 transition-colors duration-300"
-                >
-                  <ExternalLink size={16} />
-                  {link.url}
-                </a>
-                <span className="text-xs text-white/50 bg-white/10 px-2 py-1 rounded">
-                  {link.status || 'scraping'}
-                </span>
-              </li>
-            ))}
-          </ul>
-        )}
+        <div className="border-2 border-dashed border-white/30 rounded-xl p-8 text-center hover:border-white/50 transition-all duration-300 bg-white/5">
+          <Upload className="mx-auto mb-4 text-white/60" size={48} />
+          <p className="text-white text-lg mb-2">
+            Drag & drop anywhere on the page
+          </p>
+          <p className="text-white/60 text-sm mb-4">
+            or paste URLs with Ctrl+V / Cmd+V
+          </p>
+          <label className="inline-block px-6 py-3 bg-blue-500/20 hover:bg-blue-500/30 text-blue-400 font-semibold rounded-lg cursor-pointer transition-all duration-300 border border-blue-500/30">
+            Choose Files
+            <input
+              type="file"
+              multiple
+              className="hidden"
+              onChange={(e) => {
+                handleFileUpload({ target: e.target });
+              }}
+            />
+          </label>
+          <p className="text-white/40 text-xs mt-3">
+            Images • Videos • Audio • PDFs • Text • URLs
+          </p>
+        </div>
       </div>
+
+      {/* Documents Section */}
+      {Object.keys(groupedDocuments).length > 0 && (
+        <div className="space-y-6">
+          {Object.entries(groupedDocuments).map(([type, docs]) => (
+            <div
+              key={type}
+              className="bg-white/5 backdrop-blur-lg rounded-2xl border border-white/20 p-6"
+            >
+              <h3 className="text-xl font-semibold text-white mb-4 flex items-center gap-2 capitalize">
+                {getTypeIcon(type)}
+                {type}s ({docs.length})
+              </h3>
+
+              <div className="space-y-4">
+                {docs.map((doc) => (
+                  <div
+                    key={doc.id}
+                    className="bg-white/5 border border-white/10 rounded-xl p-4"
+                  >
+                    <div className="flex justify-between items-start mb-3">
+                      <div>
+                        <h4 className="text-white font-medium">{doc.name}</h4>
+                        <p className="text-white/60 text-sm">
+                          {new Date(
+                            doc.uploadedAt || doc.created_at
+                          ).toLocaleDateString()}{' '}
+                          • {doc.source}
+                        </p>
+                      </div>
+                      <button
+                        onClick={() => deleteDocument(doc.id)}
+                        className="text-red-400 hover:text-red-300 transition-colors"
+                      >
+                        <Trash2 size={20} />
+                      </button>
+                    </div>
+                    {renderDocumentPreview(doc)}
+                  </div>
+                ))}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {documents.length === 0 && !loading && (
+        <div className="bg-white/5 backdrop-blur-lg rounded-2xl border border-white/20 p-12 text-center">
+          <File className="mx-auto mb-4 text-white/40" size={64} />
+          <p className="text-white/60 text-lg">No documents yet</p>
+          <p className="text-white/40">
+            Start by dragging files or pasting URLs
+          </p>
+        </div>
+      )}
     </div>
   );
 };
