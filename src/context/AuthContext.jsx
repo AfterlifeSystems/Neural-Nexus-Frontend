@@ -1,16 +1,30 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
-import { createClient } from '@supabase/supabase-js';
+import {
+  onAuthStateChanged,
+  createUserWithEmailAndPassword,
+  signInWithEmailAndPassword,
+  signOut,
+  updateProfile,
+  updatePassword as firebaseUpdatePassword,
+  sendPasswordResetEmail,
+  sendEmailVerification,
+  GoogleAuthProvider,
+  signInWithPopup,
+  signInWithRedirect,
+  getRedirectResult,
+} from 'firebase/auth';
+import { doc, getDoc, updateDoc, setDoc } from 'firebase/firestore';
+import { auth, db, storage } from '../firebase/config';
 import { useNgrokApiUrl } from './NgrokAPIContext';
-import { AvatarService } from '../services/AvatarService';
+import { getUserProfile } from '../services/userService';
+import {
+  getAvatars as getAvatarsFromFirestore,
+  createAvatar as createAvatarInFirestore,
+  deleteAvatar as deleteAvatarFromFirestore,
+  selectAvatar as selectAvatarInFirestore,
+} from '../services/avatarService';
 import toast from 'react-hot-toast';
-import { duration } from '@mui/material';
 import { X } from 'lucide-react';
-
-// Initialize Supabase client with publishable key (safe for browser)
-const supabase = createClient(
-  import.meta.env.VITE_SUPABASE_URL,
-  import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY
-);
 
 const AuthContext = createContext();
 
@@ -18,226 +32,244 @@ export const AuthProvider = ({ children }) => {
   const { dbHttpsUrl } = useNgrokApiUrl();
   const [user, setUser] = useState(null);
   const [isLoggedIn, setIsLoggedIn] = useState(false);
-  const [accessToken, setAccessToken] = useState(null);
+  const [currentUser, setCurrentUser] = useState(null); // Firebase Auth user
+  const [userProfile, setUserProfile] = useState(null); // Firestore user profile
   const [avatars, setAvatars] = useState([]);
   const [activeAvatar, setActiveAvatar] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [accessToken, setAccessToken] = useState(null); // Firebase ID token for backend API
 
-  // Listen to Supabase auth state changes
+  // Listen to Firebase auth state changes
   useEffect(() => {
-    // Get initial session
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      if (session) {
-        handleSession(session);
+    const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
+      setCurrentUser(firebaseUser);
+
+      if (firebaseUser) {
+        try {
+          // Get Firebase ID token for backend API calls
+          // Firebase automatically refreshes tokens when needed
+          const token = await firebaseUser.getIdToken();
+          setAccessToken(token);
+          localStorage.setItem('access_token', token);
+
+          // Get Firestore user profile
+          const profile = await getUserProfile(firebaseUser.uid);
+          setUserProfile(profile);
+          setUser(profile);
+          setIsLoggedIn(true);
+
+          // Store user data in localStorage
+          localStorage.setItem('user', JSON.stringify(profile));
+          localStorage.setItem('firebase_user_id', firebaseUser.uid);
+
+          // Load avatars from Firestore
+          const loadedAvatars = await loadAvatars(firebaseUser.uid);
+
+          // Set active avatar if user has last_used_avatar
+          if (profile.last_used_avatar && loadedAvatars.length > 0) {
+            const lastUsed = loadedAvatars.find(
+              (a) => a.avatar_id === profile.last_used_avatar
+            );
+            if (lastUsed) {
+              setActiveAvatar(lastUsed);
+            }
+          }
+        } catch (error) {
+          console.error('Error loading user profile:', error);
+          setUserProfile(null);
+          setUser(null);
+          setIsLoggedIn(false);
+          setAccessToken(null);
+        }
+      } else {
+        // User signed out
+        setUser(null);
+        setUserProfile(null);
+        setIsLoggedIn(false);
+        setAvatars([]);
+        setActiveAvatar(null);
+        setAccessToken(null);
+        localStorage.removeItem('user');
+        localStorage.removeItem('firebase_user_id');
+        localStorage.removeItem('avatars');
+        localStorage.removeItem('access_token');
       }
+
       setLoading(false);
     });
 
-    // Listen for auth changes
-    const {
-      data: { subscription },
-    } = supabase.auth.onAuthStateChange(async (event, session) => {
-      console.log('Auth event:', event);
+    return unsubscribe;
+  }, []);
 
-      if (event === 'SIGNED_IN' && session) {
-        await handleSession(session);
-      } else if (event === 'SIGNED_OUT') {
-        handleSignOut();
-      } else if (event === 'USER_UPDATED') {
-        // Handle email verification completion
-        if (session?.user?.email_confirmed_at) {
-          toast.success('Email verified successfully!');
-          await handleSession(session);
-        }
-      }
-    });
-
-    return () => subscription.unsubscribe();
-  }, [dbHttpsUrl]);
-
-  // Fetch MongoDB profile when session exists
-  const handleSession = async (session) => {
+  // Load avatars from Firestore
+  const loadAvatars = async (userId) => {
     try {
-      setAccessToken(session.access_token);
-      localStorage.setItem('access_token', session.access_token);
-
-      // Fetch MongoDB user profile
-      const profileResponse = await fetch(`${dbHttpsUrl}/profile`, {
-        headers: {
-          Authorization: `Bearer ${session.access_token}`,
-          Accept: 'application/json',
-        },
-      });
-
-      if (!profileResponse.ok) {
-        throw new Error('Failed to fetch profile');
-      }
-
-      const profileData = await profileResponse.json();
-      setUser(profileData);
-      setIsLoggedIn(true);
-      localStorage.setItem('user', JSON.stringify(profileData));
-
-      if (profileData.last_used_avatar) {
-        setActiveAvatar({ avatar_id: profileData.last_used_avatar });
-      }
-
-      // Fetch avatars
-      await getAvatars(session.access_token);
+      const fetchedAvatars = await getAvatarsFromFirestore(userId);
+      setAvatars(fetchedAvatars);
+      localStorage.setItem('avatars', JSON.stringify(fetchedAvatars));
+      return fetchedAvatars;
     } catch (error) {
-      console.error('Session handling error:', error);
-      // toast.error('Failed to load user profile');
+      console.error('Error loading avatars:', error);
+      return [];
     }
-  };
-
-  const handleSignOut = () => {
-    setUser(null);
-    setAccessToken(null);
-    setIsLoggedIn(false);
-    // setAvatars([]);
-    setActiveAvatar(null);
-    localStorage.removeItem('user');
-    localStorage.removeItem('access_token');
-    localStorage.removeItem('avatars');
   };
 
   const signup = async (username, email, password) => {
     try {
-      // Backend handles everything now
-      const response = await fetch(`${dbHttpsUrl}/signup`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          email,
-          username,
-          password,
-        }),
-      });
+      // Create Firebase Auth user
+      const userCredential = await createUserWithEmailAndPassword(
+        auth,
+        email,
+        password
+      );
 
-      if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.detail || 'Failed to sign up');
-      }
+      // Update display name
+      await updateProfile(userCredential.user, { displayName: username });
 
-      const data = await response.json();
-      if (data.message === 'Login successful') {
-      }
+      // Send email verification
+      await sendEmailVerification(userCredential.user);
+
+      // Create Firestore profile
+      const userDoc = {
+        user_id: userCredential.user.uid,
+        username,
+        email,
+        created_at: new Date(),
+        last_login: null,
+        currently_logged_in: true,
+        personal_image: null,
+        neural_nexus_api_key: null,
+        grok_api_key: null,
+        enable_grok_imagine: false,
+        elevenlabs_api_key: null,
+        enable_elevenlabs: false,
+        api_usage: {
+          requests_made: 0,
+          tokens_used: 0,
+        },
+        billing_history: [],
+        credit_card: null,
+        avatars: [],
+        last_used_avatar: null,
+        cloud_run_services: {},
+        avatar_messaging_api_cpu_endpoint: null,
+        avatar_messaging_api_gpu_endpoint: null,
+        avatar_data_collection_api_endpoint: null,
+        avatar_vectorstore_management_api_endpoint: null,
+        avatar_adapter_management_api_endpoint: null,
+      };
+
+      await setDoc(doc(db, 'users', userCredential.user.uid), userDoc);
+
       toast.success(
-        data.message ||
-          'Signup successful! Please check your email to verify your account.',
+        'Signup successful! Please check your email to verify your account.',
         { duration: Infinity }
       );
 
-      return data;
+      return userCredential.user;
     } catch (error) {
       console.error('Signup error:', error);
 
       // Display user-friendly error messages
-      if (error.message?.includes('already registered')) {
-        toast.error('This email is already registered');
-      } else if (error.message?.includes('Invalid email')) {
-        toast.error('Please provide a valid email address');
-      } else if (error.message?.includes('Password')) {
-        toast.error('Password must be at least 6 characters');
-      } else {
-        toast.error(error.message || 'Signup failed. Please try again.');
+      let errorMessage = 'Signup failed. Please try again.';
+      if (error.code === 'auth/email-already-in-use') {
+        errorMessage = 'This email is already registered';
+      } else if (error.code === 'auth/invalid-email') {
+        errorMessage = 'Please provide a valid email address';
+      } else if (error.code === 'auth/weak-password') {
+        errorMessage = 'Password must be at least 6 characters';
+      } else if (error.message) {
+        errorMessage = error.message;
       }
 
+      toast.error(errorMessage);
       throw error;
     }
   };
 
   const login = async (email, password) => {
     try {
-      const { data, error } = await supabase.auth.signInWithPassword({
+      const userCredential = await signInWithEmailAndPassword(
+        auth,
         email,
-        password,
-      });
-
-      if (error) throw error;
+        password
+      );
 
       // Check if email is verified
-      if (!data.user?.email_confirmed_at) {
-        await supabase.auth.signOut();
+      if (!userCredential.user.emailVerified) {
+        await signOut(auth);
         throw new Error('Please verify your email before logging in');
       }
 
+      // Update last_login in Firestore
+      await updateDoc(doc(db, 'users', userCredential.user.uid), {
+        last_login: new Date(),
+        currently_logged_in: true,
+      });
+
       toast.success('Login successful!');
-      return data;
+      return userCredential.user;
     } catch (error) {
       console.error('Login error:', error);
+
+      let errorMessage = 'Login failed. Please try again.';
+      if (error.code === 'auth/user-not-found') {
+        errorMessage = 'No account found with this email';
+      } else if (error.code === 'auth/wrong-password') {
+        errorMessage = 'Incorrect password';
+      } else if (error.code === 'auth/invalid-email') {
+        errorMessage = 'Invalid email address';
+      } else if (error.message) {
+        errorMessage = error.message;
+      }
+
+      toast.error(errorMessage);
       throw error;
     }
   };
 
   const logout = async () => {
     try {
-      // Update MongoDB FIRST (while token is still valid)
-      if (accessToken) {
-        await fetch(`${dbHttpsUrl}/logout`, {
-          method: 'POST',
-          headers: {
-            Authorization: `Bearer ${accessToken}`,
-          },
-        });
+      // Update Firestore if user is logged in
+      if (currentUser) {
+        try {
+          await updateDoc(doc(db, 'users', currentUser.uid), {
+            currently_logged_in: false,
+          });
+        } catch (error) {
+          console.error('Error updating logout status:', error);
+        }
       }
 
-      // THEN sign out from Supabase
-      await supabase.auth.signOut();
+      // Sign out from Firebase
+      await signOut(auth);
 
-      handleSignOut();
-      // toast.success('Logged out successfully');
+      // Clear local state
+      setUser(null);
+      setUserProfile(null);
+      setIsLoggedIn(false);
+      setAvatars([]);
+      setActiveAvatar(null);
+      localStorage.removeItem('user');
+      localStorage.removeItem('firebase_user_id');
+      localStorage.removeItem('avatars');
     } catch (error) {
       console.error('Logout error:', error);
-      // Still sign out locally even if backend fails
-      await supabase.auth.signOut();
-      handleSignOut();
       toast.error('Logout completed with errors');
     }
   };
 
   const resendVerification = async (email) => {
     try {
-      const { error } = await supabase.auth.resend({
-        type: 'signup',
-        email,
-        options: {
-          emailRedirectTo: `${window.location.origin}/auth/callback`,
-        },
-      });
-
-      if (error) throw error;
-      toast.success(
-        (t) => (
-          <div className="relative flex flex-col gap-2 p-4 ">
-            {/* Text + X button in one row */}
-            <div className="flex justify-between items-start">
-              {/* Message */}
-              <p className="pr-4">Verification email sent!</p>
-
-              {/* X button top-right */}
-              <button
-                onClick={() => toast.dismiss(t.id)}
-                className="p-1 bg-red-600 hover:bg-red-500 rounded text-sm"
-              >
-                <X size={16} />
-              </button>
-            </div>
-          </div>
-        ),
-        { duration: Infinity }
-      );
-    } catch (error) {
-      if (error?.name === 'AuthApiError') {
-        toast.error(
+      // Firebase doesn't have a direct resend verification for email
+      // We need to get the current user and resend
+      if (auth.currentUser && auth.currentUser.email === email) {
+        await sendEmailVerification(auth.currentUser);
+        toast.success(
           (t) => (
             <div className="relative flex flex-col gap-2 p-4">
-              {/* Text + X button in one row */}
               <div className="flex justify-between items-start">
-                {/* Message */}
-                <p className="pr-4">{error.message}</p>
-
-                {/* X button top-right */}
+                <p className="pr-4">Verification email sent!</p>
                 <button
                   onClick={() => toast.dismiss(t.id)}
                   className="p-1 bg-red-600 hover:bg-red-500 rounded text-sm"
@@ -250,20 +282,37 @@ export const AuthProvider = ({ children }) => {
           { duration: Infinity }
         );
       } else {
-        // handle other errors
-        console.error('Resend verification error:', error);
-        throw error;
+        throw new Error('Please log in first to resend verification email');
       }
+    } catch (error) {
+      console.error('Resend verification error:', error);
+      toast.error(
+        (t) => (
+          <div className="relative flex flex-col gap-2 p-4">
+            <div className="flex justify-between items-start">
+              <p className="pr-4">
+                {error.message || 'Failed to send verification email'}
+              </p>
+              <button
+                onClick={() => toast.dismiss(t.id)}
+                className="p-1 bg-red-600 hover:bg-red-500 rounded text-sm"
+              >
+                <X size={16} />
+              </button>
+            </div>
+          </div>
+        ),
+        { duration: Infinity }
+      );
+      throw error;
     }
   };
 
   const forgotPassword = async (email) => {
     try {
-      const { error } = await supabase.auth.resetPasswordForEmail(email, {
-        redirectTo: `${window.location.origin}/auth/reset-password`,
+      await sendPasswordResetEmail(auth, email, {
+        url: `${window.location.origin}/auth/reset-password`,
       });
-
-      if (error) throw error;
       // Don't show toast here - let AuthComponent handle it
     } catch (error) {
       console.error('Forgot password error:', error);
@@ -273,11 +322,10 @@ export const AuthProvider = ({ children }) => {
 
   const updatePassword = async (newPassword) => {
     try {
-      const { error } = await supabase.auth.updateUser({
-        password: newPassword,
-      });
-
-      if (error) throw error;
+      if (!auth.currentUser) {
+        throw new Error('No user logged in');
+      }
+      await firebaseUpdatePassword(auth.currentUser, newPassword);
       toast.success('Password updated successfully!');
     } catch (error) {
       console.error('Update password error:', error);
@@ -285,113 +333,106 @@ export const AuthProvider = ({ children }) => {
     }
   };
 
-  // Social login
+  // Social login with Google
   const signInWithProvider = async (provider) => {
     try {
-      const { error } = await supabase.auth.signInWithOAuth({
-        provider,
-        options: {
-          redirectTo: `${window.location.origin}/auth/callback`,
-        },
-      });
-
-      if (error) throw error;
+      if (provider === 'google') {
+        const googleProvider = new GoogleAuthProvider();
+        // Use redirect for better UX
+        await signInWithRedirect(auth, googleProvider);
+      } else {
+        throw new Error(`Provider ${provider} is not supported`);
+      }
     } catch (error) {
       console.error(`${provider} login error:`, error);
       toast.error(`${provider} login failed`);
+      throw error;
     }
   };
 
-  const getAvatars = async (token = accessToken) => {
-    if (!token || !dbHttpsUrl) return;
+  const getAvatars = async () => {
+    if (!currentUser) return;
 
     try {
-      const res = await fetch(`${dbHttpsUrl}/management/avatars/get_all`, {
-        method: 'GET',
-        headers: {
-          Authorization: `Bearer ${token}`,
-          Accept: 'application/json',
-        },
-      });
-
-      if (!res.ok) {
-        console.error('Failed to fetch avatars');
-        return;
-      }
-
-      const data = await res.json();
-      setAvatars(data);
-      localStorage.setItem('avatars', JSON.stringify(data));
-
-      if (user?.last_used_avatar) {
-        const lastUsed = data.find(
-          (a) => a.avatar_id === user.last_used_avatar
-        );
-        if (lastUsed) setActiveAvatar(lastUsed);
-      }
+      const fetchedAvatars = await loadAvatars(currentUser.uid);
+      return fetchedAvatars;
     } catch (error) {
       console.error('Get avatars error:', error);
+      return [];
     }
   };
 
-  const createAvatar = async ({ name, description = '' }) => {
-    if (!accessToken) return;
-
-    const newAvatarPayload = {
-      name: name.trim(),
-      description: description.trim(),
-    };
+  const createAvatar = async ({ name, description = '', iconFile = null }) => {
+    if (!currentUser) {
+      throw new Error('User must be logged in to create avatar');
+    }
 
     try {
-      const created = await AvatarService.createAvatar(
-        accessToken,
-        newAvatarPayload
+      const created = await createAvatarInFirestore(
+        currentUser.uid,
+        name,
+        description,
+        iconFile
       );
-      setAvatars((prev) => [...prev, created]);
+
+      // Reload avatars
+      await loadAvatars(currentUser.uid);
+
+      // Set as active avatar
       setActiveAvatar(created);
-      await AvatarService.selectAvatar(accessToken, created.avatar_id);
+      await selectAvatar(created.avatar_id);
+
       return created;
     } catch (error) {
       console.error('Create avatar failed:', error);
+      throw error;
     }
   };
 
   const deleteAvatar = async (avatarId) => {
-    if (!accessToken) return;
+    if (!currentUser) return;
 
     try {
-      const delete_response = await AvatarService.deleteAvatar(
-        accessToken,
-        avatarId
-      );
-      if (delete_response.status !== 'success')
-        throw new Error('Failed to delete avatar');
+      await deleteAvatarFromFirestore(currentUser.uid, avatarId);
+      await loadAvatars(currentUser.uid);
 
-      await getAvatars(accessToken);
       if (activeAvatar?.avatar_id === avatarId) {
         setActiveAvatar(null);
       }
     } catch (error) {
       console.error('Delete avatar failed:', error);
+      throw error;
     }
   };
 
   const selectAvatar = async (avatarId) => {
-    if (!accessToken) return;
+    if (!currentUser) return;
 
     try {
-      const response = await AvatarService.selectAvatar(accessToken, avatarId);
+      const response = await selectAvatarInFirestore(currentUser.uid, avatarId);
+
       if (response.status === 'success') {
         const selectedAvatar = avatars.find((a) => a.avatar_id === avatarId);
-        setActiveAvatar(selectedAvatar);
-        setUser((prev) => ({ ...prev, last_used_avatar: avatarId }));
-        localStorage.setItem(
-          'user',
-          JSON.stringify({ ...user, last_used_avatar: avatarId })
-        );
+        if (selectedAvatar) {
+          setActiveAvatar(selectedAvatar);
+        }
+
+        // Update user profile
+        await updateDoc(doc(db, 'users', currentUser.uid), {
+          last_used_avatar: avatarId,
+        });
+
+        // Update local user state
+        if (user) {
+          const updatedUser = { ...user, last_used_avatar: avatarId };
+          setUser(updatedUser);
+          setUserProfile(updatedUser);
+          localStorage.setItem('user', JSON.stringify(updatedUser));
+        }
       }
     } catch (error) {
       console.error('Select avatar failed:', error);
+      throw error;
     }
   };
 
@@ -402,6 +443,21 @@ export const AuthProvider = ({ children }) => {
     }));
   };
 
+  // Handle OAuth redirect result
+  useEffect(() => {
+    getRedirectResult(auth)
+      .then((result) => {
+        if (result) {
+          // User signed in via redirect
+          toast.success('Login successful!');
+        }
+      })
+      .catch((error) => {
+        console.error('OAuth redirect error:', error);
+        toast.error('Authentication failed');
+      });
+  }, []);
+
   if (loading) {
     return <div>Loading...</div>;
   }
@@ -409,25 +465,36 @@ export const AuthProvider = ({ children }) => {
   return (
     <AuthContext.Provider
       value={{
+        // User state
         user,
+        userProfile,
         isLoggedIn,
-        accessToken,
-        login,
-        signup,
-        logout,
+        currentUser, // Firebase Auth user object
+        accessToken, // Firebase ID token for backend API calls
         avatars,
         activeAvatar,
         setActiveAvatar,
+
+        // Auth methods
+        login,
+        signup,
+        logout,
+        resendVerification,
+        forgotPassword,
+        updatePassword,
+        signInWithProvider,
+
+        // Avatar methods
         getAvatars,
         createAvatar,
         deleteAvatar,
         selectAvatar,
-        resendVerification,
-        forgotPassword,
-        updatePassword,
         updateActiveAvatarField,
-        signInWithProvider, // For social login
-        supabase, // Expose for advanced use
+
+        // Firebase instances (for advanced use)
+        firebaseAuth: auth,
+        firestore: db,
+        firebaseStorage: storage,
       }}
     >
       {children}
@@ -435,4 +502,10 @@ export const AuthProvider = ({ children }) => {
   );
 };
 
-export const useAuth = () => useContext(AuthContext);
+export const useAuth = () => {
+  const context = useContext(AuthContext);
+  if (!context) {
+    throw new Error('useAuth must be used within AuthProvider');
+  }
+  return context;
+};

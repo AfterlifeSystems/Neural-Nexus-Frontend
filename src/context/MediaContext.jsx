@@ -8,16 +8,18 @@ import React, {
 } from 'react';
 import { useNgrokApiUrl } from './NgrokAPIContext';
 import { MessageService } from '../services/MessageService';
+import { getMessages as getMessagesFromFirestore, sendMessage as sendMessageToFirestore } from '../services/messageService';
 import { useAuth } from './AuthContext';
 
 const MediaContext = createContext();
 
 export const MediaProvider = ({ children }) => {
   const { ngrokHttpsUrl, ngrokWsUrl, dbHttpsUrl } = useNgrokApiUrl();
-  const { accessToken, activeAvatar, user } = useAuth();
+  const { accessToken, activeAvatar, user, currentUser } = useAuth();
   const [isThoughtToImageEnabled, setIsThoughtToImageEnabled] = useState(false);
   const [isTranscribing, setIsTranscribing] = useState(false);
   const [messages, setMessages] = useState({});
+  const [activeConversation, setActiveConversation] = useState(null); // Track active conversation ID
   const [inputMessage, setInputMessage] = useState('');
   const [sender, setSender] = useState('user');
   const [mediaFiles, setMediaFiles] = useState([]);
@@ -127,7 +129,8 @@ export const MediaProvider = ({ children }) => {
       setMessageCache((prev) => ({
         ...prev,
         [avatarId]: fetched.map((msg) => ({
-          id: msg._id,
+          _id: msg._id, // Preserve _id for key prop
+          id: msg._id, // Also set id for consistency
           content: msg.message,
           media: msg.media || [],
           sender: msg.sender,
@@ -151,18 +154,36 @@ export const MediaProvider = ({ children }) => {
     setIsThoughtToImageEnabled(false);
   };
 
+  // Set active conversation when avatar changes
   useEffect(() => {
-    if (activeAvatar && accessToken) {
-      console.log(`Loading messages for avatar ${activeAvatar.avatar_id}`);
+    if (activeAvatar) {
+      // Use default conversation from avatar, or first conversation
+      const conversationId = activeAvatar.default_conversation || activeAvatar.conversations?.[0];
+      setActiveConversation(conversationId);
+    } else {
+      setActiveConversation(null);
+    }
+  }, [activeAvatar]);
+
+  useEffect(() => {
+    if (activeAvatar && activeConversation && currentUser) {
+      console.log(`Loading messages for avatar ${activeAvatar.avatar_id}, conversation ${activeConversation}`);
 
       // Check cache first
-      const cachedMessages = getCachedMessages(activeAvatar.avatar_id);
+      const cacheKey = `${activeAvatar.avatar_id}_${activeConversation}`;
+      const cachedMessages = getCachedMessages(cacheKey);
 
       if (cachedMessages.length > 0) {
         console.log(`Loaded ${cachedMessages.length} messages from cache`);
+        // Sort cached messages by timestamp
+        const sortedCachedMessages = [...cachedMessages].sort((a, b) => {
+          const timeA = a.timestamp ? new Date(a.timestamp).getTime() : 0;
+          const timeB = b.timestamp ? new Date(b.timestamp).getTime() : 0;
+          return timeA - timeB;
+        });
         setMessages((prev) => ({
           ...prev,
-          [activeAvatar.avatar_id]: cachedMessages,
+          [cacheKey]: sortedCachedMessages,
         }));
       } else {
         // Fetch from database if cache is empty
@@ -170,45 +191,63 @@ export const MediaProvider = ({ children }) => {
         fetchMessages();
       }
     }
-  }, [activeAvatar?.avatar_id, accessToken]);
+  }, [activeAvatar?.avatar_id, activeConversation, currentUser]);
 
   const fetchMessages = async () => {
-    if (!activeAvatar || !accessToken) return;
+    if (!activeAvatar || !activeConversation || !currentUser) return;
     try {
-      const fetched = await MessageService.getAvatarMessages(
+      // Fetch messages from Firestore using the new structure
+      const fetched = await getMessagesFromFirestore(
+        currentUser.uid,
         activeAvatar.avatar_id,
-        accessToken
+        activeConversation,
+        1000 // Get up to 1000 messages
       );
 
-      // console.log(`Loaded ${fetched.messages.length} messages from ${fetched.source}`);
+      console.log(`Fetched ${fetched?.length || 0} messages from Firestore`);
+      
+      const transformedMessages = fetched.map((msg) => ({
+        _id: msg._id || msg.message_id,
+        id: msg.id || msg._id || msg.message_id,
+        content: msg.content || msg.message || '',
+        message: msg.message || msg.content || '', // Keep both for compatibility
+        media: msg.media || [],
+        sender: msg.sender || 'user',
+        timestamp: msg.timestamp,
+      }));
+
+      const cacheKey = `${activeAvatar.avatar_id}_${activeConversation}`;
+      
+      // Cache messages
+      setMessageCache((prev) => ({
+        ...prev,
+        [cacheKey]: transformedMessages,
+      }));
 
       setMessages((prev) => ({
         ...prev,
-        [activeAvatar.avatar_id]: fetched.map((msg) => ({
-          id: msg._id,
-          content: msg.message,
-          media: msg.media || [],
-          sender: msg.sender,
-          timestamp: msg.timestamp,
-        })),
+        [cacheKey]: transformedMessages,
       }));
     } catch (error) {
       console.error('Failed to fetch messages:', error);
     }
   };
-  // sendMessage - Updated to include loading indicator for AI response
+  // sendMessage - Updated to use Firestore structure
   async function sendMessage() {
-    if (!activeAvatar || (!inputMessage.trim() && mediaFiles.length === 0))
+    if (!activeAvatar || !activeConversation || !currentUser || (!inputMessage.trim() && mediaFiles.length === 0))
       return;
 
     try {
       const tempId = `temp-${Date.now()}`;
       const loadingId = `loading-${Date.now()}`;
+      const cacheKey = `${activeAvatar.avatar_id}_${activeConversation}`;
 
       // Optimistically add user message to UI
       const tempMessage = {
         id: tempId,
+        _id: tempId,
         content: inputMessage,
+        message: inputMessage, // Keep both for compatibility
         sender: sender,
         timestamp: new Date().toISOString(),
         media: mediaFiles.map((f) => ({
@@ -219,14 +258,14 @@ export const MediaProvider = ({ children }) => {
 
       setMessages((prev) => ({
         ...prev,
-        [activeAvatar.avatar_id]: [
-          ...(prev[activeAvatar.avatar_id] || []),
+        [cacheKey]: [
+          ...(prev[cacheKey] || []),
           tempMessage,
         ],
       }));
 
       // Cache the user message
-      cacheMessage(activeAvatar.avatar_id, tempMessage);
+      cacheMessage(cacheKey, tempMessage);
 
       // Add loading message for AI response
       const loadingMessage = {
@@ -237,65 +276,94 @@ export const MediaProvider = ({ children }) => {
 
       setMessages((prev) => ({
         ...prev,
-        [activeAvatar.avatar_id]: [
-          ...(prev[activeAvatar.avatar_id] || []),
+        [cacheKey]: [
+          ...(prev[cacheKey] || []),
           loadingMessage,
         ],
       }));
 
-      // Send to DB API and wait for AI response
-      const response = await MessageService.saveMessage(
+      // Send to Firestore first
+      const firestoreResponse = await sendMessageToFirestore(
+        currentUser.uid,
         activeAvatar.avatar_id,
+        activeConversation, // conversationId
         inputMessage,
         mediaFiles,
-        accessToken,
-        sender
+        sender,
+        false // Don't wait for AI response here
       );
+
+      // Also send to backend API for AI response
+      let aiResponse = null;
+      try {
+        const backendResponse = await MessageService.saveMessage(
+          activeAvatar.avatar_id,
+          inputMessage,
+          mediaFiles,
+          accessToken,
+          sender
+        );
+        
+        if (backendResponse?.ai_response) {
+          aiResponse = backendResponse.ai_response;
+        }
+      } catch (backendError) {
+        console.warn('Backend API call failed, continuing without AI response:', backendError);
+      }
 
       // Remove loading message
       setMessages((prev) => ({
         ...prev,
-        [activeAvatar.avatar_id]: prev[activeAvatar.avatar_id].filter(
+        [cacheKey]: prev[cacheKey].filter(
           (msg) => msg.id !== loadingId
         ),
       }));
 
-      if (!response || response.status !== 'success') {
-        throw new Error(response?.detail || 'Message post failed');
-      }
-
-      console.log('Message sent successfully');
-
-      // Update temp message with real ID
+      // Update temp message with real ID from Firestore
+      const realMessageId = firestoreResponse.user_message.message_id || firestoreResponse.user_message._id;
       setMessages((prev) => ({
         ...prev,
-        [activeAvatar.avatar_id]: prev[activeAvatar.avatar_id].map((msg) =>
+        [cacheKey]: prev[cacheKey].map((msg) =>
           msg.id === tempId
-            ? { ...msg, id: response.user_message.message_id }
+            ? { ...msg, _id: realMessageId, id: realMessageId, message_id: realMessageId }
             : msg
         ),
       }));
 
-      // If AI response is included, add it immediately
-      if (response.ai_response) {
+      // If AI response is included, save it to Firestore and add to UI
+      if (aiResponse) {
+        // Save AI response to Firestore
+        await sendMessageToFirestore(
+          currentUser.uid,
+          activeAvatar.avatar_id,
+          activeConversation, // conversationId
+          aiResponse.message || '',
+          [],
+          'assistant',
+          false
+        );
+
         const aiMessage = {
-          id: response.ai_response.message_id,
-          content: response.ai_response.message,
+          _id: aiResponse.message_id,
+          id: aiResponse.message_id,
+          message_id: aiResponse.message_id,
+          content: aiResponse.message,
+          message: aiResponse.message,
           sender: 'assistant',
-          timestamp: response.ai_response.timestamp,
+          timestamp: aiResponse.timestamp || new Date().toISOString(),
           media: [],
         };
 
         setMessages((prev) => ({
           ...prev,
-          [activeAvatar.avatar_id]: [
-            ...(prev[activeAvatar.avatar_id] || []),
+          [cacheKey]: [
+            ...(prev[cacheKey] || []),
             aiMessage,
           ],
         }));
 
         // Cache AI response
-        cacheMessage(activeAvatar.avatar_id, aiMessage);
+        cacheMessage(cacheKey, aiMessage);
       }
 
       // Clear input
@@ -305,10 +373,11 @@ export const MediaProvider = ({ children }) => {
     } catch (err) {
       console.error('Failed to send message:', err);
 
+      const cacheKey = `${activeAvatar.avatar_id}_${activeConversation}`;
       // Remove both optimistic message and loading message on error
       setMessages((prev) => ({
         ...prev,
-        [activeAvatar.avatar_id]: (prev[activeAvatar.avatar_id] || []).filter(
+        [cacheKey]: (prev[cacheKey] || []).filter(
           (msg) => msg.id !== tempId && !msg.isLoading
         ),
       }));

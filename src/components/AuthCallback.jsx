@@ -1,50 +1,44 @@
-// src/pages/AuthCallback.jsx
+// src/components/AuthCallback.jsx
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { useAuth } from '../context/AuthContext';
-import LoadingSpinner from '../components/LoadingSpinner';
+import { getRedirectResult, GoogleAuthProvider } from 'firebase/auth';
+import { auth } from '../firebase/config';
+import LoadingSpinner from './LoadingSpinner';
 
 const AuthCallback = () => {
   const navigate = useNavigate();
-  const { supabase, handleSession } = useAuth();
   const [error, setError] = useState(null);
 
   useEffect(() => {
     const handleAuthCallback = async () => {
       try {
-        // Get session from URL (after email verification, OAuth login, or password reset)
-        const { data, error: urlError } = await supabase.auth.getSessionFromUrl(
-          {
-            storeSession: true, // Saves session to Supabase client
-          }
-        );
+        // Handle OAuth redirect result (e.g., Google sign-in)
+        const result = await getRedirectResult(auth);
 
-        if (urlError) {
-          console.error('Auth callback error:', urlError);
-          setError(urlError.message);
-          setTimeout(() => navigate('/'), 3000);
-          return;
-        }
-
-        if (data.session) {
-          // Update your context/session state
-          handleSession(data.session);
-
-          console.log('✅ Auth callback successful');
+        if (result) {
+          // User successfully signed in via OAuth redirect
+          console.log('✅ OAuth callback successful');
           navigate('/app', { replace: true });
         } else {
-          console.log('No session found, redirecting to home');
-          navigate('/', { replace: true });
+          // Check if user is already signed in (e.g., email verification link)
+          if (auth.currentUser) {
+            console.log('✅ User already authenticated');
+            navigate('/app', { replace: true });
+          } else {
+            // No authentication result, redirect to home
+            console.log('No auth result, redirecting to home');
+            navigate('/', { replace: true });
+          }
         }
       } catch (err) {
         console.error('Unexpected error in auth callback:', err);
-        setError('Authentication failed');
+        setError(err.message || 'Authentication failed');
         setTimeout(() => navigate('/'), 3000);
       }
     };
 
     handleAuthCallback();
-  }, [navigate, supabase, handleSession]);
+  }, [navigate]);
 
   if (error) {
     return (
