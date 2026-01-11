@@ -250,9 +250,11 @@ export const AuthProvider = ({ children }) => {
       setIsLoggedIn(false);
       setAvatars([]);
       setActiveAvatar(null);
+      setAccessToken(null);
       localStorage.removeItem('user');
       localStorage.removeItem('firebase_user_id');
       localStorage.removeItem('avatars');
+      localStorage.removeItem('access_token');
     } catch (error) {
       console.error('Logout error:', error);
       toast.error('Logout completed with errors');
@@ -375,12 +377,29 @@ export const AuthProvider = ({ children }) => {
         iconFile
       );
 
-      // Reload avatars
-      await loadAvatars(currentUser.uid);
+      // Reload avatars and wait for state update
+      const fetchedAvatars = await loadAvatars(currentUser.uid);
+
+      // Find the created avatar in the fetched list (should be there)
+      const createdAvatar =
+        fetchedAvatars.find((a) => a.avatar_id === created.avatar_id) ||
+        created; // Fallback to created object if not found
 
       // Set as active avatar
-      setActiveAvatar(created);
-      await selectAvatar(created.avatar_id);
+      setActiveAvatar(createdAvatar);
+
+      // Update Firestore to mark as last_used_avatar
+      await updateDoc(doc(db, 'users', currentUser.uid), {
+        last_used_avatar: created.avatar_id,
+      });
+
+      // Update local user state
+      if (user) {
+        const updatedUser = { ...user, last_used_avatar: created.avatar_id };
+        setUser(updatedUser);
+        setUserProfile(updatedUser);
+        localStorage.setItem('user', JSON.stringify(updatedUser));
+      }
 
       return created;
     } catch (error) {
