@@ -1,27 +1,13 @@
+// WARNING: Temporary permissive rules for local testing only.
+// Do NOT deploy these rules to production. Revert after testing.
+
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-    // Users
-    match /users/{userId} {
-      allow read, write: if request.auth != null && request.auth.uid == userId;
-    }
-    
-    // Digital Twins
-    match /digital_twins/{digitalTwinId} {
-      allow read, write: if request.auth != null && 
-        request.auth.uid == resource.data.user_id;
-      
-      // Conversations subcollection
-      match /conversations/{conversationId} {
-        allow read, write: if request.auth != null && 
-          request.auth.uid == get(/databases/$(database)/documents/digital_twins/$(digitalTwinId)).data.user_id;
-        
-        // Messages subcollection
-        match /messages/{messageId} {
-          allow read, write: if request.auth != null && 
-            request.auth.uid == get(/databases/$(database)/documents/digital_twins/$(digitalTwinId)).data.user_id;
-        }
-      }
+    // Allow all reads/writes for local emulator testing
+    // Remove or restrict this before deploying to production
+    match /{document=**} {
+      allow read, write: if true;
     }
   }
 }

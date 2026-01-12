@@ -16,59 +16,89 @@ import {
 import { db, storage } from '../firebase/config';
 
 export const getUserProfile = async (userId) => {
-  const userDoc = await getDoc(doc(db, 'users', userId));
-  if (!userDoc.exists()) {
-    throw new Error('User not found');
-  }
-
-  const userData = userDoc.data();
-
-  // Get avatars
-  const avatarsQuery = query(
-    collection(db, 'avatars'),
-    where('user_id', '==', userId)
-  );
-  const avatarsSnapshot = await getDocs(avatarsQuery);
-
-  const avatars = await Promise.all(
-    avatarsSnapshot.docs.map(async (avatarDoc) => {
-      const avatarData = avatarDoc.data();
-      let iconUrl = null;
-
-      if (avatarData.icon) {
-        try {
-          iconUrl = await getDownloadURL(ref(storage, avatarData.icon));
-        } catch (error) {
-          console.error('Error getting icon URL:', error);
-        }
-      }
-
-      return {
-        avatar_id: avatarDoc.id,
-        name: avatarData.name,
-        description: avatarData.description,
-        icon: iconUrl,
-      };
-    })
-  );
-
-  // Get personal image URL
-  let personalImageUrl = null;
-  if (userData.personal_image) {
-    try {
-      personalImageUrl = await getDownloadURL(
-        ref(storage, userData.personal_image)
-      );
-    } catch (error) {
-      console.error('Error getting personal image URL:', error);
+  try {
+    const userDoc = await getDoc(doc(db, 'users', userId));
+    if (!userDoc.exists()) {
+      // User document is missing - return null so the caller can create it if desired
+      return null;
     }
-  }
 
-  return {
-    ...userData,
-    avatars,
-    personal_image: personalImageUrl,
-  };
+    const userData = userDoc.data();
+
+    // Get digital twins (replace old avatars collection)
+    const twinsQuery = query(
+      collection(db, 'digital_twins'),
+      where('user_id', '==', userId)
+    );
+    const twinsSnapshot = await getDocs(twinsQuery);
+
+    const digitalTwins = await Promise.all(
+      twinsSnapshot.docs.map(async (twinDoc) => {
+        const twinData = twinDoc.data();
+
+        // Resolve icon URL if icon is stored as an object or a storage path string
+        let iconUrl = null;
+        try {
+          const storagePath =
+            twinData.icon?.storagePath || twinData.icon || null;
+          if (storagePath) {
+            iconUrl = await getDownloadURL(ref(storage, storagePath));
+          }
+        } catch (error) {
+          console.error('Error getting twin icon URL:', error);
+        }
+
+        return {
+          digital_twin_id: twinDoc.id,
+          name: twinData.name,
+          description: twinData.description,
+          icon: {
+            url: iconUrl,
+            storagePath: twinData.icon?.storagePath || twinData.icon || null,
+            name: twinData.icon?.name || null,
+            size: twinData.icon?.size || null,
+            type: twinData.icon?.type || null,
+          },
+        };
+      })
+    );
+
+    // Get personal image URL
+    let personalImageUrl = null;
+    if (userData.personal_image) {
+      try {
+        personalImageUrl = await getDownloadURL(
+          ref(storage, userData.personal_image)
+        );
+      } catch (error) {
+        console.error('Error getting personal image URL:', error);
+      }
+    }
+
+    // Provide both the new `digital_twins` info and a legacy `avatars` shape for compatibility
+    return {
+      ...userData,
+      digital_twins: digitalTwins.map((t) => t.digital_twin_id),
+      avatars: digitalTwins.map((t) => ({
+        avatar_id: t.digital_twin_id,
+        name: t.name,
+        description: t.description,
+        icon: t.icon.url,
+      })),
+      personal_image: personalImageUrl,
+    };
+  } catch (error) {
+    console.error(
+      'getUserProfile error',
+      error?.code || error?.message || error
+    );
+    if (error?.code === 'permission-denied') {
+      throw new Error(
+        'Insufficient Firestore permissions. Check your security rules and project configuration.'
+      );
+    }
+    throw error;
+  }
 };
 
 export const updateUserProfile = async (userId, updates) => {

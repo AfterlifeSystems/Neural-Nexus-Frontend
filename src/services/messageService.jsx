@@ -1,150 +1,8 @@
-// services/MessageService.jsx
-import { getDbHttpsUrl } from '../context/NgrokAPIStore';
+// services/MessageService — NGROK HTTP API removed; Firestore-backed functions below will be used
 
-export async function saveMessage(
-  avatar_id,
-  message,
-  mediaFiles,
-  accessToken,
-  sender
-) {
-  const formData = new FormData();
-  formData.append('avatar_id', avatar_id);
-  if (message) formData.append('message', message);
-  if (mediaFiles && mediaFiles.length > 0) {
-    mediaFiles.forEach((file) => {
-      formData.append('media', file);
-    });
-  }
-  formData.append('sender', sender);
+// Legacy HTTP-based functions removed (no external NGROK endpoints)
 
-  const response = await fetch(`${getDbHttpsUrl()}/avatars/post_message`, {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${accessToken}`,
-    },
-    body: formData,
-  });
-
-  if (!response.ok) {
-    const error = await response.json();
-    throw new Error(error.detail || 'Failed to save message');
-  }
-
-  return await response.json();
-}
-export async function getAvatarMessages(avatar_id, accessToken, options = {}) {
-  const formData = new FormData();
-  formData.append('avatar_id', avatar_id);
-
-  // Add optional parameters to request all messages
-  if (options.limit !== undefined) {
-    formData.append('limit', options.limit.toString());
-  }
-  if (options.all === true) {
-    formData.append('all', 'true');
-  }
-  if (options.skip !== undefined) {
-    formData.append('skip', options.skip.toString());
-  }
-
-  const response = await fetch(`${getDbHttpsUrl()}/avatars/get_messages`, {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${accessToken}`,
-    },
-    body: formData,
-  });
-
-  if (!response.ok) {
-    const error = await response.json();
-    throw new Error(error.detail || 'Failed to fetch messages');
-  }
-
-  const data = await response.json();
-  return data.messages;
-}
-
-/**
- * Fetch all messages using pagination if needed
- * This will attempt to fetch all messages by making multiple requests if necessary
- * Note: Assumes backend returns messages sorted by timestamp (either ascending or descending)
- */
-export async function getAllAvatarMessages(
-  avatar_id,
-  accessToken,
-  batchSize = 100
-) {
-  let allMessages = [];
-  let skip = 0;
-  let hasMore = true;
-  let consecutiveEmptyBatches = 0;
-
-  console.log(
-    `Starting pagination to fetch all messages (batch size: ${batchSize})`
-  );
-
-  while (hasMore && consecutiveEmptyBatches < 2) {
-    try {
-      const batch = await getAvatarMessages(avatar_id, accessToken, {
-        limit: batchSize,
-        skip: skip,
-      });
-
-      if (!batch || batch.length === 0) {
-        consecutiveEmptyBatches++;
-        if (consecutiveEmptyBatches >= 2) {
-          console.log(
-            'Received 2 consecutive empty batches, stopping pagination'
-          );
-          hasMore = false;
-          break;
-        }
-        // Try next batch in case of temporary issue
-        skip += batchSize;
-        continue;
-      }
-
-      consecutiveEmptyBatches = 0; // Reset counter on successful fetch
-      console.log(
-        `Fetched batch ${Math.floor(skip / batchSize) + 1}: ${
-          batch.length
-        } messages (skip: ${skip})`
-      );
-
-      allMessages = [...allMessages, ...batch];
-
-      // If we got fewer messages than requested, we've reached the end
-      if (batch.length < batchSize) {
-        console.log(
-          `Received fewer messages than batch size (${batch.length} < ${batchSize}), reached end`
-        );
-        hasMore = false;
-      } else {
-        skip += batchSize;
-      }
-    } catch (error) {
-      console.error(`Error fetching message batch at skip ${skip}:`, error);
-      consecutiveEmptyBatches++;
-      if (consecutiveEmptyBatches >= 2) {
-        hasMore = false;
-      } else {
-        skip += batchSize; // Try next batch
-      }
-    }
-  }
-
-  console.log(
-    `Pagination complete: fetched ${allMessages.length} total messages`
-  );
-  return allMessages;
-}
-
-export const MessageService = {
-  saveMessage,
-  getAvatarMessages,
-  getAllAvatarMessages,
-};
+// NOTE: Use the Firestore implementations below: sendMessage, getMessages, subscribeToMessages
 
 import {
   collection,
@@ -185,58 +43,69 @@ export const sendMessage = async (
   // Get conversation ID (use default if not provided)
   let finalConversationId = conversationId;
   if (!finalConversationId) {
-    const avatarRef = doc(db, 'avatars', avatarId);
+    const avatarRef = doc(db, 'digital_twins', avatarId);
     const avatarDoc = await getDoc(avatarRef);
     if (!avatarDoc.exists()) {
-      throw new Error('Avatar not found');
+      throw new Error('Digital twin not found');
     }
     const avatarData = avatarDoc.data();
     finalConversationId =
       avatarData.default_conversation || avatarData.conversations?.[0];
     if (!finalConversationId) {
-      throw new Error('No conversation found for avatar');
+      throw new Error('No conversation found for digital twin');
     }
   }
 
   const messageId = uuidv4();
   const timestamp = new Date();
 
-  // Upload media files
+  // Upload media files and store structured metadata
   const mediaItems = [];
   for (const file of mediaFiles) {
     const mediaId = uuidv4();
     const mediaRef = ref(
       storage,
-      `users/${userId}/avatars/${avatarId}/conversations/${finalConversationId}/media/${mediaId}`
+      `users/${userId}/digital_twins/${avatarId}/conversations/${finalConversationId}/messages/${messageId}/${file.name}`
     );
     await uploadBytes(mediaRef, file);
     const downloadURL = await getDownloadURL(mediaRef);
 
     mediaItems.push({
-      media_id: mediaId,
-      filename: file.name,
-      content_type: file.type,
-      storage_path: mediaRef.fullPath,
+      id: mediaId,
+      type: file.type.startsWith('image/')
+        ? 'image'
+        : file.type.startsWith('audio/')
+        ? 'audio'
+        : 'file',
       url: downloadURL,
+      storagePath: mediaRef.fullPath,
+      name: file.name,
+      size: file.size,
+      mimeType: file.type,
+      uploaded_at: new Date().toISOString(),
     });
   }
 
   // Determine message type
   const messageType = mediaFiles.length > 0 && !message ? 'media' : 'text';
 
-  // Save user message in the conversation's messages subcollection
+  // Save user message in the conversation's messages subcollection using canonical fields
   const messageRef = await addDoc(
     collection(
       db,
-      `avatars/${avatarId}/conversations/${finalConversationId}/messages`
+      'digital_twins',
+      avatarId,
+      'conversations',
+      finalConversationId,
+      'messages'
     ),
     {
       message_id: messageId,
       conversation_id: finalConversationId,
       avatar_id: avatarId,
       user_id: userId,
-      message: message || null,
-      sender: sender,
+      role: sender, // 'user' or 'assistant'
+      content: message || null,
       timestamp: timestamp,
       type: messageType,
       media: mediaItems,
@@ -246,7 +115,9 @@ export const sendMessage = async (
   // Update conversation's updated_at timestamp
   const conversationRef = doc(
     db,
-    `avatars/${avatarId}/conversations`,
+    'digital_twins',
+    avatarId,
+    'conversations',
     finalConversationId
   );
   await updateDoc(conversationRef, {
@@ -258,7 +129,9 @@ export const sendMessage = async (
     _id: messageId,
     id: messageId,
     timestamp: timestamp.toISOString(),
-    message: message || null,
+    content: message || null,
+    message: message || null, // legacy compatibility
+    role: sender,
     sender: sender,
     media: mediaItems,
     type: messageType,
@@ -301,23 +174,27 @@ export const getMessages = async (
   // Get conversation ID (use default if not provided)
   let finalConversationId = conversationId;
   if (!finalConversationId) {
-    const avatarRef = doc(db, 'avatars', avatarId);
+    const avatarRef = doc(db, 'digital_twins', avatarId);
     const avatarDoc = await getDoc(avatarRef);
     if (!avatarDoc.exists() || avatarDoc.data().user_id !== userId) {
-      throw new Error('Avatar not found or unauthorized');
+      throw new Error('Digital twin not found or unauthorized');
     }
     const avatarData = avatarDoc.data();
     finalConversationId =
       avatarData.default_conversation || avatarData.conversations?.[0];
     if (!finalConversationId) {
-      throw new Error('No conversation found for avatar');
+      throw new Error('No conversation found for digital twin');
     }
   }
 
   const messagesQuery = query(
     collection(
       db,
-      `avatars/${avatarId}/conversations/${finalConversationId}/messages`
+      'digital_twins',
+      avatarId,
+      'conversations',
+      finalConversationId,
+      'messages'
     ),
     orderBy('timestamp', 'asc'),
     firestoreLimit(maxMessages)
@@ -330,9 +207,10 @@ export const getMessages = async (
     const data = docSnapshot.data();
     const mediaUrls = await Promise.all(
       (data.media || []).map(async (media) => {
-        if (media.storage_path) {
+        const storagePath = media.storagePath || media.storage_path || null;
+        if (storagePath) {
           try {
-            return await getDownloadURL(ref(storage, media.storage_path));
+            return await getDownloadURL(ref(storage, storagePath));
           } catch (error) {
             console.error('Error getting media URL:', error);
             return media.url || null;
@@ -347,11 +225,13 @@ export const getMessages = async (
       id: docSnapshot.id,
       message_id: data.message_id || docSnapshot.id,
       type: data.type || 'text',
-      content: data.message || '',
-      message: data.message || '', // Keep both for compatibility
+      content: data.content || data.message || '',
+      message: data.content || data.message || '', // Keep both for compatibility
       timestamp:
-        data.timestamp?.toDate().toISOString() || new Date().toISOString(),
-      sender: data.sender || 'user',
+        (data.timestamp?.toDate && data.timestamp.toDate().toISOString()) ||
+        data.timestamp ||
+        new Date().toISOString(),
+      sender: data.role || data.sender || 'user',
       media: mediaUrls
         .map((url, idx) => ({
           ...(data.media[idx] || {}),
@@ -375,7 +255,11 @@ export const subscribeToMessages = (avatarId, conversationId, callback) => {
   const messagesQuery = query(
     collection(
       db,
-      `avatars/${avatarId}/conversations/${conversationId}/messages`
+      'digital_twins',
+      avatarId,
+      'conversations',
+      conversationId,
+      'messages'
     ),
     orderBy('timestamp', 'asc')
   );
@@ -388,11 +272,13 @@ export const subscribeToMessages = (avatarId, conversationId, callback) => {
         _id: docSnapshot.id,
         id: docSnapshot.id,
         message_id: data.message_id || docSnapshot.id,
-        content: data.message || '',
-        message: data.message || '', // Keep both for compatibility
-        sender: data.sender || 'user',
+        content: data.content || data.message || '',
+        message: data.content || data.message || '', // Keep both for compatibility
+        sender: data.role || data.sender || 'user',
         timestamp:
-          data.timestamp?.toDate().toISOString() || new Date().toISOString(),
+          (data.timestamp?.toDate && data.timestamp.toDate().toISOString()) ||
+          data.timestamp ||
+          new Date().toISOString(),
         media: data.media || [],
         type: data.type || 'text',
       };

@@ -3,7 +3,6 @@
 import React, { useEffect } from 'react';
 import { User, AudioLines } from 'lucide-react';
 import LiveTranscriptionTicker from './LiveTranscriptionTicker';
-import AudioStreamer from './AudioStreamer';
 import MessageList from './MessageList';
 import InputBar from './InputBar';
 import { useAuth } from '../context/AuthContext';
@@ -90,7 +89,6 @@ const ChatArea = ({
         )}
 
         <LiveTranscriptionTicker isTranscribing={false} />
-        <AudioStreamer isTranscribing={false} />
 
         {!isLoggedIn && (
           <div className="absolute inset-0 flex items-center justify-center bg-black/20 backdrop-blur-sm rounded-2xl z-20">

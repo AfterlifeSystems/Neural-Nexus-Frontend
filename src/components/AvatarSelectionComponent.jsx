@@ -1,9 +1,7 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { toast } from 'react-hot-toast';
 import { useNavigate } from 'react-router-dom';
-import axios from 'axios';
 import { useAuth } from '../context/AuthContext';
-import { useNgrokApiUrl } from '../context/NgrokAPIContext';
 import CircularGallery from './CircularGallery';
 import {
   Search,
@@ -33,9 +31,9 @@ const AvatarSelectionComponent = ({
     logout,
     setActiveAvatar,
     lastUsedAvatar,
+    selectAvatar,
   } = useAuth();
-  const { setMessages } = useMedia();
-  const { dbHttpsUrl } = useNgrokApiUrl();
+  const { setMessages, fetchMessages } = useMedia();
   const navigate = useNavigate();
   const [currentCardIndex, setCurrentCardIndex] = useState(0);
   const [searchQuery, setSearchQuery] = useState('');
@@ -139,43 +137,22 @@ const AvatarSelectionComponent = ({
           galleryRef.current.setCurrentIndex(avatarIndex);
         }
 
-        const response = await axios.post(
-          `${dbHttpsUrl}/management/avatars/select_avatar`,
-          new URLSearchParams({ avatar_id: avatarId }).toString(),
-          {
-            headers: {
-              Authorization: `Bearer ${accessToken}`,
-              'Content-Type': 'application/x-www-form-urlencoded',
-            },
-          }
+        // Use AuthContext selectAvatar which updates Firestore
+        await selectAvatar(avatarId);
+
+        const selectedAvatar = avatars.find(
+          (avatar) => avatar.avatar_id === avatarId
         );
 
-        if (response.data.status === 'success') {
-          const selectedAvatar = avatars.find(
-            (avatar) => avatar.avatar_id === avatarId
-          );
-
-          cacheAvatarPosition(avatarId, avatarIndex);
-
-          if (response.data.icon_url) {
-            cacheAvatarIcon(avatarId, response.data.icon_url, avatarIndex);
-          }
-
-          const avatarWithMessages = {
-            ...selectedAvatar,
-            icon: response.data.icon_url || selectedAvatar?.icon,
-            messages: response.data.messages || [],
-          };
-
-          setActiveAvatar(avatarWithMessages);
-          if (response.data.messages) {
-            setMessages((prev) => ({
-              ...prev,
-              [avatarId]: response.data.messages,
-            }));
-          }
-          setActiveTab('chat');
+        cacheAvatarPosition(avatarId, avatarIndex);
+        if (selectedAvatar?.icon) {
+          cacheAvatarIcon(avatarId, selectedAvatar.icon, avatarIndex);
         }
+
+        setActiveAvatar(selectedAvatar);
+        // Load messages for this avatar
+        await fetchMessages();
+        setActiveTab('chat');
       } catch (error) {
         console.error('Error selecting avatar:', error);
         toast.error('Failed to select avatar');
@@ -203,46 +180,26 @@ const AvatarSelectionComponent = ({
           return;
         }
 
-        const response = await axios.post(
-          `${dbHttpsUrl}/management/avatars/select_avatar`,
-          new URLSearchParams({ avatar_id: avatarId }).toString(),
-          {
-            headers: {
-              Authorization: `Bearer ${accessToken}`,
-              'Content-Type': 'application/x-www-form-urlencoded',
-            },
-          }
+        // Use AuthContext selectAvatar which updates Firestore
+        await selectAvatar(avatarId);
+
+        const selectedAvatar = avatars.find(
+          (avatar) => avatar.avatar_id === avatarId
+        );
+        const avatarIndex = avatars.findIndex(
+          (avatar) => avatar.avatar_id === avatarId
         );
 
-        if (response.data.status === 'success') {
-          const selectedAvatar = avatars.find(
-            (avatar) => avatar.avatar_id === avatarId
-          );
-          const avatarIndex = avatars.findIndex(
-            (avatar) => avatar.avatar_id === avatarId
-          );
+        cacheAvatarPosition(avatarId, avatarIndex);
 
-          cacheAvatarPosition(avatarId, avatarIndex);
-
-          if (response.data.icon_url) {
-            cacheAvatarIcon(avatarId, response.data.icon_url, avatarIndex);
-          }
-
-          const avatarWithMessages = {
-            ...selectedAvatar,
-            icon: response.data.icon_url || selectedAvatar?.icon,
-            messages: response.data.messages || [],
-          };
-
-          setActiveAvatar(avatarWithMessages);
-          if (response.data.messages) {
-            setMessages((prev) => ({
-              ...prev,
-              [avatarId]: response.data.messages,
-            }));
-          }
-          setActiveTab('documents');
+        if (selectedAvatar?.icon) {
+          cacheAvatarIcon(avatarId, selectedAvatar.icon, avatarIndex);
         }
+
+        setActiveAvatar(selectedAvatar);
+        // Load messages for this avatar and set into media context if needed
+        await fetchMessages();
+        setActiveTab('documents');
       } catch (error) {
         console.error('Error selecting avatar for settings:', error);
         toast.error('Failed to open avatar settings');

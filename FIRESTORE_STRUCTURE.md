@@ -7,16 +7,16 @@ This document describes the Firestore database structure for the Neural Nexus ap
 ```
 users/{userId}
   ├── user data fields
-  └── avatars: [avatarId1, avatarId2, ...]  // Array of avatar IDs
+  └── digital_twins: [digitalTwinId1, digitalTwinId2, ...]  // Array of digital twin IDs
 
-avatars/{avatarId}
-  ├── avatar data fields
+digital_twins/{digitalTwinId}
+  ├── digital twin data fields
   ├── conversations: [conversationId1, conversationId2, ...]  // Array of conversation IDs
   └── default_conversation: conversationId  // ID of the default conversation
   └── conversations/{conversationId}  // Subcollection
-      ├── conversation document
+      ├── conversation document (summary, created_at, updated_at, message_count)
       └── messages/{messageId}  // Subcollection
-          └── message document (either text or media)
+          └── message document (role, content, media)
 ```
 
 ## Collections
@@ -29,8 +29,8 @@ avatars/{avatarId}
   user_id: string,
   username: string,
   email: string,
-  created_at: Timestamp,
-  last_login: Timestamp,
+  created_at: string, // ISO timestamp
+  last_login: string, // ISO timestamp
   currently_logged_in: boolean,
   personal_image: string | null,
   neural_nexus_api_key: string | null,
@@ -44,53 +44,80 @@ avatars/{avatarId}
   },
   billing_history: array,
   credit_card: object | null,
-  avatars: [string],  // Array of avatar IDs
-  last_used_avatar: string | null,  // ID of last used avatar
+  digital_twins: [string],  // Array of digital twin IDs
+  last_used_digital_twin: string | null,  // ID of last used digital twin
   // ... other fields
 }
 ```
 
-### 2. Avatars Collection (`avatars/{avatarId}`)
+### 2. Digital Twins Collection (`digital_twins/{digitalTwinId}`)
+
+> (formerly called "avatars" in older versions)
 
 **Document Structure:**
 ```javascript
 {
-  avatar_id: string,
+  digital_twin_id: string,
   user_id: string,
   name: string,
   description: string,
-  created_at: Timestamp,
-  icon: string | null,  // Storage path
-  files: array,
-  conversations: [string],  // Array of conversation IDs
+  created_at: string, // ISO timestamp
+  icon: {
+    url: string,
+    storagePath: string,
+    name: string,
+    size: number,
+    type: string
+  } | null,
+  reference_audio: {
+    url: string,
+    storagePath: string,
+    name: string,
+    size: number,
+    type: string
+  } | null,
+  files: [
+    {
+      id: string,
+      url: string,
+      storagePath: string,
+      name: string,
+      size: number,
+      type: string,
+      uploaded_at: string
+    }
+  ],
+  system_prompt_reference_image_description: string,
+  system_prompt_reference_audio_description: string,
+  system_prompt_description: string,
   default_conversation: string,  // ID of default conversation
+  conversations: [string],  // Array of conversation IDs
   // ... other fields
 }
 ```
 
-**Important:** Every avatar must have at least one conversation. When an avatar is created, a default conversation is automatically created.
+**Important:** Every digital twin must have at least one conversation. When a digital twin is created, a default conversation is automatically created.
 
-### 3. Conversations Subcollection (`avatars/{avatarId}/conversations/{conversationId}`)
+### 3. Conversations Subcollection (`digital_twins/{digitalTwinId}/conversations/{conversationId}`)
 
 **Document Structure:**
 ```javascript
 {
   conversation_id: string,
-  avatar_id: string,
-  user_id: string,
-  title: string,
-  created_at: Timestamp,
-  updated_at: Timestamp,
-  is_default: boolean
+  summary: string,
+  created_at: string, // ISO timestamp
+  updated_at: string, // ISO timestamp
+  message_count: number
 }
 ```
 
 **Rules:**
-- Each avatar must have at least one conversation
-- The first conversation created is marked as `is_default: true`
-- Conversations cannot be deleted if it's the last one remaining
+- Each digital twin must have at least one conversation
+- The first conversation created is used as the default (`default_conversation` on the parent digital twin)
+- Conversations cannot be deleted if it's the last one remaining (unless migrating)
 
-### 4. Messages Subcollection (`avatars/{avatarId}/conversations/{conversationId}/messages/{messageId}`)
+
+### 4. Messages Subcollection (`digital_twins/{digitalTwinId}/conversations/{conversationId}/messages/{messageId}`)
 
 **Document Structure:**
 ```javascript
@@ -99,43 +126,50 @@ avatars/{avatarId}
   conversation_id: string,
   avatar_id: string,
   user_id: string,
-  message: string | null,  // Text content (null if media-only)
-  sender: 'user' | 'assistant',
-  timestamp: Timestamp,
+  role: 'user' | 'assistant',
+  content: string | null, // Text content (null if media-only)
+  timestamp: string, // ISO timestamp
   type: 'text' | 'media',
   media: [
     {
-      media_id: string,
-      filename: string,
-      content_type: string,
-      storage_path: string,
-      url: string
+      id: string,
+      type: 'image' | 'audio' | 'file',
+      url: string,
+      storagePath: string | null,
+      name: string,
+      size: number,
+      mimeType: string,
+      uploaded_at: string
     }
   ]
 }
 ```
 
 **Message Types:**
-- **Text messages:** `message` field contains text, `type: 'text'`
+- **Text messages:** `content` field contains text, `type: 'text'`
 - **Media messages:** `media` array contains file info, `type: 'media'`
-- **Mixed messages:** Both `message` and `media` fields populated
+- **Mixed messages:** Both `content` and `media` fields populated
 
 ## Service Functions
 
-### Avatar Service (`src/services/avatarService.jsx`)
+### Digital Twins (Avatar) Service (`src/services/avatarService.jsx`)
 
-- `createAvatar(userId, name, description, iconFile)` - Creates avatar with default conversation
-- `getAvatars(userId)` - Gets all avatars for a user
-- `selectAvatar(userId, avatarId)` - Selects an avatar and loads its default conversation
+> Note: The service functions are still named `createAvatar` / `getAvatars` for backwards compatibility, but they now operate on the `digital_twins` collection and return documents shaped like the Digital Twin schema above.
+
+- `createAvatar(userId, name, description, iconFile)` - Creates a digital twin (stored under `digital_twins/{digitalTwinId}`) with a default conversation
+- `getAvatars(userId)` - Gets all digital twins for a user
+- `selectAvatar(userId, avatarId)` - Selects a digital twin and loads its default conversation
 - `createConversation(userId, avatarId, title)` - Creates a new conversation
-- `getConversations(userId, avatarId)` - Gets all conversations for an avatar
+- `getConversations(userId, avatarId)` - Gets all conversations for a digital twin
 - `getConversation(userId, avatarId, conversationId)` - Gets a specific conversation
 - `updateConversation(userId, avatarId, conversationId, updates)` - Updates conversation
-- `deleteConversation(userId, avatarId, conversationId)` - Deletes conversation (if not last)
+- `deleteConversation(userId, avatarId, conversationId)` - Deletes conversation (if not last) (use with care) 
 
 ### Message Service (`src/services/messageService.jsx`)
 
-- `sendMessage(userId, avatarId, conversationId, message, mediaFiles, sender, waitForResponse)` - Sends a message
+> Messages are stored using canonical fields: `role` + `content` (text), with an optional `media` array of structured media objects (see schema above).
+
+- `sendMessage(userId, avatarId, conversationId, message, mediaFiles, sender, waitForResponse)` - Sends a message (stores `role`=`sender`, `content`=`message`)
 - `getMessages(userId, avatarId, conversationId, maxMessages)` - Gets messages from a conversation
 - `subscribeToMessages(avatarId, conversationId, callback)` - Real-time message subscription
 
@@ -160,10 +194,10 @@ const avatar = await createAvatar(
 ```javascript
 import { sendMessage } from '../services/messageService';
 
-// Get conversation ID from avatar
+// Get conversation ID from the digital twin
 const conversationId = avatar.default_conversation;
 
-// Send text message
+// Send text message (stored as role + content)
 await sendMessage(
   userId,
   avatarId,
@@ -174,7 +208,7 @@ await sendMessage(
   true
 );
 
-// Send media message
+// Send media message (content can be empty when media-only)
 await sendMessage(
   userId,
   avatarId,
@@ -215,15 +249,15 @@ const conversation = await createConversation(
 
 The security rules ensure:
 - Users can only access their own user documents
-- Users can only access avatars they own
-- Users can only access conversations and messages within their own avatars
+- Users can only access `digital_twins` they own
+- Users can only access conversations and messages within their own digital twins
 
 See `firestore.rules` for the complete rule set.
 
 ## Migration Notes
 
 If you have existing data:
-1. Each avatar needs at least one conversation
-2. Existing messages need to be migrated to the new structure
-3. The `conversations` array needs to be added to avatar documents
-4. Messages need to be moved from `avatars/{avatarId}/conversations` to `avatars/{avatarId}/conversations/{conversationId}/messages`
+1. Each digital twin needs at least one conversation
+2. Existing messages need to be migrated to the new structure (move text from `message` to `content`, move `sender` to `role`, and normalize `media` objects to `{id,type,url,storagePath,name,size,mimeType,uploaded_at}`)
+3. The `conversations` array needs to be added to digital twin documents
+4. If your data uses the legacy `avatars` collection, migrate those documents to `digital_twins/{digitalTwinId}` and move message subcollections to `digital_twins/{digitalTwinId}/conversations/{conversationId}/messages`

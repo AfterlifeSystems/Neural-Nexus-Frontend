@@ -6,15 +6,15 @@ import React, {
   useEffect,
   useRef,
 } from 'react';
-import { useNgrokApiUrl } from './NgrokAPIContext';
-import { MessageService } from '../services/MessageService';
-import { getMessages as getMessagesFromFirestore, sendMessage as sendMessageToFirestore } from '../services/messageService';
+import {
+  getMessages as getMessagesFromFirestore,
+  sendMessage as sendMessageToFirestore,
+} from '../services/messageService';
 import { useAuth } from './AuthContext';
 
 const MediaContext = createContext();
 
 export const MediaProvider = ({ children }) => {
-  const { ngrokHttpsUrl, ngrokWsUrl, dbHttpsUrl } = useNgrokApiUrl();
   const { accessToken, activeAvatar, user, currentUser } = useAuth();
   const [isThoughtToImageEnabled, setIsThoughtToImageEnabled] = useState(false);
   const [isTranscribing, setIsTranscribing] = useState(false);
@@ -158,7 +158,8 @@ export const MediaProvider = ({ children }) => {
   useEffect(() => {
     if (activeAvatar) {
       // Use default conversation from avatar, or first conversation
-      const conversationId = activeAvatar.default_conversation || activeAvatar.conversations?.[0];
+      const conversationId =
+        activeAvatar.default_conversation || activeAvatar.conversations?.[0];
       setActiveConversation(conversationId);
     } else {
       setActiveConversation(null);
@@ -167,7 +168,9 @@ export const MediaProvider = ({ children }) => {
 
   useEffect(() => {
     if (activeAvatar && activeConversation && currentUser) {
-      console.log(`Loading messages for avatar ${activeAvatar.avatar_id}, conversation ${activeConversation}`);
+      console.log(
+        `Loading messages for avatar ${activeAvatar.avatar_id}, conversation ${activeConversation}`
+      );
 
       // Check cache first
       const cacheKey = `${activeAvatar.avatar_id}_${activeConversation}`;
@@ -205,7 +208,7 @@ export const MediaProvider = ({ children }) => {
       );
 
       console.log(`Fetched ${fetched?.length || 0} messages from Firestore`);
-      
+
       const transformedMessages = fetched.map((msg) => ({
         _id: msg._id || msg.message_id,
         id: msg.id || msg._id || msg.message_id,
@@ -217,7 +220,7 @@ export const MediaProvider = ({ children }) => {
       }));
 
       const cacheKey = `${activeAvatar.avatar_id}_${activeConversation}`;
-      
+
       // Cache messages
       setMessageCache((prev) => ({
         ...prev,
@@ -234,7 +237,12 @@ export const MediaProvider = ({ children }) => {
   };
   // sendMessage - Updated to use Firestore structure
   async function sendMessage() {
-    if (!activeAvatar || !activeConversation || !currentUser || (!inputMessage.trim() && mediaFiles.length === 0))
+    if (
+      !activeAvatar ||
+      !activeConversation ||
+      !currentUser ||
+      (!inputMessage.trim() && mediaFiles.length === 0)
+    )
       return;
 
     try {
@@ -258,10 +266,7 @@ export const MediaProvider = ({ children }) => {
 
       setMessages((prev) => ({
         ...prev,
-        [cacheKey]: [
-          ...(prev[cacheKey] || []),
-          tempMessage,
-        ],
+        [cacheKey]: [...(prev[cacheKey] || []), tempMessage],
       }));
 
       // Cache the user message
@@ -276,10 +281,7 @@ export const MediaProvider = ({ children }) => {
 
       setMessages((prev) => ({
         ...prev,
-        [cacheKey]: [
-          ...(prev[cacheKey] || []),
-          loadingMessage,
-        ],
+        [cacheKey]: [...(prev[cacheKey] || []), loadingMessage],
       }));
 
       // Send to Firestore first
@@ -303,29 +305,37 @@ export const MediaProvider = ({ children }) => {
           accessToken,
           sender
         );
-        
+
         if (backendResponse?.ai_response) {
           aiResponse = backendResponse.ai_response;
         }
       } catch (backendError) {
-        console.warn('Backend API call failed, continuing without AI response:', backendError);
+        console.warn(
+          'Backend API call failed, continuing without AI response:',
+          backendError
+        );
       }
 
       // Remove loading message
       setMessages((prev) => ({
         ...prev,
-        [cacheKey]: prev[cacheKey].filter(
-          (msg) => msg.id !== loadingId
-        ),
+        [cacheKey]: prev[cacheKey].filter((msg) => msg.id !== loadingId),
       }));
 
       // Update temp message with real ID from Firestore
-      const realMessageId = firestoreResponse.user_message.message_id || firestoreResponse.user_message._id;
+      const realMessageId =
+        firestoreResponse.user_message.message_id ||
+        firestoreResponse.user_message._id;
       setMessages((prev) => ({
         ...prev,
         [cacheKey]: prev[cacheKey].map((msg) =>
           msg.id === tempId
-            ? { ...msg, _id: realMessageId, id: realMessageId, message_id: realMessageId }
+            ? {
+                ...msg,
+                _id: realMessageId,
+                id: realMessageId,
+                message_id: realMessageId,
+              }
             : msg
         ),
       }));
@@ -356,10 +366,7 @@ export const MediaProvider = ({ children }) => {
 
         setMessages((prev) => ({
           ...prev,
-          [cacheKey]: [
-            ...(prev[cacheKey] || []),
-            aiMessage,
-          ],
+          [cacheKey]: [...(prev[cacheKey] || []), aiMessage],
         }));
 
         // Cache AI response
@@ -404,160 +411,11 @@ export const MediaProvider = ({ children }) => {
     event.target.value = '';
   };
 
-  const startRecording = async () => {
-    if (!dataExchangeTypes.voice) return;
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      const mediaRecorder = new MediaRecorder(stream);
-      mediaRecorderRef.current = mediaRecorder;
-      chunksRef.current = [];
-
-      mediaRecorder.ondataavailable = (event) => {
-        chunksRef.current.push(event.data);
-      };
-
-      mediaRecorder.onstop = () => {
-        const audioBlob = new Blob(chunksRef.current, { type: 'audio/wav' });
-        handleVoiceMessage(audioBlob);
-        stream.getTracks().forEach((track) => track.stop());
-      };
-
-      mediaRecorder.start();
-      setIsTranscribing(true);
-    } catch (error) {
-      console.error('Error accessing microphone:', error);
-    }
-  };
-
-  const stopRecording = () => {
-    if (mediaRecorderRef.current && isTranscribing) {
-      mediaRecorderRef.current.stop();
-      setIsTranscribing(false);
-    }
-  };
-
-  const handleVoiceMessage = (audioBlob) => {
-    if (!activeAvatar || !dataExchangeTypes.voice) return;
-    const voiceMessage = {
-      id: Date.now(),
-      content: '[Voice Message]',
-      sender: 'user',
-      timestamp: new Date().toISOString(),
-      isVoice: true,
-      audioBlob,
-    };
-    setMessages((prev) => ({
-      ...prev,
-      [activeAvatar.avatar_id]: [
-        ...(prev[activeAvatar.avatar_id] || []),
-        voiceMessage,
-      ],
-    }));
-  };
-
-  const startTranscription = async () => {
-    if (!dataExchangeTypes.voice) return;
-    const wsUrl = ngrokWsUrl + '/transcription-api/transcribe/ws';
-    const ws = new WebSocket(wsUrl);
-    ws.binaryType = 'arraybuffer';
-    wsRef.current = ws;
-
-    ws.onopen = async () => {
-      console.log('WebSocket connection opened');
-      setIsTranscribing(true);
-      audioContextRef.current = new AudioContext();
-      mediaStreamRef.current = await navigator.mediaDevices.getUserMedia({
-        audio: true,
-      });
-      sourceRef.current = audioContextRef.current.createMediaStreamSource(
-        mediaStreamRef.current
-      );
-      processorRef.current = audioContextRef.current.createScriptProcessor(
-        4096,
-        1,
-        1
-      );
-
-      processorRef.current.onaudioprocess = (e) => {
-        const input = e.inputBuffer.getChannelData(0);
-        const downsampled = downsampleBuffer(
-          input,
-          audioContextRef.current.sampleRate,
-          16000
-        );
-        if (ws.readyState === WebSocket.OPEN) {
-          ws.send(downsampled);
-        }
-      };
-
-      sourceRef.current.connect(processorRef.current);
-      processorRef.current.connect(audioContextRef.current.destination);
-    };
-
-    ws.onmessage = (event) => {
-      try {
-        const data = JSON.parse(event.data);
-        const text = data.transcript;
-        if (typeof text === 'string' && text.trim() !== '') {
-          document.dispatchEvent(
-            new CustomEvent('transcription', { detail: text })
-          );
-        }
-      } catch (error) {
-        console.error('Error parsing WebSocket message:', error);
-      }
-    };
-
-    ws.onerror = (err) => console.error('WebSocket error:', err);
-    ws.onclose = () => {
-      console.log('WebSocket closed');
-      setIsTranscribing(false);
-    };
-  };
-
-  const stopTranscription = () => {
-    setIsTranscribing(false);
-    if (processorRef.current) processorRef.current.disconnect();
-    if (sourceRef.current) sourceRef.current.disconnect();
-    if (mediaStreamRef.current) {
-      mediaStreamRef.current.getTracks().forEach((track) => track.stop());
-    }
-    if (audioContextRef.current) audioContextRef.current.close();
-    if (wsRef.current) wsRef.current.close();
-  };
-
-  function downsampleBuffer(buffer, inputSampleRate, outputSampleRate) {
-    const sampleRateRatio = inputSampleRate / outputSampleRate;
-    const newLength = Math.round(buffer.length / sampleRateRatio);
-    const result = new Int16Array(newLength);
-    for (let i = 0; i < newLength; i++) {
-      const sample = buffer[Math.floor(i * sampleRateRatio)];
-      result[i] = Math.max(-32768, Math.min(32767, sample * 0x7fff));
-    }
-    return result;
-  }
-
-  const toggleDataExchangeType = (type) => {
-    setDataExchangeTypes((prev) => ({
-      ...prev,
-      [type]: !prev[type],
-    }));
-    if (type === 'voice' && !dataExchangeTypes.voice && isTranscribing) {
-      stopTranscription();
-      stopRecording();
-    }
-    if (
-      type === 'neuralImage' &&
-      !dataExchangeTypes.neuralImage &&
-      isThoughtToImageEnabled
-    ) {
-      stopThoughtToImage();
-      startThoughtToImage();
-    }
-  };
-
   const getMediaUrl = (media_id, accessToken) => {
-    return `${dbHttpsUrl}/media/${media_id}?token=${accessToken}`;
+    console.warn(
+      'getMediaUrl: NGROK-based media URLs removed. Use media.url or Firebase Storage download URLs instead.'
+    );
+    return null;
   };
 
   const handleFileChange = (e) => {
@@ -581,14 +439,7 @@ export const MediaProvider = ({ children }) => {
         inputMessage,
         setInputMessage,
         sendMessage,
-        isThoughtToImageEnabled,
-        startThoughtToImage,
-        stopThoughtToImage,
-        isTranscribing,
-        startTranscription,
-        stopTranscription,
         dataExchangeTypes,
-        toggleDataExchangeType,
         fileInputRef,
         handleFileUpload,
         getMediaUrl,

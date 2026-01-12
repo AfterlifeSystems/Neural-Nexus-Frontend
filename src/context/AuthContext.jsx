@@ -15,7 +15,6 @@ import {
 } from 'firebase/auth';
 import { doc, getDoc, updateDoc, setDoc } from 'firebase/firestore';
 import { auth, db, storage } from '../firebase/config';
-import { useNgrokApiUrl } from './NgrokAPIContext';
 import { getUserProfile } from '../services/userService';
 import {
   getAvatars as getAvatarsFromFirestore,
@@ -29,7 +28,6 @@ import { X } from 'lucide-react';
 const AuthContext = createContext();
 
 export const AuthProvider = ({ children }) => {
-  const { dbHttpsUrl } = useNgrokApiUrl();
   const [user, setUser] = useState(null);
   const [isLoggedIn, setIsLoggedIn] = useState(false);
   const [currentUser, setCurrentUser] = useState(null); // Firebase Auth user
@@ -46,33 +44,101 @@ export const AuthProvider = ({ children }) => {
 
       if (firebaseUser) {
         try {
+          // Debug: ensure uid and token are available
+          console.log('Auth state changed for uid:', firebaseUser.uid);
+
           // Get Firebase ID token for backend API calls
           // Firebase automatically refreshes tokens when needed
-          const token = await firebaseUser.getIdToken();
-          setAccessToken(token);
-          localStorage.setItem('access_token', token);
+          let token;
+          try {
+            token = await firebaseUser.getIdToken();
+            setAccessToken(token);
+            localStorage.setItem('access_token', token);
+          } catch (tokenErr) {
+            console.error('Error obtaining ID token:', tokenErr);
+          }
 
-          // Get Firestore user profile
-          const profile = await getUserProfile(firebaseUser.uid);
-          setUserProfile(profile);
-          setUser(profile);
-          setIsLoggedIn(true);
-
-          // Store user data in localStorage
-          localStorage.setItem('user', JSON.stringify(profile));
-          localStorage.setItem('firebase_user_id', firebaseUser.uid);
-
-          // Load avatars from Firestore
-          const loadedAvatars = await loadAvatars(firebaseUser.uid);
-
-          // Set active avatar if user has last_used_avatar
-          if (profile.last_used_avatar && loadedAvatars.length > 0) {
-            const lastUsed = loadedAvatars.find(
-              (a) => a.avatar_id === profile.last_used_avatar
-            );
-            if (lastUsed) {
-              setActiveAvatar(lastUsed);
+          // Get Firestore user profile (returns null if missing)
+          let profile = null;
+          try {
+            profile = await getUserProfile(firebaseUser.uid);
+          } catch (err) {
+            console.error('Error fetching user profile:', err);
+            if (
+              err.message &&
+              err.message.includes('Insufficient Firestore permissions')
+            ) {
+              toast.error(
+                'Firestore permissions error: please check rules and project configuration.'
+              );
+            } else {
+              throw err;
             }
+          }
+
+          // If profile missing, attempt to create a minimal profile document
+          if (!profile) {
+            try {
+              const minimalProfile = {
+                user_id: firebaseUser.uid,
+                username:
+                  firebaseUser.displayName ||
+                  (firebaseUser.email || '').split('@')[0],
+                email: firebaseUser.email || null,
+                created_at: new Date(),
+                last_login: new Date(),
+                currently_logged_in: true,
+                avatars: [],
+                digital_twins: [],
+              };
+              await setDoc(doc(db, 'users', firebaseUser.uid), minimalProfile);
+              profile = await getUserProfile(firebaseUser.uid);
+              console.log(
+                'Created minimal user profile for uid:',
+                firebaseUser.uid
+              );
+            } catch (createErr) {
+              console.error(
+                'Failed to create minimal user profile:',
+                createErr
+              );
+              if (
+                createErr?.message &&
+                createErr.message.includes('Insufficient Firestore permissions')
+              ) {
+                toast.error(
+                  'Unable to create user profile due to Firestore permissions.'
+                );
+              }
+            }
+          }
+
+          if (profile) {
+            setUserProfile(profile);
+            setUser(profile);
+            setIsLoggedIn(true);
+
+            // Store user data in localStorage
+            localStorage.setItem('user', JSON.stringify(profile));
+            localStorage.setItem('firebase_user_id', firebaseUser.uid);
+
+            // Load avatars from Firestore
+            const loadedAvatars = await loadAvatars(firebaseUser.uid);
+
+            // Set active avatar if user has last_used_digital_twin
+            if (profile.last_used_digital_twin && loadedAvatars.length > 0) {
+              const lastUsed = loadedAvatars.find(
+                (a) => a.avatar_id === profile.last_used_digital_twin
+              );
+              if (lastUsed) {
+                setActiveAvatar(lastUsed);
+              }
+            }
+          } else {
+            // Profile unavailable: keep auth state limited
+            setUserProfile(null);
+            setUser(null);
+            setIsLoggedIn(false);
           }
         } catch (error) {
           console.error('Error loading user profile:', error);
@@ -150,8 +216,10 @@ export const AuthProvider = ({ children }) => {
         billing_history: [],
         credit_card: null,
         avatars: [],
-        last_used_avatar: null,
+        last_used_digital_twin: null,
+        digital_twins: [],
         cloud_run_services: {},
+
         avatar_messaging_api_cpu_endpoint: null,
         avatar_messaging_api_gpu_endpoint: null,
         avatar_data_collection_api_endpoint: null,
@@ -198,7 +266,7 @@ export const AuthProvider = ({ children }) => {
       // Check if email is verified
       if (!userCredential.user.emailVerified) {
         await signOut(auth);
-        throw new Error('Please verify your email before logging in');
+        // throw new Error('Please verify your email before logging in');
       }
 
       // Update last_login in Firestore
@@ -207,7 +275,7 @@ export const AuthProvider = ({ children }) => {
         currently_logged_in: true,
       });
 
-      toast.success('Login successful!');
+      // toast.success('Login successful!');
       return userCredential.user;
     } catch (error) {
       console.error('Login error:', error);
@@ -388,14 +456,19 @@ export const AuthProvider = ({ children }) => {
       // Set as active avatar
       setActiveAvatar(createdAvatar);
 
-      // Update Firestore to mark as last_used_avatar
+      // Update Firestore to mark as last_used_digital_twin
       await updateDoc(doc(db, 'users', currentUser.uid), {
-        last_used_avatar: created.avatar_id,
+        last_used_digital_twin: created.avatar_id,
+        digital_twins: [...(user?.digital_twins || []), created.avatar_id],
       });
 
       // Update local user state
       if (user) {
-        const updatedUser = { ...user, last_used_avatar: created.avatar_id };
+        const updatedUser = {
+          ...user,
+          last_used_digital_twin: created.avatar_id,
+          digital_twins: [...(user.digital_twins || []), created.avatar_id],
+        };
         setUser(updatedUser);
         setUserProfile(updatedUser);
         localStorage.setItem('user', JSON.stringify(updatedUser));
@@ -438,12 +511,12 @@ export const AuthProvider = ({ children }) => {
 
         // Update user profile
         await updateDoc(doc(db, 'users', currentUser.uid), {
-          last_used_avatar: avatarId,
+          last_used_digital_twin: avatarId,
         });
 
         // Update local user state
         if (user) {
-          const updatedUser = { ...user, last_used_avatar: avatarId };
+          const updatedUser = { ...user, last_used_digital_twin: avatarId };
           setUser(updatedUser);
           setUserProfile(updatedUser);
           localStorage.setItem('user', JSON.stringify(updatedUser));
@@ -468,7 +541,7 @@ export const AuthProvider = ({ children }) => {
       .then((result) => {
         if (result) {
           // User signed in via redirect
-          toast.success('Login successful!');
+          // toast.success('Login successful!');
         }
       })
       .catch((error) => {

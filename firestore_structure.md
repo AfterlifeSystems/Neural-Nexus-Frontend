@@ -122,7 +122,8 @@ service firebase.storage {
   "system_prompt_reference_image_description": "",
   "system_prompt_reference_audio_description": "",
   "system_prompt_description": "",
-  "default_conversation": "conversationId1"
+  "default_conversation": "conversationId1",
+  "conversations": ["conversationId1", "conversationId2",...]
 }
 
 # Conversation Object
@@ -175,10 +176,10 @@ service firebase.storage {
 
 # Freemium model: you've hit your limit: upgrade to pro: $20
 
-# Avatar Object in Firestore
-avatars/{avatarId}
+# Digital Twin Object in Firestore
+digital_twin/{digital_twin_id}
 {
-  "avatar_id": "03631b03-2607-4a64-a3a6-f6ada35adf6c",
+  "digital_twin_id": "03631b03-2607-4a64-a3a6-f6ada35adf6c",
   "user_id": "27df12d9-9881-4369-bd75-e5c9538b0ea2",
   "name": "Shivon Zilis",
   "description": "Great Mother, Partner to Elon, Very Intelligent, Kind, Friendly, Good-Heart, Leader",

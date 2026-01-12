@@ -1,22 +1,18 @@
 // src/components/MessageList.jsx
 import React, { useEffect } from 'react';
 import { useAuth } from '../context/AuthContext';
-import { getDbHttpsUrl, getNgrokHttpsUrl } from '../context/NgrokAPIStore';
 import { useMedia } from '../context/MediaContext';
 import SecureImage from './SecureImage';
 
 const MessageList = ({ messages, messagesEndRef }) => {
   const { accessToken } = useAuth();
   const { getMediaUrl } = useMedia();
-  const ngrokHttpsUrl = getNgrokHttpsUrl();
-  const dbHttpsUrl = getDbHttpsUrl();
 
   useEffect(() => {
-    console.log(ngrokHttpsUrl);
     if (messagesEndRef?.current) {
       messagesEndRef.current.scrollIntoView({ behavior: 'smooth' });
     }
-  }, [messages, messagesEndRef, ngrokHttpsUrl]);
+  }, [messages, messagesEndRef]);
 
   // Debug: Log message count and timestamp info
   useEffect(() => {
@@ -104,33 +100,20 @@ const MessageList = ({ messages, messagesEndRef }) => {
                       >
                         {media.content_type?.startsWith('image/') ? (
                           <SecureImage
-                            mediaId={media.media_id}
+                            mediaUrl={media.url}
                             filename={media.filename}
-                            accessToken={accessToken}
                           />
                         ) : media.content_type?.startsWith('audio/') ? (
-                          <audio
-                            controls
-                            src={
-                              media.url ||
-                              `${dbHttpsUrl}/media/${media.media_id}?token=${accessToken}`
-                            }
-                          />
+                          <audio controls src={media.url} />
                         ) : media.content_type?.startsWith('video/') ? (
                           <video
                             controls
                             className="max-w-full max-h-64"
-                            src={
-                              media.url ||
-                              `${dbHttpsUrl}/media/${media.media_id}?token=${accessToken}`
-                            }
+                            src={media.url}
                           />
                         ) : (
                           <a
-                            href={
-                              media.url ||
-                              `${dbHttpsUrl}/media/${media.media_id}?token=${accessToken}`
-                            }
+                            href={media.url}
                             target="_blank"
                             rel="noopener noreferrer"
                             className="underline text-blue-300"

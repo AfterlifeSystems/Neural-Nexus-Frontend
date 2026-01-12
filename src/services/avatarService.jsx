@@ -1,110 +1,145 @@
 // services/AvatarService.jsx
-import { getDbHttpsUrl } from '../context/NgrokAPIStore';
+// NGROK / external DB HTTP calls removed — use Firestore-backed helper functions below.
 
 export const AvatarService = {
-  async getAll(accessToken) {
-    try {
-      const res = await fetch(`${getDbHttpsUrl()}/management/avatars/get_all`, {
-        method: 'GET',
-        headers: {
-          Authorization: `Bearer ${accessToken}`,
-          Accept: 'application/json',
-        },
-      });
-
-      if (!res.ok) throw new Error(await res.text());
-      return await res.json();
-    } catch (err) {
-      console.error('Failed to fetch avatars:', err);
-      return [];
-    }
+  async getAll(userId) {
+    return await getAvatars(userId);
   },
 
-  async createAvatar(accessToken, payload) {
-    try {
-      // Create FormData instead of JSON
-      const formData = new FormData();
+  async createAvatar(userId, payload) {
+    return await createAvatar(
+      userId,
+      payload.name,
+      payload.description,
+      payload.iconFile
+    );
+  },
 
-      // Add required fields
-      formData.append('name', payload.name);
+  async deleteAvatar(userId, avatarId) {
+    return await deleteAvatar(userId, avatarId);
+  },
 
-      // Add optional description (only if provided)
-      if (payload.description) {
-        formData.append('description', payload.description);
+  async selectAvatar(userId, avatarId) {
+    // Return avatar document with helpful fields (icon_url, documents, socialLogins)
+    const avatarRef = doc(db, 'digital_twins', avatarId);
+    const avatarSnap = await getDoc(avatarRef);
+    if (!avatarSnap.exists() || avatarSnap.data().user_id !== userId) {
+      throw new Error('Avatar not found or unauthorized');
+    }
+    const data = avatarSnap.data();
+    // Resolve icon URL if present
+    let icon_url = null;
+    if (data.icon) {
+      try {
+        icon_url = await getDownloadURL(ref(storage, data.icon));
+      } catch (err) {
+        console.warn('Failed to resolve icon URL:', err);
       }
+    }
 
-      // Add optional icon file
-      if (payload.iconFile) {
-        formData.append('icon', payload.iconFile);
+    return {
+      ...data,
+      avatar_id: avatarId,
+      icon_url,
+    };
+  },
+
+  async uploadDocuments(userId, avatarId, files) {
+    // Upload files to storage and append metadata to digital_twins/{avatarId}.files
+    const uploaded = [];
+    for (const file of files) {
+      const fileId = uuidv4();
+      const storagePath = `users/${userId}/digital_twins/${avatarId}/files/${fileId}_${file.name}`;
+      const storageRef = ref(storage, storagePath);
+      await uploadBytes(storageRef, file);
+      const url = await getDownloadURL(storageRef);
+      const meta = {
+        id: fileId,
+        url,
+        storagePath,
+        name: file.name,
+        size: file.size,
+        type: file.type,
+        uploaded_at: new Date().toISOString(),
+      };
+      uploaded.push(meta);
+    }
+
+    // Update avatar doc
+    const avatarRef = doc(db, 'digital_twins', avatarId);
+    const avatarSnap = await getDoc(avatarRef);
+    const currentFiles = avatarSnap.exists()
+      ? avatarSnap.data().files || []
+      : [];
+    await updateDoc(avatarRef, { files: [...currentFiles, ...uploaded] });
+
+    return uploaded;
+  },
+
+  async uploadUrl(userId, avatarId, url) {
+    const fileId = uuidv4();
+    const meta = {
+      id: fileId,
+      url,
+      storagePath: null,
+      name: url,
+      size: 0,
+      type: 'link',
+      uploaded_at: new Date().toISOString(),
+    };
+
+    const avatarRef = doc(db, 'digital_twins', avatarId);
+    const avatarSnap = await getDoc(avatarRef);
+    const currentFiles = avatarSnap.exists()
+      ? avatarSnap.data().files || []
+      : [];
+    await updateDoc(avatarRef, { files: [...currentFiles, meta] });
+
+    return meta;
+  },
+
+  async connectSocial(userId, avatarId, platform, username, password) {
+    const avatarRef = doc(db, 'digital_twins', avatarId);
+    const avatarSnap = await getDoc(avatarRef);
+    const socialLogins = avatarSnap.exists()
+      ? avatarSnap.data().socialLogins || []
+      : [];
+    const login = {
+      id: uuidv4(),
+      platform,
+      username,
+      added_at: new Date().toISOString(),
+    };
+    await updateDoc(avatarRef, { socialLogins: [...socialLogins, login] });
+    return login;
+  },
+
+  async disconnectSocial(userId, avatarId, loginId) {
+    const avatarRef = doc(db, 'digital_twins', avatarId);
+    const avatarSnap = await getDoc(avatarRef);
+    const socialLogins = avatarSnap.exists()
+      ? avatarSnap.data().socialLogins || []
+      : [];
+    const updated = socialLogins.filter((l) => l.id !== loginId);
+    await updateDoc(avatarRef, { socialLogins: updated });
+    return { status: 'success' };
+  },
+
+  async deleteDocument(userId, avatarId, documentId) {
+    const avatarRef = doc(db, 'digital_twins', avatarId);
+    const avatarSnap = await getDoc(avatarRef);
+    const files = avatarSnap.exists() ? avatarSnap.data().files || [] : [];
+    const target = files.find((f) => f.id === documentId);
+    if (target && target.storagePath) {
+      try {
+        await deleteObject(ref(storage, target.storagePath));
+      } catch (err) {
+        console.warn('Failed to delete storage object:', err);
       }
-
-      const response = await fetch(
-        `${getDbHttpsUrl()}/management/avatars/create`,
-        {
-          method: 'POST',
-          headers: {
-            Authorization: `Bearer ${accessToken}`,
-            Accept: 'application/json',
-          },
-          body: formData,
-        }
-      );
-
-      if (!response.ok) throw new Error(await response.text());
-      return await response.json();
-    } catch (error) {
-      console.error('Error creating avatar:', error);
-      throw error;
     }
-  },
-
-  async deleteAvatar(accessToken, avatar_id) {
-    try {
-      const response = await fetch(
-        `${getDbHttpsUrl()}/management/avatars/delete`,
-        {
-          method: 'POST',
-          headers: {
-            Authorization: `Bearer ${accessToken}`,
-            'Content-Type': 'application/x-www-form-urlencoded',
-            Accept: 'application/json',
-          },
-          body: new URLSearchParams({ avatar_id }),
-        }
-      );
-      const res = await response.json();
-      if (res.status !== 'success') throw new Error(JSON.stringify(res));
-      return res;
-    } catch (error) {
-      console.error('Avatar Service: Error deleting avatar:', error);
-      throw error;
-    }
-  },
-
-  async selectAvatar(accessToken, avatar_id) {
-    try {
-      console.log('update');
-
-      const response = await fetch(
-        `${getDbHttpsUrl()}/management/avatars/select_avatar`,
-        {
-          method: 'POST',
-          headers: {
-            Authorization: `Bearer ${accessToken}`,
-            'Content-Type': 'application/x-www-form-urlencoded',
-            Accept: 'application/json',
-          },
-          body: new URLSearchParams({ avatar_id }),
-        }
-      );
-      const res = await response.json();
-      // console.log(res);
-      if (res.status !== 'success') throw new Error(JSON.stringify(res));
-      return res;
-    } catch (error) {
-      console.error('Avatar Service: Error selecting avatar:', error);
-      throw error;
-    }
+    const updatedFiles = files.filter((f) => f.id !== documentId);
+    await updateDoc(avatarRef, { files: updatedFiles });
+    return { status: 'success' };
   },
 };
 
@@ -136,66 +171,79 @@ export const createAvatar = async (userId, name, description, iconFile) => {
   const avatarId = uuidv4();
   const conversationId = uuidv4(); // Create default conversation ID
 
+  // Store as a Digital Twin document following firestore_structure.md
   const avatarData = {
-    avatar_id: avatarId,
+    digital_twin_id: avatarId,
     user_id: userId,
     name: name.trim(),
     description: (description || '').trim(),
-    created_at: new Date(),
-    icon: null,
+    created_at: new Date().toISOString(),
+    icon: null, // will be an object {url, storagePath, name, size, type}
+    reference_audio: null,
     files: [],
-    conversations: [conversationId], // List of conversation IDs
-    default_conversation: conversationId, // Track the default conversation
+    system_prompt_reference_image_description: '',
+    system_prompt_reference_audio_description: '',
+    system_prompt_description: '',
+    default_conversation: conversationId,
+    conversations: [conversationId],
   };
 
-  // Upload icon if provided
+  // Upload icon if provided and store metadata + URL
   if (iconFile) {
     if (iconFile.size > 4 * 1024 * 1024) {
       throw new Error('Icon exceeds 4 MB limit');
     }
     const iconRef = ref(
       storage,
-      `users/${userId}/avatars/${avatarId}/icon/${uuidv4()}_${iconFile.name}`
+      `users/${userId}/digital_twins/${avatarId}/icon/${uuidv4()}_${
+        iconFile.name
+      }`
     );
     await uploadBytes(iconRef, iconFile);
-    avatarData.icon = iconRef.fullPath;
+    const iconUrl = await getDownloadURL(iconRef);
+    avatarData.icon = {
+      url: iconUrl,
+      storagePath: iconRef.fullPath,
+      name: iconFile.name,
+      size: iconFile.size,
+      type: iconFile.type,
+    };
   }
 
-  // Create avatar document with avatarId as document ID
-  const avatarRef = doc(db, 'avatars', avatarId);
+  // Create avatar (digital twin) document with avatarId as document ID
+  const avatarRef = doc(db, 'digital_twins', avatarId);
   await setDoc(avatarRef, avatarData);
 
-  // Create default conversation document
+  // Create default conversation document (store summary and counts)
   const conversationRef = doc(
     db,
-    `avatars/${avatarId}/conversations`,
+    'digital_twins',
+    avatarId,
+    'conversations',
     conversationId
   );
   await setDoc(conversationRef, {
     conversation_id: conversationId,
-    avatar_id: avatarId,
-    user_id: userId,
-    title: 'Default Conversation',
-    created_at: new Date(),
-    updated_at: new Date(),
-    is_default: true,
+    summary: '',
+    created_at: new Date().toISOString(),
+    updated_at: new Date().toISOString(),
+    message_count: 0,
   });
 
-  // Update user's avatar list
+  // Update user's digital_twins list
   const userRef = doc(db, 'users', userId);
   const userDoc = await getDoc(userRef);
-  const avatars = userDoc.data().avatars || [];
+  const digitalTwins = userDoc.data().digital_twins || [];
   await updateDoc(userRef, {
-    avatars: [...avatars, avatarId],
-    last_used_avatar: avatarId,
+    digital_twins: [...digitalTwins, avatarId],
+    last_used_digital_twin: avatarId,
   });
 
   // Create directory structure in Storage (using .keep files)
   const directories = [
-    `users/${userId}/vectorstore/.keep`,
-    `users/${userId}/avatars/${avatarId}/adapters/.keep`,
-    `users/${userId}/avatars/${avatarId}/adapters/training_data/.keep`,
-    `users/${userId}/avatars/${avatarId}/vectorstore_data/.keep`,
+    `users/${userId}/.keep`,
+    `users/${userId}/digital_twins/${avatarId}/adapters/.keep`,
+    `users/${userId}/digital_twins/${avatarId}/adapters/training_data/.keep`,
   ];
 
   for (const dirPath of directories) {
@@ -209,31 +257,36 @@ export const createAvatar = async (userId, name, description, iconFile) => {
 
   // Generate download URLs
   const iconUrl = avatarData.icon
-    ? await getDownloadURL(ref(storage, avatarData.icon))
+    ? avatarData.icon.url ||
+      (await getDownloadURL(ref(storage, avatarData.icon.storagePath)))
     : null;
   const userVectorstoreUrl = await getDownloadURL(
     ref(storage, `users/${userId}/vectorstore/.keep`)
   );
   const avatarVectorstoreUrl = await getDownloadURL(
-    ref(storage, `users/${userId}/avatars/${avatarId}/vectorstore_data/.keep`)
+    ref(
+      storage,
+      `users/${userId}/digital_twins/${avatarId}/vectorstore_data/.keep`
+    )
   );
   const qloraAdapterUrl = await getDownloadURL(
-    ref(storage, `users/${userId}/avatars/${avatarId}/adapters/.keep`)
+    ref(storage, `users/${userId}/digital_twins/${avatarId}/adapters/.keep`)
   );
   const qloraTrainingUrl = await getDownloadURL(
     ref(
       storage,
-      `users/${userId}/avatars/${avatarId}/adapters/training_data/.keep`
+      `users/${userId}/digital_twins/${avatarId}/adapters/training_data/.keep`
     )
   );
 
   return {
     id: avatarId,
     avatar_id: avatarId,
+    digital_twin_id: avatarId,
     user_id: userId,
     name: avatarData.name,
     description: avatarData.description,
-    created_at: avatarData.created_at.toISOString(),
+    created_at: avatarData.created_at,
     icon: avatarData.icon,
     icon_url: iconUrl,
     user_vectorstore_url: userVectorstoreUrl,
@@ -247,7 +300,7 @@ export const createAvatar = async (userId, name, description, iconFile) => {
 
 export const getAvatars = async (userId, limitCount = 50, skip = 0) => {
   const avatarsQuery = query(
-    collection(db, 'avatars'),
+    collection(db, 'digital_twins'),
     where('user_id', '==', userId),
     orderBy('created_at', 'asc')
   );
@@ -261,7 +314,12 @@ export const getAvatars = async (userId, limitCount = 50, skip = 0) => {
 
     if (data.icon) {
       try {
-        iconUrl = await getDownloadURL(ref(storage, data.icon));
+        const storagePath = data.icon.storagePath || data.icon;
+        if (storagePath) {
+          iconUrl = await getDownloadURL(ref(storage, storagePath));
+        } else if (data.icon.url) {
+          iconUrl = data.icon.url;
+        }
       } catch (error) {
         console.error('Error getting icon URL:', error);
       }
@@ -279,24 +337,37 @@ export const getAvatars = async (userId, limitCount = 50, skip = 0) => {
 };
 
 export const updateAvatar = async (userId, avatarId, updates) => {
-  const avatarRef = doc(db, 'avatars', avatarId);
+  const avatarRef = doc(db, 'digital_twins', avatarId);
   const avatarDoc = await getDoc(avatarRef);
 
   if (!avatarDoc.exists() || avatarDoc.data().user_id !== userId) {
-    throw new Error('Avatar not found or unauthorized');
+    throw new Error('Digital twin not found or unauthorized');
   }
 
   const updateData = {
-    updated_at: new Date(),
+    updated_at: new Date().toISOString(),
     ...updates,
   };
+
+  // If updating icon path/object, normalize to object shape
+  if (updateData.icon && typeof updateData.icon === 'string') {
+    // assume it's a storage path string; try to resolve URL
+    try {
+      const url = await getDownloadURL(ref(storage, updateData.icon));
+      updateData.icon = {
+        url,
+        storagePath: updateData.icon,
+      };
+    } catch (e) {
+      // leave as-is
+    }
+  }
 
   await updateDoc(avatarRef, updateData);
 
   // If icon was updated, return the new URL
-  if (updates.icon) {
-    const iconUrl = await getDownloadURL(ref(storage, updates.icon));
-    return { icon_url: iconUrl };
+  if (updateData.icon) {
+    return { icon_url: updateData.icon.url || null };
   }
 
   return {};
@@ -309,15 +380,15 @@ export const updateAvatarWithIcon = async (
   description,
   iconFile
 ) => {
-  const avatarRef = doc(db, 'avatars', avatarId);
+  const avatarRef = doc(db, 'digital_twins', avatarId);
   const avatarDoc = await getDoc(avatarRef);
 
   if (!avatarDoc.exists() || avatarDoc.data().user_id !== userId) {
-    throw new Error('Avatar not found or unauthorized');
+    throw new Error('Digital twin not found or unauthorized');
   }
 
   const updates = {
-    updated_at: new Date(),
+    updated_at: new Date().toISOString(),
   };
 
   if (name !== undefined) {
@@ -333,24 +404,35 @@ export const updateAvatarWithIcon = async (
       throw new Error('Icon exceeds 4 MB limit');
     }
 
-    // Delete old icon if exists
+    // Delete old icon if exists (support object or string)
     const oldIcon = avatarDoc.data().icon;
-    if (oldIcon) {
+    const oldStoragePath =
+      oldIcon?.storagePath || (typeof oldIcon === 'string' ? oldIcon : null);
+    if (oldStoragePath) {
       try {
-        await deleteObject(ref(storage, oldIcon));
+        await deleteObject(ref(storage, oldStoragePath));
       } catch (error) {
         console.warn('Failed to delete old icon:', error);
       }
     }
 
-    // Upload new icon
+    // Upload new icon and store as object
     const iconRef = ref(
       storage,
-      `users/${userId}/avatars/${avatarId}/icon/${uuidv4()}_${iconFile.name}`
+      `users/${userId}/digital_twins/${avatarId}/icon/${uuidv4()}_${
+        iconFile.name
+      }`
     );
     await uploadBytes(iconRef, iconFile);
-    updates.icon = iconRef.fullPath;
-    iconUrl = await getDownloadURL(iconRef);
+    const url = await getDownloadURL(iconRef);
+    updates.icon = {
+      url,
+      storagePath: iconRef.fullPath,
+      name: iconFile.name,
+      size: iconFile.size,
+      type: iconFile.type,
+    };
+    iconUrl = url;
   }
 
   await updateDoc(avatarRef, updates);
@@ -372,7 +454,10 @@ export const deleteAvatar = async (userId, avatarId) => {
   }
 
   // Delete all files in Storage
-  const avatarStorageRef = ref(storage, `users/${userId}/avatars/${avatarId}`);
+  const avatarStorageRef = ref(
+    storage,
+    `users/${userId}/digital_twins/${avatarId}`
+  );
   try {
     const files = await listAll(avatarStorageRef);
     await Promise.all(files.items.map((file) => deleteObject(file)));
@@ -470,15 +555,18 @@ export const selectAvatar = async (userId, avatarId) => {
     ref(storage, `users/${userId}/vectorstore/.keep`)
   );
   const avatarVectorstoreUrl = await getDownloadURL(
-    ref(storage, `users/${userId}/avatars/${avatarId}/vectorstore_data/.keep`)
+    ref(
+      storage,
+      `users/${userId}/digital_twins/${avatarId}/vectorstore_data/.keep`
+    )
   );
   const qloraAdapterUrl = await getDownloadURL(
-    ref(storage, `users/${userId}/avatars/${avatarId}/adapters/.keep`)
+    ref(storage, `users/${userId}/digital_twins/${avatarId}/adapters/.keep`)
   );
   const qloraTrainingUrl = await getDownloadURL(
     ref(
       storage,
-      `users/${userId}/avatars/${avatarId}/adapters/training_data/.keep`
+      `users/${userId}/digital_twins/${avatarId}/adapters/training_data/.keep`
     )
   );
 

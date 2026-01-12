@@ -125,28 +125,28 @@ const AuthComponent = ({ setActiveTab, onEndLiveChat }) => {
         resetForm();
       } else if (modalView === 'forgotPassword') {
         await forgotPassword(email);
-        toast.success(
-          (t) => (
-            <div className="relative flex flex-col gap-2 p-4 ">
-              {/* Text + X button in one row */}
-              <div className="flex justify-between items-start">
-                {/* Message */}
-                <p className="pr-4">
-                  Password reset email sent! Check your inbox.
-                </p>
+        // toast.success(
+        //   (t) => (
+        //     <div className="relative flex flex-col gap-2 p-4 ">
+        //       {/* Text + X button in one row */}
+        //       <div className="flex justify-between items-start">
+        //         {/* Message */}
+        //         <p className="pr-4">
+        //           Password reset email sent! Check your inbox.
+        //         </p>
 
-                {/* X button top-right */}
-                <button
-                  onClick={() => toast.dismiss(t.id)}
-                  className="p-1 bg-red-600 hover:bg-red-500 rounded text-sm"
-                >
-                  <X size={16} />
-                </button>
-              </div>
-            </div>
-          ),
-          { duration: Infinity }
-        );
+        //         {/* X button top-right */}
+        //         <button
+        //           onClick={() => toast.dismiss(t.id)}
+        //           className="p-1 bg-red-600 hover:bg-red-500 rounded text-sm"
+        //         >
+        //           <X size={16} />
+        //         </button>
+        //       </div>
+        //     </div>
+        //   ),
+        //   { duration: Infinity }
+        // );
         setModalView('login');
       }
     } catch (error) {
@@ -158,62 +158,62 @@ const AuthComponent = ({ setActiveTab, onEndLiveChat }) => {
         errorMsg.includes('verify your email')
       ) {
         // Email not verified
-        toast.error(
-          (t) => (
-            <div className="flex flex-col gap-3">
-              <p className="font-medium">Please verify your email first</p>
-              <div className="flex gap-2">
-                <button
-                  onClick={() => {
-                    resendVerification(email);
-                    toast.dismiss(t.id);
-                  }}
-                  className="px-3 py-1 bg-teal-600 hover:bg-teal-700 rounded text-sm flex items-center gap-1"
-                >
-                  <SendIcon size={14} />
-                  Resend Email
-                </button>
-                <button
-                  onClick={() => toast.dismiss(t.id)}
-                  className="px-3 py-1 bg-red-500 hover:bg-red-500 rounded text-sm"
-                >
-                  Dismiss
-                </button>
-              </div>
-            </div>
-          ),
-          { duration: 10000 }
-        );
+        // toast.error(
+        //   (t) => (
+        //     <div className="flex flex-col gap-3">
+        //       <p className="font-medium">Please verify your email first</p>
+        //       <div className="flex gap-2">
+        //         <button
+        //           onClick={() => {
+        //             resendVerification(email);
+        //             toast.dismiss(t.id);
+        //           }}
+        //           className="px-3 py-1 bg-teal-600 hover:bg-teal-700 rounded text-sm flex items-center gap-1"
+        //         >
+        //           <SendIcon size={14} />
+        //           Resend Email
+        //         </button>
+        //         <button
+        //           onClick={() => toast.dismiss(t.id)}
+        //           className="px-3 py-1 bg-red-500 hover:bg-red-500 rounded text-sm"
+        //         >
+        //           Dismiss
+        //         </button>
+        //       </div>
+        //     </div>
+        //   ),
+        //   { duration: 10000 }
+        // );
       } else if (
         errorMsg.includes('Invalid login credentials') ||
         errorMsg.includes('Invalid email or password')
       ) {
         // Wrong password
-        toast.error(
-          (t) => (
-            <div className="flex flex-col gap-3">
-              <p className="font-medium">Invalid email or password</p>
-              <div className="flex gap-2">
-                <button
-                  onClick={() => {
-                    setModalView('forgotPassword');
-                    toast.dismiss(t.id);
-                  }}
-                  className="px-3 py-1 bg-teal-600 hover:bg-teal-700 rounded text-sm"
-                >
-                  Forgot Password?
-                </button>
-                <button
-                  onClick={() => toast.dismiss(t.id)}
-                  className="px-3 py-1 bg-red-600 hover:bg-red-500 rounded text-sm"
-                >
-                  Try Again
-                </button>
-              </div>
-            </div>
-          ),
-          { duration: 10000 }
-        );
+        // toast.error(
+        //   (t) => (
+        //     <div className="flex flex-col gap-3">
+        //       <p className="font-medium">Invalid email or password</p>
+        //       <div className="flex gap-2">
+        //         <button
+        //           onClick={() => {
+        //             setModalView('forgotPassword');
+        //             toast.dismiss(t.id);
+        //           }}
+        //           className="px-3 py-1 bg-teal-600 hover:bg-teal-700 rounded text-sm"
+        //         >
+        //           Forgot Password?
+        //         </button>
+        //         <button
+        //           onClick={() => toast.dismiss(t.id)}
+        //           className="px-3 py-1 bg-red-600 hover:bg-red-500 rounded text-sm"
+        //         >
+        //           Try Again
+        //         </button>
+        //       </div>
+        //     </div>
+        //   ),
+        //   { duration: 10000 }
+        // );
       } else if (errorMsg.includes('User already registered')) {
         // Already registered
         toast.error(

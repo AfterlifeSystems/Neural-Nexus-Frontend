@@ -23,9 +23,8 @@ import {
   Camera,
   Mic,
 } from 'lucide-react';
-import { useNgrokApiUrl } from '../context/NgrokAPIContext';
 import { useAuth } from '../context/AuthContext';
-import { AvatarService } from '../services/AvatarService';
+import { AvatarService } from '../services/avatarService';
 
 // Social Media Platform Configuration
 const SOCIAL_PLATFORMS = [
@@ -44,7 +43,6 @@ const SOCIAL_PLATFORMS = [
 ];
 
 const AvatarSettings = ({ avatarId, accessToken, onAvatarDeleted }) => {
-  const { dbHttpsUrl } = useNgrokApiUrl();
   const [links, setLinks] = useState([]);
   const [newLink, setNewLink] = useState('');
   const [files, setFiles] = useState([]);
@@ -68,7 +66,14 @@ const AvatarSettings = ({ avatarId, accessToken, onAvatarDeleted }) => {
   });
   const [manualUrl, setManualUrl] = useState('');
 
-  const { activeAvatar, setActiveAvatar, deleteAvatar, getAvatars } = useAuth();
+  const {
+    activeAvatar,
+    setActiveAvatar,
+    deleteAvatar,
+    getAvatars,
+    currentUser,
+    selectAvatar,
+  } = useAuth();
   const hasRun = useRef(false);
 
   // Global drag and drop handlers
@@ -128,11 +133,11 @@ const AvatarSettings = ({ avatarId, accessToken, onAvatarDeleted }) => {
     if (hasRun.current) return;
     hasRun.current = true;
 
-    if (!activeAvatar?.avatar_id || !accessToken) return;
+    if (!activeAvatar?.avatar_id || !currentUser) return;
 
     try {
       const avatarProfileData = await AvatarService.selectAvatar(
-        accessToken,
+        currentUser.uid,
         activeAvatar.avatar_id
       );
       setUpdatedDesc(avatarProfileData.description);
@@ -152,11 +157,11 @@ const AvatarSettings = ({ avatarId, accessToken, onAvatarDeleted }) => {
   };
 
   const fetchAvatarData = async () => {
-    if (!activeAvatar?.avatar_id || !accessToken) return;
+    if (!activeAvatar?.avatar_id || !currentUser) return null;
 
     try {
       const avatarProfileData = await AvatarService.selectAvatar(
-        accessToken,
+        currentUser.uid,
         activeAvatar.avatar_id
       );
       return avatarProfileData;
@@ -203,20 +208,14 @@ const AvatarSettings = ({ avatarId, accessToken, onAvatarDeleted }) => {
     }
 
     try {
-      const response = await fetch(
-        `${dbHttpsUrl}/management/avatars/upload-documents`,
-        {
-          method: 'POST',
-          headers: { Authorization: `Bearer ${accessToken}` },
-          body: formData,
-        }
+      if (!currentUser) throw new Error('Not logged in');
+      const uploaded = await AvatarService.uploadDocuments(
+        currentUser.uid,
+        activeAvatar.avatar_id,
+        filesList
       );
-
-      if (!response.ok) throw new Error('Upload failed');
-
-      const data = await response.json();
-      if (data.documents) {
-        setDocuments((prev) => [...prev, ...data.documents]);
+      if (uploaded && uploaded.length > 0) {
+        setDocuments((prev) => [...prev, ...uploaded]);
       }
       toast.success('Files uploaded successfully');
     } catch (err) {
@@ -230,27 +229,13 @@ const AvatarSettings = ({ avatarId, accessToken, onAvatarDeleted }) => {
     setLoading(true);
 
     try {
-      const response = await fetch(
-        `${dbHttpsUrl}/management/avatars/upload-url`,
-        {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            Authorization: `Bearer ${accessToken}`,
-          },
-          body: JSON.stringify({
-            avatar_id: activeAvatar.avatar_id,
-            url,
-          }),
-        }
+      if (!currentUser) throw new Error('Not logged in');
+      const docObj = await AvatarService.uploadUrl(
+        currentUser.uid,
+        activeAvatar.avatar_id,
+        url
       );
-
-      if (!response.ok) throw new Error('URL upload failed');
-
-      const data = await response.json();
-      if (data.document) {
-        setDocuments((prev) => [...prev, data.document]);
-      }
+      if (docObj) setDocuments((prev) => [...prev, docObj]);
       toast.success('URL added successfully');
     } catch (err) {
       toast.error('URL upload failed: ' + err.message);
@@ -268,33 +253,18 @@ const AvatarSettings = ({ avatarId, accessToken, onAvatarDeleted }) => {
     if (!loginCredentials.username || !loginCredentials.password) return;
 
     try {
-      const response = await fetch(
-        `${dbHttpsUrl}/management/avatars/connect-social`,
-        {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            Authorization: `Bearer ${accessToken}`,
-          },
-          body: JSON.stringify({
-            avatar_id: activeAvatar.avatar_id,
-            platform: selectedPlatform,
-            username: loginCredentials.username,
-            password: loginCredentials.password,
-          }),
-        }
+      if (!currentUser) throw new Error('Not logged in');
+      const login = await AvatarService.connectSocial(
+        currentUser.uid,
+        activeAvatar.avatar_id,
+        selectedPlatform,
+        loginCredentials.username,
+        loginCredentials.password
       );
-
-      if (!response.ok) throw new Error('Social login failed');
-
-      const data = await response.json();
-      setSocialLogins((prev) => [...prev, data.socialLogin]);
+      setSocialLogins((prev) => [...prev, login]);
       toast.success(
-        `Connected to ${
-          SOCIAL_PLATFORMS.find((p) => p.id === selectedPlatform)?.name
-        }`
+        `Connected to ${SOCIAL_PLATFORMS.find((p) => p.id === selectedPlatform)?.name}`
       );
-
       setShowLoginModal(false);
       setLoginCredentials({ username: '', password: '' });
       setSelectedPlatform(null);
@@ -305,18 +275,8 @@ const AvatarSettings = ({ avatarId, accessToken, onAvatarDeleted }) => {
 
   const removeSocialLogin = async (id) => {
     try {
-      await fetch(`${dbHttpsUrl}/management/avatars/disconnect-social`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${accessToken}`,
-        },
-        body: JSON.stringify({
-          avatar_id: activeAvatar.avatar_id,
-          login_id: id,
-        }),
-      });
-
+      if (!currentUser) throw new Error('Not logged in');
+      await AvatarService.disconnectSocial(currentUser.uid, activeAvatar.avatar_id, id);
       setSocialLogins((prev) => prev.filter((login) => login.id !== id));
       toast.success('Social account disconnected');
     } catch (err) {
@@ -344,18 +304,8 @@ const AvatarSettings = ({ avatarId, accessToken, onAvatarDeleted }) => {
 
   const deleteDocument = async (id) => {
     try {
-      await fetch(`${dbHttpsUrl}/management/avatars/delete-document`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${accessToken}`,
-        },
-        body: JSON.stringify({
-          avatar_id: activeAvatar.avatar_id,
-          document_id: id,
-        }),
-      });
-
+      if (!currentUser) throw new Error('Not logged in');
+      await AvatarService.deleteDocument(currentUser.uid, activeAvatar.avatar_id, id);
       setDocuments((prev) => prev.filter((doc) => doc.id !== id));
       toast.success('Document deleted');
     } catch (err) {
@@ -497,18 +447,22 @@ const AvatarSettings = ({ avatarId, accessToken, onAvatarDeleted }) => {
       canvas.toBlob(resolve, 'image/jpeg', 0.95)
     );
 
-    const formData = new FormData();
-    formData.append('avatar_id', activeAvatar.avatar_id);
-    formData.append('files', blob, 'avatar-photo.jpg');
-
-    await fetch(`${dbHttpsUrl}/management/avatars/upload-documents`, {
-      method: 'POST',
-      headers: { Authorization: `Bearer ${accessToken}` },
-      body: formData,
-    });
-
-    cleanupMedia();
-    toast.success('Photo captured successfully');
+    const file = new File([blob], 'avatar-photo.jpg', { type: 'image/jpeg' });
+    try {
+      if (!currentUser) throw new Error('Not logged in');
+      const uploaded = await AvatarService.uploadDocuments(
+        currentUser.uid,
+        activeAvatar.avatar_id,
+        [file]
+      );
+      if (uploaded && uploaded.length > 0)
+        setDocuments((prev) => [...prev, ...uploaded]);
+      cleanupMedia();
+      toast.success('Photo captured successfully');
+    } catch (err) {
+      toast.error('Photo upload failed: ' + err.message);
+      cleanupMedia();
+    }
   };
 
   const VOICE_SCRIPT = `
@@ -560,15 +514,22 @@ const AvatarSettings = ({ avatarId, accessToken, onAvatarDeleted }) => {
     formData.append('icon', acceptedFiles[0]);
     formData.append('avatar_id', activeAvatar.avatar_id);
 
-    await fetch(`${dbHttpsUrl}/management/avatars/update`, {
-      method: 'POST',
-      headers: { Authorization: `Bearer ${accessToken}` },
-      body: formData,
-    });
+    try {
+      if (!currentUser) throw new Error('Not logged in');
+      await AvatarService.updateAvatarWithIcon(
+        currentUser.uid,
+        activeAvatar.avatar_id,
+        null,
+        null,
+        acceptedFiles[0]
+      );
 
-    const avatarProfileData = await fetchAvatarData();
-    setUpdatedIcon(avatarProfileData.icon_url);
-    toast.success('Avatar icon updated');
+      const avatarProfileData = await fetchAvatarData();
+      setUpdatedIcon(avatarProfileData.icon_url);
+      toast.success('Avatar icon updated');
+    } catch (err) {
+      toast.error(err.message);
+    }
   };
 
   const handleDescSave = async (updatedDesc) => {
@@ -577,10 +538,9 @@ const AvatarSettings = ({ avatarId, accessToken, onAvatarDeleted }) => {
     formData.append('avatar_id', activeAvatar.avatar_id);
 
     try {
-      await fetch(`${dbHttpsUrl}/management/avatars/update`, {
-        method: 'POST',
-        headers: { Authorization: `Bearer ${accessToken}` },
-        body: formData,
+      if (!currentUser) throw new Error('Not logged in');
+      await AvatarService.updateAvatar(currentUser.uid, activeAvatar.avatar_id, {
+        description: updatedDesc,
       });
 
       const avatarProfileData = await fetchAvatarData();
@@ -597,10 +557,9 @@ const AvatarSettings = ({ avatarId, accessToken, onAvatarDeleted }) => {
     formData.append('avatar_id', activeAvatar.avatar_id);
 
     try {
-      await fetch(`${dbHttpsUrl}/management/avatars/update`, {
-        method: 'POST',
-        headers: { Authorization: `Bearer ${accessToken}` },
-        body: formData,
+      if (!currentUser) throw new Error('Not logged in');
+      await AvatarService.updateAvatar(currentUser.uid, activeAvatar.avatar_id, {
+        name: updatedAvatarName,
       });
 
       const avatarProfileData = await fetchAvatarData();
