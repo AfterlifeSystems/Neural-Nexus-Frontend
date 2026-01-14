@@ -1,15 +1,17 @@
-import React from 'react';
+// components/ProtectedRoute.jsx
 import { Navigate } from 'react-router-dom';
-import { useAuth } from '../contexts/AuthContext';
+import { useAuth } from '../context/AuthContext';
 
 const ProtectedRoute = ({ children }) => {
-  const { currentUser, loading } = useAuth();
+  const { user, loading } = useAuth(); // 'user' is the firebaseUser object
 
-  if (loading) {
-    return <div>Loading...</div>;
+  if (loading) return null; // Or a loading spinner
+
+  if (!user) {
+    return <Navigate to="/login" replace />;
   }
 
-  return currentUser ? children : <Navigate to="/login" />;
+  return children;
 };
 
 export default ProtectedRoute;

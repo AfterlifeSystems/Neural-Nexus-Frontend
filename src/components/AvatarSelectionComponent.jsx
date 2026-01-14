@@ -307,9 +307,6 @@ const AvatarSelectionComponent = ({
   }, []);
 
   useEffect(() => {
-    console.log(
-      'XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX TARA HOLIDAY XXXXXXXXXXXXXXXXXXXXXXXXXXX'
-    );
     console.log('Avatar Selection Component isLoggedIn: ' + isLoggedIn);
   }, []);
 
