@@ -8,7 +8,7 @@
 ```javascript
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import { onAuthStateChanged } from 'firebase/auth';
-import { auth } from '../firebase/config';
+import { auth } from '../firebase/config.js';
 import { getUserProfile } from '../services/userService';
 
 const AuthContext = createContext();
@@ -540,7 +540,7 @@ import {
   orderBy,
   onSnapshot
 } from 'firebase/firestore';
-import { db } from '../firebase/config';
+import { db } from '../firebase/config.js';
 
 export const useMessages = (avatarId, userId) => {
   const [messages, setMessages] = useState([]);

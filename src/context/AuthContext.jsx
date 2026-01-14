@@ -14,16 +14,17 @@ import {
   getRedirectResult,
 } from 'firebase/auth';
 import { doc, getDoc, updateDoc, setDoc } from 'firebase/firestore';
-import { auth, db, storage } from '../firebase/config';
+import { auth, db, storage } from '../firebase/config.js';
 import { getUserProfile } from '../services/userService';
 import {
   getAvatars as getAvatarsFromFirestore,
   createAvatar as createAvatarInFirestore,
   deleteAvatar as deleteAvatarFromFirestore,
   selectAvatar as selectAvatarInFirestore,
-} from '../services/avatarService';
+} from '../services/avatar_Service.jsx';
 import toast from 'react-hot-toast';
 import { X } from 'lucide-react';
+import { signup, login, logout } from '../services/authService';
 
 const AuthContext = createContext();
 
@@ -36,6 +37,14 @@ export const AuthProvider = ({ children }) => {
   const [activeAvatar, setActiveAvatar] = useState(null);
   const [loading, setLoading] = useState(true);
   const [accessToken, setAccessToken] = useState(null); // Firebase ID token for backend API
+
+  // verify connection to firebase auth emulator
+  useEffect(() => {
+    if (auth.config) {
+      console.log('Full Auth Config:', auth.config);
+      // Look for a property called 'emulatorConfig' in the object tree
+    }
+  }, []);
 
   // Listen to Firebase auth state changes
   useEffect(() => {
@@ -77,41 +86,41 @@ export const AuthProvider = ({ children }) => {
           }
 
           // If profile missing, attempt to create a minimal profile document
-          if (!profile) {
-            try {
-              const minimalProfile = {
-                user_id: firebaseUser.uid,
-                username:
-                  firebaseUser.displayName ||
-                  (firebaseUser.email || '').split('@')[0],
-                email: firebaseUser.email || null,
-                created_at: new Date(),
-                last_login: new Date(),
-                currently_logged_in: true,
-                avatars: [],
-                digital_twins: [],
-              };
-              await setDoc(doc(db, 'users', firebaseUser.uid), minimalProfile);
-              profile = await getUserProfile(firebaseUser.uid);
-              console.log(
-                'Created minimal user profile for uid:',
-                firebaseUser.uid
-              );
-            } catch (createErr) {
-              console.error(
-                'Failed to create minimal user profile:',
-                createErr
-              );
-              if (
-                createErr?.message &&
-                createErr.message.includes('Insufficient Firestore permissions')
-              ) {
-                toast.error(
-                  'Unable to create user profile due to Firestore permissions.'
-                );
-              }
-            }
-          }
+          // if (!profile) {
+          //   try {
+          //     const minimalProfile = {
+          //       user_id: firebaseUser.uid,
+          //       username:
+          //         firebaseUser.displayName ||
+          //         (firebaseUser.email || '').split('@')[0],
+          //       email: firebaseUser.email || null,
+          //       created_at: new Date(),
+          //       last_login: new Date(),
+          //       currently_logged_in: true,
+          //       avatars: [],
+          //       digital_twins: [],
+          //     };
+          //     await setDoc(doc(db, 'users', firebaseUser.uid), minimalProfile);
+          //     profile = await getUserProfile(firebaseUser.uid);
+          //     console.log(
+          //       'Created minimal user profile for uid:',
+          //       firebaseUser.uid
+          //     );
+          //   } catch (createErr) {
+          //     console.error(
+          //       'Failed to create minimal user profile:',
+          //       createErr
+          //     );
+          //     if (
+          //       createErr?.message &&
+          //       createErr.message.includes('Insufficient Firestore permissions')
+          //     ) {
+          //       toast.error(
+          //         'Unable to create user profile due to Firestore permissions.'
+          //       );
+          //     }
+          //   }
+          // }
 
           if (profile) {
             setUserProfile(profile);
@@ -177,155 +186,6 @@ export const AuthProvider = ({ children }) => {
     } catch (error) {
       console.error('Error loading avatars:', error);
       return [];
-    }
-  };
-
-  const signup = async (username, email, password) => {
-    try {
-      // Create Firebase Auth user
-      const userCredential = await createUserWithEmailAndPassword(
-        auth,
-        email,
-        password
-      );
-
-      // Update display name
-      await updateProfile(userCredential.user, { displayName: username });
-
-      // Send email verification
-      await sendEmailVerification(userCredential.user);
-
-      // Create Firestore profile
-      const userDoc = {
-        user_id: userCredential.user.uid,
-        username,
-        email,
-        created_at: new Date(),
-        last_login: null,
-        currently_logged_in: true,
-        personal_image: null,
-        neural_nexus_api_key: null,
-        grok_api_key: null,
-        enable_grok_imagine: false,
-        elevenlabs_api_key: null,
-        enable_elevenlabs: false,
-        api_usage: {
-          requests_made: 0,
-          tokens_used: 0,
-        },
-        billing_history: [],
-        credit_card: null,
-        avatars: [],
-        last_used_digital_twin: null,
-        digital_twins: [],
-        cloud_run_services: {},
-
-        avatar_messaging_api_cpu_endpoint: null,
-        avatar_messaging_api_gpu_endpoint: null,
-        avatar_data_collection_api_endpoint: null,
-        avatar_vectorstore_management_api_endpoint: null,
-        avatar_adapter_management_api_endpoint: null,
-      };
-
-      await setDoc(doc(db, 'users', userCredential.user.uid), userDoc);
-
-      toast.success(
-        'Signup successful! Please check your email to verify your account.',
-        { duration: Infinity }
-      );
-
-      return userCredential.user;
-    } catch (error) {
-      console.error('Signup error:', error);
-
-      // Display user-friendly error messages
-      let errorMessage = 'Signup failed. Please try again.';
-      if (error.code === 'auth/email-already-in-use') {
-        errorMessage = 'This email is already registered';
-      } else if (error.code === 'auth/invalid-email') {
-        errorMessage = 'Please provide a valid email address';
-      } else if (error.code === 'auth/weak-password') {
-        errorMessage = 'Password must be at least 6 characters';
-      } else if (error.message) {
-        errorMessage = error.message;
-      }
-
-      toast.error(errorMessage);
-      throw error;
-    }
-  };
-
-  const login = async (email, password) => {
-    try {
-      const userCredential = await signInWithEmailAndPassword(
-        auth,
-        email,
-        password
-      );
-
-      // Check if email is verified
-      if (!userCredential.user.emailVerified) {
-        await signOut(auth);
-        // throw new Error('Please verify your email before logging in');
-      }
-
-      // Update last_login in Firestore
-      await updateDoc(doc(db, 'users', userCredential.user.uid), {
-        last_login: new Date(),
-        currently_logged_in: true,
-      });
-
-      // toast.success('Login successful!');
-      return userCredential.user;
-    } catch (error) {
-      console.error('Login error:', error);
-
-      let errorMessage = 'Login failed. Please try again.';
-      if (error.code === 'auth/user-not-found') {
-        errorMessage = 'No account found with this email';
-      } else if (error.code === 'auth/wrong-password') {
-        errorMessage = 'Incorrect password';
-      } else if (error.code === 'auth/invalid-email') {
-        errorMessage = 'Invalid email address';
-      } else if (error.message) {
-        errorMessage = error.message;
-      }
-
-      toast.error(errorMessage);
-      throw error;
-    }
-  };
-
-  const logout = async () => {
-    try {
-      // Update Firestore if user is logged in
-      if (currentUser) {
-        try {
-          await updateDoc(doc(db, 'users', currentUser.uid), {
-            currently_logged_in: false,
-          });
-        } catch (error) {
-          console.error('Error updating logout status:', error);
-        }
-      }
-
-      // Sign out from Firebase
-      await signOut(auth);
-
-      // Clear local state
-      setUser(null);
-      setUserProfile(null);
-      setIsLoggedIn(false);
-      setAvatars([]);
-      setActiveAvatar(null);
-      setAccessToken(null);
-      localStorage.removeItem('user');
-      localStorage.removeItem('firebase_user_id');
-      localStorage.removeItem('avatars');
-      localStorage.removeItem('access_token');
-    } catch (error) {
-      console.error('Logout error:', error);
-      toast.error('Logout completed with errors');
     }
   };
 
@@ -568,9 +428,9 @@ export const AuthProvider = ({ children }) => {
         setActiveAvatar,
 
         // Auth methods
-        login,
-        signup,
-        logout,
+        // login,
+        // signup,
+        // logout,
         resendVerification,
         forgotPassword,
         updatePassword,

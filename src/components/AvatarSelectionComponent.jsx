@@ -13,10 +13,11 @@ import {
   User,
 } from 'lucide-react';
 import { FiCircle } from 'react-icons/fi';
-import AuthComponent from './AuthComponent';
 import CreateAvatarComponent from './CreateAvatarComponent';
 import AvatarCardComponent from './AvatarCardComponent';
 import { useMedia } from '../context/MediaContext';
+import AuthComponent from './AuthComponent';
+import { signup, login, logout } from '../services/authService';
 
 const AvatarSelectionComponent = ({
   setShowCreateModal,
@@ -28,7 +29,7 @@ const AvatarSelectionComponent = ({
     accessToken,
     user,
     avatars,
-    logout,
+    // logout,
     setActiveAvatar,
     lastUsedAvatar,
     selectAvatar,
@@ -303,6 +304,13 @@ const AvatarSelectionComponent = ({
     if (isLoggedIn) {
       toast.dismiss();
     }
+  }, []);
+
+  useEffect(() => {
+    console.log(
+      'XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX TARA HOLIDAY XXXXXXXXXXXXXXXXXXXXXXXXXXX'
+    );
+    console.log('Avatar Selection Component isLoggedIn: ' + isLoggedIn);
   }, []);
 
   const loginCard = useMemo(

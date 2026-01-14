@@ -16,6 +16,7 @@ import { useMedia } from '../context/MediaContext';
 import VantaBackground from './VantaBackground';
 import LoadingSpinner from './LoadingSpinner';
 import { toast, Toaster } from 'react-hot-toast';
+import { signup, login, logout } from '../services/authService';
 
 const modalRoot =
   document.getElementById('modal-root') ||
@@ -40,9 +41,9 @@ const AuthComponent = ({ setActiveTab, onEndLiveChat }) => {
   const {
     user,
     isLoggedIn,
-    login,
-    signup,
-    logout,
+    // login,
+    // signup,
+    // logout,
     resendVerification,
     forgotPassword,
     signInWithProvider,

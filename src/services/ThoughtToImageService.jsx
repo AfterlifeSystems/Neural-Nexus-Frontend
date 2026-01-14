@@ -5,7 +5,7 @@ import {
   decrementPendingRequests,
   clearPendingRequests,
 } from '../components/toastManager';
-import { db } from '../firebase/config';
+import { db } from '../firebase/config.js';
 import {
   collection,
   addDoc,

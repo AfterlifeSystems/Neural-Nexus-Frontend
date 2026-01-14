@@ -13,7 +13,7 @@ import {
   getDownloadURL,
   deleteObject,
 } from 'firebase/storage';
-import { db, storage } from '../firebase/config';
+import { db, storage } from '../firebase/config.js';
 
 export const getUserProfile = async (userId) => {
   try {
@@ -49,7 +49,7 @@ export const getUserProfile = async (userId) => {
         }
 
         return {
-          digital_twin_id: twinDoc.id,
+          avatar_id: twinDoc.id,
           name: twinData.name,
           description: twinData.description,
           icon: {
@@ -78,9 +78,9 @@ export const getUserProfile = async (userId) => {
     // Provide both the new `digital_twins` info and a legacy `avatars` shape for compatibility
     return {
       ...userData,
-      digital_twins: digitalTwins.map((t) => t.digital_twin_id),
+      digital_twins: digitalTwins.map((t) => t.avatar_id),
       avatars: digitalTwins.map((t) => ({
-        avatar_id: t.digital_twin_id,
+        avatar_id: t.avatar_id,
         name: t.name,
         description: t.description,
         icon: t.icon.url,

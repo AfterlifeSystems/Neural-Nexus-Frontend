@@ -18,7 +18,7 @@ import {
   onSnapshot,
 } from 'firebase/firestore';
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
-import { db, storage } from '../firebase/config';
+import { db, storage } from '../firebase/config.js';
 import { v4 as uuidv4 } from 'uuid';
 
 /**

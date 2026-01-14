@@ -57,7 +57,7 @@ digital_twins/{digitalTwinId}
 **Document Structure:**
 ```javascript
 {
-  digital_twin_id: string,
+  avatar_id: string,
   user_id: string,
   name: string,
   description: string,

@@ -72,7 +72,11 @@ const App = () => {
       <VantaBackground />
       <Toaster
         position="top-center"
-        toastOptions={{ style: { boxShadow: 'none' }, className: 'z-[2000]' }}
+        containerStyle={{ zIndex: 99999 }}
+        toastOptions={{
+          style: { boxShadow: 'none', zIndex: 99999 },
+          className: 'z-[99999]',
+        }}
       />
       <div className="w-screen h-screen flex flex-col gap-1 relative z-10">
         <div className="relative flex flex-grow overflow-hidden justify-center items-center">

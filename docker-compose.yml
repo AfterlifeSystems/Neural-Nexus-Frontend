@@ -41,7 +41,7 @@ services:
       - ./:/firebase:cached
     working_dir: /firebase
     command: >
-      sh -c "firebase emulators:start --project demo-project --only firestore,auth,database,storage,functions"
+      sh -c "firebase emulators:start --project neuralnexus-467517 --only firestore,auth,database,storage,functions"
     networks:
       - neural-nexus-network
     restart: unless-stopped

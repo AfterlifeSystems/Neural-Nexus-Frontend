@@ -20,7 +20,7 @@ VITE_FIREBASE_APP_ID=your_app_id
 Firestore is already configured and exported from `src/firebase/config.js`:
 
 ```javascript
-import { db } from '../firebase/config';
+import { db } from '../firebase/config.js';
 
 // Example: Read a document
 import { doc, getDoc } from 'firebase/firestore';
@@ -46,7 +46,7 @@ function MyComponent() {
 Or import directly from the config:
 
 ```javascript
-import { db } from '../firebase/config';
+import { db } from '../firebase/config.js';
 import { collection, getDocs } from 'firebase/firestore';
 
 const snapshot = await getDocs(collection(db, 'users'));

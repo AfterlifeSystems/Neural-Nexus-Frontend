@@ -1,8 +1,7 @@
 import { initializeApp } from 'firebase/app';
-import { getAuth, connectAuthEmulator } from 'firebase/auth';
 import { getFirestore, connectFirestoreEmulator } from 'firebase/firestore';
 import { getStorage, connectStorageEmulator } from 'firebase/storage';
-
+import { getAuth, connectAuthEmulator, setPersistence, browserLocalPersistence } from 'firebase/auth';
 // Firebase configuration
 const firebaseConfig = {
   apiKey: import.meta.env.VITE_FIREBASE_API_KEY || "demo-api-key",
@@ -28,9 +27,11 @@ if (useEmulators) {
   // Note: Use localhost for browser, not firebase-emulator
   // The docker-compose port mappings make emulators available on localhost
   
-  connectAuthEmulator(auth, 'http://localhost:9099', { disableWarnings: true });
-  connectFirestoreEmulator(db, 'localhost', 8070);
-  connectStorageEmulator(storage, 'localhost', 9199);
+  connectAuthEmulator(auth, 'http://127.0.0.1:9099', { disableWarnings: true });
+  setPersistence(auth, browserLocalPersistence); // keep user after page reloads
+
+  connectFirestoreEmulator(db, '127.0.0.1', 8070);
+  connectStorageEmulator(storage, '127.0.0.1', 9199);
   
   console.log('🔥 Connected to Firebase Emulators');
   console.log('   Auth: http://localhost:9099');

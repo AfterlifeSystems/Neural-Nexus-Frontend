@@ -24,7 +24,7 @@ import {
   Mic,
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
-import { AvatarService } from '../services/avatarService';
+import { AvatarService } from '../services/AvatarService';
 
 // Social Media Platform Configuration
 const SOCIAL_PLATFORMS = [
@@ -263,7 +263,9 @@ const AvatarSettings = ({ avatarId, accessToken, onAvatarDeleted }) => {
       );
       setSocialLogins((prev) => [...prev, login]);
       toast.success(
-        `Connected to ${SOCIAL_PLATFORMS.find((p) => p.id === selectedPlatform)?.name}`
+        `Connected to ${
+          SOCIAL_PLATFORMS.find((p) => p.id === selectedPlatform)?.name
+        }`
       );
       setShowLoginModal(false);
       setLoginCredentials({ username: '', password: '' });
@@ -276,7 +278,11 @@ const AvatarSettings = ({ avatarId, accessToken, onAvatarDeleted }) => {
   const removeSocialLogin = async (id) => {
     try {
       if (!currentUser) throw new Error('Not logged in');
-      await AvatarService.disconnectSocial(currentUser.uid, activeAvatar.avatar_id, id);
+      await AvatarService.disconnectSocial(
+        currentUser.uid,
+        activeAvatar.avatar_id,
+        id
+      );
       setSocialLogins((prev) => prev.filter((login) => login.id !== id));
       toast.success('Social account disconnected');
     } catch (err) {
@@ -305,7 +311,11 @@ const AvatarSettings = ({ avatarId, accessToken, onAvatarDeleted }) => {
   const deleteDocument = async (id) => {
     try {
       if (!currentUser) throw new Error('Not logged in');
-      await AvatarService.deleteDocument(currentUser.uid, activeAvatar.avatar_id, id);
+      await AvatarService.deleteDocument(
+        currentUser.uid,
+        activeAvatar.avatar_id,
+        id
+      );
       setDocuments((prev) => prev.filter((doc) => doc.id !== id));
       toast.success('Document deleted');
     } catch (err) {
@@ -539,9 +549,13 @@ const AvatarSettings = ({ avatarId, accessToken, onAvatarDeleted }) => {
 
     try {
       if (!currentUser) throw new Error('Not logged in');
-      await AvatarService.updateAvatar(currentUser.uid, activeAvatar.avatar_id, {
-        description: updatedDesc,
-      });
+      await AvatarService.updateAvatar(
+        currentUser.uid,
+        activeAvatar.avatar_id,
+        {
+          description: updatedDesc,
+        }
+      );
 
       const avatarProfileData = await fetchAvatarData();
       setUpdatedDesc(avatarProfileData.description);
@@ -558,9 +572,13 @@ const AvatarSettings = ({ avatarId, accessToken, onAvatarDeleted }) => {
 
     try {
       if (!currentUser) throw new Error('Not logged in');
-      await AvatarService.updateAvatar(currentUser.uid, activeAvatar.avatar_id, {
-        name: updatedAvatarName,
-      });
+      await AvatarService.updateAvatar(
+        currentUser.uid,
+        activeAvatar.avatar_id,
+        {
+          name: updatedAvatarName,
+        }
+      );
 
       const avatarProfileData = await fetchAvatarData();
       setUpdatedAvatarName(avatarProfileData.name);
