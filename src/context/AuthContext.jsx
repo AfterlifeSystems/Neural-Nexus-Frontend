@@ -30,7 +30,6 @@ const AuthContext = createContext();
 
 export const AuthProvider = ({ children }) => {
   const [user, setUser] = useState(null);
-  const [isLoggedIn, setIsLoggedIn] = useState(false);
   const [currentUser, setCurrentUser] = useState(null); // Firebase Auth user
   const [userProfile, setUserProfile] = useState(null); // Firestore user profile
   const [avatars, setAvatars] = useState([]);
@@ -125,11 +124,10 @@ export const AuthProvider = ({ children }) => {
           if (profile) {
             setUserProfile(profile);
             setUser(profile);
-            setIsLoggedIn(true);
 
             // Store user data in localStorage
-            localStorage.setItem('user', JSON.stringify(profile));
-            localStorage.setItem('firebase_user_id', firebaseUser.uid);
+            // localStorage.setItem('user', JSON.stringify(profile));
+            // localStorage.setItem('firebase_user_id', firebaseUser.uid);
 
             // Load avatars from Firestore
             const loadedAvatars = await loadAvatars(firebaseUser.uid);
@@ -147,27 +145,24 @@ export const AuthProvider = ({ children }) => {
             // Profile unavailable: keep auth state limited
             setUserProfile(null);
             setUser(null);
-            setIsLoggedIn(false);
           }
         } catch (error) {
           console.error('Error loading user profile:', error);
           setUserProfile(null);
           setUser(null);
-          setIsLoggedIn(false);
           setAccessToken(null);
         }
       } else {
         // User signed out
         setUser(null);
         setUserProfile(null);
-        setIsLoggedIn(false);
         setAvatars([]);
         setActiveAvatar(null);
         setAccessToken(null);
-        localStorage.removeItem('user');
-        localStorage.removeItem('firebase_user_id');
-        localStorage.removeItem('avatars');
-        localStorage.removeItem('access_token');
+        // localStorage.removeItem('user');
+        // localStorage.removeItem('firebase_user_id');
+        // localStorage.removeItem('avatars');
+        // localStorage.removeItem('access_token');
       }
 
       setLoading(false);
@@ -420,7 +415,6 @@ export const AuthProvider = ({ children }) => {
         // User state
         user,
         userProfile,
-        isLoggedIn,
         currentUser, // Firebase Auth user object
         accessToken, // Firebase ID token for backend API calls
         avatars,

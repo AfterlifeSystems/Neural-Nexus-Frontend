@@ -43,7 +43,7 @@ const AuthComponent = () => {
 
   const {
     user,
-    isLoggedIn,
+    // isLoggedIn,
     // login,
     // signup,
     // logout,
@@ -58,6 +58,14 @@ const AuthComponent = () => {
   const { setMessages } = useMedia();
   const [dropdownOpen, setDropdownOpen] = useState(false);
   const dropdownRef = useRef(null);
+
+  // Inside AuthComponent.jsx
+  useEffect(() => {
+    // If the context says we are logged in and have a user profile, go to avatars
+    if (user) {
+      navigate('/avatars');
+    }
+  }, [user, navigate]);
 
   const validIcons = Array.isArray(avatars)
     ? avatars
@@ -111,16 +119,11 @@ const AuthComponent = () => {
 
     try {
       if (modalView === 'signup') {
-        const res = await signup(username, email, password);
+        await signup(username, email, password);
+        // const res = await signup(username, email, password);
         // Success handled in AuthContext
-        if (res.message === 'Login successful') {
-          navigate('/avatars');
-        } else {
-          setModalView('login');
-        }
       } else if (modalView === 'login') {
         await login(email, password);
-        navigate('/avatars');
         // Success handled in AuthContext
       } else if (modalView === 'forgotPassword') {
         await forgotPassword(email);
