@@ -13,7 +13,7 @@ import {
   getDownloadURL,
   deleteObject,
 } from 'firebase/storage';
-import { db, storage } from '../firebase/config';
+import { db, storage } from '../firebase/config.js';
 
 export const getUserProfile = async (userId) => {
   try {
@@ -27,12 +27,12 @@ export const getUserProfile = async (userId) => {
 
     // Get digital twins (replace old avatars collection)
     const twinsQuery = query(
-      collection(db, 'digital_twins'),
+      collection(db, 'avatars'),
       where('user_id', '==', userId)
     );
     const twinsSnapshot = await getDocs(twinsQuery);
 
-    const digitalTwins = await Promise.all(
+    const avatars = await Promise.all(
       twinsSnapshot.docs.map(async (twinDoc) => {
         const twinData = twinDoc.data();
 
@@ -49,7 +49,7 @@ export const getUserProfile = async (userId) => {
         }
 
         return {
-          digital_twin_id: twinDoc.id,
+          avatar_id: twinDoc.id,
           name: twinData.name,
           description: twinData.description,
           icon: {
@@ -75,12 +75,12 @@ export const getUserProfile = async (userId) => {
       }
     }
 
-    // Provide both the new `digital_twins` info and a legacy `avatars` shape for compatibility
+    // Provide both the new `avatars` info and a legacy `avatars` shape for compatibility
     return {
       ...userData,
-      digital_twins: digitalTwins.map((t) => t.digital_twin_id),
-      avatars: digitalTwins.map((t) => ({
-        avatar_id: t.digital_twin_id,
+      avatars: avatars.map((t) => t.avatar_id),
+      avatars: avatars.map((t) => ({
+        avatar_id: t.avatar_id,
         name: t.name,
         description: t.description,
         icon: t.icon.url,

@@ -18,7 +18,7 @@ import {
   onSnapshot,
 } from 'firebase/firestore';
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
-import { db, storage } from '../firebase/config';
+import { db, storage } from '../firebase/config.js';
 import { v4 as uuidv4 } from 'uuid';
 
 /**
@@ -43,7 +43,7 @@ export const sendMessage = async (
   // Get conversation ID (use default if not provided)
   let finalConversationId = conversationId;
   if (!finalConversationId) {
-    const avatarRef = doc(db, 'digital_twins', avatarId);
+    const avatarRef = doc(db, 'avatars', avatarId);
     const avatarDoc = await getDoc(avatarRef);
     if (!avatarDoc.exists()) {
       throw new Error('Digital twin not found');
@@ -65,7 +65,7 @@ export const sendMessage = async (
     const mediaId = uuidv4();
     const mediaRef = ref(
       storage,
-      `users/${userId}/digital_twins/${avatarId}/conversations/${finalConversationId}/messages/${messageId}/${file.name}`
+      `users/${userId}/avatars/${avatarId}/conversations/${finalConversationId}/messages/${messageId}/${file.name}`
     );
     await uploadBytes(mediaRef, file);
     const downloadURL = await getDownloadURL(mediaRef);
@@ -93,7 +93,7 @@ export const sendMessage = async (
   const messageRef = await addDoc(
     collection(
       db,
-      'digital_twins',
+      'avatars',
       avatarId,
       'conversations',
       finalConversationId,
@@ -115,7 +115,7 @@ export const sendMessage = async (
   // Update conversation's updated_at timestamp
   const conversationRef = doc(
     db,
-    'digital_twins',
+    'avatars',
     avatarId,
     'conversations',
     finalConversationId
@@ -174,7 +174,7 @@ export const getMessages = async (
   // Get conversation ID (use default if not provided)
   let finalConversationId = conversationId;
   if (!finalConversationId) {
-    const avatarRef = doc(db, 'digital_twins', avatarId);
+    const avatarRef = doc(db, 'avatars', avatarId);
     const avatarDoc = await getDoc(avatarRef);
     if (!avatarDoc.exists() || avatarDoc.data().user_id !== userId) {
       throw new Error('Digital twin not found or unauthorized');
@@ -190,7 +190,7 @@ export const getMessages = async (
   const messagesQuery = query(
     collection(
       db,
-      'digital_twins',
+      'avatars',
       avatarId,
       'conversations',
       finalConversationId,
@@ -255,7 +255,7 @@ export const subscribeToMessages = (avatarId, conversationId, callback) => {
   const messagesQuery = query(
     collection(
       db,
-      'digital_twins',
+      'avatars',
       avatarId,
       'conversations',
       conversationId,

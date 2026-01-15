@@ -13,26 +13,17 @@ import {
   User,
 } from 'lucide-react';
 import { FiCircle } from 'react-icons/fi';
-import AuthComponent from './AuthComponent';
 import CreateAvatarComponent from './CreateAvatarComponent';
+import CreateAvatarModal from './CreateAvatarModal';
 import AvatarCardComponent from './AvatarCardComponent';
 import { useMedia } from '../context/MediaContext';
+import AuthComponent from './AuthComponent';
+import { signup, login, logout } from '../services/authService';
+import { selectAvatar } from '../services/avatar_Service';
 
-const AvatarSelectionComponent = ({
-  setShowCreateModal,
-  setActiveTab,
-  onEndLiveChat,
-}) => {
-  const {
-    isLoggedIn,
-    accessToken,
-    user,
-    avatars,
-    logout,
-    setActiveAvatar,
-    lastUsedAvatar,
-    selectAvatar,
-  } = useAuth();
+const AvatarSelectionComponent = ({}) => {
+  const { accessToken, user, userAvatars, setActiveAvatar, lastUsedAvatar } =
+    useAuth();
   const { setMessages, fetchMessages } = useMedia();
   const navigate = useNavigate();
   const [currentCardIndex, setCurrentCardIndex] = useState(0);
@@ -45,6 +36,7 @@ const AvatarSelectionComponent = ({
   const searchRef = useRef(null);
   const dropdownRef = useRef(null);
   const hasInitialized = useRef(false);
+  const [showCreateModal, setShowCreateModal] = useState(false);
 
   const isValidImageUrl = (url) => {
     if (!url) return false;
@@ -75,7 +67,7 @@ const AvatarSelectionComponent = ({
   const cacheAvatarPosition = (avatarId, avatarIndex = null) => {
     try {
       localStorage.setItem('last_used_avatar_id', avatarId);
-      if (avatarIndex !== null && avatars?.length > 0) {
+      if (avatarIndex !== null && userAvatars?.length > 0) {
         const positionData = {
           avatarIndex,
         };
@@ -118,45 +110,44 @@ const AvatarSelectionComponent = ({
     }
 
     if (actualCardData.type === 'avatar') {
-      try {
-        const avatarId =
-          actualCardData.id ||
-          avatars?.find((avatar) => avatar.name === actualCardData.text)
-            ?.avatar_id;
-        if (!avatarId) {
-          toast.error('Avatar ID not found');
-          return;
-        }
-
-        const avatarIndex = avatars.findIndex(
-          (avatar) => avatar.avatar_id === avatarId
-        );
-
-        setCurrentCardIndex(avatarIndex);
-        if (galleryRef.current) {
-          galleryRef.current.setCurrentIndex(avatarIndex);
-        }
-
-        // Use AuthContext selectAvatar which updates Firestore
-        await selectAvatar(avatarId);
-
-        const selectedAvatar = avatars.find(
-          (avatar) => avatar.avatar_id === avatarId
-        );
-
-        cacheAvatarPosition(avatarId, avatarIndex);
-        if (selectedAvatar?.icon) {
-          cacheAvatarIcon(avatarId, selectedAvatar.icon, avatarIndex);
-        }
-
-        setActiveAvatar(selectedAvatar);
-        // Load messages for this avatar
-        await fetchMessages();
-        setActiveTab('chat');
-      } catch (error) {
-        console.error('Error selecting avatar:', error);
-        toast.error('Failed to select avatar');
+      const avatarId =
+        actualCardData.id ||
+        userAvatars?.find((avatar) => avatar.name === actualCardData.text)
+          ?.avatar_id;
+      if (!avatarId) {
+        toast.error('Avatar ID not found');
+        return;
       }
+
+      const avatarIndex = userAvatars.findIndex(
+        (avatar) => avatar.avatar_id === avatarId
+      );
+
+      setCurrentCardIndex(avatarIndex);
+      if (galleryRef.current) {
+        galleryRef.current.setCurrentIndex(avatarIndex);
+      }
+      // Use AuthContext selectAvatar which updates Firestore
+      // await selectAvatar(avatarId);
+
+      // asdf;
+
+      const selectedAvatar = userAvatars.find(
+        (avatar) => avatar.avatar_id === avatarId
+      );
+
+      cacheAvatarPosition(avatarId, avatarIndex);
+      if (selectedAvatar?.icon) {
+        cacheAvatarIcon(avatarId, selectedAvatar.icon, avatarIndex);
+      }
+      setActiveAvatar(selectedAvatar);
+      // await selectAvatar(avatarId); // Update Firestore last_used_avatar
+      localStorage.setItem('last_used_avatar_id', avatarId);
+      // Load messages for this avatar
+      // await fetchMessages();
+      // toast.success(`Selected ${avatar.name || 'avatar'}`);
+      navigate(`/chat/${avatarId}`); // ← ROUTE TO CHAT AREA
+      // navigate(/chat:selectedAvatar)
     } else if (actualCardData.type === 'create') {
       setShowCreateModal(true);
     }
@@ -173,7 +164,7 @@ const AvatarSelectionComponent = ({
       try {
         const avatarId =
           selectedCard.id ||
-          avatars?.find((avatar) => avatar.name === selectedCard.text)
+          userAvatars?.find((avatar) => avatar.name === selectedCard.text)
             ?.avatar_id;
         if (!avatarId) {
           toast.error('Avatar ID not found');
@@ -183,10 +174,10 @@ const AvatarSelectionComponent = ({
         // Use AuthContext selectAvatar which updates Firestore
         await selectAvatar(avatarId);
 
-        const selectedAvatar = avatars.find(
+        const selectedAvatar = userAvatars.find(
           (avatar) => avatar.avatar_id === avatarId
         );
-        const avatarIndex = avatars.findIndex(
+        const avatarIndex = userAvatars.findIndex(
           (avatar) => avatar.avatar_id === avatarId
         );
 
@@ -200,6 +191,7 @@ const AvatarSelectionComponent = ({
         // Load messages for this avatar and set into media context if needed
         await fetchMessages();
         setActiveTab('documents');
+        // navigate(/settings:selectedAvatar)
       } catch (error) {
         console.error('Error selecting avatar for settings:', error);
         toast.error('Failed to open avatar settings');
@@ -209,7 +201,7 @@ const AvatarSelectionComponent = ({
 
   const authenticatedCards = useMemo(() => {
     const avatarCards =
-      avatars?.map((avatar) => ({
+      userAvatars?.map((avatar) => ({
         id: avatar.avatar_id,
         component: (
           <AvatarCardComponent avatar={avatar} onCardClick={handleClick} />
@@ -229,7 +221,7 @@ const AvatarSelectionComponent = ({
     });
 
     return avatarCards;
-  }, [avatars]);
+  }, [userAvatars]);
 
   const getCachedAvatarPosition = (avatarId = null) => {
     try {
@@ -249,17 +241,17 @@ const AvatarSelectionComponent = ({
   };
 
   useEffect(() => {
-    if (isLoggedIn && avatars?.length > 0 && !hasInitialized.current) {
+    if (userAvatars?.length > 0 && !hasInitialized.current) {
       let targetIndex = 0;
 
       const cachedLastAvatarId = localStorage.getItem('last_used_avatar_id');
       if (cachedLastAvatarId) {
         const cachedPosition = getCachedAvatarPosition(cachedLastAvatarId);
-        if (cachedPosition && cachedPosition.avatarIndex < avatars.length) {
+        if (cachedPosition && cachedPosition.avatarIndex < userAvatars.length) {
           targetIndex = cachedPosition.avatarIndex;
         }
       } else if (lastUsedAvatar) {
-        const lastUsedIndex = avatars.findIndex(
+        const lastUsedIndex = userAvatars.findIndex(
           (avatar) => avatar.avatar_id === lastUsedAvatar
         );
         if (lastUsedIndex !== -1) {
@@ -273,16 +265,15 @@ const AvatarSelectionComponent = ({
       }
       hasInitialized.current = true;
     }
-    if (!isLoggedIn || !avatars?.length) {
+    if (!user || !userAvatars?.length) {
       hasInitialized.current = false;
     }
-  }, [isLoggedIn, avatars]);
+  }, [user, userAvatars]);
 
   const handleLogout = () => {
     setActiveAvatar(null);
     logout();
     setDropdownOpen(false);
-    onEndLiveChat?.();
   };
 
   useEffect(() => {
@@ -300,28 +291,14 @@ const AvatarSelectionComponent = ({
   }, []);
 
   useEffect(() => {
-    if (isLoggedIn) {
+    if (user) {
       toast.dismiss();
     }
   }, []);
 
-  const loginCard = useMemo(
-    () => ({
-      id: 'login',
-      component: (
-        <AuthComponent
-          setActiveTab={setActiveTab}
-          onEndLiveChat={onEndLiveChat}
-        />
-      ),
-      // type: 'login',
-      // text: 'Sign In',
-      // image: getLoginCardIcon(),
-    }),
-    [user, lastUsedAvatar, avatars]
-  );
-
-  const currentCards = isLoggedIn ? authenticatedCards : [loginCard];
+  useEffect(() => {
+    console.log('Avatar Selection Component user: ' + user);
+  }, []);
 
   const handleDotClick = (index) => {
     setCurrentCardIndex(index);
@@ -339,7 +316,10 @@ const AvatarSelectionComponent = ({
   };
 
   const handleJumpRight = () => {
-    const newIndex = Math.min(currentCards.length - 1, currentCardIndex + 5);
+    const newIndex = Math.min(
+      authenticatedCards.length - 1,
+      currentCardIndex + 5
+    );
     setCurrentCardIndex(newIndex);
     if (galleryRef.current) {
       galleryRef.current.setCurrentIndex(newIndex);
@@ -357,9 +337,9 @@ const AvatarSelectionComponent = ({
     console.log('Current Card Index:', currentCardIndex);
   }, [currentCardIndex]);
 
-  // Get the 5 closest avatars to current index (2 before, current, 2 after)
+  // Get the 5 closest userAvatars to current index (2 before, current, 2 after)
   const getVisibleDots = () => {
-    const total = currentCards.length;
+    const total = authenticatedCards.length;
     const visibleCount = 5;
     const halfVisible = Math.floor(visibleCount / 2);
 
@@ -376,7 +356,7 @@ const AvatarSelectionComponent = ({
       end = total - 1;
     }
 
-    const slice = currentCards.slice(start, end + 1);
+    const slice = authenticatedCards.slice(start, end + 1);
 
     // Map slice to include visibleIndex
     return slice.map((card, idx) => ({
@@ -392,7 +372,7 @@ const AvatarSelectionComponent = ({
     setHighlightedIndex(-1);
 
     const allCards = [
-      ...(avatars?.map((avatar, idx) => ({
+      ...(userAvatars?.map((avatar, idx) => ({
         id: avatar.avatar_id,
         type: 'avatar',
         text: avatar.name,
@@ -433,7 +413,7 @@ const AvatarSelectionComponent = ({
 
   const handleSearchFocus = () => {
     const allCards = [
-      ...(avatars?.map((avatar, idx) => ({
+      ...(userAvatars?.map((avatar, idx) => ({
         id: avatar.avatar_id,
         type: 'avatar',
         text: avatar.name,
@@ -531,7 +511,7 @@ const AvatarSelectionComponent = ({
       } else if (e.key === 'ArrowRight') {
         e.preventDefault();
         const newIndex = Math.min(
-          currentCards.length - 1,
+          authenticatedCards.length - 1,
           currentCardIndex + 1
         );
         setCurrentCardIndex(newIndex);
@@ -540,75 +520,74 @@ const AvatarSelectionComponent = ({
         }
       } else if (e.key === 'Enter') {
         e.preventDefault();
-        const currentCard = currentCards[currentCardIndex];
+        const currentCard = authenticatedCards[currentCardIndex];
         if (currentCard) {
           handleClick(currentCard);
         }
       }
     };
 
-    if (isLoggedIn) {
+    if (user) {
       document.addEventListener('keydown', handleGalleryKeyDown);
       return () =>
         document.removeEventListener('keydown', handleGalleryKeyDown);
     }
-  }, [isLoggedIn, currentCardIndex, currentCards, isDropdownOpen]);
+  }, [user, currentCardIndex, authenticatedCards, isDropdownOpen]);
 
   return (
     <div className="flex flex-col items-center justify-start p-4 relative mx-auto min-h-screen w-full">
-      {isLoggedIn ? (
-        <div className="w-full h-screen overflow-hidden flex flex-col items-center gap-2">
-          <div className="relative w-full max-w-md mt-8 mb-2" ref={searchRef}>
-            <input
-              type="text"
-              value={searchQuery}
-              onChange={handleSearch}
-              onFocus={handleSearchFocus}
-              onKeyDown={handleKeyDown}
-              placeholder="Search avatars..."
-              className="w-full bg-white/5 rounded-lg border border-white/20 py-2 pl-10 pr-4 text-white placeholder-white/50 focus:outline-none focus:ring-2 focus:ring-white/30"
-            />
-            <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-white/80" />
-            {isDropdownOpen && suggestions.length > 0 && (
-              <ul className="absolute z-10 w-full bg-white/10 rounded-lg border border-white/20 mt-1 max-h-60 overflow-auto">
-                {suggestions.map((suggestion, idx) => (
-                  <li
-                    key={suggestion.id}
-                    onClick={() =>
-                      handleSuggestionSelect(suggestion.originalIndex)
-                    }
-                    className={`px-4 py-2 text-white cursor-pointer ${
-                      idx === highlightedIndex
-                        ? 'bg-white/20'
-                        : 'hover:bg-white/20'
-                    }`}
-                  >
-                    {suggestion.text}
-                  </li>
-                ))}
-              </ul>
-            )}
-          </div>
-          <div className="h-full flex flex-col min-h-0 w-full mb-2">
-            <CircularGallery
-              ref={galleryRef}
-              items={authenticatedCards}
-              bend={0}
-              textColor="#ffffff"
-              borderRadius={0.05}
-              font="bold 48px system-ui"
-              scrollSpeed={2}
-              scrollEase={0.3}
-              onCardClick={handleClick}
-              currentIndex={currentCardIndex}
-              onIndexChange={setCurrentCardIndex}
-            />
-          </div>
-          <div
-            className="flex flex-col items-center w-full gap-2 z-10"
-            ref={dropdownRef}
-          >
-            {/* <button
+      <div className="w-full h-screen overflow-hidden flex flex-col items-center gap-2">
+        <div className="relative w-full max-w-md mt-8 mb-2" ref={searchRef}>
+          <input
+            type="text"
+            value={searchQuery}
+            onChange={handleSearch}
+            onFocus={handleSearchFocus}
+            onKeyDown={handleKeyDown}
+            placeholder="Search userAvatars..."
+            className="w-full bg-white/5 rounded-lg border border-white/20 py-2 pl-10 pr-4 text-white placeholder-white/50 focus:outline-none focus:ring-2 focus:ring-white/30"
+          />
+          <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-white/80" />
+          {isDropdownOpen && suggestions.length > 0 && (
+            <ul className="absolute z-10 w-full bg-white/10 rounded-lg border border-white/20 mt-1 max-h-60 overflow-auto">
+              {suggestions.map((suggestion, idx) => (
+                <li
+                  key={suggestion.id}
+                  onClick={() =>
+                    handleSuggestionSelect(suggestion.originalIndex)
+                  }
+                  className={`px-4 py-2 text-white cursor-pointer ${
+                    idx === highlightedIndex
+                      ? 'bg-white/20'
+                      : 'hover:bg-white/20'
+                  }`}
+                >
+                  {suggestion.text}
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+        <div className="h-full flex flex-col min-h-0 w-full mb-2">
+          <CircularGallery
+            ref={galleryRef}
+            items={authenticatedCards}
+            bend={0}
+            textColor="#ffffff"
+            borderRadius={0.05}
+            font="bold 48px system-ui"
+            scrollSpeed={2}
+            scrollEase={0.3}
+            onCardClick={handleClick}
+            currentIndex={currentCardIndex}
+            onIndexChange={setCurrentCardIndex}
+          />
+        </div>
+        <div
+          className="flex flex-col items-center w-full gap-2 z-10"
+          ref={dropdownRef}
+        >
+          {/* <button
               onClick={handleCustomizeAvatar}
               className="bg-white/10 rounded-lg border border-white/20 py-2 px-4 text-white hover:bg-white/15 transition-all duration-300 flex items-center gap-2"
             >
@@ -624,181 +603,180 @@ const AvatarSelectionComponent = ({
                 </>
               )}
             </button> */}
-            <div className="flex gap-2 justify-center items-center">
-              {/* Left arrow */}
-              <button
-                onClick={handleJumpLeft}
-                disabled={currentCardIndex === 0}
-                className={`p-1 rounded-full transition-all duration-300 ${
-                  currentCardIndex === 0
-                    ? 'text-white/20 cursor-not-allowed'
-                    : 'text-white/50 hover:text-white hover:bg-white/10 cursor-pointer'
-                }`}
-                aria-label="Jump left 5 positions"
+          <div className="flex gap-2 justify-center items-center">
+            {/* Left arrow */}
+            <button
+              onClick={handleJumpLeft}
+              disabled={currentCardIndex === 0}
+              className={`p-1 rounded-full transition-all duration-300 ${
+                currentCardIndex === 0
+                  ? 'text-white/20 cursor-not-allowed'
+                  : 'text-white/50 hover:text-white hover:bg-white/10 cursor-pointer'
+              }`}
+              aria-label="Jump left 5 positions"
+            >
+              <svg
+                className="w-6 h-6"
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
               >
-                <svg
-                  className="w-6 h-6"
-                  fill="none"
-                  stroke="currentColor"
-                  viewBox="0 0 24 24"
-                >
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    strokeWidth={2}
-                    d="M15 19l-7-7 7-7"
-                  />
-                </svg>
-              </button>
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2}
+                  d="M15 19l-7-7 7-7"
+                />
+              </svg>
+            </button>
 
-              {/* Visible dots */}
-              <div
-                className="flex gap-2 items-center"
-                style={{ minWidth: '200px', justifyContent: 'center' }}
-              >
-                {getVisibleDots().map((card) => {
-                  const isCreateAvatar = card.type === 'create';
-                  const isSelected = currentCardIndex === card.originalIndex;
-                  const distance = Math.abs(
-                    currentCardIndex - card.originalIndex
-                  );
+            {/* Visible dots */}
+            <div
+              className="flex gap-2 items-center"
+              style={{ minWidth: '200px', justifyContent: 'center' }}
+            >
+              {getVisibleDots().map((card) => {
+                const isCreateAvatar = card.type === 'create';
+                const isSelected = currentCardIndex === card.originalIndex;
+                const distance = Math.abs(
+                  currentCardIndex - card.originalIndex
+                );
 
-                  // Scale dots based on distance from current index
-                  const scale = Math.max(0.4, 1 - distance * 0.2);
+                // Scale dots based on distance from current index
+                const scale = Math.max(0.4, 1 - distance * 0.2);
 
-                  return (
-                    <div
-                      key={card.originalIndex}
-                      onClick={() => handleDotClick(card.originalIndex)}
-                      className={`rounded-full transition-all duration-300 cursor-pointer hover:scale-110 border-2 ${
-                        isSelected
-                          ? 'border-white'
-                          : 'border-white/30 hover:border-white/60'
-                      }`}
-                      style={{
-                        transform: `scale(${scale})`,
-                        width: '32px',
-                        height: '32px',
-                        flexShrink: 0,
-                      }}
-                      aria-label={`Go to ${card.text}`}
-                    >
-                      {isCreateAvatar ? (
-                        <div className="w-full h-full flex items-center justify-center bg-white/10 rounded-full">
-                          <CirclePlus className="w-5 h-5 text-white" />
-                        </div>
-                      ) : card.image && isValidImageUrl(card.image) ? (
-                        <img
-                          src={card.image}
-                          alt={card.text}
-                          className="w-full h-full object-cover rounded-full"
-                          onError={(e) => {
-                            e.target.style.display = 'none';
-                          }}
-                        />
-                      ) : (
-                        <div className="w-full h-full flex items-center justify-center bg-white/10 rounded-full">
-                          <User className="w-4 h-4 text-white/50" />
-                        </div>
-                      )}
-                    </div>
-                  );
-                })}
-              </div>
-
-              {/* Right arrow */}
-              <button
-                onClick={handleJumpRight}
-                disabled={currentCardIndex === currentCards.length - 1}
-                className={`p-1 rounded-full transition-all duration-300 ${
-                  currentCardIndex === currentCards.length - 1
-                    ? 'text-white/20 cursor-not-allowed'
-                    : 'text-white/50 hover:text-white hover:bg-white/10 cursor-pointer'
-                }`}
-                aria-label="Jump right 5 positions"
-              >
-                <svg
-                  className="w-6 h-6"
-                  fill="none"
-                  stroke="currentColor"
-                  viewBox="0 0 24 24"
-                >
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    strokeWidth={2}
-                    d="M9 5l7 7-7 7"
-                  />
-                </svg>
-              </button>
-            </div>
-            <div className="min-h-[40px] w-full flex justify-center items-center gap-2 mb-8">
-              <div className="relative w-48">
-                <button
-                  onClick={() => setDropdownOpen((open) => !open)}
-                  className="bg-white/10 rounded-lg border border-white/20 py-2 px-4 text-white hover:bg-white/15 transition-all duration-300 flex items-center gap-2 w-full"
-                  aria-haspopup="true"
-                  aria-expanded={dropdownOpen}
-                  aria-controls="user-menu"
-                >
-                  <Settings className="w-6 h-6" />
-                  User Settings
-                </button>
-                {dropdownOpen && (
+                return (
                   <div
-                    id="user-menu"
-                    role="menu"
-                    className="absolute bottom-[50px] w-full mt-2 right-0 backdrop-blur-lg bg-white/10 rounded-md shadow-lg ring-1 ring-black ring-opacity-5 focus:outline-none z-50"
+                    key={card.originalIndex}
+                    onClick={() => handleDotClick(card.originalIndex)}
+                    className={`rounded-full transition-all duration-300 cursor-pointer hover:scale-110 border-2 ${
+                      isSelected
+                        ? 'border-white'
+                        : 'border-white/30 hover:border-white/60'
+                    }`}
+                    style={{
+                      transform: `scale(${scale})`,
+                      width: '32px',
+                      height: '32px',
+                      flexShrink: 0,
+                    }}
+                    aria-label={`Go to ${card.text}`}
                   >
-                    <div className="flex justify-between items-center px-4 py-2 border-b border-white/20">
-                      <span className="text-white text-sm font-semibold">
-                        {user?.username}
-                      </span>
-                      <button
-                        onClick={() => setDropdownOpen(false)}
-                        className="text-white hover:text-red-500"
-                        aria-label="Close menu"
-                      >
-                        <X className="w-4 h-4" />
-                      </button>
-                    </div>
+                    {isCreateAvatar ? (
+                      <div className="w-full h-full flex items-center justify-center bg-white/10 rounded-full">
+                        <CirclePlus className="w-5 h-5 text-white" />
+                      </div>
+                    ) : card.image && isValidImageUrl(card.image) ? (
+                      <img
+                        src={card.image}
+                        alt={card.text}
+                        className="w-full h-full object-cover rounded-full"
+                        onError={(e) => {
+                          e.target.style.display = 'none';
+                        }}
+                      />
+                    ) : (
+                      <div className="w-full h-full flex items-center justify-center bg-white/10 rounded-full">
+                        <User className="w-4 h-4 text-white/50" />
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+
+            {/* Right arrow */}
+            <button
+              onClick={handleJumpRight}
+              disabled={currentCardIndex === authenticatedCards.length - 1}
+              className={`p-1 rounded-full transition-all duration-300 ${
+                currentCardIndex === authenticatedCards.length - 1
+                  ? 'text-white/20 cursor-not-allowed'
+                  : 'text-white/50 hover:text-white hover:bg-white/10 cursor-pointer'
+              }`}
+              aria-label="Jump right 5 positions"
+            >
+              <svg
+                className="w-6 h-6"
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2}
+                  d="M9 5l7 7-7 7"
+                />
+              </svg>
+            </button>
+          </div>
+          <div className="min-h-[40px] w-full flex justify-center items-center gap-2 mb-8">
+            <div className="relative w-48">
+              <button
+                onClick={() => setDropdownOpen((open) => !open)}
+                className="bg-white/10 rounded-lg border border-white/20 py-2 px-4 text-white hover:bg-white/15 transition-all duration-300 flex items-center gap-2 w-full"
+                aria-haspopup="true"
+                aria-expanded={dropdownOpen}
+                aria-controls="user-menu"
+              >
+                <Settings className="w-6 h-6" />
+                User Settings
+              </button>
+              {dropdownOpen && (
+                <div
+                  id="user-menu"
+                  role="menu"
+                  className="absolute bottom-[50px] w-full mt-2 right-0 backdrop-blur-lg bg-white/10 rounded-md shadow-lg ring-1 ring-black ring-opacity-5 focus:outline-none z-50"
+                >
+                  <div className="flex justify-between items-center px-4 py-2 border-b border-white/20">
+                    <span className="text-white text-sm font-semibold">
+                      {user?.username}
+                    </span>
                     <button
-                      onClick={() => {
-                        onEndLiveChat?.();
-                        setActiveTab('account');
-                        setDropdownOpen(false);
-                      }}
-                      className="block w-full text-left px-4 py-2 text-sm text-white hover:bg-teal-600 transition"
-                      role="menuitem"
+                      onClick={() => setDropdownOpen(false)}
+                      className="text-white hover:text-red-500"
+                      aria-label="Close menu"
                     >
-                      Account Settings
-                    </button>
-                    <button
-                      onClick={() => {
-                        setActiveTab('billing');
-                        onEndLiveChat?.();
-                        setDropdownOpen(false);
-                      }}
-                      className="block w-full text-left px-4 py-2 text-sm text-white hover:bg-teal-600 transition"
-                      role="menuitem"
-                    >
-                      Billing
-                    </button>
-                    <button
-                      onClick={handleLogout}
-                      className="block w-full text-left flex flex-row items-center px-4 py-2 text-sm text-red-500 hover:bg-red-900 hover:text-white transition"
-                      role="menuitem"
-                    >
-                      Logout <LogOut className="ml-2 w-4 h-4" />
+                      <X className="w-4 h-4" />
                     </button>
                   </div>
-                )}
-              </div>
+                  <button
+                    onClick={() => {
+                      // navigate(settings:user)
+                      setDropdownOpen(false);
+                      1;
+                    }}
+                    className="block w-full text-left px-4 py-2 text-sm text-white hover:bg-teal-600 transition"
+                    role="menuitem"
+                  >
+                    Account Settings
+                  </button>
+                  <button
+                    onClick={() => {
+                      // navigate(/billing)
+                      setDropdownOpen(false);
+                    }}
+                    className="block w-full text-left px-4 py-2 text-sm text-white hover:bg-teal-600 transition"
+                    role="menuitem"
+                  >
+                    Billing
+                  </button>
+                  <button
+                    onClick={handleLogout}
+                    className="block w-full text-left flex flex-row items-center px-4 py-2 text-sm text-red-500 hover:bg-red-900 hover:text-white transition"
+                    role="menuitem"
+                  >
+                    Logout <LogOut className="ml-2 w-4 h-4" />
+                  </button>
+                </div>
+              )}
             </div>
           </div>
         </div>
-      ) : (
-        <div className="w-full max-w-md">{loginCard.component}</div>
+      </div>
+      {showCreateModal && (
+        <CreateAvatarModal setShowCreateModal={setShowCreateModal} />
       )}
     </div>
   );

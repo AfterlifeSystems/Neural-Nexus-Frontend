@@ -16,6 +16,9 @@ import { useMedia } from '../context/MediaContext';
 import VantaBackground from './VantaBackground';
 import LoadingSpinner from './LoadingSpinner';
 import { toast, Toaster } from 'react-hot-toast';
+import { signup, login, logout } from '../services/authService';
+
+import { useNavigate } from 'react-router-dom';
 
 const modalRoot =
   document.getElementById('modal-root') ||
@@ -26,11 +29,12 @@ const modalRoot =
     return el;
   })();
 
-const AuthComponent = ({ setActiveTab, onEndLiveChat }) => {
+const AuthComponent = () => {
+  const navigate = useNavigate();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [username, setUsername] = useState('');
-  const [showModal, setShowModal] = useState(true);
+  // const [showModal, setShowModal] = useState(true);
   const [isLoading, setIsLoading] = useState(false);
   const [modalView, setModalView] = useState('login'); // 'login', 'signup', 'forgotPassword'
 
@@ -39,10 +43,10 @@ const AuthComponent = ({ setActiveTab, onEndLiveChat }) => {
 
   const {
     user,
-    isLoggedIn,
-    login,
-    signup,
-    logout,
+    // isLoggedIn,
+    // login,
+    // signup,
+    // logout,
     resendVerification,
     forgotPassword,
     signInWithProvider,
@@ -51,10 +55,17 @@ const AuthComponent = ({ setActiveTab, onEndLiveChat }) => {
     lastUsedAvatar,
     setActiveAvatar,
   } = useAuth();
-
   const { setMessages } = useMedia();
   const [dropdownOpen, setDropdownOpen] = useState(false);
   const dropdownRef = useRef(null);
+
+  // Inside AuthComponent.jsx
+  useEffect(() => {
+    // If the context says we are logged in and have a user profile, go to avatars
+    if (user) {
+      navigate('/avatars');
+    }
+  }, [user, navigate]);
 
   const validIcons = Array.isArray(avatars)
     ? avatars
@@ -65,24 +76,24 @@ const AuthComponent = ({ setActiveTab, onEndLiveChat }) => {
   // Intermittently rotate avatar images
 
   // This returns the exact image or fallback you should render.
-  const getRotatingAvatarIcon = (avatars, rotatingIndex, user) => {
-    // Filter only valid URLs
-    const validIcons = avatars
-      .map((a) => a.icon)
-      .filter((icon) => typeof icon === 'string' && icon.startsWith('https'));
-    // Case 1: No avatars at all → show User icon
-    if (!Array.isArray(avatars) || avatars.length === 0) {
-      return null; // This signals: "render <User />"
-    }
+  // const getRotatingAvatarIcon = (avatars, rotatingIndex, user) => {
+  //   // Filter only valid URLs
+  //   const validIcons = avatars
+  //     .map((a) => a.icon)
+  //     .filter((icon) => typeof icon === 'string' && icon.startsWith('https'));
+  //   // Case 1: No avatars at all → show User icon
+  //   if (!Array.isArray(avatars) || avatars.length === 0) {
+  //     return null; // This signals: "render <User />"
+  //   }
 
-    // Case 2: Exactly one avatar → show that one avatar
-    if (validIcons.length === 1) {
-      return avatars[0].icon || null;
-    }
+  //   // Case 2: Exactly one avatar → show that one avatar
+  //   if (validIcons.length === 1) {
+  //     return avatars[0].icon || null;
+  //   }
 
-    // Case 3: Multiple avatars → rotate through them
-    return avatars[rotatingIndex]?.icon || null;
-  };
+  //   // Case 3: Multiple avatars → rotate through them
+  //   return avatars[rotatingIndex]?.icon || null;
+  // };
 
   // Rotation effect (only when there are 2+ avatars)
   useEffect(() => {
@@ -100,7 +111,7 @@ const AuthComponent = ({ setActiveTab, onEndLiveChat }) => {
     return () => clearInterval(interval);
   }, [avatars]);
 
-  const avatarToRender = getRotatingAvatarIcon(avatars, rotatingIndex, user);
+  // const avatarToRender = getRotatingAvatarIcon(avatars, rotatingIndex, user);
 
   const handleAuth = async (e) => {
     e.preventDefault();
@@ -108,21 +119,12 @@ const AuthComponent = ({ setActiveTab, onEndLiveChat }) => {
 
     try {
       if (modalView === 'signup') {
-        const res = await signup(username, email, password);
+        await signup(username, email, password);
+        // const res = await signup(username, email, password);
         // Success handled in AuthContext
-        if (res.message === 'Login successful') {
-          setShowModal(false);
-          resetForm();
-        } else {
-          setShowModal(true);
-          resetForm();
-          setModalView('login');
-        }
       } else if (modalView === 'login') {
         await login(email, password);
         // Success handled in AuthContext
-        setShowModal(false);
-        resetForm();
       } else if (modalView === 'forgotPassword') {
         await forgotPassword(email);
         // toast.success(
@@ -259,14 +261,6 @@ const AuthComponent = ({ setActiveTab, onEndLiveChat }) => {
     }
   };
 
-  const handleLogout = () => {
-    setMessages('');
-    setActiveAvatar(null);
-    logout();
-    setDropdownOpen(false);
-    onEndLiveChat?.();
-  };
-
   const resetForm = () => {
     setEmail('');
     setPassword('');
@@ -274,69 +268,67 @@ const AuthComponent = ({ setActiveTab, onEndLiveChat }) => {
     setModalView('login');
   };
 
-  const closeModal = () => {
-    setShowModal(false);
-    resetForm();
-    toast.dismiss();
-  };
+  return (
+    <>
+      <Toaster position="top-center" />
+      <div className="fixed inset-0 flex items-center justify-center z-[999]">
+        {/* <VantaBackground /> */}
 
-  const modalContent = (
-    <div className="fixed inset-0 flex items-center justify-center z-[999]">
-      {/* <VantaBackground /> */}
+        {/* Backdrop */}
+        <div className="absolute inset-0 bg-black/0" />
 
-      {/* Backdrop */}
-      <div className="absolute inset-0 bg-black/0" />
-
-      {/* Modal */}
-      <div
-        className="relative z-10 p-8 rounded-xl shadow-2xl w-full max-w-md bg-white/5 backdrop-blur-lg border border-white/20"
-        onClick={(e) => e.stopPropagation()}
-      >
-        {/* Header */}
-        <>
-          {/* relative flex items-center justify-center space-x-4 bg-white/5 backdrop-blur-lg rounded-2xl border border-white/20 p-16 text-center cursor-pointer hover:bg-white/10 transition-all duration-300 min-h-screen w-full flex flex-col justify-evenly items-center  */}
-          <div className="flex jusify-center items-center justify-evenly ">
-            <h2 className="text-5xl font-bold text-white mb-6">Neural Nexus</h2>
-          </div>
-          {validIcons?.length > 0 && (
-            <div className="flex justify-center items-center pb-6">
-              <div className="w-32 h-32 bg-white/20 rounded-full flex items-center justify-center">
-                <img
-                  src={avatarToRender}
-                  alt="Avatar"
-                  className="w-32 h-32 rounded-full object-cover transition-opacity duration-500"
-                  onError={(e) => {
-                    console.error('Avatar failed to load:', e.target.src);
-                    e.target.style.display = 'none';
-                  }}
-                />
-              </div>
+        {/* Modal */}
+        <div
+          className="relative z-10 p-8 rounded-xl shadow-2xl w-full max-w-md bg-white/5 backdrop-blur-lg border border-white/20"
+          onClick={(e) => e.stopPropagation()}
+        >
+          {/* Header */}
+          <>
+            {/* relative flex items-center justify-center space-x-4 bg-white/5 backdrop-blur-lg rounded-2xl border border-white/20 p-16 text-center cursor-pointer hover:bg-white/10 transition-all duration-300 min-h-screen w-full flex flex-col justify-evenly items-center  */}
+            <div className="flex jusify-center items-center justify-evenly ">
+              <h2 className="text-5xl font-bold text-white mb-6">
+                Neural Nexus
+              </h2>
             </div>
-          )}
-        </>
-        <div className="flex items-center justify-between mb-6">
-          <h2 className="text-3xl font-bold text-white">
-            {modalView === 'signup' && 'Create Account'}
-            {modalView === 'login' && 'Login'}
-            {modalView === 'forgotPassword' && 'Reset Password'}
-          </h2>
-          {/* <button
+            {validIcons?.length > 0 && (
+              <div className="flex justify-center items-center pb-6">
+                <div className="w-32 h-32 bg-white/20 rounded-full flex items-center justify-center">
+                  <img
+                    src={avatarToRender}
+                    alt="Avatar"
+                    className="w-32 h-32 rounded-full object-cover transition-opacity duration-500"
+                    onError={(e) => {
+                      console.error('Avatar failed to load:', e.target.src);
+                      e.target.style.display = 'none';
+                    }}
+                  />
+                </div>
+              </div>
+            )}
+          </>
+          <div className="flex items-center justify-between mb-6">
+            <h2 className="text-3xl font-bold text-white">
+              {modalView === 'signup' && 'Create Account'}
+              {modalView === 'login' && 'Login'}
+              {modalView === 'forgotPassword' && 'Reset Password'}
+            </h2>
+            {/* <button
             type="button"
             onClick={closeModal}
             className="p-2 hover:bg-red-500/20 rounded-lg text-white transition"
           >
             <X size={24} />
           </button> */}
-        </div>
-
-        {isLoading && (
-          <div className="flex justify-center mb-4">
-            <LoadingSpinner />
           </div>
-        )}
 
-        {/* Social Login Buttons (not for password reset) */}
-        {/* {modalView !== 'forgotPassword' && (
+          {isLoading && (
+            <div className="flex justify-center mb-4">
+              <LoadingSpinner />
+            </div>
+          )}
+
+          {/* Social Login Buttons (not for password reset) */}
+          {/* {modalView !== 'forgotPassword' && (
           <div className="space-y-3 mb-6">
             <button
               onClick={() => handleSocialLogin('google')}
@@ -385,147 +377,141 @@ const AuthComponent = ({ setActiveTab, onEndLiveChat }) => {
           </div>
         )} */}
 
-        {/* Form */}
-        <form onSubmit={handleAuth} className="space-y-4">
-          {modalView === 'signup' && (
+          {/* Form */}
+          <form onSubmit={handleAuth} className="space-y-4">
+            {modalView === 'signup' && (
+              <div>
+                <label className="block text-white/80 mb-2 text-sm font-medium">
+                  Username
+                </label>
+                <input
+                  type="text"
+                  value={username}
+                  onChange={(e) => setUsername(e.target.value)}
+                  className="w-full px-4 py-3 rounded-lg bg-white/10 text-white border border-white/20 focus:outline-none focus:ring-2 focus:ring-teal-500 focus:border-transparent placeholder-white/40"
+                  placeholder="Enter your username"
+                  required
+                />
+              </div>
+            )}
+
             <div>
               <label className="block text-white/80 mb-2 text-sm font-medium">
-                Username
+                Email
               </label>
               <input
-                type="text"
-                value={username}
-                onChange={(e) => setUsername(e.target.value)}
+                type="email"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
                 className="w-full px-4 py-3 rounded-lg bg-white/10 text-white border border-white/20 focus:outline-none focus:ring-2 focus:ring-teal-500 focus:border-transparent placeholder-white/40"
-                placeholder="Enter your username"
+                placeholder="Enter your email"
                 required
               />
             </div>
-          )}
 
-          <div>
-            <label className="block text-white/80 mb-2 text-sm font-medium">
-              Email
-            </label>
-            <input
-              type="email"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              className="w-full px-4 py-3 rounded-lg bg-white/10 text-white border border-white/20 focus:outline-none focus:ring-2 focus:ring-teal-500 focus:border-transparent placeholder-white/40"
-              placeholder="Enter your email"
-              required
-            />
-          </div>
+            {modalView !== 'forgotPassword' && (
+              <div>
+                <label className="block text-white/80 mb-2 text-sm font-medium">
+                  Password
+                </label>
+                <input
+                  type="password"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  className="w-full px-4 py-3 rounded-lg bg-white/10 text-white border border-white/20 focus:outline-none focus:ring-2 focus:ring-teal-500 focus:border-transparent placeholder-white/40"
+                  placeholder="Enter your password"
+                  required
+                  minLength={6}
+                />
+              </div>
+            )}
 
+            {/* Forgot Password Link */}
+            {modalView === 'login' && (
+              <div className="text-right">
+                <button
+                  type="button"
+                  onClick={() => setModalView('forgotPassword')}
+                  className="text-teal-400 hover:text-teal-300 text-sm transition"
+                >
+                  Forgot password?
+                </button>
+              </div>
+            )}
+
+            {/* Submit Button */}
+            <button
+              type="submit"
+              disabled={isLoading}
+              className="w-full py-3 bg-teal-600 hover:bg-teal-700 disabled:bg-teal-600/50 rounded-lg text-white font-semibold transition flex items-center justify-center gap-2"
+            >
+              {modalView === 'signup' && (
+                <>
+                  <UserPlus size={20} />
+                  Sign Up
+                </>
+              )}
+              {modalView === 'login' && (
+                <>
+                  <LogIn size={20} />
+                  Log In
+                </>
+              )}
+              {modalView === 'forgotPassword' && (
+                <>
+                  <SendIcon size={20} />
+                  Send Reset Link
+                </>
+              )}
+            </button>
+          </form>
+
+          {/* Toggle between Login/Signup */}
           {modalView !== 'forgotPassword' && (
-            <div>
-              <label className="block text-white/80 mb-2 text-sm font-medium">
-                Password
-              </label>
-              <input
-                type="password"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                className="w-full px-4 py-3 rounded-lg bg-white/10 text-white border border-white/20 focus:outline-none focus:ring-2 focus:ring-teal-500 focus:border-transparent placeholder-white/40"
-                placeholder="Enter your password"
-                required
-                minLength={6}
-              />
+            <div className="mt-6 text-center text-white/60 text-sm">
+              {modalView === 'login' ? (
+                <>
+                  Don't have an account?{' '}
+                  <button
+                    onClick={() => {
+                      setModalView('signup');
+                      setPassword('');
+                    }}
+                    className="text-teal-400 hover:text-teal-300 font-medium transition"
+                  >
+                    Sign up
+                  </button>
+                </>
+              ) : (
+                <>
+                  Already have an account?{' '}
+                  <button
+                    onClick={() => {
+                      setModalView('login');
+                      setUsername('');
+                    }}
+                    className="text-teal-400 hover:text-teal-300 font-medium transition"
+                  >
+                    Log in
+                  </button>
+                </>
+              )}
             </div>
           )}
 
-          {/* Forgot Password Link */}
-          {modalView === 'login' && (
-            <div className="text-right">
+          {/* Back to login from forgot password */}
+          {modalView === 'forgotPassword' && (
+            <div className="mt-6 text-center">
               <button
-                type="button"
-                onClick={() => setModalView('forgotPassword')}
+                onClick={() => setModalView('login')}
                 className="text-teal-400 hover:text-teal-300 text-sm transition"
               >
-                Forgot password?
+                ← Back to login
               </button>
             </div>
           )}
-
-          {/* Submit Button */}
-          <button
-            type="submit"
-            disabled={isLoading}
-            className="w-full py-3 bg-teal-600 hover:bg-teal-700 disabled:bg-teal-600/50 rounded-lg text-white font-semibold transition flex items-center justify-center gap-2"
-          >
-            {modalView === 'signup' && (
-              <>
-                <UserPlus size={20} />
-                Sign Up
-              </>
-            )}
-            {modalView === 'login' && (
-              <>
-                <LogIn size={20} />
-                Log In
-              </>
-            )}
-            {modalView === 'forgotPassword' && (
-              <>
-                <SendIcon size={20} />
-                Send Reset Link
-              </>
-            )}
-          </button>
-        </form>
-
-        {/* Toggle between Login/Signup */}
-        {modalView !== 'forgotPassword' && (
-          <div className="mt-6 text-center text-white/60 text-sm">
-            {modalView === 'login' ? (
-              <>
-                Don't have an account?{' '}
-                <button
-                  onClick={() => {
-                    setModalView('signup');
-                    setPassword('');
-                  }}
-                  className="text-teal-400 hover:text-teal-300 font-medium transition"
-                >
-                  Sign up
-                </button>
-              </>
-            ) : (
-              <>
-                Already have an account?{' '}
-                <button
-                  onClick={() => {
-                    setModalView('login');
-                    setUsername('');
-                  }}
-                  className="text-teal-400 hover:text-teal-300 font-medium transition"
-                >
-                  Log in
-                </button>
-              </>
-            )}
-          </div>
-        )}
-
-        {/* Back to login from forgot password */}
-        {modalView === 'forgotPassword' && (
-          <div className="mt-6 text-center">
-            <button
-              onClick={() => setModalView('login')}
-              className="text-teal-400 hover:text-teal-300 text-sm transition"
-            >
-              ← Back to login
-            </button>
-          </div>
-        )}
+        </div>
       </div>
-    </div>
-  );
-
-  return (
-    <>
-      <Toaster position="top-center" />
-      <>{showModal && ReactDOM.createPortal(modalContent, modalRoot)}</>
     </>
   );
 };

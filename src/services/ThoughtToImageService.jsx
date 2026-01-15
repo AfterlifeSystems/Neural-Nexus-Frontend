@@ -5,7 +5,7 @@ import {
   decrementPendingRequests,
   clearPendingRequests,
 } from '../components/toastManager';
-import { db } from '../firebase/config';
+import { db } from '../firebase/config.js';
 import {
   collection,
   addDoc,
@@ -26,7 +26,7 @@ class ThoughtToImageService {
     try {
       const reqCol = collection(
         db,
-        'digital_twins',
+        'avatars',
         avatar_id,
         'thought_to_image_requests'
       );
@@ -39,7 +39,7 @@ class ThoughtToImageService {
       // Listen for reconstructed images arriving
       const reconCol = collection(
         db,
-        'digital_twins',
+        'avatars',
         avatar_id,
         'reconstructed_images'
       );

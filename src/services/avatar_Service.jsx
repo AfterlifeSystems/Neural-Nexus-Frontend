@@ -1,148 +1,4 @@
-// services/AvatarService.jsx
-// NGROK / external DB HTTP calls removed — use Firestore-backed helper functions below.
-
-export const AvatarService = {
-  async getAll(userId) {
-    return await getAvatars(userId);
-  },
-
-  async createAvatar(userId, payload) {
-    return await createAvatar(
-      userId,
-      payload.name,
-      payload.description,
-      payload.iconFile
-    );
-  },
-
-  async deleteAvatar(userId, avatarId) {
-    return await deleteAvatar(userId, avatarId);
-  },
-
-  async selectAvatar(userId, avatarId) {
-    // Return avatar document with helpful fields (icon_url, documents, socialLogins)
-    const avatarRef = doc(db, 'digital_twins', avatarId);
-    const avatarSnap = await getDoc(avatarRef);
-    if (!avatarSnap.exists() || avatarSnap.data().user_id !== userId) {
-      throw new Error('Avatar not found or unauthorized');
-    }
-    const data = avatarSnap.data();
-    // Resolve icon URL if present
-    let icon_url = null;
-    if (data.icon) {
-      try {
-        icon_url = await getDownloadURL(ref(storage, data.icon));
-      } catch (err) {
-        console.warn('Failed to resolve icon URL:', err);
-      }
-    }
-
-    return {
-      ...data,
-      avatar_id: avatarId,
-      icon_url,
-    };
-  },
-
-  async uploadDocuments(userId, avatarId, files) {
-    // Upload files to storage and append metadata to digital_twins/{avatarId}.files
-    const uploaded = [];
-    for (const file of files) {
-      const fileId = uuidv4();
-      const storagePath = `users/${userId}/digital_twins/${avatarId}/files/${fileId}_${file.name}`;
-      const storageRef = ref(storage, storagePath);
-      await uploadBytes(storageRef, file);
-      const url = await getDownloadURL(storageRef);
-      const meta = {
-        id: fileId,
-        url,
-        storagePath,
-        name: file.name,
-        size: file.size,
-        type: file.type,
-        uploaded_at: new Date().toISOString(),
-      };
-      uploaded.push(meta);
-    }
-
-    // Update avatar doc
-    const avatarRef = doc(db, 'digital_twins', avatarId);
-    const avatarSnap = await getDoc(avatarRef);
-    const currentFiles = avatarSnap.exists()
-      ? avatarSnap.data().files || []
-      : [];
-    await updateDoc(avatarRef, { files: [...currentFiles, ...uploaded] });
-
-    return uploaded;
-  },
-
-  async uploadUrl(userId, avatarId, url) {
-    const fileId = uuidv4();
-    const meta = {
-      id: fileId,
-      url,
-      storagePath: null,
-      name: url,
-      size: 0,
-      type: 'link',
-      uploaded_at: new Date().toISOString(),
-    };
-
-    const avatarRef = doc(db, 'digital_twins', avatarId);
-    const avatarSnap = await getDoc(avatarRef);
-    const currentFiles = avatarSnap.exists()
-      ? avatarSnap.data().files || []
-      : [];
-    await updateDoc(avatarRef, { files: [...currentFiles, meta] });
-
-    return meta;
-  },
-
-  async connectSocial(userId, avatarId, platform, username, password) {
-    const avatarRef = doc(db, 'digital_twins', avatarId);
-    const avatarSnap = await getDoc(avatarRef);
-    const socialLogins = avatarSnap.exists()
-      ? avatarSnap.data().socialLogins || []
-      : [];
-    const login = {
-      id: uuidv4(),
-      platform,
-      username,
-      added_at: new Date().toISOString(),
-    };
-    await updateDoc(avatarRef, { socialLogins: [...socialLogins, login] });
-    return login;
-  },
-
-  async disconnectSocial(userId, avatarId, loginId) {
-    const avatarRef = doc(db, 'digital_twins', avatarId);
-    const avatarSnap = await getDoc(avatarRef);
-    const socialLogins = avatarSnap.exists()
-      ? avatarSnap.data().socialLogins || []
-      : [];
-    const updated = socialLogins.filter((l) => l.id !== loginId);
-    await updateDoc(avatarRef, { socialLogins: updated });
-    return { status: 'success' };
-  },
-
-  async deleteDocument(userId, avatarId, documentId) {
-    const avatarRef = doc(db, 'digital_twins', avatarId);
-    const avatarSnap = await getDoc(avatarRef);
-    const files = avatarSnap.exists() ? avatarSnap.data().files || [] : [];
-    const target = files.find((f) => f.id === documentId);
-    if (target && target.storagePath) {
-      try {
-        await deleteObject(ref(storage, target.storagePath));
-      } catch (err) {
-        console.warn('Failed to delete storage object:', err);
-      }
-    }
-    const updatedFiles = files.filter((f) => f.id !== documentId);
-    await updateDoc(avatarRef, { files: updatedFiles });
-    return { status: 'success' };
-  },
-};
-
+// services/avatar_Service.jsx
 import {
   collection,
   addDoc,
@@ -166,84 +22,25 @@ import {
 } from 'firebase/storage';
 import { db, storage } from '../firebase/config';
 import { v4 as uuidv4 } from 'uuid';
+import { getAuth } from 'firebase/auth';
 
-export const createAvatar = async (userId, name, description, iconFile) => {
+export const createAvatar = async (name, description, iconFile) => {
+  const user = getAuth().currentUser;
+  if (!user) throw new Error('No authenticated user');
+
+  const userId = user.uid;
   const avatarId = uuidv4();
   const conversationId = uuidv4(); // Create default conversation ID
 
-  // Store as a Digital Twin document following firestore_structure.md
-  const avatarData = {
-    digital_twin_id: avatarId,
-    user_id: userId,
-    name: name.trim(),
-    description: (description || '').trim(),
-    created_at: new Date().toISOString(),
-    icon: null, // will be an object {url, storagePath, name, size, type}
-    reference_audio: null,
-    files: [],
-    system_prompt_reference_image_description: '',
-    system_prompt_reference_audio_description: '',
-    system_prompt_description: '',
-    default_conversation: conversationId,
-    conversations: [conversationId],
-  };
-
-  // Upload icon if provided and store metadata + URL
-  if (iconFile) {
-    if (iconFile.size > 4 * 1024 * 1024) {
-      throw new Error('Icon exceeds 4 MB limit');
-    }
-    const iconRef = ref(
-      storage,
-      `users/${userId}/digital_twins/${avatarId}/icon/${uuidv4()}_${
-        iconFile.name
-      }`
-    );
-    await uploadBytes(iconRef, iconFile);
-    const iconUrl = await getDownloadURL(iconRef);
-    avatarData.icon = {
-      url: iconUrl,
-      storagePath: iconRef.fullPath,
-      name: iconFile.name,
-      size: iconFile.size,
-      type: iconFile.type,
-    };
-  }
-
-  // Create avatar (digital twin) document with avatarId as document ID
-  const avatarRef = doc(db, 'digital_twins', avatarId);
-  await setDoc(avatarRef, avatarData);
-
-  // Create default conversation document (store summary and counts)
-  const conversationRef = doc(
-    db,
-    'digital_twins',
-    avatarId,
-    'conversations',
-    conversationId
+  console.log(
+    'XXXXXXXXXXXXXXXXXXXXXXXXXX USER XXXXXXXXXXXXXXXXXXXXXXXXXXX AVATAR_SERVICE'
   );
-  await setDoc(conversationRef, {
-    conversation_id: conversationId,
-    summary: '',
-    created_at: new Date().toISOString(),
-    updated_at: new Date().toISOString(),
-    message_count: 0,
-  });
-
-  // Update user's digital_twins list
-  const userRef = doc(db, 'users', userId);
-  const userDoc = await getDoc(userRef);
-  const digitalTwins = userDoc.data().digital_twins || [];
-  await updateDoc(userRef, {
-    digital_twins: [...digitalTwins, avatarId],
-    last_used_digital_twin: avatarId,
-  });
-
+  console.log(user);
   // Create directory structure in Storage (using .keep files)
   const directories = [
     `users/${userId}/.keep`,
-    `users/${userId}/digital_twins/${avatarId}/adapters/.keep`,
-    `users/${userId}/digital_twins/${avatarId}/adapters/training_data/.keep`,
+    `users/${userId}/avatars/${avatarId}/adapters/.keep`,
+    `users/${userId}/avatars/${avatarId}/adapters/training_data/.keep`,
   ];
 
   for (const dirPath of directories) {
@@ -256,51 +53,90 @@ export const createAvatar = async (userId, name, description, iconFile) => {
   }
 
   // Generate download URLs
-  const iconUrl = avatarData.icon
-    ? avatarData.icon.url ||
-      (await getDownloadURL(ref(storage, avatarData.icon.storagePath)))
-    : null;
-  const userVectorstoreUrl = await getDownloadURL(
-    ref(storage, `users/${userId}/vectorstore/.keep`)
-  );
-  const avatarVectorstoreUrl = await getDownloadURL(
-    ref(
-      storage,
-      `users/${userId}/digital_twins/${avatarId}/vectorstore_data/.keep`
-    )
-  );
   const qloraAdapterUrl = await getDownloadURL(
-    ref(storage, `users/${userId}/digital_twins/${avatarId}/adapters/.keep`)
+    ref(storage, `users/${userId}/avatars/${avatarId}/adapters/.keep`)
   );
   const qloraTrainingUrl = await getDownloadURL(
     ref(
       storage,
-      `users/${userId}/digital_twins/${avatarId}/adapters/training_data/.keep`
+      `users/${userId}/avatars/${avatarId}/adapters/training_data/.keep`
     )
   );
+  // Store as a Digital Twin document following firestore_structure.md
+  const avatarData = {
+    avatar_id: avatarId,
+    user_id: user.uid,
+    name: name,
+    description: (description || '').trim(),
+    created_at: new Date().toISOString(),
+    icon: null, // will be an object {url, storagePath, name, size, type}
+    reference_audio: null,
+    files: [],
+    system_prompt_reference_image_description: '',
+    system_prompt_reference_audio_description: '',
+    system_prompt_description: '',
+    default_conversation: conversationId,
+    conversations: [conversationId],
+    qloraAdapterUrl: qloraAdapterUrl,
+    qloraTrainingUrl: qloraTrainingUrl,
+  };
+
+  // Upload icon if provided and store metadata + URL
+  if (iconFile) {
+    if (iconFile.size > 4 * 1024 * 1024) {
+      throw new Error('Icon exceeds 4 MB limit');
+    }
+    const iconRef = ref(
+      storage,
+      `users/${userId}/avatars/${avatarId}/icon/${uuidv4()}_${iconFile.name}`
+    );
+    await uploadBytes(iconRef, iconFile);
+    const iconUrl = await getDownloadURL(iconRef);
+    avatarData.icon = {
+      url: iconUrl,
+      storagePath: iconRef.fullPath,
+      name: iconFile.name,
+      size: iconFile.size,
+      type: iconFile.type,
+    };
+  }
+  // Create default conversation document (store summary and counts)
+  const conversationRef = doc(
+    db,
+    'avatars',
+    avatarId,
+    'conversations',
+    conversationId
+  );
+  await setDoc(conversationRef, {
+    conversation_id: conversationId,
+    summary: '',
+    created_at: new Date().toISOString(),
+    updated_at: new Date().toISOString(),
+    message_count: 0,
+  });
+
+  // Create avatar (digital twin) document with avatarId as document ID
+  const avatarRef = doc(db, 'avatars', avatarId);
+  await setDoc(avatarRef, avatarData);
+
+  // Update user's avatars list
+  const userRef = doc(db, 'users', userId);
+  const userDoc = await getDoc(userRef);
+  const avatars = userDoc.data().avatars || [];
+  await updateDoc(userRef, {
+    avatars: [...avatars, avatarId],
+    last_used_avatar: avatarId,
+  });
 
   return {
-    id: avatarId,
-    avatar_id: avatarId,
-    digital_twin_id: avatarId,
-    user_id: userId,
-    name: avatarData.name,
-    description: avatarData.description,
-    created_at: avatarData.created_at,
-    icon: avatarData.icon,
-    icon_url: iconUrl,
-    user_vectorstore_url: userVectorstoreUrl,
-    avatar_vectorstore_data_url: avatarVectorstoreUrl,
-    qlora_adapter_url: qloraAdapterUrl,
-    qlora_training_data_url: qloraTrainingUrl,
-    adapter_initialized: true,
-    vectorstore_initialized: true,
+    avatarData,
   };
 };
 
 export const getAvatars = async (userId, limitCount = 50, skip = 0) => {
   const avatarsQuery = query(
-    collection(db, 'digital_twins'),
+    collection(db, 'avatars'),
     where('user_id', '==', userId),
     orderBy('created_at', 'asc')
   );
@@ -337,7 +173,7 @@ export const getAvatars = async (userId, limitCount = 50, skip = 0) => {
 };
 
 export const updateAvatar = async (userId, avatarId, updates) => {
-  const avatarRef = doc(db, 'digital_twins', avatarId);
+  const avatarRef = doc(db, 'avatars', avatarId);
   const avatarDoc = await getDoc(avatarRef);
 
   if (!avatarDoc.exists() || avatarDoc.data().user_id !== userId) {
@@ -380,7 +216,7 @@ export const updateAvatarWithIcon = async (
   description,
   iconFile
 ) => {
-  const avatarRef = doc(db, 'digital_twins', avatarId);
+  const avatarRef = doc(db, 'avatars', avatarId);
   const avatarDoc = await getDoc(avatarRef);
 
   if (!avatarDoc.exists() || avatarDoc.data().user_id !== userId) {
@@ -419,9 +255,7 @@ export const updateAvatarWithIcon = async (
     // Upload new icon and store as object
     const iconRef = ref(
       storage,
-      `users/${userId}/digital_twins/${avatarId}/icon/${uuidv4()}_${
-        iconFile.name
-      }`
+      `users/${userId}/avatars/${avatarId}/icon/${uuidv4()}_${iconFile.name}`
     );
     await uploadBytes(iconRef, iconFile);
     const url = await getDownloadURL(iconRef);
@@ -454,10 +288,7 @@ export const deleteAvatar = async (userId, avatarId) => {
   }
 
   // Delete all files in Storage
-  const avatarStorageRef = ref(
-    storage,
-    `users/${userId}/digital_twins/${avatarId}`
-  );
+  const avatarStorageRef = ref(storage, `users/${userId}/avatars/${avatarId}`);
   try {
     const files = await listAll(avatarStorageRef);
     await Promise.all(files.items.map((file) => deleteObject(file)));
@@ -484,6 +315,7 @@ export const deleteAvatar = async (userId, avatarId) => {
 };
 
 export const selectAvatar = async (userId, avatarId) => {
+  userId = getAuth().currentUser.id;
   const avatarRef = doc(db, 'avatars', avatarId);
   const avatarDoc = await getDoc(avatarRef);
 
@@ -493,41 +325,13 @@ export const selectAvatar = async (userId, avatarId) => {
 
   const avatarData = avatarDoc.data();
 
-  // Ensure avatar has at least one conversation
-  let conversations = avatarData.conversations || [];
-  if (conversations.length === 0) {
-    // Create default conversation if none exists
-    const conversationId = uuidv4();
-    const conversationRef = doc(
-      db,
-      `avatars/${avatarId}/conversations`,
-      conversationId
-    );
-    await setDoc(conversationRef, {
-      conversation_id: conversationId,
-      avatar_id: avatarId,
-      user_id: userId,
-      title: 'Default Conversation',
-      created_at: new Date(),
-      updated_at: new Date(),
-      is_default: true,
-    });
-
-    await updateDoc(avatarRef, {
-      conversations: [conversationId],
-      default_conversation: conversationId,
-    });
-    conversations = [conversationId];
-  }
-
   // Update last_used_avatar
   await updateDoc(doc(db, 'users', userId), {
     last_used_avatar: avatarId,
   });
 
   // Get default conversation ID (or first conversation)
-  const defaultConversationId =
-    avatarData.default_conversation || conversations[0];
+  const defaultConversationId = avatarData.default_conversation;
 
   // Get messages from the default conversation
   const messagesQuery = query(
@@ -547,46 +351,7 @@ export const selectAvatar = async (userId, avatarId) => {
       doc.data().timestamp?.toDate().toISOString() || new Date().toISOString(),
   }));
 
-  // Generate URLs
-  const iconUrl = avatarData.icon
-    ? await getDownloadURL(ref(storage, avatarData.icon))
-    : null;
-  const userVectorstoreUrl = await getDownloadURL(
-    ref(storage, `users/${userId}/vectorstore/.keep`)
-  );
-  const avatarVectorstoreUrl = await getDownloadURL(
-    ref(
-      storage,
-      `users/${userId}/digital_twins/${avatarId}/vectorstore_data/.keep`
-    )
-  );
-  const qloraAdapterUrl = await getDownloadURL(
-    ref(storage, `users/${userId}/digital_twins/${avatarId}/adapters/.keep`)
-  );
-  const qloraTrainingUrl = await getDownloadURL(
-    ref(
-      storage,
-      `users/${userId}/digital_twins/${avatarId}/adapters/training_data/.keep`
-    )
-  );
-
-  return {
-    status: 'success',
-    avatar_id: avatarId,
-    user_id: userId,
-    name: avatarData.name,
-    description: avatarData.description,
-    icon_url: iconUrl,
-    user_vectorstore_url: userVectorstoreUrl,
-    avatar_vectorstore_data_url: avatarVectorstoreUrl,
-    qlora_adapter_url: qloraAdapterUrl,
-    qlora_training_data_url: qloraTrainingUrl,
-    model_loaded: false,
-    vectorstore_loaded: false,
-    messages,
-    default_conversation: defaultConversationId,
-    conversations: conversations,
-  };
+  return {};
 };
 
 // Conversation management functions

@@ -2,9 +2,13 @@
 import React, { useEffect, useRef } from 'react';
 import NET from 'vanta/dist/vanta.net.min';
 import * as THREE from 'three';
-
+import { useNavigate } from 'react-router-dom'; // 1. Add this
+import { useAuth } from '../../context/AuthContext'; // 2. Add this
 export default function Hero() {
   const vantaRef = useRef(null);
+
+  const navigate = useNavigate(); // 3. Initialize
+  const { user } = useAuth(); // 4. Initialize
 
   useEffect(() => {
     let vantaEffect;
@@ -31,6 +35,14 @@ export default function Hero() {
     };
   }, []);
 
+  const handleTryNow = () => {
+    if (user) {
+      navigate('/avatars'); // Go to app if logged in
+    } else {
+      navigate('/login'); // Go to login if not
+    }
+  };
+
   return (
     <section
       id="home"
@@ -46,10 +58,11 @@ export default function Hero() {
           personalized interactions.
         </p>
         <div className="flex justify-center">
-          <button className="relative px-6 py-3 bg-gradient-to-r bg-white/5 text-white font-semibold rounded-lg overflow-hidden group hover:shadow-lg hover:shadow-purple-500/25 transition-all duration-300">
-            <a href="/app" className="relative z-10">
-              Try Now
-            </a>
+          <button
+            onClick={handleTryNow}
+            className="relative px-6 py-3 bg-gradient-to-r bg-white/5 text-white font-semibold rounded-lg overflow-hidden group hover:shadow-lg hover:shadow-purple-500/25 transition-all duration-300"
+          >
+            <span className="relative z-10">Try Now</span>
             <div className="absolute inset-0 bg-gradient-to-r from-teal-500 to-teal-500 opacity-0 group-hover:opacity-100 transition-opacity duration-300"></div>
             <div className="absolute inset-0 bg-white/20 translate-x-full group-hover:translate-x-0 transition-transform duration-500 skew-x-12"></div>
           </button>

@@ -2,7 +2,7 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { getRedirectResult, GoogleAuthProvider } from 'firebase/auth';
-import { auth } from '../firebase/config';
+import { auth } from '../firebase/config.js';
 import LoadingSpinner from './LoadingSpinner';
 
 const AuthCallback = () => {

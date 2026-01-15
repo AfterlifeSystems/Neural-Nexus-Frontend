@@ -8,7 +8,7 @@
 ```javascript
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import { onAuthStateChanged } from 'firebase/auth';
-import { auth } from '../firebase/config';
+import { auth } from '../firebase/config.js';
 import { getUserProfile } from '../services/userService';
 
 const AuthContext = createContext();
@@ -154,7 +154,7 @@ import AvatarCard from './AvatarCard';
 
 const AvatarList = () => {
   const { currentUser } = useAuth();
-  const [avatars, setAvatars] = useState([]);
+  const [avatars, setUserAvatars] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
 
@@ -168,7 +168,7 @@ const AvatarList = () => {
     try {
       setLoading(true);
       const avatarList = await getAvatars(currentUser.uid);
-      setAvatars(avatarList);
+      setUserAvatars(avatarList);
     } catch (err) {
       setError(err.message);
     } finally {
@@ -180,7 +180,7 @@ const AvatarList = () => {
     if (window.confirm('Are you sure you want to delete this avatar?')) {
       try {
         await deleteAvatar(currentUser.uid, avatarId);
-        setAvatars(avatars.filter(avatar => avatar.avatar_id !== avatarId));
+        setUserAvatars(avatars.filter(avatar => avatar.avatar_id !== avatarId));
       } catch (err) {
         setError(err.message);
       }
@@ -540,7 +540,7 @@ import {
   orderBy,
   onSnapshot
 } from 'firebase/firestore';
-import { db } from '../firebase/config';
+import { db } from '../firebase/config.js';
 
 export const useMessages = (avatarId, userId) => {
   const [messages, setMessages] = useState([]);
