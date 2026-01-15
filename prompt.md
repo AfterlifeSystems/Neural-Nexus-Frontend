@@ -1,172 +1,870 @@
-This is the current AuthContext, AvatarSelection component, and authService and avatarService and userService; The AuthContext maintains global variables and localstorage; the services call the firebase services and the avatar selection component is the main navigation area of the app; I need to create an avatar in addition to the previous requirements;
-please list how each of the requirements are met with the lifecycle of the application and how the data is persisted even across browser losing and constantly insync and available to all compenents::
+<!-- Avatar messaging -->
+This is my localhost query endpoint; I need to send messages from the react frontend chat area, persist the messages in the firestore (media persists in storage), hit a local messaging api endpoint, receive the response and store the response in the firestore messages, and display the message response in the chat area (update with the new response).
 
+http://localhost:8090/docs#/default/query_query_post
+
+{"openapi":"3.1.0","info":{"title":"Neural Nexus Messaging API","description":"API for AI messaging with LoRA context support","version":"1.0.0"},"paths":{"/health":{"get":{"summary":"Health Check","description":"Health check endpoint.","operationId":"health_check_health_get","responses":{"200":{"description":"Successful Response","content":{"application/json":{"schema":{"$ref":"#/components/schemas/HealthResponse"}}}}}}},"/query":{"post":{"summary":"Query","description":"Unified query endpoint supporting multiple input modes:\n\n1. Text only: Provide user_input without image\n2. Image only: Provide image without user_input (or empty string)\n3. Image + text: Provide both user_input and image\n\nAdditional features:\n- If avatar_id is provided: attempts to use adapter\n- If use_context=True: retrieves context from vectorstore\n- Works gracefully even if features are unavailable\n\nExamples:\n    Text only:\n        curl -X POST -F \"user_input=What is AI?\" -F \"user_id=123\"\n    \n    Image only:\n        curl -X POST -F \"user_id=123\" -F \"image=@photo.jpg\"\n    \n    Image + text:\n        curl -X POST -F \"user_input=What's in this image?\" -F \"user_id=123\" -F \"image=@photo.jpg\"","operationId":"query_query_post","requestBody":{"content":{"multipart/form-data":{"schema":{"$ref":"#/components/schemas/Body_query_query_post"}}},"required":true},"responses":{"200":{"description":"Successful Response","content":{"application/json":{"schema":{"$ref":"#/components/schemas/QueryResponse"}}}},"422":{"description":"Validation Error","content":{"application/json":{"schema":{"$ref":"#/components/schemas/HTTPValidationError"}}}}}}}},"components":{"schemas":{"Body_query_query_post":{"properties":{"user_input":{"anyOf":[{"type":"string"},{"type":"null"}],"title":"User Input"},"user_id":{"type":"string","title":"User Id"},"avatar_id":{"anyOf":[{"type":"string"},{"type":"null"}],"title":"Avatar Id"},"use_context":{"type":"boolean","title":"Use Context","default":false},"max_new_tokens":{"type":"integer","title":"Max New Tokens","default":150},"image":{"anyOf":[{"type":"string","format":"binary"},{"type":"null"}],"title":"Image"}},"type":"object","required":["user_id"],"title":"Body_query_query_post"},"HTTPValidationError":{"properties":{"detail":{"items":{"$ref":"#/components/schemas/ValidationError"},"type":"array","title":"Detail"}},"type":"object","title":"HTTPValidationError"},"HealthResponse":{"properties":{"status":{"type":"string","title":"Status"},"device":{"type":"string","title":"Device"},"model_loaded":{"type":"boolean","title":"Model Loaded"}},"type":"object","required":["status","device","model_loaded"],"title":"HealthResponse"},"QueryResponse":{"properties":{"response":{"type":"string","title":"Response"},"context_used":{"type":"boolean","title":"Context Used"},"device":{"type":"string","title":"Device"},"model_type":{"type":"string","title":"Model Type"},"user_id":{"type":"string","title":"User Id"},"avatar_id":{"anyOf":[{"type":"string"},{"type":"null"}],"title":"Avatar Id"},"vectorstore_url":{"anyOf":[{"type":"string"},{"type":"null"}],"title":"Vectorstore Url"},"error":{"anyOf":[{"type":"string"},{"type":"null"}],"title":"Error"}},"type":"object","required":["response","context_used","device","model_type","user_id"],"title":"QueryResponse"},"ValidationError":{"properties":{"loc":{"items":{"anyOf":[{"type":"string"},{"type":"integer"}]},"type":"array","title":"Location"},"msg":{"type":"string","title":"Message"},"type":{"type":"string","title":"Error Type"}},"type":"object","required":["loc","msg","type"],"title":"ValidationError"}}}}
+
+
+-------------------------
+
+// src/components/ChatArea.jsx
+
+import React, { useEffect } from 'react';
+import { User, AudioLines } from 'lucide-react';
+import LiveTranscriptionTicker from './LiveTranscriptionTicker';
+import MessageList from './MessageList';
+import InputBar from './InputBar';
+import { useAuth } from '../context/AuthContext';
+import { useMedia } from '../context/MediaContext';
+import AvatarSettings from './AvatarSettings';
+import AvatarSelectionComponent from './AvatarSelectionComponent';
+import { useParams, useNavigate } from 'react-router-dom';
+import { useState } from 'react';
+const ChatArea = ({
+  showDataExchangeDropdown,
+  setShowDataExchangeDropdown,
+  dropdownRef,
+  onActivateLiveChat,
+  setShowCreateModal,
+  onEndLiveChat,
+  className,
+}) => {
+  const { isLoggedIn, accessToken, activeAvatar, setActiveAvatar } = useAuth();
+  const { messages, setMessages, fetchMessages, messagesEndRef } = useMedia();
+  const { avatarId } = useParams(); // from /chat/:avatarId
+  const navigate = useNavigate();
+  const [activeTab, setActiveTab] = useState('chat');
+  // const { messages, fetchMessages, messagesEndRef } = useMedia();
+
+  // Load messages when avatarId changes
+  useEffect(() => {
+    if (avatarId) {
+      fetchMessages(avatarId);
+    }
+  }, [avatarId, fetchMessages]);
+
+  // Send message handler (passed to InputBar)
+  const handleSendMessage = (text) => {
+    if (!avatarId || !text.trim()) return;
+    sendMessage(avatarId, text); // Sends to correct avatar's conversation
+  };
+
+  // Simple tab switcher (no setActiveTab prop needed)
+  const handleTabChange = (tab) => {
+    if (tab === 'avatar-selection') {
+      navigate('/avatars'); // Go back to selection screen
+    } else if (tab === 'avatar-settings') {
+      setActiveTab('avatar-settings');
+    } else if (tab === 'chat') {
+      setActiveTab('chat');
+    } else {
+      // Just update local tab state or do nothing (keep single chat view)
+      console.log('Tab changed to:', tab);
+    }
+  };
+
+  return (
+    <div
+      className={`flex flex-row flex-grow w-full h-full bg-white/5 backdrop-blur-lg rounded-2xl border border-white/20 overflow-hidden relative ${className}`}
+    >
+      {/* Background Image or User Icon - only show when not logged in or no active avatar */}
+      <>
+        {/* {activeAvatar?.icon ? (
+          <div
+            className="absolute inset-0 bg-cover bg-center bg-no-repeat"
+            style={{
+              backgroundImage: `url(${activeAvatar.icon})`,
+            }}
+          />
+        ) : (
+          <div className="absolute inset-0 flex items-center justify-center bg-gradient-to-br from-gray-800 to-gray-900">
+            <User className="w-64 h-64 text-gray-400 opacity-20" />
+          </div>
+        )} */}
+        {/* Overlay for better contrast */}
+        {/* <div className="absolute inset-0 bg-black/30" /> */}
+      </>
+
+      {/* Main Chat Section */}
+      <div className="flex flex-col flex-grow p-2 sm:p-4 relative z-10">
+        {/* Tabs */}
+        {
+          <div className="flex justify-center mb-2 border-b border-white/20 gap-4">
+            <button
+              className={`px-4 py-2 ${
+                activeTab === 'chat'
+                  ? 'border-b-2 border-white font-semibold'
+                  : ''
+              } text-white`}
+              onClick={() => handleTabChange('chat')}
+            >
+              {activeAvatar?.name
+                ? `A.I. ${activeAvatar.name} Chat`
+                : 'A.I. Chat'}
+            </button>
+            <button
+              className={`px-4 py-2 ${
+                activeTab === 'avatar-settings'
+                  ? 'border-b-2 border-white font-semibold'
+                  : ''
+              } text-white`}
+              onClick={() => handleTabChange('avatar-settings')}
+            >
+              Avatar Settings
+            </button>
+            <button
+              className={`px-4 py-2 ${
+                activeTab === 'avatar-selection'
+                  ? 'border-b-2 border-white font-semibold'
+                  : ''
+              } text-white`}
+              onClick={() => navigate('/avatars')}
+            >
+              Avatar Selection
+            </button>
+          </div>
+        }
+
+        {activeTab === 'chat' && (
+          <div className="flex flex-col flex-grow overflow-hidden">
+            <div className="flex-grow overflow-y-auto p-2 sm:p-4 relative">
+              <MessageList
+                messages={messages[activeAvatar.avatar_id] || []}
+                messagesEndRef={messagesEndRef}
+              />
+            </div>
+
+            <div className="flex-shrink-0 items-center mt-2">
+              <InputBar
+                avatarId={activeAvatar.avatar_id}
+                accessToken={accessToken}
+                dropdownRef={dropdownRef}
+                isLiveChatView={false}
+                onActivateLiveChat={onActivateLiveChat}
+              />
+            </div>
+          </div>
+        )}
+
+        {activeTab === 'avatar-settings' && (
+          <div className="flex flex-col flex-grow p-2 sm:p-4 relative overflow-y-auto">
+            <AvatarSettings
+              avatarId={activeAvatar.avatar_id}
+              accessToken={accessToken}
+              onAvatarDeleted={() => {
+                // Switch to avatar selection tab after deletion
+                setActiveTab('avatar-selection');
+              }}
+            />
+          </div>
+        )}
+      </div>
+    </div>
+  );
+};
+export default ChatArea;
+----------------_
+
+import { useRef, useEffect, useState } from 'react';
+import { Upload } from 'lucide-react';
+import { AudioLines } from 'lucide-react';
+import { useMedia } from '../context/MediaContext';
+import Dock from './Dock';
+import { HiXMark } from 'react-icons/hi2';
+import thoughtToImageService from '../services/ThoughtToImageService';
+
+const InputBar = ({
+  avatar_id,
+  accessToken,
+  setShowDataExchangeDropdown,
+  showDataExchangeDropdown,
+  dropdownRef,
+  isLiveChatView = false,
+  onActivateLiveChat,
+}) => {
+  const fileInputRef = useRef(null);
+  const textareaRef = useRef(null);
+
+  const [messageHistory, setMessageHistory] = useState([]);
+  const [historyIndex, setHistoryIndex] = useState(-1);
+  const [tempMessage, setTempMessage] = useState('');
+  const [editingCaption, setEditingCaption] = useState(null);
+  const [captions, setCaptions] = useState({});
+  const [isHovered, setIsHovered] = useState(false);
+
+  const {
+    sendMessage,
+    inputMessage,
+    setInputMessage,
+    mediaFiles,
+    setMediaFiles,
+    handleFileChange,
+    removeFile,
+    sender,
+    setSender,
+    isTranscribing,
+    startTranscription,
+    stopTranscription,
+    isThoughtToImageEnabled,
+    startThoughtToImage,
+    stopThoughtToImage,
+    dataExchangeTypes,
+  } = useMedia();
+
+  const handleKeyDown = (e) => {
+    e.stopPropagation();
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      handleSendMessage();
+    } else if (e.key === 'ArrowUp' && e.ctrlKey) {
+      e.preventDefault();
+      navigateHistory('up');
+    } else if (e.key === 'ArrowDown' && e.ctrlKey) {
+      e.preventDefault();
+      navigateHistory('down');
+    }
+  };
+
+  const navigateHistory = (direction) => {
+    if (messageHistory.length === 0) return;
+    if (direction === 'up') {
+      if (historyIndex === -1) {
+        setTempMessage(inputMessage);
+        setHistoryIndex(messageHistory.length - 1);
+        setInputMessage(messageHistory[messageHistory.length - 1]);
+      } else if (historyIndex > 0) {
+        setHistoryIndex(historyIndex - 1);
+        setInputMessage(messageHistory[historyIndex - 1]);
+      }
+    } else if (direction === 'down') {
+      if (historyIndex === messageHistory.length - 1) {
+        setHistoryIndex(-1);
+        setInputMessage(tempMessage);
+        setTempMessage('');
+      } else if (historyIndex > -1) {
+        setHistoryIndex(historyIndex + 1);
+        setInputMessage(messageHistory[historyIndex + 1]);
+      }
+    }
+  };
+
+  const handleInput = (e) => {
+    setInputMessage(e.target.value);
+    if (historyIndex !== -1) {
+      setHistoryIndex(-1);
+      setTempMessage('');
+    }
+    const ta = textareaRef.current;
+    if (ta) {
+      ta.style.height = 'auto';
+      ta.style.height = ta.scrollHeight + 'px';
+    }
+  };
+
+  const handleSendMessage = () => {
+    if (!inputMessage.trim() && mediaFiles.length === 0) {
+      if (isLiveChatView && onActivateLiveChat) {
+        onActivateLiveChat();
+      }
+      return;
+    }
+
+    if (
+      inputMessage.trim() &&
+      (messageHistory.length === 0 ||
+        messageHistory[messageHistory.length - 1] !== inputMessage.trim())
+    ) {
+      setMessageHistory((prev) => [...prev, inputMessage.trim()]);
+    }
+
+    setHistoryIndex(-1);
+    setTempMessage('');
+    setSender('user');
+    sendMessage(mediaFiles, () => {});
+    setMediaFiles([]);
+    setInputMessage('');
+    setCaptions({});
+    if (fileInputRef.current) fileInputRef.current.value = '';
+    if (textareaRef.current) textareaRef.current.style.height = 'auto';
+  };
+
+  const handleFileSelect = (e) => {
+    const files = Array.from(e.target.files || e.dataTransfer?.files || []);
+    handleFileChange({ target: { files } });
+  };
+
+  const handleRemoveFile = (index) => {
+    removeFile(index);
+    setCaptions((prev) => {
+      const newCaptions = { ...prev };
+      delete newCaptions[index];
+      const reindexed = {};
+      Object.keys(newCaptions).forEach((key) => {
+        const keyIndex = parseInt(key);
+        if (keyIndex > index) reindexed[keyIndex - 1] = newCaptions[key];
+        else reindexed[key] = newCaptions[key];
+      });
+      return reindexed;
+    });
+  };
+
+  useEffect(() => {
+    const ta = textareaRef.current;
+    if (ta) {
+      ta.style.height = 'auto';
+      ta.style.height = ta.scrollHeight + 'px';
+    }
+  }, [inputMessage]);
+
+  useEffect(() => {
+    thoughtToImageService.onReconstructedImage = ({ file }) => {
+      setMediaFiles((prevFiles) => [...prevFiles, file]);
+    };
+    return () => {
+      thoughtToImageService.onReconstructedImage = null;
+    };
+  }, [mediaFiles.length]);
+
+  return (
+    <div
+      className="w-full max-w-3xl mx-auto rounded-xl flex flex-col"
+      onDragOver={(e) => e.preventDefault()}
+      onDrop={(e) => {
+        e.preventDefault();
+        handleFileSelect(e);
+      }}
+    >
+      {/* Input Bar + Send Button on Same Row */}
+      <div className="flex flex-row items-center gap-2 flex-col mb-2">
+        {/* Input Container */}
+        <div className="flex-1 relative border border-gray-700 rounded-lg bg-black/35 focus-within:border-teal-400 transition-colors">
+          {mediaFiles.length > 0 && (
+            <div className="p-3 border-b border-gray-700/50">
+              <div className="flex gap-3 overflow-x-auto scrollbar-thin scrollbar-thumb-teal-400">
+                {mediaFiles.map((file, index) => (
+                  <div key={index} className="relative flex-shrink-0 group">
+                    <img
+                      src={URL.createObjectURL(file)}
+                      alt={`preview-${index}`}
+                      className="h-16 w-16 object-cover rounded-lg border border-gray-600 group-hover:border-teal-400 transition-colors"
+                    />
+                    <HiXMark
+                      onClick={() => handleRemoveFile(index)}
+                      className="absolute -top-0 -right-1 bg-red-900 hover:bg-red-500 text-white text-xs w-4 h-4 rounded-full flex items-center justify-center transition-colors z-20 cursor-pointer"
+                    />
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          <textarea
+            ref={textareaRef}
+            rows={1}
+            style={{ lineHeight: '1.5rem', maxHeight: '9rem' }}
+            className="w-full resize-none overflow-y-auto max-h-40 px-4 py-3 text-white bg-transparent placeholder-gray-400 scrollbar-thin scrollbar-thumb-teal-400 focus:outline-none border-none"
+            placeholder="Type your message... (Ctrl+↑ or ↓ for sent message history)"
+            value={inputMessage}
+            onChange={handleInput}
+            onKeyDown={handleKeyDown}
+            spellCheck={false}
+          />
+
+          {historyIndex !== -1 && (
+            <div className="absolute right-2 top-2 text-xs text-teal-400 bg-black/50 px-2 py-1 rounded">
+              {messageHistory.length - historyIndex}/{messageHistory.length}
+            </div>
+          )}
+        </div>
+
+        {/* Hidden File Input */}
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept="image/*"
+          multiple
+          hidden
+          onChange={handleFileSelect}
+        />
+
+        {/* Send Button */}
+        <button
+          onClick={() => {
+            if (!inputMessage.trim() && mediaFiles.length === 0) {
+              if (onActivateLiveChat) onActivateLiveChat();
+            } else {
+              handleSendMessage();
+            }
+          }}
+          className="transition-transform duration-300 hover:scale-105 px-6 rounded-xl text-white bg-black/35 border border-gray-700 hover:border-teal-400 flex items-center justify-center gap-2 whitespace-nowrap self-stretch"
+        >
+          {inputMessage.trim().length > 0 ? (
+            'Send'
+          ) : (
+            <>
+              <AudioLines className="w-5 h-5" />
+            </>
+          )}
+        </button>
+      </div>
+    </div>
+  );
+};
+
+export default InputBar;
+----------------
+
+// services/MessageService — NGROK HTTP API removed; Firestore-backed functions below will be used
+
+// Legacy HTTP-based functions removed (no external NGROK endpoints)
+
+// NOTE: Use the Firestore implementations below: sendMessage, getMessages, subscribeToMessages
 
 import {
-  createUserWithEmailAndPassword,
-  signInWithEmailAndPassword,
-  signOut,
-  updateProfile,
-} from 'firebase/auth';
-import { doc, setDoc, getDoc, updateDoc } from 'firebase/firestore';
-import { auth, db, storage } from '../firebase/config.js';
-import toast from 'react-hot-toast';
+  collection,
+  addDoc,
+  getDocs,
+  getDoc,
+  doc,
+  updateDoc,
+  query,
+  where,
+  orderBy,
+  limit as firestoreLimit,
+  onSnapshot,
+} from 'firebase/firestore';
+import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
+import { db, storage } from '../firebase/config.js';
+import { v4 as uuidv4 } from 'uuid';
 
-export const signup = async (username, email, password) => {
-  try {
-    console.log(email);
-    // Create Firebase Auth user
-    const userCredential = await createUserWithEmailAndPassword(
-      auth,
-      email,
-      password
+/**
+ * Send a message to a conversation
+ * @param {string} userId - User ID
+ * @param {string} avatarId - Avatar ID
+ * @param {string} conversationId - Conversation ID (if not provided, uses default)
+ * @param {string} message - Message text (optional if mediaFiles provided)
+ * @param {File[]} mediaFiles - Media files (optional)
+ * @param {string} sender - Sender type ('user' or 'assistant')
+ * @param {boolean} waitForResponse - Whether to wait for AI response
+ */
+export const sendMessage = async (
+  userId,
+  avatarId,
+  conversationId = null,
+  message = '',
+  mediaFiles = [],
+  sender = 'user',
+  waitForResponse = true
+) => {
+  // Get conversation ID (use default if not provided)
+  let finalConversationId = conversationId;
+  if (!finalConversationId) {
+    const avatarRef = doc(db, 'avatars', avatarId);
+    const avatarDoc = await getDoc(avatarRef);
+    if (!avatarDoc.exists()) {
+      throw new Error('Digital twin not found');
+    }
+    const avatarData = avatarDoc.data();
+    finalConversationId =
+      avatarData.default_conversation || avatarData.conversations?.[0];
+    if (!finalConversationId) {
+      throw new Error('No conversation found for digital twin');
+    }
+  }
+
+  const messageId = uuidv4();
+  const timestamp = new Date();
+
+  // Upload media files and store structured metadata
+  const mediaItems = [];
+  for (const file of mediaFiles) {
+    const mediaId = uuidv4();
+    const mediaRef = ref(
+      storage,
+      `users/${userId}/avatars/${avatarId}/conversations/${finalConversationId}/messages/${messageId}/${file.name}`
     );
-    const uid = userCredential.user.uid;
+    await uploadBytes(mediaRef, file);
+    const downloadURL = await getDownloadURL(mediaRef);
 
-    // Send email verification
-    // await sendEmailVerification(userCredential.user);
+    mediaItems.push({
+      id: mediaId,
+      type: file.type.startsWith('image/')
+        ? 'image'
+        : file.type.startsWith('audio/')
+        ? 'audio'
+        : 'file',
+      url: downloadURL,
+      storagePath: mediaRef.fullPath,
+      name: file.name,
+      size: file.size,
+      mimeType: file.type,
+      uploaded_at: new Date().toISOString(),
+    });
+  }
 
-    // Update display name
-    // await updateProfile(userCredential.user, { displayName: username });
+  // Determine message type
+  const messageType = mediaFiles.length > 0 && !message ? 'media' : 'text';
 
-    // Create Firestore profile
-    const userDoc = {
-      user_id: userCredential.user.uid,
-      username,
-      email,
-      created_at: new Date(),
-      last_login: null,
-      currently_logged_in: true,
-      avatars: [],
-      last_used_avatar: null,
+  // Save user message in the conversation's messages subcollection using canonical fields
+  const messageRef = await addDoc(
+    collection(
+      db,
+      'avatars',
+      avatarId,
+      'conversations',
+      finalConversationId,
+      'messages'
+    ),
+    {
+      message_id: messageId,
+      conversation_id: finalConversationId,
+      avatar_id: avatarId,
+      user_id: userId,
+      role: sender, // 'user' or 'assistant'
+      content: message || null,
+      timestamp: timestamp,
+      type: messageType,
+      media: mediaItems,
+    }
+  );
+
+  // Update conversation's updated_at timestamp
+  const conversationRef = doc(
+    db,
+    'avatars',
+    avatarId,
+    'conversations',
+    finalConversationId
+  );
+  await updateDoc(conversationRef, {
+    updated_at: timestamp,
+  });
+
+  const userMessage = {
+    message_id: messageId,
+    _id: messageId,
+    id: messageId,
+    timestamp: timestamp.toISOString(),
+    content: message || null,
+    message: message || null, // legacy compatibility
+    role: sender,
+    sender: sender,
+    media: mediaItems,
+    type: messageType,
+  };
+
+  if (waitForResponse) {
+    // TODO: Call your messaging API (Cloud Run) here
+    // Example:
+    // const aiResponse = await callMessagingAPI(userId, avatarId, message);
+    // Save AI response to Firestore
+    // Return both messages
+
+    return {
+      status: 'success',
+      user_message: userMessage,
+      ai_response: null, // Replace with actual AI response
     };
-
-    // 3. Write to Firestore
-    // Using doc(db, 'collection', ID) ensures the document ID matches the Auth UID
-    const userRef = doc(db, 'users', uid);
-    await setDoc(userRef, userDoc);
-    console.log(`✅ Profile created in Firestore for UID: ${uid}`);
-    // return userCredential.user;
-
-    // await setDoc(doc(db, 'users', userCredential.user.uid), userDoc);
-    // toast.success(
-    //   'Signup successful! Please check your email to verify your account.',
-    //   { duration: Infinity }
-    // );
-
-    return userCredential.user;
-  } catch (error) {
-    console.error('Signup error:', error);
-    console.error('Signup error:', error);
-    toast.error(error.message);
-    // throw error;
-    // Display user-friendly error messages
-    let errorMessage = 'Signup failed. Please try again.';
-    if (error.code === 'auth/email-already-in-use') {
-      errorMessage = 'This email is already registered';
-    } else if (error.code === 'auth/invalid-email') {
-      errorMessage = 'Please provide a valid email address';
-    } else if (error.code === 'auth/weak-password') {
-      errorMessage = 'Password must be at least 6 characters';
-    } else if (error.message) {
-      errorMessage = error.message;
-    }
-
-    toast.error(errorMessage);
-    throw error;
   }
+
+  return {
+    status: 'success',
+    user_message: userMessage,
+    ai_response: null,
+  };
 };
 
-export const login = async (email, password) => {
-  try {
-    const userCredential = await signInWithEmailAndPassword(
-      auth,
-      email,
-      password
+/**
+ * Get messages from a specific conversation
+ * @param {string} userId - User ID
+ * @param {string} avatarId - Avatar ID
+ * @param {string} conversationId - Conversation ID (if not provided, uses default)
+ * @param {number} maxMessages - Maximum number of messages to retrieve
+ */
+export const getMessages = async (
+  userId,
+  avatarId,
+  conversationId = null,
+  maxMessages = 50
+) => {
+  // Get conversation ID (use default if not provided)
+  let finalConversationId = conversationId;
+  if (!finalConversationId) {
+    const avatarRef = doc(db, 'avatars', avatarId);
+    const avatarDoc = await getDoc(avatarRef);
+    if (!avatarDoc.exists() || avatarDoc.data().user_id !== userId) {
+      throw new Error('Digital twin not found or unauthorized');
+    }
+    const avatarData = avatarDoc.data();
+    finalConversationId =
+      avatarData.default_conversation || avatarData.conversations?.[0];
+    if (!finalConversationId) {
+      throw new Error('No conversation found for digital twin');
+    }
+  }
+
+  const messagesQuery = query(
+    collection(
+      db,
+      'avatars',
+      avatarId,
+      'conversations',
+      finalConversationId,
+      'messages'
+    ),
+    orderBy('timestamp', 'asc'),
+    firestoreLimit(maxMessages)
+  );
+
+  const snapshot = await getDocs(messagesQuery);
+  const messages = [];
+
+  for (const docSnapshot of snapshot.docs) {
+    const data = docSnapshot.data();
+    const mediaUrls = await Promise.all(
+      (data.media || []).map(async (media) => {
+        const storagePath = media.storagePath || media.storage_path || null;
+        if (storagePath) {
+          try {
+            return await getDownloadURL(ref(storage, storagePath));
+          } catch (error) {
+            console.error('Error getting media URL:', error);
+            return media.url || null;
+          }
+        }
+        return media.url || null;
+      })
     );
 
-    // Allow unverified emails if we are using the emulator
-    const isEmulator = import.meta.env.VITE_USE_FIREBASE_EMULATOR === 'true';
-
-    // Check if email is verified
-    // if (!userCredential.user.emailVerified && !isEmulator) {
-    //   await signOut(auth);
-    //   throw new Error('Please verify your email before logging in');
-    // }
-
-    // Update last_login in Firestore
-    await updateDoc(doc(db, 'users', userCredential.user.uid), {
-      last_login: new Date(),
-      currently_logged_in: true,
+    messages.push({
+      _id: docSnapshot.id,
+      id: docSnapshot.id,
+      message_id: data.message_id || docSnapshot.id,
+      type: data.type || 'text',
+      content: data.content || data.message || '',
+      message: data.content || data.message || '', // Keep both for compatibility
+      timestamp:
+        (data.timestamp?.toDate && data.timestamp.toDate().toISOString()) ||
+        data.timestamp ||
+        new Date().toISOString(),
+      sender: data.role || data.sender || 'user',
+      media: mediaUrls
+        .map((url, idx) => ({
+          ...(data.media[idx] || {}),
+          url,
+        }))
+        .filter((media) => media.url),
     });
-    localStorage.setItem('user', userCredential.user);
-    // toast.success('Login successful!');
-    return userCredential.user;
-  } catch (error) {
-    console.error('Login error:', error);
-
-    let errorMessage = 'Login failed. Please try again.';
-    if (error.code === 'auth/user-not-found') {
-      errorMessage = 'No account found with this email';
-    } else if (error.code === 'auth/wrong-password') {
-      errorMessage = 'Incorrect password';
-    } else if (error.code === 'auth/invalid-email') {
-      errorMessage = 'Invalid email address';
-    } else if (error.message) {
-      errorMessage = error.message;
-    }
-
-    toast.error(errorMessage);
-    throw error;
   }
+
+  return messages;
 };
 
-// export const logout = async () => {
-try {
-  const user = auth.currentUser;
-  if (user) {
-    await updateDoc(doc(db, 'users', user.uid), {
-      currently_logged_in: false,
-    });
-  }
-  await signOut(auth);
-} catch (error) {
-  throw error;
-}
-// };
+/**
+ * Subscribe to messages in real-time for a conversation
+ * @param {string} avatarId - Avatar ID
+ * @param {string} conversationId - Conversation ID
+ * @param {Function} callback - Callback function for new messages
+ * @returns {Function} Unsubscribe function
+ */
+export const subscribeToMessages = (avatarId, conversationId, callback) => {
+  const messagesQuery = query(
+    collection(
+      db,
+      'avatars',
+      avatarId,
+      'conversations',
+      conversationId,
+      'messages'
+    ),
+    orderBy('timestamp', 'asc')
+  );
 
-export const logout = async () => {
-  try {
-    const user = auth.currentUser;
-    if (user) {
-      await updateDoc(doc(db, 'users', user.uid), {
-        currently_logged_in: false,
-      });
-    }
-    await signOut(auth);
-    localStorage.removeItem('user');
-    // Clear local state
-    // setUser(null);
-    // setUserProfile(null);
-    // setIsLoggedIn(false);
-    // setUserAvatars([]);
-    // setActiveAvatar(null);
-    // setAccessToken(null);
-    // localStorage.removeItem('user');
-    // localStorage.removeItem('firebase_user_id');
-    // localStorage.removeItem('avatars');
-    // localStorage.removeItem('access_token');
-  } catch (error) {
-    console.error('Logout error:', error);
-    toast.error('Logout completed with errors');
-    // throw error;
-  }
+  // Return unsubscribe function
+  return onSnapshot(messagesQuery, (snapshot) => {
+    const messages = snapshot.docs.map((docSnapshot) => {
+      const data = docSnapshot.data();
+      return {
+        _id: docSnapshot.id,
+        id: docSnapshot.id,
+        message_id: data.message_id || docSnapshot.id,
+        content: data.content || data.message || '',
+        message: data.content || data.message || '', // Keep both for compatibility
+        sender: data.role || data.sender || 'user',
+        timestamp:
+          (data.timestamp?.toDate && data.timestamp.toDate().toISOString()) ||
+          data.timestamp ||
+          new Date().toISOString(),
+        media: data.media || [],
+        type: data.type || 'text',
+      };
+    });
+    callback(messages);
+  });
 };
 
 
------------
+----------------------__
 
 
+import React, { useState, useEffect, useRef } from 'react';
+import { User, Mic, MicOff, CircleX } from 'lucide-react';
+
+const LiveChat = ({ avatarIcon, onEndLiveChat, onSendVoice }) => {
+  const [isRecording, setIsRecording] = useState(false);
+  const [isAvatarSpeaking, setIsAvatarSpeaking] = useState(false);
+  const [toasts, setToasts] = useState([]);
+  const mediaRecorderRef = useRef(null);
+
+  // Add a toast message
+  const addToast = (message) => {
+    const id = Date.now();
+    setToasts((prev) => [...prev, { id, message }]);
+    setTimeout(() => {
+      setToasts((prev) => prev.filter((toast) => toast.id !== id));
+    }, 3000); // disappear after 3s
+  };
+
+  const startRecording = async () => {
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    mediaRecorderRef.current = new MediaRecorder(stream);
+    mediaRecorderRef.current.start();
+    setIsRecording(true);
+    mediaRecorderRef.current.ondataavailable = (event) => {
+      onSendVoice(event.data);
+      // Example: simulate avatar response after sending voice
+      addToast('Avatar is thinking...');
+      setTimeout(() => {
+        addToast('Hello, this is the avatar speaking!');
+        setIsAvatarSpeaking(true);
+        setTimeout(() => setIsAvatarSpeaking(false), 2000);
+      }, 1000);
+    };
+    mediaRecorderRef.current.onstop = () => {
+      setIsRecording(false);
+    };
+  };
+
+  const stopRecording = () => {
+    if (
+      mediaRecorderRef.current &&
+      mediaRecorderRef.current.state !== 'inactive'
+    ) {
+      mediaRecorderRef.current.stop();
+    }
+  };
+
+  // Push-to-talk using spacebar
+  useEffect(() => {
+    const handleKeyDown = (e) => {
+      if (e.code === 'Space') startRecording();
+    };
+    const handleKeyUp = (e) => {
+      if (e.code === 'Space') stopRecording();
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    window.addEventListener('keyup', handleKeyUp);
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown);
+      window.removeEventListener('keyup', handleKeyUp);
+    };
+  }, []);
+
+  return (
+    <div className="relative flex flex-col items-center justify-end h-full w-full overflow-hidden">
+      {/* Background Image or User Icon - Large circular image like loginCard but bigger */}
+      <div className="absolute inset-0 flex items-center justify-center bg-white/5">
+        {avatarIcon ? (
+          // Desktop: Large circular image (4x loginCard size), Mobile: full background
+          <div className="hidden md:flex w-80 h-80 bg-white/20 rounded-full items-center justify-center">
+            <img
+              src={avatarIcon}
+              alt="Avatar Icon"
+              className="w-80 h-80 object-cover rounded-full"
+              onError={(e) => {
+                console.error('Avatar image load failed:', e.target.src);
+                e.target.style.display = 'none';
+              }}
+            />
+          </div>
+        ) : (
+          // Fallback User icon - larger circular container
+          <div className="w-80 h-80 bg-white/10 rounded-full flex items-center justify-center border-4 border-white/20">
+            <User className="w-40 h-40 text-gray-400 opacity-20" />
+          </div>
+        )}
+
+        {/* Mobile: Full background image */}
+        {avatarIcon && (
+          <div
+            className="md:hidden absolute inset-0 bg-cover bg-center"
+            style={{
+              backgroundImage: `url(${avatarIcon})`,
+            }}
+          />
+        )}
+      </div>
+
+      {/* Overlay for better contrast - lighter on desktop to show the circumscribed image better */}
+      <div className="absolute inset-0 bg-black/30 md:bg-black/20" />
+
+      {/* Toast container */}
+      <div className="absolute top-4 left-1/2 transform -translate-x-1/2 flex flex-col gap-2 z-50">
+        {toasts.map((toast) => (
+          <div
+            key={toast.id}
+            className="px-4 py-2 bg-black/70 text-white rounded-lg shadow-lg animate-slide-down backdrop-blur-sm"
+          >
+            {toast.message}
+          </div>
+        ))}
+      </div>
+
+      {/* Speaking indicator overlay - circumscribed on desktop */}
+      {isAvatarSpeaking && (
+        <div className="absolute inset-0 border-4 border-green-500 animate-pulse  z-10" />
+      )}
+
+      {/* Recording indicator overlay - circumscribed on desktop */}
+      {isRecording && (
+        <div className="absolute inset-0 border-4 border-blue-500 animate-pulse  z-10" />
+      )}
+
+      {/* Control buttons at bottom */}
+      <div className="relative z-20 flex gap-4 mb-8">
+        {/* Microphone button - shows mic when not recording, mic-off when recording */}
+        <button
+          className={`p-4 rounded-full transition-all duration-300 backdrop-blur-sm ${
+            isRecording
+              ? 'bg-red-500/80 hover:bg-red-600/80 text-white'
+              : 'bg-blue-500/80 hover:bg-blue-600/80 text-white'
+          }`}
+          onMouseDown={startRecording}
+          onMouseUp={stopRecording}
+          onTouchStart={startRecording}
+          onTouchEnd={stopRecording}
+        >
+          {isRecording ? (
+            <MicOff className="w-6 h-6" />
+          ) : (
+            <Mic className="w-6 h-6" />
+          )}
+        </button>
+        {/* End button with CircleX icon */}
+        <button
+          className="p-4 rounded-full bg-gray-500/80 hover:bg-red-600/80 text-white transition-all duration-300 backdrop-blur-sm"
+          onClick={onEndLiveChat}
+        >
+          <CircleX className="w-6 h-6" />
+        </button>
+      </div>
+    </div>
+  );
+};
+
+export default LiveChat;
+-----------------------
 // services/avatar_Service.jsx
 import {
   collection,
@@ -191,16 +889,51 @@ import {
 } from 'firebase/storage';
 import { db, storage } from '../firebase/config';
 import { v4 as uuidv4 } from 'uuid';
+import { getAuth } from 'firebase/auth';
 
-export const createAvatar = async (userId, name, description, iconFile) => {
+export const createAvatar = async (name, description, iconFile) => {
+  const user = getAuth().currentUser;
+  if (!user) throw new Error('No authenticated user');
+
+  const userId = user.uid;
   const avatarId = uuidv4();
   const conversationId = uuidv4(); // Create default conversation ID
 
+  console.log(
+    'XXXXXXXXXXXXXXXXXXXXXXXXXX USER XXXXXXXXXXXXXXXXXXXXXXXXXXX AVATAR_SERVICE'
+  );
+  console.log(user);
+  // Create directory structure in Storage (using .keep files)
+  const directories = [
+    `users/${userId}/.keep`,
+    `users/${userId}/avatars/${avatarId}/adapters/.keep`,
+    `users/${userId}/avatars/${avatarId}/adapters/training_data/.keep`,
+  ];
+
+  for (const dirPath of directories) {
+    try {
+      const dirRef = ref(storage, dirPath);
+      await uploadBytes(dirRef, new Blob([''], { type: 'text/plain' }));
+    } catch (error) {
+      console.warn(`Failed to create directory ${dirPath}:`, error);
+    }
+  }
+
+  // Generate download URLs
+  const qloraAdapterUrl = await getDownloadURL(
+    ref(storage, `users/${userId}/avatars/${avatarId}/adapters/.keep`)
+  );
+  const qloraTrainingUrl = await getDownloadURL(
+    ref(
+      storage,
+      `users/${userId}/avatars/${avatarId}/adapters/training_data/.keep`
+    )
+  );
   // Store as a Digital Twin document following firestore_structure.md
   const avatarData = {
     avatar_id: avatarId,
-    user_id: userId,
-    name: name.trim(),
+    user_id: user.uid,
+    name: name,
     description: (description || '').trim(),
     created_at: new Date().toISOString(),
     icon: null, // will be an object {url, storagePath, name, size, type}
@@ -211,6 +944,8 @@ export const createAvatar = async (userId, name, description, iconFile) => {
     system_prompt_description: '',
     default_conversation: conversationId,
     conversations: [conversationId],
+    qloraAdapterUrl: qloraAdapterUrl,
+    qloraTrainingUrl: qloraTrainingUrl,
   };
 
   // Upload icon if provided and store metadata + URL
@@ -232,11 +967,6 @@ export const createAvatar = async (userId, name, description, iconFile) => {
       type: iconFile.type,
     };
   }
-
-  // Create avatar (digital twin) document with avatarId as document ID
-  const avatarRef = doc(db, 'avatars', avatarId);
-  await setDoc(avatarRef, avatarData);
-
   // Create default conversation document (store summary and counts)
   const conversationRef = doc(
     db,
@@ -253,6 +983,10 @@ export const createAvatar = async (userId, name, description, iconFile) => {
     message_count: 0,
   });
 
+  // Create avatar (digital twin) document with avatarId as document ID
+  const avatarRef = doc(db, 'avatars', avatarId);
+  await setDoc(avatarRef, avatarData);
+
   // Update user's avatars list
   const userRef = doc(db, 'users', userId);
   const userDoc = await getDoc(userRef);
@@ -262,58 +996,8 @@ export const createAvatar = async (userId, name, description, iconFile) => {
     last_used_avatar: avatarId,
   });
 
-  // Create directory structure in Storage (using .keep files)
-  const directories = [
-    `users/${userId}/.keep`,
-    `users/${userId}/avatars/${avatarId}/adapters/.keep`,
-    `users/${userId}/avatars/${avatarId}/adapters/training_data/.keep`,
-  ];
-
-  for (const dirPath of directories) {
-    try {
-      const dirRef = ref(storage, dirPath);
-      await uploadBytes(dirRef, new Blob([''], { type: 'text/plain' }));
-    } catch (error) {
-      console.warn(`Failed to create directory ${dirPath}:`, error);
-    }
-  }
-
-  // Generate download URLs
-  const iconUrl = avatarData.icon
-    ? avatarData.icon.url ||
-      (await getDownloadURL(ref(storage, avatarData.icon.storagePath)))
-    : null;
-  const userVectorstoreUrl = await getDownloadURL(
-    ref(storage, `users/${userId}/vectorstore/.keep`)
-  );
-  const avatarVectorstoreUrl = await getDownloadURL(
-    ref(storage, `users/${userId}/avatars/${avatarId}/vectorstore_data/.keep`)
-  );
-  const qloraAdapterUrl = await getDownloadURL(
-    ref(storage, `users/${userId}/avatars/${avatarId}/adapters/.keep`)
-  );
-  const qloraTrainingUrl = await getDownloadURL(
-    ref(
-      storage,
-      `users/${userId}/avatars/${avatarId}/adapters/training_data/.keep`
-    )
-  );
-
   return {
-    id: avatarId,
-    avatar_id: avatarId,
-    user_id: userId,
-    name: avatarData.name,
-    description: avatarData.description,
-    created_at: avatarData.created_at,
-    icon: avatarData.icon,
-    icon_url: iconUrl,
-    user_vectorstore_url: userVectorstoreUrl,
-    avatar_vectorstore_data_url: avatarVectorstoreUrl,
-    qlora_adapter_url: qloraAdapterUrl,
-    qlora_training_data_url: qloraTrainingUrl,
-    adapter_initialized: true,
-    vectorstore_initialized: true,
+    avatarData,
   };
 };
 
@@ -498,6 +1182,7 @@ export const deleteAvatar = async (userId, avatarId) => {
 };
 
 export const selectAvatar = async (userId, avatarId) => {
+  userId = getAuth().currentUser.id;
   const avatarRef = doc(db, 'avatars', avatarId);
   const avatarDoc = await getDoc(avatarRef);
 
@@ -507,41 +1192,13 @@ export const selectAvatar = async (userId, avatarId) => {
 
   const avatarData = avatarDoc.data();
 
-  // Ensure avatar has at least one conversation
-  let conversations = avatarData.conversations || [];
-  if (conversations.length === 0) {
-    // Create default conversation if none exists
-    const conversationId = uuidv4();
-    const conversationRef = doc(
-      db,
-      `avatars/${avatarId}/conversations`,
-      conversationId
-    );
-    await setDoc(conversationRef, {
-      conversation_id: conversationId,
-      avatar_id: avatarId,
-      user_id: userId,
-      title: 'Default Conversation',
-      created_at: new Date(),
-      updated_at: new Date(),
-      is_default: true,
-    });
-
-    await updateDoc(avatarRef, {
-      conversations: [conversationId],
-      default_conversation: conversationId,
-    });
-    conversations = [conversationId];
-  }
-
   // Update last_used_avatar
   await updateDoc(doc(db, 'users', userId), {
     last_used_avatar: avatarId,
   });
 
   // Get default conversation ID (or first conversation)
-  const defaultConversationId =
-    avatarData.default_conversation || conversations[0];
+  const defaultConversationId = avatarData.default_conversation;
 
   // Get messages from the default conversation
   const messagesQuery = query(
@@ -561,43 +1218,7 @@ export const selectAvatar = async (userId, avatarId) => {
       doc.data().timestamp?.toDate().toISOString() || new Date().toISOString(),
   }));
 
-  // Generate URLs
-  const iconUrl = avatarData.icon
-    ? await getDownloadURL(ref(storage, avatarData.icon))
-    : null;
-  const userVectorstoreUrl = await getDownloadURL(
-    ref(storage, `users/${userId}/vectorstore/.keep`)
-  );
-  const avatarVectorstoreUrl = await getDownloadURL(
-    ref(storage, `users/${userId}/avatars/${avatarId}/vectorstore_data/.keep`)
-  );
-  const qloraAdapterUrl = await getDownloadURL(
-    ref(storage, `users/${userId}/avatars/${avatarId}/adapters/.keep`)
-  );
-  const qloraTrainingUrl = await getDownloadURL(
-    ref(
-      storage,
-      `users/${userId}/avatars/${avatarId}/adapters/training_data/.keep`
-    )
-  );
-
-  return {
-    status: 'success',
-    avatar_id: avatarId,
-    user_id: userId,
-    name: avatarData.name,
-    description: avatarData.description,
-    icon_url: iconUrl,
-    user_vectorstore_url: userVectorstoreUrl,
-    avatar_vectorstore_data_url: avatarVectorstoreUrl,
-    qlora_adapter_url: qloraAdapterUrl,
-    qlora_training_data_url: qloraTrainingUrl,
-    model_loaded: false,
-    vectorstore_loaded: false,
-    messages,
-    default_conversation: defaultConversationId,
-    conversations: conversations,
-  };
+  return {};
 };
 
 // Conversation management functions
@@ -781,803 +1402,7 @@ export const deleteConversation = async (userId, avatarId, conversationId) => {
 
   return { status: 'success', conversation_id: conversationId };
 };
-
-
---------------
-
-
-import React, { useState, useEffect, useRef, useMemo } from 'react';
-import { toast } from 'react-hot-toast';
-import { useNavigate } from 'react-router-dom';
-import { useAuth } from '../context/AuthContext';
-import CircularGallery from './CircularGallery';
-import {
-  Search,
-  Settings,
-  CirclePlus,
-  LogOut,
-  X,
-  Edit,
-  User,
-} from 'lucide-react';
-import { FiCircle } from 'react-icons/fi';
-import CreateAvatarComponent from './CreateAvatarComponent';
-import AvatarCardComponent from './AvatarCardComponent';
-import { useMedia } from '../context/MediaContext';
-import AuthComponent from './AuthComponent';
-import { signup, login, logout } from '../services/authService';
-
-const AvatarSelectionComponent = ({}) => {
-  const {
-    accessToken,
-    user,
-    avatars,
-    setActiveAvatar,
-    lastUsedAvatar,
-    selectAvatar,
-  } = useAuth();
-  const { setMessages, fetchMessages } = useMedia();
-  const navigate = useNavigate();
-  const [currentCardIndex, setCurrentCardIndex] = useState(0);
-  const [searchQuery, setSearchQuery] = useState('');
-  const [suggestions, setSuggestions] = useState([]);
-  const [isDropdownOpen, setIsDropdownOpen] = useState(false);
-  const [highlightedIndex, setHighlightedIndex] = useState(-1);
-  const [dropdownOpen, setDropdownOpen] = useState(false);
-  const galleryRef = useRef(null);
-  const searchRef = useRef(null);
-  const dropdownRef = useRef(null);
-  const hasInitialized = useRef(false);
-  const [showCreateModal, setShowCreateModal] = useState(false);
-
-  const isValidImageUrl = (url) => {
-    if (!url) return false;
-    if (url.startsWith('data:image/')) return url.includes('base64,');
-    return /^(https?:\/\/|\/)/.test(url);
-  };
-
-  const clearOtherAvatarCache = (currentAvatarId) => {
-    try {
-      const keysToRemove = [];
-      for (let i = 0; i < localStorage.length; i++) {
-        const key = localStorage.key(i);
-        if (
-          (key.startsWith('avatar_icon_') ||
-            key.startsWith('avatar_position_')) &&
-          key !== `avatar_icon_${currentAvatarId}` &&
-          key !== `avatar_position_${currentAvatarId}`
-        ) {
-          keysToRemove.push(key);
-        }
-      }
-      keysToRemove.forEach((key) => localStorage.removeItem(key));
-    } catch (error) {
-      console.error('Failed to clear other avatar cache:', error);
-    }
-  };
-
-  const cacheAvatarPosition = (avatarId, avatarIndex = null) => {
-    try {
-      localStorage.setItem('last_used_avatar_id', avatarId);
-      if (avatarIndex !== null && avatars?.length > 0) {
-        const positionData = {
-          avatarIndex,
-        };
-        localStorage.setItem(
-          `avatar_position_${avatarId}`,
-          JSON.stringify(positionData)
-        );
-        localStorage.setItem(
-          'last_avatar_position',
-          JSON.stringify(positionData)
-        );
-      }
-    } catch (error) {
-      console.error('Failed to cache avatar position:', error);
-    }
-  };
-
-  const cacheAvatarIcon = (avatarId, iconUrl, avatarIndex = null) => {
-    if (iconUrl) {
-      try {
-        clearOtherAvatarCache(avatarId);
-        localStorage.setItem(`avatar_icon_${avatarId}`, iconUrl);
-        localStorage.setItem('last_avatar_icon', iconUrl);
-      } catch (error) {
-        console.error('Failed to cache avatar icon:', error);
-      }
-    }
-    cacheAvatarPosition(avatarId, avatarIndex);
-  };
-
-  const handleClick = async (cardData) => {
-    let actualCardData = cardData;
-    if (!cardData.type) {
-      const matchingCard = authenticatedCards.find(
-        (card) =>
-          card.id === cardData.id ||
-          (cardData.text && card.text === cardData.text)
-      );
-      if (matchingCard) actualCardData = matchingCard;
-    }
-
-    if (actualCardData.type === 'avatar') {
-      try {
-        const avatarId =
-          actualCardData.id ||
-          avatars?.find((avatar) => avatar.name === actualCardData.text)
-            ?.avatar_id;
-        if (!avatarId) {
-          toast.error('Avatar ID not found');
-          return;
-        }
-
-        const avatarIndex = avatars.findIndex(
-          (avatar) => avatar.avatar_id === avatarId
-        );
-
-        setCurrentCardIndex(avatarIndex);
-        if (galleryRef.current) {
-          galleryRef.current.setCurrentIndex(avatarIndex);
-        }
-
-        // Use AuthContext selectAvatar which updates Firestore
-        await selectAvatar(avatarId);
-
-        const selectedAvatar = avatars.find(
-          (avatar) => avatar.avatar_id === avatarId
-        );
-
-        cacheAvatarPosition(avatarId, avatarIndex);
-        if (selectedAvatar?.icon) {
-          cacheAvatarIcon(avatarId, selectedAvatar.icon, avatarIndex);
-        }
-
-        setActiveAvatar(selectedAvatar);
-        // Load messages for this avatar
-        await fetchMessages();
-        // navigate(/chat:selectedAvatar)
-      } catch (error) {
-        console.error('Error selecting avatar:', error);
-        toast.error('Failed to select avatar');
-      }
-    } else if (actualCardData.type === 'create') {
-      setShowCreateModal(true);
-    }
-  };
-
-  const handleCustomizeAvatar = async () => {
-    if (currentCardIndex === authenticatedCards.length - 1) {
-      setShowCreateModal(true);
-      return;
-    }
-
-    const selectedCard = authenticatedCards[currentCardIndex];
-    if (selectedCard.type === 'avatar') {
-      try {
-        const avatarId =
-          selectedCard.id ||
-          avatars?.find((avatar) => avatar.name === selectedCard.text)
-            ?.avatar_id;
-        if (!avatarId) {
-          toast.error('Avatar ID not found');
-          return;
-        }
-
-        // Use AuthContext selectAvatar which updates Firestore
-        await selectAvatar(avatarId);
-
-        const selectedAvatar = avatars.find(
-          (avatar) => avatar.avatar_id === avatarId
-        );
-        const avatarIndex = avatars.findIndex(
-          (avatar) => avatar.avatar_id === avatarId
-        );
-
-        cacheAvatarPosition(avatarId, avatarIndex);
-
-        if (selectedAvatar?.icon) {
-          cacheAvatarIcon(avatarId, selectedAvatar.icon, avatarIndex);
-        }
-
-        setActiveAvatar(selectedAvatar);
-        // Load messages for this avatar and set into media context if needed
-        await fetchMessages();
-        setActiveTab('documents');
-        // navigate(/settings:selectedAvatar)
-      } catch (error) {
-        console.error('Error selecting avatar for settings:', error);
-        toast.error('Failed to open avatar settings');
-      }
-    }
-  };
-
-  const authenticatedCards = useMemo(() => {
-    const avatarCards =
-      avatars?.map((avatar) => ({
-        id: avatar.avatar_id,
-        component: (
-          <AvatarCardComponent avatar={avatar} onCardClick={handleClick} />
-        ),
-        type: 'avatar',
-        text: avatar.name,
-        image: avatar.icon && isValidImageUrl(avatar.icon) ? avatar.icon : null,
-        avatar_data: avatar,
-      })) || [];
-
-    avatarCards.push({
-      id: 'create-avatar',
-      component: <CreateAvatarComponent onCardClick={handleClick} />,
-      type: 'create',
-      text: 'Create Avatar',
-      image: null,
-    });
-
-    return avatarCards;
-  }, [avatars]);
-
-  const getCachedAvatarPosition = (avatarId = null) => {
-    try {
-      if (avatarId) {
-        const cachedPosition = localStorage.getItem(
-          `avatar_position_${avatarId}`
-        );
-        if (cachedPosition) return JSON.parse(cachedPosition);
-      }
-      const lastPosition = localStorage.getItem('last_avatar_position');
-      if (lastPosition) return JSON.parse(lastPosition);
-      return null;
-    } catch (error) {
-      console.error('Error getting cached avatar position:', error);
-      return null;
-    }
-  };
-
-  useEffect(() => {
-    if (avatars?.length > 0 && !hasInitialized.current) {
-      let targetIndex = 0;
-
-      const cachedLastAvatarId = localStorage.getItem('last_used_avatar_id');
-      if (cachedLastAvatarId) {
-        const cachedPosition = getCachedAvatarPosition(cachedLastAvatarId);
-        if (cachedPosition && cachedPosition.avatarIndex < avatars.length) {
-          targetIndex = cachedPosition.avatarIndex;
-        }
-      } else if (lastUsedAvatar) {
-        const lastUsedIndex = avatars.findIndex(
-          (avatar) => avatar.avatar_id === lastUsedAvatar
-        );
-        if (lastUsedIndex !== -1) {
-          targetIndex = lastUsedIndex;
-        }
-      }
-
-      setCurrentCardIndex(targetIndex);
-      if (galleryRef.current) {
-        galleryRef.current.setCurrentIndex(targetIndex);
-      }
-      hasInitialized.current = true;
-    }
-    if (!user || !avatars?.length) {
-      hasInitialized.current = false;
-    }
-  }, [user, avatars]);
-
-  const handleLogout = () => {
-    setActiveAvatar(null);
-    logout();
-    setDropdownOpen(false);
-  };
-
-  useEffect(() => {
-    const handleClickOutside = (e) => {
-      if (dropdownRef.current && !dropdownRef.current.contains(e.target)) {
-        setDropdownOpen(false);
-      }
-      if (searchRef.current && !searchRef.current.contains(e.target)) {
-        setIsDropdownOpen(false);
-        setHighlightedIndex(-1);
-      }
-    };
-    document.addEventListener('mousedown', handleClickOutside);
-    return () => document.removeEventListener('mousedown', handleClickOutside);
-  }, []);
-
-  useEffect(() => {
-    if (user) {
-      toast.dismiss();
-    }
-  }, []);
-
-  useEffect(() => {
-    console.log('Avatar Selection Component user: ' + user);
-  }, []);
-
-  const currentCards = user ? authenticatedCards : [loginCard];
-
-  const handleDotClick = (index) => {
-    setCurrentCardIndex(index);
-    if (galleryRef.current) {
-      galleryRef.current.setCurrentIndex(index);
-    }
-  };
-
-  const handleJumpLeft = () => {
-    const newIndex = Math.max(0, currentCardIndex - 5);
-    setCurrentCardIndex(newIndex);
-    if (galleryRef.current) {
-      galleryRef.current.setCurrentIndex(newIndex);
-    }
-  };
-
-  const handleJumpRight = () => {
-    const newIndex = Math.min(currentCards.length - 1, currentCardIndex + 5);
-    setCurrentCardIndex(newIndex);
-    if (galleryRef.current) {
-      galleryRef.current.setCurrentIndex(newIndex);
-    }
-  };
-  useEffect(() => {
-    const visibleDots = getVisibleDots();
-
-    // Find the index of the currently selected card within the visible dots
-    const selectedDotIndex = visibleDots.findIndex(
-      (card) => card.originalIndex === currentCardIndex
-    );
-
-    console.log('Currently selected visible dot index:', selectedDotIndex);
-    console.log('Current Card Index:', currentCardIndex);
-  }, [currentCardIndex]);
-
-  // Get the 5 closest avatars to current index (2 before, current, 2 after)
-  const getVisibleDots = () => {
-    const total = currentCards.length;
-    const visibleCount = 5;
-    const halfVisible = Math.floor(visibleCount / 2);
-
-    let start = currentCardIndex - halfVisible;
-    let end = currentCardIndex + halfVisible;
-
-    // Clamp start/end to valid range
-    if (start < 0) {
-      end = Math.min(total - 1, end + Math.abs(start));
-      start = 0;
-    }
-    if (end >= total) {
-      start = Math.max(0, start - (end - total + 1));
-      end = total - 1;
-    }
-
-    const slice = currentCards.slice(start, end + 1);
-
-    // Map slice to include visibleIndex
-    return slice.map((card, idx) => ({
-      ...card,
-      originalIndex: start + idx,
-      visibleIndex: idx, // index relative to the visible slice
-    }));
-  };
-
-  const handleSearch = (e) => {
-    const value = e.target.value;
-    setSearchQuery(value);
-    setHighlightedIndex(-1);
-
-    const allCards = [
-      ...(avatars?.map((avatar, idx) => ({
-        id: avatar.avatar_id,
-        type: 'avatar',
-        text: avatar.name,
-        image: avatar.icon && isValidImageUrl(avatar.icon) ? avatar.icon : null,
-        originalIndex: idx,
-      })) || []),
-      {
-        id: 'create-avatar',
-        type: 'create',
-        text: 'Create Avatar',
-        image: null,
-        originalIndex: authenticatedCards.length - 1,
-      },
-    ];
-
-    const filteredSuggestions = allCards
-      .filter((card) => card.text.toLowerCase().includes(value.toLowerCase()))
-      .map((card) => ({
-        ...card,
-        originalIndex: card.originalIndex ?? authenticatedCards.length - 1,
-      }));
-
-    setSuggestions(
-      value && filteredSuggestions.length === 0
-        ? [
-            {
-              id: 'create-avatar',
-              type: 'create',
-              text: 'Create Avatar',
-              image: null,
-              originalIndex: authenticatedCards.length - 1,
-            },
-          ]
-        : filteredSuggestions
-    );
-    setIsDropdownOpen(true);
-  };
-
-  const handleSearchFocus = () => {
-    const allCards = [
-      ...(avatars?.map((avatar, idx) => ({
-        id: avatar.avatar_id,
-        type: 'avatar',
-        text: avatar.name,
-        image: avatar.icon && isValidImageUrl(avatar.icon) ? avatar.icon : null,
-        originalIndex: idx,
-      })) || []),
-      {
-        id: 'create-avatar',
-        type: 'create',
-        text: 'Create Avatar',
-        image: null,
-        originalIndex: authenticatedCards.length - 1,
-      },
-    ];
-
-    setSuggestions(
-      searchQuery &&
-        allCards.every(
-          (card) => !card.text.toLowerCase().includes(searchQuery.toLowerCase())
-        )
-        ? [
-            {
-              id: 'create-avatar',
-              type: 'create',
-              text: 'Create Avatar',
-              image: null,
-              originalIndex: authenticatedCards.length - 1,
-            },
-          ]
-        : allCards
-    );
-    setIsDropdownOpen(true);
-  };
-
-  const handleSuggestionSelect = (index) => {
-    setCurrentCardIndex(index);
-    if (galleryRef.current) {
-      galleryRef.current.setCurrentIndex(index);
-    }
-    setSearchQuery(authenticatedCards[index]?.text || '');
-    setIsDropdownOpen(false);
-    setHighlightedIndex(-1);
-  };
-
-  const handleKeyDown = (e) => {
-    if (e.key === 'Enter' && suggestions.length > 0 && highlightedIndex >= 0) {
-      handleSuggestionSelect(suggestions[highlightedIndex].originalIndex);
-    } else if (e.key === 'Enter' && suggestions.length > 0) {
-      handleSuggestionSelect(suggestions[0].originalIndex);
-    } else if (e.key === 'ArrowDown') {
-      e.preventDefault();
-      setHighlightedIndex((prev) =>
-        prev < suggestions.length - 1 ? prev + 1 : 0
-      );
-    } else if (e.key === 'ArrowUp') {
-      e.preventDefault();
-      setHighlightedIndex((prev) =>
-        prev > 0 ? prev - 1 : suggestions.length - 1
-      );
-    }
-  };
-
-  useEffect(() => {
-    const handleClickOutside = (e) => {
-      if (dropdownRef.current && !dropdownRef.current.contains(e.target)) {
-        setDropdownOpen(false);
-      }
-      if (searchRef.current && !searchRef.current.contains(e.target)) {
-        setIsDropdownOpen(false);
-        setHighlightedIndex(-1);
-      }
-    };
-    document.addEventListener('mousedown', handleClickOutside);
-    return () => document.removeEventListener('mousedown', handleClickOutside);
-  }, []);
-
-  // Keyboard navigation for avatar gallery
-  useEffect(() => {
-    const handleGalleryKeyDown = (e) => {
-      // Don't handle if dropdown is open or user is typing in search
-      if (
-        isDropdownOpen ||
-        document.activeElement === searchRef.current?.querySelector('input')
-      ) {
-        return;
-      }
-
-      if (e.key === 'ArrowLeft') {
-        e.preventDefault();
-        const newIndex = Math.max(0, currentCardIndex - 1);
-        setCurrentCardIndex(newIndex);
-        if (galleryRef.current) {
-          galleryRef.current.setCurrentIndex(newIndex);
-        }
-      } else if (e.key === 'ArrowRight') {
-        e.preventDefault();
-        const newIndex = Math.min(
-          currentCards.length - 1,
-          currentCardIndex + 1
-        );
-        setCurrentCardIndex(newIndex);
-        if (galleryRef.current) {
-          galleryRef.current.setCurrentIndex(newIndex);
-        }
-      } else if (e.key === 'Enter') {
-        e.preventDefault();
-        const currentCard = currentCards[currentCardIndex];
-        if (currentCard) {
-          handleClick(currentCard);
-        }
-      }
-    };
-
-    if (user) {
-      document.addEventListener('keydown', handleGalleryKeyDown);
-      return () =>
-        document.removeEventListener('keydown', handleGalleryKeyDown);
-    }
-  }, [user, currentCardIndex, currentCards, isDropdownOpen]);
-
-  return (
-    <div className="flex flex-col items-center justify-start p-4 relative mx-auto min-h-screen w-full">
-      <div className="w-full h-screen overflow-hidden flex flex-col items-center gap-2">
-        <div className="relative w-full max-w-md mt-8 mb-2" ref={searchRef}>
-          <input
-            type="text"
-            value={searchQuery}
-            onChange={handleSearch}
-            onFocus={handleSearchFocus}
-            onKeyDown={handleKeyDown}
-            placeholder="Search avatars..."
-            className="w-full bg-white/5 rounded-lg border border-white/20 py-2 pl-10 pr-4 text-white placeholder-white/50 focus:outline-none focus:ring-2 focus:ring-white/30"
-          />
-          <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-white/80" />
-          {isDropdownOpen && suggestions.length > 0 && (
-            <ul className="absolute z-10 w-full bg-white/10 rounded-lg border border-white/20 mt-1 max-h-60 overflow-auto">
-              {suggestions.map((suggestion, idx) => (
-                <li
-                  key={suggestion.id}
-                  onClick={() =>
-                    handleSuggestionSelect(suggestion.originalIndex)
-                  }
-                  className={`px-4 py-2 text-white cursor-pointer ${
-                    idx === highlightedIndex
-                      ? 'bg-white/20'
-                      : 'hover:bg-white/20'
-                  }`}
-                >
-                  {suggestion.text}
-                </li>
-              ))}
-            </ul>
-          )}
-        </div>
-        <div className="h-full flex flex-col min-h-0 w-full mb-2">
-          <CircularGallery
-            ref={galleryRef}
-            items={authenticatedCards}
-            bend={0}
-            textColor="#ffffff"
-            borderRadius={0.05}
-            font="bold 48px system-ui"
-            scrollSpeed={2}
-            scrollEase={0.3}
-            onCardClick={handleClick}
-            currentIndex={currentCardIndex}
-            onIndexChange={setCurrentCardIndex}
-          />
-        </div>
-        <div
-          className="flex flex-col items-center w-full gap-2 z-10"
-          ref={dropdownRef}
-        >
-          {/* <button
-              onClick={handleCustomizeAvatar}
-              className="bg-white/10 rounded-lg border border-white/20 py-2 px-4 text-white hover:bg-white/15 transition-all duration-300 flex items-center gap-2"
-            >
-              {currentCardIndex === authenticatedCards.length - 1 ? (
-                <>
-                  <CirclePlus className="w-5 h-5" />
-                  Create Avatar
-                </>
-              ) : (
-                <>
-                  <Edit className="w-5 h-5" />
-                  Customize Avatar
-                </>
-              )}
-            </button> */}
-          <div className="flex gap-2 justify-center items-center">
-            {/* Left arrow */}
-            <button
-              onClick={handleJumpLeft}
-              disabled={currentCardIndex === 0}
-              className={`p-1 rounded-full transition-all duration-300 ${
-                currentCardIndex === 0
-                  ? 'text-white/20 cursor-not-allowed'
-                  : 'text-white/50 hover:text-white hover:bg-white/10 cursor-pointer'
-              }`}
-              aria-label="Jump left 5 positions"
-            >
-              <svg
-                className="w-6 h-6"
-                fill="none"
-                stroke="currentColor"
-                viewBox="0 0 24 24"
-              >
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  strokeWidth={2}
-                  d="M15 19l-7-7 7-7"
-                />
-              </svg>
-            </button>
-
-            {/* Visible dots */}
-            <div
-              className="flex gap-2 items-center"
-              style={{ minWidth: '200px', justifyContent: 'center' }}
-            >
-              {getVisibleDots().map((card) => {
-                const isCreateAvatar = card.type === 'create';
-                const isSelected = currentCardIndex === card.originalIndex;
-                const distance = Math.abs(
-                  currentCardIndex - card.originalIndex
-                );
-
-                // Scale dots based on distance from current index
-                const scale = Math.max(0.4, 1 - distance * 0.2);
-
-                return (
-                  <div
-                    key={card.originalIndex}
-                    onClick={() => handleDotClick(card.originalIndex)}
-                    className={`rounded-full transition-all duration-300 cursor-pointer hover:scale-110 border-2 ${
-                      isSelected
-                        ? 'border-white'
-                        : 'border-white/30 hover:border-white/60'
-                    }`}
-                    style={{
-                      transform: `scale(${scale})`,
-                      width: '32px',
-                      height: '32px',
-                      flexShrink: 0,
-                    }}
-                    aria-label={`Go to ${card.text}`}
-                  >
-                    {isCreateAvatar ? (
-                      <div className="w-full h-full flex items-center justify-center bg-white/10 rounded-full">
-                        <CirclePlus className="w-5 h-5 text-white" />
-                      </div>
-                    ) : card.image && isValidImageUrl(card.image) ? (
-                      <img
-                        src={card.image}
-                        alt={card.text}
-                        className="w-full h-full object-cover rounded-full"
-                        onError={(e) => {
-                          e.target.style.display = 'none';
-                        }}
-                      />
-                    ) : (
-                      <div className="w-full h-full flex items-center justify-center bg-white/10 rounded-full">
-                        <User className="w-4 h-4 text-white/50" />
-                      </div>
-                    )}
-                  </div>
-                );
-              })}
-            </div>
-
-            {/* Right arrow */}
-            <button
-              onClick={handleJumpRight}
-              disabled={currentCardIndex === currentCards.length - 1}
-              className={`p-1 rounded-full transition-all duration-300 ${
-                currentCardIndex === currentCards.length - 1
-                  ? 'text-white/20 cursor-not-allowed'
-                  : 'text-white/50 hover:text-white hover:bg-white/10 cursor-pointer'
-              }`}
-              aria-label="Jump right 5 positions"
-            >
-              <svg
-                className="w-6 h-6"
-                fill="none"
-                stroke="currentColor"
-                viewBox="0 0 24 24"
-              >
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  strokeWidth={2}
-                  d="M9 5l7 7-7 7"
-                />
-              </svg>
-            </button>
-          </div>
-          <div className="min-h-[40px] w-full flex justify-center items-center gap-2 mb-8">
-            <div className="relative w-48">
-              <button
-                onClick={() => setDropdownOpen((open) => !open)}
-                className="bg-white/10 rounded-lg border border-white/20 py-2 px-4 text-white hover:bg-white/15 transition-all duration-300 flex items-center gap-2 w-full"
-                aria-haspopup="true"
-                aria-expanded={dropdownOpen}
-                aria-controls="user-menu"
-              >
-                <Settings className="w-6 h-6" />
-                User Settings
-              </button>
-              {dropdownOpen && (
-                <div
-                  id="user-menu"
-                  role="menu"
-                  className="absolute bottom-[50px] w-full mt-2 right-0 backdrop-blur-lg bg-white/10 rounded-md shadow-lg ring-1 ring-black ring-opacity-5 focus:outline-none z-50"
-                >
-                  <div className="flex justify-between items-center px-4 py-2 border-b border-white/20">
-                    <span className="text-white text-sm font-semibold">
-                      {user?.username}
-                    </span>
-                    <button
-                      onClick={() => setDropdownOpen(false)}
-                      className="text-white hover:text-red-500"
-                      aria-label="Close menu"
-                    >
-                      <X className="w-4 h-4" />
-                    </button>
-                  </div>
-                  <button
-                    onClick={() => {
-                      // navigate(settings:user)
-                      setDropdownOpen(false);
-                      1;
-                    }}
-                    className="block w-full text-left px-4 py-2 text-sm text-white hover:bg-teal-600 transition"
-                    role="menuitem"
-                  >
-                    Account Settings
-                  </button>
-                  <button
-                    onClick={() => {
-                      // navigate(/billing)
-                      setDropdownOpen(false);
-                    }}
-                    className="block w-full text-left px-4 py-2 text-sm text-white hover:bg-teal-600 transition"
-                    role="menuitem"
-                  >
-                    Billing
-                  </button>
-                  <button
-                    onClick={handleLogout}
-                    className="block w-full text-left flex flex-row items-center px-4 py-2 text-sm text-red-500 hover:bg-red-900 hover:text-white transition"
-                    role="menuitem"
-                  >
-                    Logout <LogOut className="ml-2 w-4 h-4" />
-                  </button>
-                </div>
-              )}
-            </div>
-          </div>
-        </div>
-      </div>
-      {showCreateModal && (
-        <CreateAvatarModal setShowCreateModal={setShowCreateModal} />
-      )}
-    </div>
-  );
-};
-
-export default AvatarSelectionComponent;
-
-
--------------------------
+----------------------
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import {
   onAuthStateChanged,
@@ -1594,7 +1419,17 @@ import {
   getRedirectResult,
 } from 'firebase/auth';
 
-import { doc, getDoc, updateDoc, setDoc } from 'firebase/firestore';
+import {
+  doc,
+  getDoc,
+  updateDoc,
+  setDoc,
+  query,
+  collection,
+  where,
+  orderBy,
+  onSnapshot,
+} from 'firebase/firestore';
 import { auth, db, storage } from '../firebase/config.js';
 import { getUserProfile } from '../services/userService';
 
@@ -1628,87 +1463,198 @@ export const AuthProvider = ({ children }) => {
     }
   }, []);
 
-  // Listen to Firebase auth state changes
+  // Inside your AuthContext.jsx Live Update Avatars
   useEffect(() => {
-    const firebaseAuthStateChange = onAuthStateChanged(
-      auth,
-      async (firebaseUser) => {
-        if (firebaseUser) {
-          console.log(firebaseUser);
-          setUser(firebaseUser);
-          try {
-            // Debug: ensure uid and token are available
-            console.log('Auth state changed for uid:', firebaseUser.uid);
+    if (!user) {
+      setUserAvatars([]);
+      return;
+    }
 
-            // Get Firebase ID token for backend API calls
-            // Firebase automatically refreshes tokens when needed
-            let token;
-            try {
-              token = await firebaseUser.getIdToken();
-              setAccessToken(token);
-              localStorage.setItem('access_token', token);
-            } catch (tokenErr) {
-              console.error('Error obtaining ID token:', tokenErr);
-            }
+    // 1. Define the Query
+    const q = query(
+      collection(db, 'avatars'),
+      where('user_id', '==', user.uid),
+      orderBy('created_at', 'asc')
+    );
 
-            // Get Firestore user profile (returns null if missing)
-            let profile = null;
-            try {
-              profile = await getUserProfile(firebaseUser.uid);
-            } catch (err) {
-              console.error('Error fetching user profile:', err);
-              if (
-                err.message &&
-                err.message.includes('Insufficient Firestore permissions')
-              ) {
-                toast.error(
-                  'Firestore permissions error: please check rules and project configuration.'
-                );
-              } else {
-                throw err;
-              }
-            }
+    // 2. Establish the Listener
+    const unsubscribe = onSnapshot(
+      q,
+      (snapshot) => {
+        const fetchedAvatars = snapshot.docs.map((doc) => ({
+          avatar_id: doc.id,
+          ...doc.data(),
+        }));
 
-            // localStorage.setItem('user', user);
-
-            // Store user data in localStorage
-            // localStorage.setItem('user', JSON.stringify(profile));
-            // localStorage.setItem('firebase_user_id', firebaseUser.uid);
-
-            // Load userAvatars from Firestore
-            const loadedAvatars = await loadAvatars(firebaseUser.uid);
-
-            // Set active avatar if user has last_used_avatar
-            if (profile.last_used_avatar && loadedAvatars.length > 0) {
-              const lastUsed = loadedAvatars.find(
-                (a) => a.avatar_id === profile.last_used_avatar
-              );
-              if (lastUsed) {
-                setActiveAvatar(lastUsed);
-              }
-            }
-          } catch (error) {
-            console.error('Error loading user profile:', error);
-            setUser(null);
-            setAccessToken(null);
-          }
-        } else {
-          // User signed out
-          setUser(null);
-          setUserAvatars([]);
-          setSharedAvatars([]);
-          setProprietaryAvatars([]);
-          setActiveAvatar(null);
-          setAccessToken(null);
-          localStorage.removeItem('user');
-        }
-
-        setLoading(false);
+        // This updates the global state automatically when
+        // an avatar is added, deleted, or edited!
+        setUserAvatars(fetchedAvatars);
+        console.log(
+          'XXXXXXXXXXXXXXXXXXX ON AVATAR TRIGGER XXXXXXXXXXXXXXXXXXXX'
+        );
+      },
+      (error) => {
+        console.error('Snapshot listener error:', error);
       }
     );
 
-    return firebaseAuthStateChange;
+    // 3. CLEANUP: This is critical for memory management
+    return () => unsubscribe();
+  }, [user]);
+
+  // Inside your AuthContext.jsx
+  const [userProfile, setUserProfile] = useState(null);
+
+  // Live Update Users
+  useEffect(() => {
+    if (!user) {
+      setUserProfile(null);
+      return;
+    }
+
+    // 1. Reference the specific User Document
+    const userDocRef = doc(db, 'users', user.uid);
+
+    // 2. Establish the Document Listener
+    const unsubscribe = onSnapshot(
+      userDocRef,
+      (docSnapshot) => {
+        if (docSnapshot.exists()) {
+          const data = docSnapshot.data();
+
+          // Update global user profile state
+          setUserProfile(data);
+          console.log(
+            'XXXXXXXXXXXXXXXXXXX ON USER TRIGGER XXXXXXXXXXXXXXXXXXXX'
+          );
+
+          // OPTIONAL: Sync specific logic, like updating localStorage
+          // with the most recent last_used_avatar
+          if (data.last_used_avatar) {
+            localStorage.setItem('last_used_avatar_id', data.last_used_avatar);
+          }
+        } else {
+          console.warn('User profile document does not exist.');
+        }
+      },
+      (error) => {
+        console.error('User profile snapshot error:', error);
+      }
+    );
+
+    // 3. Cleanup listener on unmount
+    return () => unsubscribe();
+  }, [user]);
+
+  // Listen to Firebase auth state changes
+
+  useEffect(() => {
+    const unsubscribeAuth = onAuthStateChanged(auth, async (firebaseUser) => {
+      console.log(
+        'XXXXXXXXXXXXXXXXXXX ON AUTH STATE TRIGGER XXXXXXXXXXXXXXXXXXXX'
+      );
+      if (firebaseUser) {
+        setUser(firebaseUser); // This triggers the onSnapshot useEffects!
+        try {
+          const token = await firebaseUser.getIdToken(
+            /* foreceRefresh = */ true
+          );
+          setAccessToken(token);
+        } catch (err) {
+          console.error('Failed to get fresh ID token', err);
+          setAccessToken(null);
+        }
+      } else {
+        setUser(null);
+        setAccessToken(null);
+      }
+      setLoading(false); // Move this here to ensure it only flips once
+    });
+
+    return unsubscribeAuth;
   }, []);
+
+  // useEffect(() => {
+  //   const unsubscribeAuth = onAuthStateChanged(auth, async (firebaseUser) => {
+  //     console.log(
+  //       'XXXXXXXXXXXXXXXXXXX ON AUTH STATE TRIGGER XXXXXXXXXXXXXXXXXXXX'
+  //     );
+  //     if (firebaseUser) {
+  //       console.log(firebaseUser);
+  //       setUser(firebaseUser);
+
+  //       try {
+  //         // Debug: ensure uid and token are available
+  //         console.log('Auth state changed for uid:', firebaseUser.uid);
+
+  //         // Get Firebase ID token for backend API calls
+  //         // Firebase automatically refreshes tokens when needed
+  //         let token;
+  //         try {
+  //           token = await firebaseUser.getIdToken();
+  //           setAccessToken(token);
+  //           localStorage.setItem('access_token', token);
+  //         } catch (tokenErr) {
+  //           console.error('Error obtaining ID token:', tokenErr);
+  //         }
+
+  //         // Get Firestore user profile (returns null if missing)
+  //         let profile = null;
+  //         try {
+  //           profile = await getUserProfile(firebaseUser.uid);
+  //         } catch (err) {
+  //           console.error('Error fetching user profile:', err);
+  //           if (
+  //             err.message &&
+  //             err.message.includes('Insufficient Firestore permissions')
+  //           ) {
+  //             toast.error(
+  //               'Firestore permissions error: please check rules and project configuration.'
+  //             );
+  //           } else {
+  //             throw err;
+  //           }
+  //         }
+
+  //         // localStorage.setItem('user', user);
+
+  //         // Store user data in localStorage
+  //         // localStorage.setItem('user', JSON.stringify(profile));
+  //         // localStorage.setItem('firebase_user_id', firebaseUser.uid);
+
+  //         // Load userAvatars from Firestore
+  //         const loadedAvatars = await loadAvatars(firebaseUser.uid);
+
+  //         // Set active avatar if user has last_used_avatar
+  //         if (profile.last_used_avatar && loadedAvatars.length > 0) {
+  //           const lastUsed = loadedAvatars.find(
+  //             (a) => a.avatar_id === profile.last_used_avatar
+  //           );
+  //           if (lastUsed) {
+  //             setActiveAvatar(lastUsed);
+  //           }
+  //         }
+  //       } catch (error) {
+  //         console.error('Error loading user profile:', error);
+  //         setUser(null);
+  //         setAccessToken(null);
+  //       }
+  //     } else {
+  //       // User signed out
+  //       setUser(null);
+  //       setUserAvatars([]);
+  //       setSharedAvatars([]);
+  //       setProprietaryAvatars([]);
+  //       setActiveAvatar(null);
+  //       setAccessToken(null);
+  //       localStorage.removeItem('user');
+  //     }
+
+  //     setLoading(false);
+  //   });
+
+  //   return () => unsubscribeAuth();
+  // }, []);
 
   // Load userAvatars from Firestore
   const loadAvatars = async (userId) => {
@@ -1999,6 +1945,71 @@ export const useAuth = () => {
   }
   return context;
 };
+------------------
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile.dev
+    container_name: react-vite-dev
+    ports:
+      - "5173:5173"
+    volumes:
+      - ./:/app:cached
+      - /app/node_modules
+    env_file:
+      - .env.development
+    environment:
+      - CHOKIDAR_USEPOLLING=true
+      - CHOKIDAR_INTERVAL=100
+      # Connect to emulator service in docker network
+      - FIRESTORE_EMULATOR_HOST=firebase-emulator:8070
+      - FIREBASE_AUTH_EMULATOR_HOST=firebase-emulator:9099
+      - FIREBASE_STORAGE_EMULATOR_HOST=firebase-emulator:9199  # ✅ Add this
+    depends_on:
+      - firebase-emulator
+    stdin_open: true
+    tty: true
+    restart: unless-stopped
+    command: ["npm", "run", "dev", "--", "--host"]
+    networks:
+      - neural-nexus-network
 
---------------------
+  firebase-emulator:
+    image: andreysenov/firebase-tools:latest
+    container_name: firebase-emulator
+    ports:
+      - "4000:4000"   # Emulator UI
+      - "8070:8070"   # Firestore
+      - "9099:9099"   # Auth
+      - "9000:9000"   # Realtime DB
+      - "9199:9199"   # Storage
+      - "5001:5001"   # Functions
+    volumes:
+      - ./:/firebase:cached
+    working_dir: /firebase
+    command: >
+      sh -c "firebase emulators:start --project neuralnexus-467517 --only firestore,auth,database,storage,functions"
+    networks:
+      - neural-nexus-network
+    restart: unless-stopped
+
+networks:
+  neural-nexus-network:
+    driver: bridge
+
+-------------------------
+
+VITE_FIREBASE_API_KEY=AIzaSyDqgvPAVnqZxlK_HVxke80huIm78-OEDv0
+VITE_FIREBASE_AUTH_DOMAIN=neuralnexus-467517.firebaseapp.com
+VITE_FIREBASE_PROJECT_ID=neuralnexus-467517
+VITE_FIREBASE_STORAGE_BUCKET=neuralnexus-467517.firebasestorage.app
+
+VITE_FIREBASE_MESSAGING_SENDER_ID=915579649879
+VITE_FIREBASE_APP_ID=1:915579649879:web:70a78270d904da8bd14812
+VITE_FIREBASE_MEASUREMENT_ID=G-GC0GRR5B32
+VITE_USE_FIREBASE_EMULATOR=false
+
+
+--------------
 
