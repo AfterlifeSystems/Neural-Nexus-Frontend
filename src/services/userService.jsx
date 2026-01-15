@@ -78,7 +78,7 @@ export const getUserProfile = async (userId) => {
     // Provide both the new `avatars` info and a legacy `avatars` shape for compatibility
     return {
       ...userData,
-      avatars: avatars.map((t) => t.avatar_id),
+      // avatars: avatars.map((t) => t.avatar_id),
       avatars: avatars.map((t) => ({
         avatar_id: t.avatar_id,
         name: t.name,
