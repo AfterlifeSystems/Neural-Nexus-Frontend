@@ -95,7 +95,7 @@ export const login = async (email, password) => {
       last_login: new Date(),
       currently_logged_in: true,
     });
-
+    localStorage.setItem('user', userCredential.user);
     // toast.success('Login successful!');
     return userCredential.user;
   } catch (error) {
@@ -140,7 +140,7 @@ export const logout = async () => {
       });
     }
     await signOut(auth);
-
+    localStorage.removeItem('user');
     // Clear local state
     // setUser(null);
     // setUserProfile(null);

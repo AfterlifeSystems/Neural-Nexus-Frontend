@@ -7,9 +7,9 @@ This document describes the Firestore database structure for the Neural Nexus ap
 ```
 users/{userId}
   ├── user data fields
-  └── digital_twins: [digitalTwinId1, digitalTwinId2, ...]  // Array of digital twin IDs
+  └── avatars: [digitalTwinId1, digitalTwinId2, ...]  // Array of digital twin IDs
 
-digital_twins/{digitalTwinId}
+avatars/{digitalTwinId}
   ├── digital twin data fields
   ├── conversations: [conversationId1, conversationId2, ...]  // Array of conversation IDs
   └── default_conversation: conversationId  // ID of the default conversation
@@ -44,13 +44,13 @@ digital_twins/{digitalTwinId}
   },
   billing_history: array,
   credit_card: object | null,
-  digital_twins: [string],  // Array of digital twin IDs
+  avatars: [string],  // Array of digital twin IDs
   last_used_digital_twin: string | null,  // ID of last used digital twin
   // ... other fields
 }
 ```
 
-### 2. Digital Twins Collection (`digital_twins/{digitalTwinId}`)
+### 2. Digital Twins Collection (`avatars/{digitalTwinId}`)
 
 > (formerly called "avatars" in older versions)
 
@@ -98,7 +98,7 @@ digital_twins/{digitalTwinId}
 
 **Important:** Every digital twin must have at least one conversation. When a digital twin is created, a default conversation is automatically created.
 
-### 3. Conversations Subcollection (`digital_twins/{digitalTwinId}/conversations/{conversationId}`)
+### 3. Conversations Subcollection (`avatars/{digitalTwinId}/conversations/{conversationId}`)
 
 **Document Structure:**
 ```javascript
@@ -117,7 +117,7 @@ digital_twins/{digitalTwinId}
 - Conversations cannot be deleted if it's the last one remaining (unless migrating)
 
 
-### 4. Messages Subcollection (`digital_twins/{digitalTwinId}/conversations/{conversationId}/messages/{messageId}`)
+### 4. Messages Subcollection (`avatars/{digitalTwinId}/conversations/{conversationId}/messages/{messageId}`)
 
 **Document Structure:**
 ```javascript
@@ -154,9 +154,9 @@ digital_twins/{digitalTwinId}
 
 ### Digital Twins (Avatar) Service (`src/services/avatarService.jsx`)
 
-> Note: The service functions are still named `createAvatar` / `getAvatars` for backwards compatibility, but they now operate on the `digital_twins` collection and return documents shaped like the Digital Twin schema above.
+> Note: The service functions are still named `createAvatar` / `getAvatars` for backwards compatibility, but they now operate on the `avatars` collection and return documents shaped like the Digital Twin schema above.
 
-- `createAvatar(userId, name, description, iconFile)` - Creates a digital twin (stored under `digital_twins/{digitalTwinId}`) with a default conversation
+- `createAvatar(userId, name, description, iconFile)` - Creates a digital twin (stored under `avatars/{digitalTwinId}`) with a default conversation
 - `getAvatars(userId)` - Gets all digital twins for a user
 - `selectAvatar(userId, avatarId)` - Selects a digital twin and loads its default conversation
 - `createConversation(userId, avatarId, title)` - Creates a new conversation
@@ -249,7 +249,7 @@ const conversation = await createConversation(
 
 The security rules ensure:
 - Users can only access their own user documents
-- Users can only access `digital_twins` they own
+- Users can only access `avatars` they own
 - Users can only access conversations and messages within their own digital twins
 
 See `firestore.rules` for the complete rule set.
@@ -260,4 +260,4 @@ If you have existing data:
 1. Each digital twin needs at least one conversation
 2. Existing messages need to be migrated to the new structure (move text from `message` to `content`, move `sender` to `role`, and normalize `media` objects to `{id,type,url,storagePath,name,size,mimeType,uploaded_at}`)
 3. The `conversations` array needs to be added to digital twin documents
-4. If your data uses the legacy `avatars` collection, migrate those documents to `digital_twins/{digitalTwinId}` and move message subcollections to `digital_twins/{digitalTwinId}/conversations/{conversationId}/messages`
+4. If your data uses the legacy `avatars` collection, migrate those documents to `avatars/{digitalTwinId}` and move message subcollections to `avatars/{digitalTwinId}/conversations/{conversationId}/messages`

@@ -21,7 +21,7 @@ export const AvatarService = {
 
   async selectAvatar(userId, avatarId) {
     // Return avatar document with helpful fields (icon_url, documents, socialLogins)
-    const avatarRef = doc(db, 'digital_twins', avatarId);
+    const avatarRef = doc(db, 'avatars', avatarId);
     const avatarSnap = await getDoc(avatarRef);
     if (!avatarSnap.exists() || avatarSnap.data().user_id !== userId) {
       throw new Error('Avatar not found or unauthorized');
@@ -45,11 +45,11 @@ export const AvatarService = {
   },
 
   async uploadDocuments(userId, avatarId, files) {
-    // Upload files to storage and append metadata to digital_twins/{avatarId}.files
+    // Upload files to storage and append metadata to avatars/{avatarId}.files
     const uploaded = [];
     for (const file of files) {
       const fileId = uuidv4();
-      const storagePath = `users/${userId}/digital_twins/${avatarId}/files/${fileId}_${file.name}`;
+      const storagePath = `users/${userId}/avatars/${avatarId}/files/${fileId}_${file.name}`;
       const storageRef = ref(storage, storagePath);
       await uploadBytes(storageRef, file);
       const url = await getDownloadURL(storageRef);
@@ -66,7 +66,7 @@ export const AvatarService = {
     }
 
     // Update avatar doc
-    const avatarRef = doc(db, 'digital_twins', avatarId);
+    const avatarRef = doc(db, 'avatars', avatarId);
     const avatarSnap = await getDoc(avatarRef);
     const currentFiles = avatarSnap.exists()
       ? avatarSnap.data().files || []
@@ -88,7 +88,7 @@ export const AvatarService = {
       uploaded_at: new Date().toISOString(),
     };
 
-    const avatarRef = doc(db, 'digital_twins', avatarId);
+    const avatarRef = doc(db, 'avatars', avatarId);
     const avatarSnap = await getDoc(avatarRef);
     const currentFiles = avatarSnap.exists()
       ? avatarSnap.data().files || []
@@ -99,7 +99,7 @@ export const AvatarService = {
   },
 
   async connectSocial(userId, avatarId, platform, username, password) {
-    const avatarRef = doc(db, 'digital_twins', avatarId);
+    const avatarRef = doc(db, 'avatars', avatarId);
     const avatarSnap = await getDoc(avatarRef);
     const socialLogins = avatarSnap.exists()
       ? avatarSnap.data().socialLogins || []
@@ -115,7 +115,7 @@ export const AvatarService = {
   },
 
   async disconnectSocial(userId, avatarId, loginId) {
-    const avatarRef = doc(db, 'digital_twins', avatarId);
+    const avatarRef = doc(db, 'avatars', avatarId);
     const avatarSnap = await getDoc(avatarRef);
     const socialLogins = avatarSnap.exists()
       ? avatarSnap.data().socialLogins || []
@@ -126,7 +126,7 @@ export const AvatarService = {
   },
 
   async deleteDocument(userId, avatarId, documentId) {
-    const avatarRef = doc(db, 'digital_twins', avatarId);
+    const avatarRef = doc(db, 'avatars', avatarId);
     const avatarSnap = await getDoc(avatarRef);
     const files = avatarSnap.exists() ? avatarSnap.data().files || [] : [];
     const target = files.find((f) => f.id === documentId);

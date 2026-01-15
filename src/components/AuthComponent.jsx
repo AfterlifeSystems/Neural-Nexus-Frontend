@@ -76,24 +76,24 @@ const AuthComponent = () => {
   // Intermittently rotate avatar images
 
   // This returns the exact image or fallback you should render.
-  const getRotatingAvatarIcon = (avatars, rotatingIndex, user) => {
-    // Filter only valid URLs
-    const validIcons = avatars
-      .map((a) => a.icon)
-      .filter((icon) => typeof icon === 'string' && icon.startsWith('https'));
-    // Case 1: No avatars at all → show User icon
-    if (!Array.isArray(avatars) || avatars.length === 0) {
-      return null; // This signals: "render <User />"
-    }
+  // const getRotatingAvatarIcon = (avatars, rotatingIndex, user) => {
+  //   // Filter only valid URLs
+  //   const validIcons = avatars
+  //     .map((a) => a.icon)
+  //     .filter((icon) => typeof icon === 'string' && icon.startsWith('https'));
+  //   // Case 1: No avatars at all → show User icon
+  //   if (!Array.isArray(avatars) || avatars.length === 0) {
+  //     return null; // This signals: "render <User />"
+  //   }
 
-    // Case 2: Exactly one avatar → show that one avatar
-    if (validIcons.length === 1) {
-      return avatars[0].icon || null;
-    }
+  //   // Case 2: Exactly one avatar → show that one avatar
+  //   if (validIcons.length === 1) {
+  //     return avatars[0].icon || null;
+  //   }
 
-    // Case 3: Multiple avatars → rotate through them
-    return avatars[rotatingIndex]?.icon || null;
-  };
+  //   // Case 3: Multiple avatars → rotate through them
+  //   return avatars[rotatingIndex]?.icon || null;
+  // };
 
   // Rotation effect (only when there are 2+ avatars)
   useEffect(() => {
@@ -111,7 +111,7 @@ const AuthComponent = () => {
     return () => clearInterval(interval);
   }, [avatars]);
 
-  const avatarToRender = getRotatingAvatarIcon(avatars, rotatingIndex, user);
+  // const avatarToRender = getRotatingAvatarIcon(avatars, rotatingIndex, user);
 
   const handleAuth = async (e) => {
     e.preventDefault();

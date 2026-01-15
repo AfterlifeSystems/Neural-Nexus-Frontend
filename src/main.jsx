@@ -74,11 +74,11 @@ createRoot(document.getElementById('root')).render(
               {/* <Route path="/auth/reset-password" element={<ResetPassword />} /> */}
 
               {/* Public inside the app */}
-              <Route path="login" element={<AuthComponent />} />
+              <Route path="/login" element={<AuthComponent />} />
 
               {/* Protected by the gatekeeper */}
               <Route
-                path="avatars"
+                path="/avatars"
                 element={
                   <ProtectedRoute>
                     <AvatarSelectionComponent />
@@ -87,7 +87,7 @@ createRoot(document.getElementById('root')).render(
               />
 
               <Route
-                path="chat/:avatarId"
+                path="/chat/:avatarId"
                 element={
                   <ProtectedRoute>
                     <ChatArea />
@@ -96,7 +96,7 @@ createRoot(document.getElementById('root')).render(
               />
 
               <Route
-                path="billing"
+                path="/billing"
                 element={
                   <ProtectedRoute>
                     <BillingDashboard />
@@ -105,7 +105,7 @@ createRoot(document.getElementById('root')).render(
               />
 
               <Route
-                path="account"
+                path="/account"
                 element={
                   <ProtectedRoute>
                     <AccountSettings />

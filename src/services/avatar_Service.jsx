@@ -51,9 +51,7 @@ export const createAvatar = async (userId, name, description, iconFile) => {
     }
     const iconRef = ref(
       storage,
-      `users/${userId}/digital_twins/${avatarId}/icon/${uuidv4()}_${
-        iconFile.name
-      }`
+      `users/${userId}/avatars/${avatarId}/icon/${uuidv4()}_${iconFile.name}`
     );
     await uploadBytes(iconRef, iconFile);
     const iconUrl = await getDownloadURL(iconRef);
@@ -67,13 +65,13 @@ export const createAvatar = async (userId, name, description, iconFile) => {
   }
 
   // Create avatar (digital twin) document with avatarId as document ID
-  const avatarRef = doc(db, 'digital_twins', avatarId);
+  const avatarRef = doc(db, 'avatars', avatarId);
   await setDoc(avatarRef, avatarData);
 
   // Create default conversation document (store summary and counts)
   const conversationRef = doc(
     db,
-    'digital_twins',
+    'avatars',
     avatarId,
     'conversations',
     conversationId
@@ -86,20 +84,20 @@ export const createAvatar = async (userId, name, description, iconFile) => {
     message_count: 0,
   });
 
-  // Update user's digital_twins list
+  // Update user's avatars list
   const userRef = doc(db, 'users', userId);
   const userDoc = await getDoc(userRef);
-  const digitalTwins = userDoc.data().digital_twins || [];
+  const avatars = userDoc.data().avatars || [];
   await updateDoc(userRef, {
-    digital_twins: [...digitalTwins, avatarId],
+    avatars: [...avatars, avatarId],
     last_used_digital_twin: avatarId,
   });
 
   // Create directory structure in Storage (using .keep files)
   const directories = [
     `users/${userId}/.keep`,
-    `users/${userId}/digital_twins/${avatarId}/adapters/.keep`,
-    `users/${userId}/digital_twins/${avatarId}/adapters/training_data/.keep`,
+    `users/${userId}/avatars/${avatarId}/adapters/.keep`,
+    `users/${userId}/avatars/${avatarId}/adapters/training_data/.keep`,
   ];
 
   for (const dirPath of directories) {
@@ -120,18 +118,15 @@ export const createAvatar = async (userId, name, description, iconFile) => {
     ref(storage, `users/${userId}/vectorstore/.keep`)
   );
   const avatarVectorstoreUrl = await getDownloadURL(
-    ref(
-      storage,
-      `users/${userId}/digital_twins/${avatarId}/vectorstore_data/.keep`
-    )
+    ref(storage, `users/${userId}/avatars/${avatarId}/vectorstore_data/.keep`)
   );
   const qloraAdapterUrl = await getDownloadURL(
-    ref(storage, `users/${userId}/digital_twins/${avatarId}/adapters/.keep`)
+    ref(storage, `users/${userId}/avatars/${avatarId}/adapters/.keep`)
   );
   const qloraTrainingUrl = await getDownloadURL(
     ref(
       storage,
-      `users/${userId}/digital_twins/${avatarId}/adapters/training_data/.keep`
+      `users/${userId}/avatars/${avatarId}/adapters/training_data/.keep`
     )
   );
 
@@ -155,7 +150,7 @@ export const createAvatar = async (userId, name, description, iconFile) => {
 
 export const getAvatars = async (userId, limitCount = 50, skip = 0) => {
   const avatarsQuery = query(
-    collection(db, 'digital_twins'),
+    collection(db, 'avatars'),
     where('user_id', '==', userId),
     orderBy('created_at', 'asc')
   );
@@ -192,7 +187,7 @@ export const getAvatars = async (userId, limitCount = 50, skip = 0) => {
 };
 
 export const updateAvatar = async (userId, avatarId, updates) => {
-  const avatarRef = doc(db, 'digital_twins', avatarId);
+  const avatarRef = doc(db, 'avatars', avatarId);
   const avatarDoc = await getDoc(avatarRef);
 
   if (!avatarDoc.exists() || avatarDoc.data().user_id !== userId) {
@@ -235,7 +230,7 @@ export const updateAvatarWithIcon = async (
   description,
   iconFile
 ) => {
-  const avatarRef = doc(db, 'digital_twins', avatarId);
+  const avatarRef = doc(db, 'avatars', avatarId);
   const avatarDoc = await getDoc(avatarRef);
 
   if (!avatarDoc.exists() || avatarDoc.data().user_id !== userId) {
@@ -274,9 +269,7 @@ export const updateAvatarWithIcon = async (
     // Upload new icon and store as object
     const iconRef = ref(
       storage,
-      `users/${userId}/digital_twins/${avatarId}/icon/${uuidv4()}_${
-        iconFile.name
-      }`
+      `users/${userId}/avatars/${avatarId}/icon/${uuidv4()}_${iconFile.name}`
     );
     await uploadBytes(iconRef, iconFile);
     const url = await getDownloadURL(iconRef);
@@ -309,10 +302,7 @@ export const deleteAvatar = async (userId, avatarId) => {
   }
 
   // Delete all files in Storage
-  const avatarStorageRef = ref(
-    storage,
-    `users/${userId}/digital_twins/${avatarId}`
-  );
+  const avatarStorageRef = ref(storage, `users/${userId}/avatars/${avatarId}`);
   try {
     const files = await listAll(avatarStorageRef);
     await Promise.all(files.items.map((file) => deleteObject(file)));
@@ -410,18 +400,15 @@ export const selectAvatar = async (userId, avatarId) => {
     ref(storage, `users/${userId}/vectorstore/.keep`)
   );
   const avatarVectorstoreUrl = await getDownloadURL(
-    ref(
-      storage,
-      `users/${userId}/digital_twins/${avatarId}/vectorstore_data/.keep`
-    )
+    ref(storage, `users/${userId}/avatars/${avatarId}/vectorstore_data/.keep`)
   );
   const qloraAdapterUrl = await getDownloadURL(
-    ref(storage, `users/${userId}/digital_twins/${avatarId}/adapters/.keep`)
+    ref(storage, `users/${userId}/avatars/${avatarId}/adapters/.keep`)
   );
   const qloraTrainingUrl = await getDownloadURL(
     ref(
       storage,
-      `users/${userId}/digital_twins/${avatarId}/adapters/training_data/.keep`
+      `users/${userId}/avatars/${avatarId}/adapters/training_data/.keep`
     )
   );
 

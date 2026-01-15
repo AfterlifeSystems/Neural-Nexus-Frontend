@@ -1731,7 +1731,7 @@ export const AuthProvider = ({ children }) => {
           //       last_login: new Date(),
           //       currently_logged_in: true,
           //       avatars: [],
-          //       digital_twins: [],
+          //       avatars: [],
           //     };
           //     await setDoc(doc(db, 'users', firebaseUser.uid), minimalProfile);
           //     profile = await getUserProfile(firebaseUser.uid);
@@ -1952,7 +1952,7 @@ export const AuthProvider = ({ children }) => {
       // Update Firestore to mark as last_used_digital_twin
       await updateDoc(doc(db, 'users', currentUser.uid), {
         last_used_digital_twin: created.avatar_id,
-        digital_twins: [...(user?.digital_twins || []), created.avatar_id],
+        avatars: [...(user?.avatars || []), created.avatar_id],
       });
 
       // Update local user state
@@ -1960,7 +1960,7 @@ export const AuthProvider = ({ children }) => {
         const updatedUser = {
           ...user,
           last_used_digital_twin: created.avatar_id,
-          digital_twins: [...(user.digital_twins || []), created.avatar_id],
+          avatars: [...(user.avatars || []), created.avatar_id],
         };
         setUser(updatedUser);
         setUserProfile(updatedUser);

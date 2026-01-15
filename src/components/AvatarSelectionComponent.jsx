@@ -24,7 +24,6 @@ const AvatarSelectionComponent = ({}) => {
     accessToken,
     user,
     avatars,
-    // logout,
     setActiveAvatar,
     lastUsedAvatar,
     selectAvatar,
@@ -41,6 +40,7 @@ const AvatarSelectionComponent = ({}) => {
   const searchRef = useRef(null);
   const dropdownRef = useRef(null);
   const hasInitialized = useRef(false);
+  const [showCreateModal, setShowCreateModal] = useState(false);
 
   const isValidImageUrl = (url) => {
     if (!url) return false;
@@ -779,6 +779,9 @@ const AvatarSelectionComponent = ({}) => {
           </div>
         </div>
       </div>
+      {showCreateModal && (
+        <CreateAvatarModal setShowCreateModal={setShowCreateModal} />
+      )}
     </div>
   );
 };
