@@ -9,14 +9,12 @@ import { useAuth } from '../context/AuthContext';
 import { useMedia } from '../context/MediaContext';
 import AvatarSettings from './AvatarSettings';
 import AvatarSelectionComponent from './AvatarSelectionComponent';
-import { useParams } from 'react-router-dom';
-
+import { useParams, useNavigate } from 'react-router-dom';
+import { useState } from 'react';
 const ChatArea = ({
   showDataExchangeDropdown,
   setShowDataExchangeDropdown,
   dropdownRef,
-  activeTab,
-  setActiveTab,
   onActivateLiveChat,
   setShowCreateModal,
   onEndLiveChat,
@@ -25,6 +23,8 @@ const ChatArea = ({
   const { isLoggedIn, accessToken, activeAvatar, setActiveAvatar } = useAuth();
   const { messages, setMessages, fetchMessages, messagesEndRef } = useMedia();
   const { avatarId } = useParams(); // from /chat/:avatarId
+  const navigate = useNavigate();
+  const [activeTab, setActiveTab] = useState('chat');
   // const { messages, fetchMessages, messagesEndRef } = useMedia();
 
   // Load messages when avatarId changes
@@ -38,6 +38,10 @@ const ChatArea = ({
   const handleTabChange = (tab) => {
     if (tab === 'avatar-selection') {
       navigate('/avatars'); // Go back to selection screen
+    } else if (tab === 'avatar-settings') {
+      setActiveTab('avatar-settings');
+    } else if (tab === 'chat') {
+      setActiveTab('chat');
     } else {
       // Just update local tab state or do nothing (keep single chat view)
       console.log('Tab changed to:', tab);
@@ -46,7 +50,7 @@ const ChatArea = ({
 
   return (
     <div
-      className={`flex flex-row flex-grow bg-white/5 backdrop-blur-lg rounded-2xl border border-white/20 overflow-hidden relative ${className}`}
+      className={`flex flex-row flex-grow w-full h-full bg-white/5 backdrop-blur-lg rounded-2xl border border-white/20 overflow-hidden relative ${className}`}
     >
       {/* Background Image or User Icon - only show when not logged in or no active avatar */}
       <>
@@ -85,11 +89,11 @@ const ChatArea = ({
             </button>
             <button
               className={`px-4 py-2 ${
-                activeTab === 'documents'
+                activeTab === 'avatar-settings'
                   ? 'border-b-2 border-white font-semibold'
                   : ''
               } text-white`}
-              onClick={() => handleTabChange('documents')}
+              onClick={() => handleTabChange('avatar-settings')}
             >
               Avatar Settings
             </button>
@@ -125,7 +129,7 @@ const ChatArea = ({
           </div>
         </div>
 
-        {activeTab === 'documents' && (
+        {activeTab === 'avatar-settings' && (
           <div className="flex flex-col flex-grow p-2 sm:p-4 relative overflow-y-auto">
             <AvatarSettings
               avatarId={activeAvatar.avatar_id}
@@ -134,16 +138,6 @@ const ChatArea = ({
                 // Switch to avatar selection tab after deletion
                 setActiveTab('avatar-selection');
               }}
-            />
-          </div>
-        )}
-
-        {isLoggedIn && activeTab === 'avatar-selection' && (
-          <div className="flex flex-col flex-grow p-2 sm:p-4 relative overflow-y-auto">
-            <AvatarSelectionComponent
-              setShowCreateModal={setShowCreateModal}
-              setActiveTab={setActiveTab}
-              onEndLiveChat={onEndLiveChat}
             />
           </div>
         )}
