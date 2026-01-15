@@ -34,6 +34,12 @@ const ChatArea = ({
     }
   }, [avatarId, fetchMessages]);
 
+  // Send message handler (passed to InputBar)
+  const handleSendMessage = (text) => {
+    if (!avatarId || !text.trim()) return;
+    sendMessage(avatarId, text); // Sends to correct avatar's conversation
+  };
+
   // Simple tab switcher (no setActiveTab prop needed)
   const handleTabChange = (tab) => {
     if (tab === 'avatar-selection') {
