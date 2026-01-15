@@ -315,6 +315,7 @@ export const deleteAvatar = async (userId, avatarId) => {
 };
 
 export const selectAvatar = async (userId, avatarId) => {
+  userId = getAuth().currentUser.id;
   const avatarRef = doc(db, 'avatars', avatarId);
   const avatarDoc = await getDoc(avatarRef);
 
@@ -324,41 +325,13 @@ export const selectAvatar = async (userId, avatarId) => {
 
   const avatarData = avatarDoc.data();
 
-  // Ensure avatar has at least one conversation
-  let conversations = avatarData.conversations || [];
-  if (conversations.length === 0) {
-    // Create default conversation if none exists
-    const conversationId = uuidv4();
-    const conversationRef = doc(
-      db,
-      `avatars/${avatarId}/conversations`,
-      conversationId
-    );
-    await setDoc(conversationRef, {
-      conversation_id: conversationId,
-      avatar_id: avatarId,
-      user_id: userId,
-      title: 'Default Conversation',
-      created_at: new Date(),
-      updated_at: new Date(),
-      is_default: true,
-    });
-
-    await updateDoc(avatarRef, {
-      conversations: [conversationId],
-      default_conversation: conversationId,
-    });
-    conversations = [conversationId];
-  }
-
   // Update last_used_avatar
   await updateDoc(doc(db, 'users', userId), {
     last_used_avatar: avatarId,
   });
 
   // Get default conversation ID (or first conversation)
-  const defaultConversationId =
-    avatarData.default_conversation || conversations[0];
+  const defaultConversationId = avatarData.default_conversation;
 
   // Get messages from the default conversation
   const messagesQuery = query(
@@ -378,43 +351,7 @@ export const selectAvatar = async (userId, avatarId) => {
       doc.data().timestamp?.toDate().toISOString() || new Date().toISOString(),
   }));
 
-  // Generate URLs
-  const iconUrl = avatarData.icon
-    ? await getDownloadURL(ref(storage, avatarData.icon))
-    : null;
-  const userVectorstoreUrl = await getDownloadURL(
-    ref(storage, `users/${userId}/vectorstore/.keep`)
-  );
-  const avatarVectorstoreUrl = await getDownloadURL(
-    ref(storage, `users/${userId}/avatars/${avatarId}/vectorstore_data/.keep`)
-  );
-  const qloraAdapterUrl = await getDownloadURL(
-    ref(storage, `users/${userId}/avatars/${avatarId}/adapters/.keep`)
-  );
-  const qloraTrainingUrl = await getDownloadURL(
-    ref(
-      storage,
-      `users/${userId}/avatars/${avatarId}/adapters/training_data/.keep`
-    )
-  );
-
-  return {
-    status: 'success',
-    avatar_id: avatarId,
-    user_id: userId,
-    name: avatarData.name,
-    description: avatarData.description,
-    icon_url: iconUrl,
-    user_vectorstore_url: userVectorstoreUrl,
-    avatar_vectorstore_data_url: avatarVectorstoreUrl,
-    qlora_adapter_url: qloraAdapterUrl,
-    qlora_training_data_url: qloraTrainingUrl,
-    model_loaded: false,
-    vectorstore_loaded: false,
-    messages,
-    default_conversation: defaultConversationId,
-    conversations: conversations,
-  };
+  return {};
 };
 
 // Conversation management functions

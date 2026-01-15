@@ -19,16 +19,11 @@ import AvatarCardComponent from './AvatarCardComponent';
 import { useMedia } from '../context/MediaContext';
 import AuthComponent from './AuthComponent';
 import { signup, login, logout } from '../services/authService';
+import { selectAvatar } from '../services/avatar_Service';
 
 const AvatarSelectionComponent = ({}) => {
-  const {
-    accessToken,
-    user,
-    avatars,
-    setActiveAvatar,
-    lastUsedAvatar,
-    selectAvatar,
-  } = useAuth();
+  const { accessToken, user, userAvatars, setActiveAvatar, lastUsedAvatar } =
+    useAuth();
   const { setMessages, fetchMessages } = useMedia();
   const navigate = useNavigate();
   const [currentCardIndex, setCurrentCardIndex] = useState(0);
@@ -72,7 +67,7 @@ const AvatarSelectionComponent = ({}) => {
   const cacheAvatarPosition = (avatarId, avatarIndex = null) => {
     try {
       localStorage.setItem('last_used_avatar_id', avatarId);
-      if (avatarIndex !== null && avatars?.length > 0) {
+      if (avatarIndex !== null && userAvatars?.length > 0) {
         const positionData = {
           avatarIndex,
         };
@@ -115,45 +110,44 @@ const AvatarSelectionComponent = ({}) => {
     }
 
     if (actualCardData.type === 'avatar') {
-      try {
-        const avatarId =
-          actualCardData.id ||
-          avatars?.find((avatar) => avatar.name === actualCardData.text)
-            ?.avatar_id;
-        if (!avatarId) {
-          toast.error('Avatar ID not found');
-          return;
-        }
-
-        const avatarIndex = avatars.findIndex(
-          (avatar) => avatar.avatar_id === avatarId
-        );
-
-        setCurrentCardIndex(avatarIndex);
-        if (galleryRef.current) {
-          galleryRef.current.setCurrentIndex(avatarIndex);
-        }
-
-        // Use AuthContext selectAvatar which updates Firestore
-        await selectAvatar(avatarId);
-
-        const selectedAvatar = avatars.find(
-          (avatar) => avatar.avatar_id === avatarId
-        );
-
-        cacheAvatarPosition(avatarId, avatarIndex);
-        if (selectedAvatar?.icon) {
-          cacheAvatarIcon(avatarId, selectedAvatar.icon, avatarIndex);
-        }
-
-        setActiveAvatar(selectedAvatar);
-        // Load messages for this avatar
-        await fetchMessages();
-        // navigate(/chat:selectedAvatar)
-      } catch (error) {
-        console.error('Error selecting avatar:', error);
-        toast.error('Failed to select avatar');
+      const avatarId =
+        actualCardData.id ||
+        userAvatars?.find((avatar) => avatar.name === actualCardData.text)
+          ?.avatar_id;
+      if (!avatarId) {
+        toast.error('Avatar ID not found');
+        return;
       }
+
+      const avatarIndex = userAvatars.findIndex(
+        (avatar) => avatar.avatar_id === avatarId
+      );
+
+      setCurrentCardIndex(avatarIndex);
+      if (galleryRef.current) {
+        galleryRef.current.setCurrentIndex(avatarIndex);
+      }
+      // Use AuthContext selectAvatar which updates Firestore
+      // await selectAvatar(avatarId);
+
+      // asdf;
+
+      const selectedAvatar = userAvatars.find(
+        (avatar) => avatar.avatar_id === avatarId
+      );
+
+      cacheAvatarPosition(avatarId, avatarIndex);
+      if (selectedAvatar?.icon) {
+        cacheAvatarIcon(avatarId, selectedAvatar.icon, avatarIndex);
+      }
+      setActiveAvatar(selectedAvatar);
+      // await selectAvatar(avatarId); // Update Firestore last_used_avatar
+      localStorage.setItem('last_used_avatar_id', avatarId);
+      // Load messages for this avatar
+      // await fetchMessages();
+      // toast.success(`Selected ${avatar.name || 'avatar'}`);
+      navigate(`/chat/${avatarId}`); // ← ROUTE TO CHAT AREA
+      // navigate(/chat:selectedAvatar)
     } else if (actualCardData.type === 'create') {
       setShowCreateModal(true);
     }
@@ -170,7 +164,7 @@ const AvatarSelectionComponent = ({}) => {
       try {
         const avatarId =
           selectedCard.id ||
-          avatars?.find((avatar) => avatar.name === selectedCard.text)
+          userAvatars?.find((avatar) => avatar.name === selectedCard.text)
             ?.avatar_id;
         if (!avatarId) {
           toast.error('Avatar ID not found');
@@ -180,10 +174,10 @@ const AvatarSelectionComponent = ({}) => {
         // Use AuthContext selectAvatar which updates Firestore
         await selectAvatar(avatarId);
 
-        const selectedAvatar = avatars.find(
+        const selectedAvatar = userAvatars.find(
           (avatar) => avatar.avatar_id === avatarId
         );
-        const avatarIndex = avatars.findIndex(
+        const avatarIndex = userAvatars.findIndex(
           (avatar) => avatar.avatar_id === avatarId
         );
 
@@ -207,7 +201,7 @@ const AvatarSelectionComponent = ({}) => {
 
   const authenticatedCards = useMemo(() => {
     const avatarCards =
-      avatars?.map((avatar) => ({
+      userAvatars?.map((avatar) => ({
         id: avatar.avatar_id,
         component: (
           <AvatarCardComponent avatar={avatar} onCardClick={handleClick} />
@@ -227,7 +221,7 @@ const AvatarSelectionComponent = ({}) => {
     });
 
     return avatarCards;
-  }, [avatars]);
+  }, [userAvatars]);
 
   const getCachedAvatarPosition = (avatarId = null) => {
     try {
@@ -247,17 +241,17 @@ const AvatarSelectionComponent = ({}) => {
   };
 
   useEffect(() => {
-    if (avatars?.length > 0 && !hasInitialized.current) {
+    if (userAvatars?.length > 0 && !hasInitialized.current) {
       let targetIndex = 0;
 
       const cachedLastAvatarId = localStorage.getItem('last_used_avatar_id');
       if (cachedLastAvatarId) {
         const cachedPosition = getCachedAvatarPosition(cachedLastAvatarId);
-        if (cachedPosition && cachedPosition.avatarIndex < avatars.length) {
+        if (cachedPosition && cachedPosition.avatarIndex < userAvatars.length) {
           targetIndex = cachedPosition.avatarIndex;
         }
       } else if (lastUsedAvatar) {
-        const lastUsedIndex = avatars.findIndex(
+        const lastUsedIndex = userAvatars.findIndex(
           (avatar) => avatar.avatar_id === lastUsedAvatar
         );
         if (lastUsedIndex !== -1) {
@@ -271,10 +265,10 @@ const AvatarSelectionComponent = ({}) => {
       }
       hasInitialized.current = true;
     }
-    if (!user || !avatars?.length) {
+    if (!user || !userAvatars?.length) {
       hasInitialized.current = false;
     }
-  }, [user, avatars]);
+  }, [user, userAvatars]);
 
   const handleLogout = () => {
     setActiveAvatar(null);
@@ -306,8 +300,6 @@ const AvatarSelectionComponent = ({}) => {
     console.log('Avatar Selection Component user: ' + user);
   }, []);
 
-  const currentCards = user ? authenticatedCards : [loginCard];
-
   const handleDotClick = (index) => {
     setCurrentCardIndex(index);
     if (galleryRef.current) {
@@ -324,7 +316,10 @@ const AvatarSelectionComponent = ({}) => {
   };
 
   const handleJumpRight = () => {
-    const newIndex = Math.min(currentCards.length - 1, currentCardIndex + 5);
+    const newIndex = Math.min(
+      authenticatedCards.length - 1,
+      currentCardIndex + 5
+    );
     setCurrentCardIndex(newIndex);
     if (galleryRef.current) {
       galleryRef.current.setCurrentIndex(newIndex);
@@ -342,9 +337,9 @@ const AvatarSelectionComponent = ({}) => {
     console.log('Current Card Index:', currentCardIndex);
   }, [currentCardIndex]);
 
-  // Get the 5 closest avatars to current index (2 before, current, 2 after)
+  // Get the 5 closest userAvatars to current index (2 before, current, 2 after)
   const getVisibleDots = () => {
-    const total = currentCards.length;
+    const total = authenticatedCards.length;
     const visibleCount = 5;
     const halfVisible = Math.floor(visibleCount / 2);
 
@@ -361,7 +356,7 @@ const AvatarSelectionComponent = ({}) => {
       end = total - 1;
     }
 
-    const slice = currentCards.slice(start, end + 1);
+    const slice = authenticatedCards.slice(start, end + 1);
 
     // Map slice to include visibleIndex
     return slice.map((card, idx) => ({
@@ -377,7 +372,7 @@ const AvatarSelectionComponent = ({}) => {
     setHighlightedIndex(-1);
 
     const allCards = [
-      ...(avatars?.map((avatar, idx) => ({
+      ...(userAvatars?.map((avatar, idx) => ({
         id: avatar.avatar_id,
         type: 'avatar',
         text: avatar.name,
@@ -418,7 +413,7 @@ const AvatarSelectionComponent = ({}) => {
 
   const handleSearchFocus = () => {
     const allCards = [
-      ...(avatars?.map((avatar, idx) => ({
+      ...(userAvatars?.map((avatar, idx) => ({
         id: avatar.avatar_id,
         type: 'avatar',
         text: avatar.name,
@@ -516,7 +511,7 @@ const AvatarSelectionComponent = ({}) => {
       } else if (e.key === 'ArrowRight') {
         e.preventDefault();
         const newIndex = Math.min(
-          currentCards.length - 1,
+          authenticatedCards.length - 1,
           currentCardIndex + 1
         );
         setCurrentCardIndex(newIndex);
@@ -525,7 +520,7 @@ const AvatarSelectionComponent = ({}) => {
         }
       } else if (e.key === 'Enter') {
         e.preventDefault();
-        const currentCard = currentCards[currentCardIndex];
+        const currentCard = authenticatedCards[currentCardIndex];
         if (currentCard) {
           handleClick(currentCard);
         }
@@ -537,7 +532,7 @@ const AvatarSelectionComponent = ({}) => {
       return () =>
         document.removeEventListener('keydown', handleGalleryKeyDown);
     }
-  }, [user, currentCardIndex, currentCards, isDropdownOpen]);
+  }, [user, currentCardIndex, authenticatedCards, isDropdownOpen]);
 
   return (
     <div className="flex flex-col items-center justify-start p-4 relative mx-auto min-h-screen w-full">
@@ -549,7 +544,7 @@ const AvatarSelectionComponent = ({}) => {
             onChange={handleSearch}
             onFocus={handleSearchFocus}
             onKeyDown={handleKeyDown}
-            placeholder="Search avatars..."
+            placeholder="Search userAvatars..."
             className="w-full bg-white/5 rounded-lg border border-white/20 py-2 pl-10 pr-4 text-white placeholder-white/50 focus:outline-none focus:ring-2 focus:ring-white/30"
           />
           <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-white/80" />
@@ -693,9 +688,9 @@ const AvatarSelectionComponent = ({}) => {
             {/* Right arrow */}
             <button
               onClick={handleJumpRight}
-              disabled={currentCardIndex === currentCards.length - 1}
+              disabled={currentCardIndex === authenticatedCards.length - 1}
               className={`p-1 rounded-full transition-all duration-300 ${
-                currentCardIndex === currentCards.length - 1
+                currentCardIndex === authenticatedCards.length - 1
                   ? 'text-white/20 cursor-not-allowed'
                   : 'text-white/50 hover:text-white hover:bg-white/10 cursor-pointer'
               }`}
