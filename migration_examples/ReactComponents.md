@@ -154,7 +154,7 @@ import AvatarCard from './AvatarCard';
 
 const AvatarList = () => {
   const { currentUser } = useAuth();
-  const [avatars, setAvatars] = useState([]);
+  const [avatars, setUserAvatars] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
 
@@ -168,7 +168,7 @@ const AvatarList = () => {
     try {
       setLoading(true);
       const avatarList = await getAvatars(currentUser.uid);
-      setAvatars(avatarList);
+      setUserAvatars(avatarList);
     } catch (err) {
       setError(err.message);
     } finally {
@@ -180,7 +180,7 @@ const AvatarList = () => {
     if (window.confirm('Are you sure you want to delete this avatar?')) {
       try {
         await deleteAvatar(currentUser.uid, avatarId);
-        setAvatars(avatars.filter(avatar => avatar.avatar_id !== avatarId));
+        setUserAvatars(avatars.filter(avatar => avatar.avatar_id !== avatarId));
       } catch (err) {
         setError(err.message);
       }

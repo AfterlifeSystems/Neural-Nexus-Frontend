@@ -14,7 +14,17 @@ import {
   getRedirectResult,
 } from 'firebase/auth';
 
-import { doc, getDoc, updateDoc, setDoc } from 'firebase/firestore';
+import {
+  doc,
+  getDoc,
+  updateDoc,
+  setDoc,
+  query,
+  collection,
+  where,
+  orderBy,
+  onSnapshot,
+} from 'firebase/firestore';
 import { auth, db, storage } from '../firebase/config.js';
 import { getUserProfile } from '../services/userService';
 
@@ -48,87 +58,194 @@ export const AuthProvider = ({ children }) => {
     }
   }, []);
 
-  // Listen to Firebase auth state changes
+  // Inside your AuthContext.jsx Live Update Avatars
   useEffect(() => {
-    const firebaseAuthStateChange = onAuthStateChanged(
-      auth,
-      async (firebaseUser) => {
-        if (firebaseUser) {
-          console.log(firebaseUser);
-          setUser(firebaseUser);
-          try {
-            // Debug: ensure uid and token are available
-            console.log('Auth state changed for uid:', firebaseUser.uid);
+    if (!user) {
+      setUserAvatars([]);
+      return;
+    }
 
-            // Get Firebase ID token for backend API calls
-            // Firebase automatically refreshes tokens when needed
-            let token;
-            try {
-              token = await firebaseUser.getIdToken();
-              setAccessToken(token);
-              localStorage.setItem('access_token', token);
-            } catch (tokenErr) {
-              console.error('Error obtaining ID token:', tokenErr);
-            }
+    // 1. Define the Query
+    const q = query(
+      collection(db, 'avatars'),
+      where('user_id', '==', user.uid),
+      orderBy('created_at', 'asc')
+    );
 
-            // Get Firestore user profile (returns null if missing)
-            let profile = null;
-            try {
-              profile = await getUserProfile(firebaseUser.uid);
-            } catch (err) {
-              console.error('Error fetching user profile:', err);
-              if (
-                err.message &&
-                err.message.includes('Insufficient Firestore permissions')
-              ) {
-                toast.error(
-                  'Firestore permissions error: please check rules and project configuration.'
-                );
-              } else {
-                throw err;
-              }
-            }
+    // 2. Establish the Listener
+    const unsubscribe = onSnapshot(
+      q,
+      (snapshot) => {
+        const fetchedAvatars = snapshot.docs.map((doc) => ({
+          avatar_id: doc.id,
+          ...doc.data(),
+        }));
 
-            // localStorage.setItem('user', user);
-
-            // Store user data in localStorage
-            // localStorage.setItem('user', JSON.stringify(profile));
-            // localStorage.setItem('firebase_user_id', firebaseUser.uid);
-
-            // Load userAvatars from Firestore
-            const loadedAvatars = await loadAvatars(firebaseUser.uid);
-
-            // Set active avatar if user has last_used_digital_twin
-            if (profile.last_used_digital_twin && loadedAvatars.length > 0) {
-              const lastUsed = loadedAvatars.find(
-                (a) => a.avatar_id === profile.last_used_digital_twin
-              );
-              if (lastUsed) {
-                setActiveAvatar(lastUsed);
-              }
-            }
-          } catch (error) {
-            console.error('Error loading user profile:', error);
-            setUser(null);
-            setAccessToken(null);
-          }
-        } else {
-          // User signed out
-          setUser(null);
-          setUserAvatars([]);
-          setSharedAvatars([]);
-          setProprietaryAvatars([]);
-          setActiveAvatar(null);
-          setAccessToken(null);
-          localStorage.removeItem('user');
-        }
-
-        setLoading(false);
+        // This updates the global state automatically when
+        // an avatar is added, deleted, or edited!
+        setUserAvatars(fetchedAvatars);
+        console.log(
+          'XXXXXXXXXXXXXXXXXXX ON AVATAR TRIGGER XXXXXXXXXXXXXXXXXXXX'
+        );
+      },
+      (error) => {
+        console.error('Snapshot listener error:', error);
       }
     );
 
-    return firebaseAuthStateChange;
+    // 3. CLEANUP: This is critical for memory management
+    return () => unsubscribe();
+  }, [user]);
+
+  // Inside your AuthContext.jsx
+  const [userProfile, setUserProfile] = useState(null);
+
+  // Live Update Users
+  useEffect(() => {
+    if (!user) {
+      setUserProfile(null);
+      return;
+    }
+
+    // 1. Reference the specific User Document
+    const userDocRef = doc(db, 'users', user.uid);
+
+    // 2. Establish the Document Listener
+    const unsubscribe = onSnapshot(
+      userDocRef,
+      (docSnapshot) => {
+        if (docSnapshot.exists()) {
+          const data = docSnapshot.data();
+
+          // Update global user profile state
+          setUserProfile(data);
+          console.log(
+            'XXXXXXXXXXXXXXXXXXX ON USER TRIGGER XXXXXXXXXXXXXXXXXXXX'
+          );
+
+          // OPTIONAL: Sync specific logic, like updating localStorage
+          // with the most recent last_used_avatar
+          if (data.last_used_avatar) {
+            localStorage.setItem('last_used_avatar_id', data.last_used_avatar);
+          }
+        } else {
+          console.warn('User profile document does not exist.');
+        }
+      },
+      (error) => {
+        console.error('User profile snapshot error:', error);
+      }
+    );
+
+    // 3. Cleanup listener on unmount
+    return () => unsubscribe();
+  }, [user]);
+
+  // Listen to Firebase auth state changes
+
+  useEffect(() => {
+    const unsubscribeAuth = onAuthStateChanged(auth, async (firebaseUser) => {
+      console.log(
+        'XXXXXXXXXXXXXXXXXXX ON AUTH STATE TRIGGER XXXXXXXXXXXXXXXXXXXX'
+      );
+      if (firebaseUser) {
+        setUser(firebaseUser); // This triggers the onSnapshot useEffects!
+
+        // Get token silently
+        const token = await firebaseUser.getIdToken();
+        setAccessToken(token);
+      } else {
+        setUser(null);
+        setUserProfile(null);
+        setUserAvatars([]);
+      }
+      setLoading(false); // Move this here to ensure it only flips once
+    });
+
+    return () => unsubscribeAuth();
   }, []);
+
+  // useEffect(() => {
+  //   const unsubscribeAuth = onAuthStateChanged(auth, async (firebaseUser) => {
+  //     console.log(
+  //       'XXXXXXXXXXXXXXXXXXX ON AUTH STATE TRIGGER XXXXXXXXXXXXXXXXXXXX'
+  //     );
+  //     if (firebaseUser) {
+  //       console.log(firebaseUser);
+  //       setUser(firebaseUser);
+
+  //       try {
+  //         // Debug: ensure uid and token are available
+  //         console.log('Auth state changed for uid:', firebaseUser.uid);
+
+  //         // Get Firebase ID token for backend API calls
+  //         // Firebase automatically refreshes tokens when needed
+  //         let token;
+  //         try {
+  //           token = await firebaseUser.getIdToken();
+  //           setAccessToken(token);
+  //           localStorage.setItem('access_token', token);
+  //         } catch (tokenErr) {
+  //           console.error('Error obtaining ID token:', tokenErr);
+  //         }
+
+  //         // Get Firestore user profile (returns null if missing)
+  //         let profile = null;
+  //         try {
+  //           profile = await getUserProfile(firebaseUser.uid);
+  //         } catch (err) {
+  //           console.error('Error fetching user profile:', err);
+  //           if (
+  //             err.message &&
+  //             err.message.includes('Insufficient Firestore permissions')
+  //           ) {
+  //             toast.error(
+  //               'Firestore permissions error: please check rules and project configuration.'
+  //             );
+  //           } else {
+  //             throw err;
+  //           }
+  //         }
+
+  //         // localStorage.setItem('user', user);
+
+  //         // Store user data in localStorage
+  //         // localStorage.setItem('user', JSON.stringify(profile));
+  //         // localStorage.setItem('firebase_user_id', firebaseUser.uid);
+
+  //         // Load userAvatars from Firestore
+  //         const loadedAvatars = await loadAvatars(firebaseUser.uid);
+
+  //         // Set active avatar if user has last_used_avatar
+  //         if (profile.last_used_avatar && loadedAvatars.length > 0) {
+  //           const lastUsed = loadedAvatars.find(
+  //             (a) => a.avatar_id === profile.last_used_avatar
+  //           );
+  //           if (lastUsed) {
+  //             setActiveAvatar(lastUsed);
+  //           }
+  //         }
+  //       } catch (error) {
+  //         console.error('Error loading user profile:', error);
+  //         setUser(null);
+  //         setAccessToken(null);
+  //       }
+  //     } else {
+  //       // User signed out
+  //       setUser(null);
+  //       setUserAvatars([]);
+  //       setSharedAvatars([]);
+  //       setProprietaryAvatars([]);
+  //       setActiveAvatar(null);
+  //       setAccessToken(null);
+  //       localStorage.removeItem('user');
+  //     }
+
+  //     setLoading(false);
+  //   });
+
+  //   return () => unsubscribeAuth();
+  // }, []);
 
   // Load userAvatars from Firestore
   const loadAvatars = async (userId) => {
@@ -270,9 +387,9 @@ export const AuthProvider = ({ children }) => {
   //     // Set as active avatar
   //     setActiveAvatar(createdAvatar);
 
-  //     // Update Firestore to mark as last_used_digital_twin
+  //     // Update Firestore to mark as last_used_avatar
   //     await updateDoc(doc(db, 'users', currentUser.uid), {
-  //       last_used_digital_twin: created.avatar_id,
+  //       last_used_avatar: created.avatar_id,
   //       avatars: [...(user?.avatars || []), created.avatar_id],
   //     });
 
@@ -280,7 +397,7 @@ export const AuthProvider = ({ children }) => {
   //     if (user) {
   //       const updatedUser = {
   //         ...user,
-  //         last_used_digital_twin: created.avatar_id,
+  //         last_used_avatar: created.avatar_id,
   //         avatars: [...(user.avatars || []), created.avatar_id],
   //       };
   //       setUser(updatedUser);
@@ -324,12 +441,12 @@ export const AuthProvider = ({ children }) => {
 
   //       // Update user profile
   //       await updateDoc(doc(db, 'users', currentUser.uid), {
-  //         last_used_digital_twin: avatarId,
+  //         last_used_avatar: avatarId,
   //       });
 
   //       // Update local user state
   //       if (user) {
-  //         const updatedUser = { ...user, last_used_digital_twin: avatarId };
+  //         const updatedUser = { ...user, last_used_avatar: avatarId };
   //         setUser(updatedUser);
   //         setUserProfile(updatedUser);
   //         localStorage.setItem('user', JSON.stringify(updatedUser));

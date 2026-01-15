@@ -145,7 +145,7 @@ export const logout = async () => {
     // setUser(null);
     // setUserProfile(null);
     // setIsLoggedIn(false);
-    // setAvatars([]);
+    // setUserAvatars([]);
     // setActiveAvatar(null);
     // setAccessToken(null);
     // localStorage.removeItem('user');

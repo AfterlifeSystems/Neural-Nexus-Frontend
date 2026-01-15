@@ -45,7 +45,7 @@ avatars/{digitalTwinId}
   billing_history: array,
   credit_card: object | null,
   avatars: [string],  // Array of digital twin IDs
-  last_used_digital_twin: string | null,  // ID of last used digital twin
+  last_used_avatar: string | null,  // ID of last used digital twin
   // ... other fields
 }
 ```

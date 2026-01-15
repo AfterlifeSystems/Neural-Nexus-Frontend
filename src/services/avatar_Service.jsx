@@ -90,7 +90,7 @@ export const createAvatar = async (userId, name, description, iconFile) => {
   const avatars = userDoc.data().avatars || [];
   await updateDoc(userRef, {
     avatars: [...avatars, avatarId],
-    last_used_digital_twin: avatarId,
+    last_used_avatar: avatarId,
   });
 
   // Create directory structure in Storage (using .keep files)

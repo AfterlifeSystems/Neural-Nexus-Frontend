@@ -83,7 +83,7 @@ service firebase.storage {
     "03631b03-2607-4a64-a3a6-f6ada35adf6c",
     "d838b7b2-c6db-4569-853d-309327a8ecbf"
   ],
-  "last_used_digital_twin": "03631b03-2607-4a64-a3a6-f6ada35adf6c"
+  "last_used_avatar": "03631b03-2607-4a64-a3a6-f6ada35adf6c"
 }
 
 # Digital Twin Object

@@ -1,11 +1,11 @@
 // components/ProtectedRoute.jsx
-import { Navigate } from 'react-router-dom';
+import { Navigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 
 const ProtectedRoute = ({ children }) => {
   const { user, loading } = useAuth(); // 'user' is the firebaseUser object
   console.log(
-    'XXXXXXXXXXXXXXXXXXXXXXXXX TARA HOLIDAY XXXXXXXXXXXXXXXXXXXXXXXX'
+    'XXXXXXXXXXXXXXXXXXXXXXXXX protected route XXXXXXXXXXXXXXXXXXXXXXXX'
   );
   console.log(user);
   // try {

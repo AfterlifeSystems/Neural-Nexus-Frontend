@@ -1666,7 +1666,7 @@ export const AuthProvider = ({ children }) => {
   const [isLoggedIn, setIsLoggedIn] = useState(false);
   const [currentUser, setCurrentUser] = useState(null); // Firebase Auth user
   const [userProfile, setUserProfile] = useState(null); // Firestore user profile
-  const [avatars, setAvatars] = useState([]);
+  const [avatars, setUserAvatars] = useState([]);
   const [activeAvatar, setActiveAvatar] = useState(null);
   const [loading, setLoading] = useState(true);
   const [accessToken, setAccessToken] = useState(null); // Firebase ID token for backend API
@@ -1767,10 +1767,10 @@ export const AuthProvider = ({ children }) => {
             // Load avatars from Firestore
             const loadedAvatars = await loadAvatars(firebaseUser.uid);
 
-            // Set active avatar if user has last_used_digital_twin
-            if (profile.last_used_digital_twin && loadedAvatars.length > 0) {
+            // Set active avatar if user has last_used_avatar
+            if (profile.last_used_avatar && loadedAvatars.length > 0) {
               const lastUsed = loadedAvatars.find(
-                (a) => a.avatar_id === profile.last_used_digital_twin
+                (a) => a.avatar_id === profile.last_used_avatar
               );
               if (lastUsed) {
                 setActiveAvatar(lastUsed);
@@ -1794,7 +1794,7 @@ export const AuthProvider = ({ children }) => {
         setUser(null);
         setUserProfile(null);
         setIsLoggedIn(false);
-        setAvatars([]);
+        setUserAvatars([]);
         setActiveAvatar(null);
         setAccessToken(null);
         localStorage.removeItem('user');
@@ -1813,7 +1813,7 @@ export const AuthProvider = ({ children }) => {
   const loadAvatars = async (userId) => {
     try {
       const fetchedAvatars = await getAvatarsFromFirestore(userId);
-      setAvatars(fetchedAvatars);
+      setUserAvatars(fetchedAvatars);
       localStorage.setItem('avatars', JSON.stringify(fetchedAvatars));
       return fetchedAvatars;
     } catch (error) {
@@ -1949,9 +1949,9 @@ export const AuthProvider = ({ children }) => {
       // Set as active avatar
       setActiveAvatar(createdAvatar);
 
-      // Update Firestore to mark as last_used_digital_twin
+      // Update Firestore to mark as last_used_avatar
       await updateDoc(doc(db, 'users', currentUser.uid), {
-        last_used_digital_twin: created.avatar_id,
+        last_used_avatar: created.avatar_id,
         avatars: [...(user?.avatars || []), created.avatar_id],
       });
 
@@ -1959,7 +1959,7 @@ export const AuthProvider = ({ children }) => {
       if (user) {
         const updatedUser = {
           ...user,
-          last_used_digital_twin: created.avatar_id,
+          last_used_avatar: created.avatar_id,
           avatars: [...(user.avatars || []), created.avatar_id],
         };
         setUser(updatedUser);
@@ -2004,12 +2004,12 @@ export const AuthProvider = ({ children }) => {
 
         // Update user profile
         await updateDoc(doc(db, 'users', currentUser.uid), {
-          last_used_digital_twin: avatarId,
+          last_used_avatar: avatarId,
         });
 
         // Update local user state
         if (user) {
-          const updatedUser = { ...user, last_used_digital_twin: avatarId };
+          const updatedUser = { ...user, last_used_avatar: avatarId };
           setUser(updatedUser);
           setUserProfile(updatedUser);
           localStorage.setItem('user', JSON.stringify(updatedUser));
@@ -2243,7 +2243,7 @@ export const logout = async () => {
     // setUser(null);
     // setUserProfile(null);
     // setIsLoggedIn(false);
-    // setAvatars([]);
+    // setUserAvatars([]);
     // setActiveAvatar(null);
     // setAccessToken(null);
     // localStorage.removeItem('user');
