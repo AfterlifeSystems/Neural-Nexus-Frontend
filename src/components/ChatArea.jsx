@@ -116,24 +116,26 @@ const ChatArea = ({
           </div>
         }
 
-        <div className="flex flex-col flex-grow overflow-hidden">
-          <div className="flex-grow overflow-y-auto p-2 sm:p-4 relative">
-            <MessageList
-              messages={messages[activeAvatar.avatar_id] || []}
-              messagesEndRef={messagesEndRef}
-            />
-          </div>
+        {activeTab === 'chat' && (
+          <div className="flex flex-col flex-grow overflow-hidden">
+            <div className="flex-grow overflow-y-auto p-2 sm:p-4 relative">
+              <MessageList
+                messages={messages[activeAvatar.avatar_id] || []}
+                messagesEndRef={messagesEndRef}
+              />
+            </div>
 
-          <div className="flex-shrink-0 items-center mt-2">
-            <InputBar
-              avatarId={activeAvatar.avatar_id}
-              accessToken={accessToken}
-              dropdownRef={dropdownRef}
-              isLiveChatView={false}
-              onActivateLiveChat={onActivateLiveChat}
-            />
+            <div className="flex-shrink-0 items-center mt-2">
+              <InputBar
+                avatarId={activeAvatar.avatar_id}
+                accessToken={accessToken}
+                dropdownRef={dropdownRef}
+                isLiveChatView={false}
+                onActivateLiveChat={onActivateLiveChat}
+              />
+            </div>
           </div>
-        </div>
+        )}
 
         {activeTab === 'avatar-settings' && (
           <div className="flex flex-col flex-grow p-2 sm:p-4 relative overflow-y-auto">
