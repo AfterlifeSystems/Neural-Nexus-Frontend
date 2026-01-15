@@ -14,6 +14,7 @@ import {
 } from 'lucide-react';
 import { FiCircle } from 'react-icons/fi';
 import CreateAvatarComponent from './CreateAvatarComponent';
+import CreateAvatarModal from './CreateAvatarModal';
 import AvatarCardComponent from './AvatarCardComponent';
 import { useMedia } from '../context/MediaContext';
 import AuthComponent from './AuthComponent';

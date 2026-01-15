@@ -150,19 +150,23 @@ export const AuthProvider = ({ children }) => {
       );
       if (firebaseUser) {
         setUser(firebaseUser); // This triggers the onSnapshot useEffects!
-
-        // Get token silently
-        const token = await firebaseUser.getIdToken();
-        setAccessToken(token);
+        try {
+          const token = await firebaseUser.getIdToken(
+            /* foreceRefresh = */ true
+          );
+          setAccessToken(token);
+        } catch (err) {
+          console.error('Failed to get fresh ID token', err);
+          setAccessToken(null);
+        }
       } else {
         setUser(null);
-        setUserProfile(null);
-        setUserAvatars([]);
+        setAccessToken(null);
       }
       setLoading(false); // Move this here to ensure it only flips once
     });
 
-    return () => unsubscribeAuth();
+    return unsubscribeAuth;
   }, []);
 
   // useEffect(() => {

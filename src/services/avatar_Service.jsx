@@ -22,16 +22,51 @@ import {
 } from 'firebase/storage';
 import { db, storage } from '../firebase/config';
 import { v4 as uuidv4 } from 'uuid';
+import { getAuth } from 'firebase/auth';
 
-export const createAvatar = async (userId, name, description, iconFile) => {
+export const createAvatar = async (name, description, iconFile) => {
+  const user = getAuth().currentUser;
+  if (!user) throw new Error('No authenticated user');
+
+  const userId = user.uid;
   const avatarId = uuidv4();
   const conversationId = uuidv4(); // Create default conversation ID
 
+  console.log(
+    'XXXXXXXXXXXXXXXXXXXXXXXXXX USER XXXXXXXXXXXXXXXXXXXXXXXXXXX AVATAR_SERVICE'
+  );
+  console.log(user);
+  // Create directory structure in Storage (using .keep files)
+  const directories = [
+    `users/${userId}/.keep`,
+    `users/${userId}/avatars/${avatarId}/adapters/.keep`,
+    `users/${userId}/avatars/${avatarId}/adapters/training_data/.keep`,
+  ];
+
+  for (const dirPath of directories) {
+    try {
+      const dirRef = ref(storage, dirPath);
+      await uploadBytes(dirRef, new Blob([''], { type: 'text/plain' }));
+    } catch (error) {
+      console.warn(`Failed to create directory ${dirPath}:`, error);
+    }
+  }
+
+  // Generate download URLs
+  const qloraAdapterUrl = await getDownloadURL(
+    ref(storage, `users/${userId}/avatars/${avatarId}/adapters/.keep`)
+  );
+  const qloraTrainingUrl = await getDownloadURL(
+    ref(
+      storage,
+      `users/${userId}/avatars/${avatarId}/adapters/training_data/.keep`
+    )
+  );
   // Store as a Digital Twin document following firestore_structure.md
   const avatarData = {
     avatar_id: avatarId,
-    user_id: userId,
-    name: name.trim(),
+    user_id: user.uid,
+    name: name,
     description: (description || '').trim(),
     created_at: new Date().toISOString(),
     icon: null, // will be an object {url, storagePath, name, size, type}
@@ -42,6 +77,8 @@ export const createAvatar = async (userId, name, description, iconFile) => {
     system_prompt_description: '',
     default_conversation: conversationId,
     conversations: [conversationId],
+    qloraAdapterUrl: qloraAdapterUrl,
+    qloraTrainingUrl: qloraTrainingUrl,
   };
 
   // Upload icon if provided and store metadata + URL
@@ -63,11 +100,6 @@ export const createAvatar = async (userId, name, description, iconFile) => {
       type: iconFile.type,
     };
   }
-
-  // Create avatar (digital twin) document with avatarId as document ID
-  const avatarRef = doc(db, 'avatars', avatarId);
-  await setDoc(avatarRef, avatarData);
-
   // Create default conversation document (store summary and counts)
   const conversationRef = doc(
     db,
@@ -84,6 +116,10 @@ export const createAvatar = async (userId, name, description, iconFile) => {
     message_count: 0,
   });
 
+  // Create avatar (digital twin) document with avatarId as document ID
+  const avatarRef = doc(db, 'avatars', avatarId);
+  await setDoc(avatarRef, avatarData);
+
   // Update user's avatars list
   const userRef = doc(db, 'users', userId);
   const userDoc = await getDoc(userRef);
@@ -93,58 +129,8 @@ export const createAvatar = async (userId, name, description, iconFile) => {
     last_used_avatar: avatarId,
   });
 
-  // Create directory structure in Storage (using .keep files)
-  const directories = [
-    `users/${userId}/.keep`,
-    `users/${userId}/avatars/${avatarId}/adapters/.keep`,
-    `users/${userId}/avatars/${avatarId}/adapters/training_data/.keep`,
-  ];
-
-  for (const dirPath of directories) {
-    try {
-      const dirRef = ref(storage, dirPath);
-      await uploadBytes(dirRef, new Blob([''], { type: 'text/plain' }));
-    } catch (error) {
-      console.warn(`Failed to create directory ${dirPath}:`, error);
-    }
-  }
-
-  // Generate download URLs
-  const iconUrl = avatarData.icon
-    ? avatarData.icon.url ||
-      (await getDownloadURL(ref(storage, avatarData.icon.storagePath)))
-    : null;
-  const userVectorstoreUrl = await getDownloadURL(
-    ref(storage, `users/${userId}/vectorstore/.keep`)
-  );
-  const avatarVectorstoreUrl = await getDownloadURL(
-    ref(storage, `users/${userId}/avatars/${avatarId}/vectorstore_data/.keep`)
-  );
-  const qloraAdapterUrl = await getDownloadURL(
-    ref(storage, `users/${userId}/avatars/${avatarId}/adapters/.keep`)
-  );
-  const qloraTrainingUrl = await getDownloadURL(
-    ref(
-      storage,
-      `users/${userId}/avatars/${avatarId}/adapters/training_data/.keep`
-    )
-  );
-
   return {
-    id: avatarId,
-    avatar_id: avatarId,
-    user_id: userId,
-    name: avatarData.name,
-    description: avatarData.description,
-    created_at: avatarData.created_at,
-    icon: avatarData.icon,
-    icon_url: iconUrl,
-    user_vectorstore_url: userVectorstoreUrl,
-    avatar_vectorstore_data_url: avatarVectorstoreUrl,
-    qlora_adapter_url: qloraAdapterUrl,
-    qlora_training_data_url: qloraTrainingUrl,
-    adapter_initialized: true,
-    vectorstore_initialized: true,
+    avatarData,
   };
 };
 

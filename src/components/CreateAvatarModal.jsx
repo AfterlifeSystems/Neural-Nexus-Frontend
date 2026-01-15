@@ -1,11 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import { UserPenIcon } from 'lucide-react';
-import { useAuth } from '../context/AuthContext';
 import { toast } from 'react-hot-toast';
 import { createAvatar } from '../services/avatar_Service';
 
 const CreateAvatarModal = ({ setShowCreateModal }) => {
-  // const { createAvatar } = useAuth();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const [newAvatarName, setNewAvatarName] = useState('');
@@ -19,10 +17,11 @@ const CreateAvatarModal = ({ setShowCreateModal }) => {
     setLoading(true);
     setError(null);
     try {
-      const created = await createAvatar({
-        name: newAvatarName,
-        description: newAvatarDescription,
-      });
+      const created = await createAvatar(
+        newAvatarName,
+        newAvatarDescription,
+        null
+      );
       if (created) {
         setShowCreateModal(false);
         setNewAvatarName('');
