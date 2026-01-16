@@ -48,7 +48,7 @@ createRoot(document.getElementById('root')).render(
 
           <Routes>
             {/* Public landing pages */}
-            <Route path="/" element={<RootRedirect />} />
+            {/* <Route path="/" element={<RootRedirect />} /> */}
             <Route path="/welcome" element={<LandingPage />} />
             <Route path="/privacy" element={<PrivacyPolicy />} />
             <Route path="/terms" element={<TermsOfService />} />
@@ -65,7 +65,7 @@ createRoot(document.getElementById('root')).render(
             </Route>
 
             {/* Catch-all redirect to root */}
-            <Route path="*" element={<Navigate to="/" replace />} />
+            <Route path="/*" element={<Navigate to="/avatars" replace />} />
           </Routes>
         </BrowserRouter>
       </MediaProvider>

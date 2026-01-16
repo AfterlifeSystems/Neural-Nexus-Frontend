@@ -1,7 +1,7 @@
 // components/ProtectedRoute.jsx
 import { Navigate, Outlet, useLocation } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
-
+import { getAuth } from 'firebase/auth';
 const ProtectedRoute = ({ children }) => {
   const { user, loading, accessToken } = useAuth(); // accessToken = firebase idToken
   const location = useLocation();
@@ -14,12 +14,30 @@ const ProtectedRoute = ({ children }) => {
       </div>
     );
   }
-  console.log('XXXXXXXXXXXXXXXXXXXXXXXXX ACCESS TOKEN XXXXXXXXXXXXXXXXXXXX');
-  console.log(accessToken);
+  console.log('XXXXXXXXXXXXXXXXXXXXXXXXX USER XXXXXXXXXXXXXXXXXXXX');
+  console.log(user);
   // Critical: only allow access if we have a valid Firebase user AND a fresh ID token
-  if (!user || !accessToken) {
+  if (!user) {
+    console.log('!user 1 XXXXXXXXXXXXXXXXXXXXXXXXX USER XXXXXXXXXXXXXXXXXXXX');
+    console.log(user);
+    try {
+      const user = getAuth().currentUser;
+      console.log(
+        'try getAuth user  XXXXXXXXXXXXXXXXXXXXXXXXX USER XXXXXXXXXXXXXXXXXXXX'
+      );
+      console.log(user);
+      if (!user) {
+        console.log(
+          'getAuth !user 2  XXXXXXXXXXXXXXXXXXXXXXXXX USER XXXXXXXXXXXXXXXXXXXX'
+        );
+        console.log(user);
+
+        return <Navigate to="/login" replace state={{ from: location }} />;
+      }
+    } catch {
+      console.log('error getAuth().currentUser && user');
+    }
     // Optional: you can log or redirect with state if needed
-    return <Navigate to="/login" replace state={{ from: location }} />;
   }
 
   return <Outlet />;
