@@ -1,7 +1,6 @@
 // components/ProtectedRoute.jsx
 import { Navigate, Outlet, useLocation } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
-import { getAuth } from 'firebase/auth';
 const ProtectedRoute = ({ children }) => {
   const { user, loading, accessToken } = useAuth(); // accessToken = firebase idToken
   const location = useLocation();

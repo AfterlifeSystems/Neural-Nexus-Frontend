@@ -22,10 +22,8 @@ import {
 } from 'firebase/storage';
 import { db, storage } from '../firebase/config';
 import { v4 as uuidv4 } from 'uuid';
-import { getAuth } from 'firebase/auth';
 
-export const createAvatar = async (name, description, iconFile) => {
-  const user = getAuth().currentUser;
+export const createAvatar = async (user, name, description, iconFile) => {
   if (!user) throw new Error('No authenticated user');
 
   const userId = user.uid;
