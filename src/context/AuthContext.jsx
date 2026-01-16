@@ -81,79 +81,115 @@ export const AuthProvider = ({ children }) => {
     return unsubscribe;
   }, []);
 
+  // useEffect(() => {
+  //   if (!user) return;
+  //   let unsubscribeProfile = () => {};
+  //   let unsubscribeAvatars = () => {};
+  //   let unsubscribeMessages = () => {};
+
+  //   if (user) {
+  //     // user profile data in firestore
+  //     const profileRef = doc(db, 'users', user.uid); // contains current avatar
+  //     const unsubscribeProfile = onSnapshot(profileRef, (profileSnap) => {
+  //       setProfile(profileSnap.exists() ? profileSnap.data() : null);
+  //       console.log(
+  //         'XXXXXXXXXXXXXXXXXXXXXX CURRENT USER PROFILE AUTH CONTEXT USE EFFECT XXXXXXXXXXXXXXXXXX'
+  //       );
+  //       console.log(profileSnap);
+  //     });
+
+  //     // user avatar list in firestore
+  //     const avatarsRef = collection(db, `users/${user.uid}/avatars`); //contains current_conversation for each avatar
+  //     const unsubscribeAvatars = onSnapshot(avatarsRef, (avatarSnap) => {
+  //       const list = avatarSnap.docs.map((doc) => ({
+  //         id: doc.id,
+  //         ...doc.data(),
+  //       }));
+  //       setUserAvatars(list);
+
+  //       // and set it as activeAvatar (full object, not just id)
+  //       if (profile?.last_used_avatar) {
+  //         const matchingAvatar = list.find(
+  //           (avatar) => avatar.id === profile.last_used_avatar
+  //         );
+
+  //         if (matchingAvatar) {
+  //           setActiveAvatar(matchingAvatar);
+  //           console.log('Active avatar set:', matchingAvatar.id);
+  //         } else {
+  //           console.log('No matching avatar found for last_used_avatar');
+  //           setActiveAvatar(null);
+  //         }
+  //       } else {
+  //         setActiveAvatar(null);
+  //       }
+  //       console.log('User avatars count:', list.length);
+  //       console.log(
+  //         'XXXXXXXXXXXXXXXXXXXXXXXXX USER AVATARS AUTH CONTEXT USE EFFECT XXXXXXXXXXXXXXXXXXXXXX'
+  //       );
+  //       console.log(avatarSnap);
+  //     });
+
+  //     // messages from the default_conversation of the user's current avatar
+  //     if (activeAvatar) {
+  //       const messagesRef = collection(
+  //         db,
+  //         `avatars/${profile.last_used_avatar}/conversations/${activeAvatar.default_conversation}/messages`
+  //       );
+  //       unsubscribeMessages = onSnapshot(messagesRef, (messageSnap) => {
+  //         setMessages(
+  //           messageSnap.docs.map((doc) => ({ id: doc.id, ...doc.data() }))
+  //         );
+  //         console.log(
+  //           'XXXXXXXXXXXXXXXXXXXXXXXXXXX PROFILE.LAST_USED_AVATAR MESSAGE XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX'
+  //         );
+  //         console.log(messageSnap);
+  //       });
+  //     }
+  //     //
+  //     return () => {
+  //       unsubscribeProfile();
+  //       unsubscribeAvatars();
+  //       unsubscribeMessages();
+  //     };
+  //   }
+  // }, [user]);
+
   useEffect(() => {
     if (!user) return;
-    let unsubscribeProfile = () => {};
-    let unsubscribeAvatars = () => {};
-    let unsubscribeMessages = () => {};
-
-    if (user) {
-      // user profile data in firestore
-      const profileRef = doc(db, 'users', user.uid); // contains current avatar
-      const unsubscribeProfile = onSnapshot(profileRef, (profileSnap) => {
-        setProfile(profileSnap.exists() ? profileSnap.data() : null);
-        console.log(
-          'XXXXXXXXXXXXXXXXXXXXXX CURRENT USER PROFILE AUTH CONTEXT USE EFFECT XXXXXXXXXXXXXXXXXX'
-        );
-        console.log(profileSnap);
-      });
-
-      // user avatar list in firestore
-      const avatarsRef = collection(db, `users/${user.uid}/avatars`); //contains current_conversation for each avatar
-      const unsubscribeAvatars = onSnapshot(avatarsRef, (avatarSnap) => {
-        const list = avatarSnap.docs.map((doc) => ({
-          id: doc.id,
-          ...doc.data(),
-        }));
-        setUserAvatars(list);
-
-        // and set it as activeAvatar (full object, not just id)
-        if (profile?.last_used_avatar) {
-          const matchingAvatar = list.find(
-            (avatar) => avatar.id === profile.last_used_avatar
-          );
-
-          if (matchingAvatar) {
-            setActiveAvatar(matchingAvatar);
-            console.log('Active avatar set:', matchingAvatar.id);
-          } else {
-            console.log('No matching avatar found for last_used_avatar');
-            setActiveAvatar(null);
-          }
-        } else {
-          setActiveAvatar(null);
-        }
-        console.log('User avatars count:', list.length);
-        console.log(
-          'XXXXXXXXXXXXXXXXXXXXXXXXX USER AVATARS AUTH CONTEXT USE EFFECT XXXXXXXXXXXXXXXXXXXXXX'
-        );
-        console.log(avatarSnap);
-      });
-      //
-      // messages from the default_conversation of the user's current avatar
-      if (activeAvatar) {
-        const messagesRef = collection(
-          db,
-          `avatars/${profile.last_used_avatar}/conversations/${activeAvatar.default_conversation}/messages`
-        );
-        unsubscribeMessages = onSnapshot(messagesRef, (messageSnap) => {
-          setMessages(
-            messageSnap.docs.map((doc) => ({ id: doc.id, ...doc.data() }))
-          );
-          console.log(
-            'XXXXXXXXXXXXXXXXXXXXXXXXXXX PROFILE.LAST_USED_AVATAR MESSAGE XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX'
-          );
-          console.log(messageSnap);
-        });
-      }
-      //
-      return () => {
-        unsubscribeProfile();
-        unsubscribeAvatars();
-        unsubscribeMessages();
-      };
-    }
+    const unsub = onSnapshot(doc(db, 'users', user.uid), (snap) => {
+      setProfile(snap.exists() ? snap.data() : null);
+    });
+    return unsub;
   }, [user]);
+
+  useEffect(() => {
+    if (!user) {
+      setUserAvatars([]);
+      return;
+    }
+
+    const ref = query(
+      collection(db, 'avatars'),
+      where('user_id', '==', user.uid),
+      orderBy('created_at', 'asc')
+    );
+    const unsub = onSnapshot(ref, (snap) => {
+      const avatars = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+      setUserAvatars(avatars);
+    });
+    return unsub;
+  }, [user]);
+
+  // Active avatar can be derived in a useMemo or another effect
+  useEffect(() => {
+    if (!profile?.last_used_avatar || userAvatars.length === 0) {
+      setActiveAvatar(null);
+      return;
+    }
+    const match = userAvatars.find((a) => a.id === profile.last_used_avatar);
+    setActiveAvatar(match || null);
+  }, [profile?.last_used_avatar, userAvatars]);
 
   // verify connection to firebase auth emulator
   useEffect(() => {
@@ -165,43 +201,43 @@ export const AuthProvider = ({ children }) => {
 
   // LEGACY - DEPRECATED
   // Inside your AuthContext.jsx Live Update Avatars
-  useEffect(() => {
-    if (!user) {
-      setUserAvatars([]);
-      return;
-    }
+  // useEffect(() => {
+  //   if (!user) {
+  //     setUserAvatars([]);
+  //     return;
+  //   }
 
-    // 1. Define the Query
-    const q = query(
-      collection(db, 'avatars'),
-      where('user_id', '==', user.uid),
-      orderBy('created_at', 'asc')
-    );
+  //   // 1. Define the Query
+  //   const q = query(
+  //     collection(db, 'avatars'),
+  //     where('user_id', '==', user.uid),
+  //     orderBy('created_at', 'asc')
+  //   );
 
-    // 2. Establish the Listener
-    const unsubscribe = onSnapshot(
-      q,
-      (snapshot) => {
-        const fetchedAvatars = snapshot.docs.map((doc) => ({
-          avatar_id: doc.id,
-          ...doc.data(),
-        }));
+  //   // 2. Establish the Listener
+  //   const unsubscribe = onSnapshot(
+  //     q,
+  //     (snapshot) => {
+  //       const fetchedAvatars = snapshot.docs.map((doc) => ({
+  //         avatar_id: doc.id,
+  //         ...doc.data(),
+  //       }));
 
-        // This updates the global state automatically when
-        // an avatar is added, deleted, or edited!
-        setUserAvatars(fetchedAvatars);
-        console.log(
-          'XXXXXXXXXXXXXXXXXXX ON AVATAR TRIGGER XXXXXXXXXXXXXXXXXXXX'
-        );
-      },
-      (error) => {
-        console.error('Snapshot listener error:', error);
-      }
-    );
+  //       // This updates the global state automatically when
+  //       // an avatar is added, deleted, or edited!
+  //       setUserAvatars(fetchedAvatars);
+  //       console.log(
+  //         'XXXXXXXXXXXXXXXXXXX ON AVATAR TRIGGER XXXXXXXXXXXXXXXXXXXX'
+  //       );
+  //     },
+  //     (error) => {
+  //       console.error('Snapshot listener error:', error);
+  //     }
+  //   );
 
-    // 3. CLEANUP: This is critical for memory management
-    return () => unsubscribe();
-  }, [user]);
+  //   // 3. CLEANUP: This is critical for memory management
+  //   return () => unsubscribe();
+  // }, [user]);
 
   // Live Update Users
   // useEffect(() => {
