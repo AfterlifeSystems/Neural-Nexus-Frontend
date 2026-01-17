@@ -21,6 +21,50 @@ import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { db, storage } from '../firebase/config.js';
 import { v4 as uuidv4 } from 'uuid';
 
+// services/api.js
+/**
+ * Call local Neural Nexus messaging API
+ * @param {string} userId
+ * @param {string} avatarId
+ * @param {string} userInput
+ * @param {File[]} mediaFiles
+ * @param {boolean} [useContext=false]
+ * @param {number} [maxNewTokens=150]
+ * @returns {Promise<{response: string, context_used: boolean, ...}>}
+ */
+export const callLocalQueryApi = async (
+  userId,
+  avatarId,
+  userInput,
+  mediaFiles = [],
+  useContext = false, // vectorstore logic
+  maxNewTokens = 150
+) => {
+  const formData = new FormData();
+  formData.append('user_id', userId);
+  formData.append('avatar_id', avatarId || '');
+  formData.append('user_input', userInput || '');
+  formData.append('use_context', useContext.toString());
+  formData.append('max_new_tokens', maxNewTokens.toString());
+
+  mediaFiles.forEach((file) => {
+    formData.append('image', file); // API accepts one image; adjust if multiple needed
+  });
+
+  const response = await fetch('http://localhost:8090/query', {
+    method: 'POST',
+    body: formData,
+    // no headers → browser sets multipart boundary automatically
+  });
+
+  if (!response.ok) {
+    const err = await response.json().catch(() => ({}));
+    throw new Error(err.detail?.[0]?.msg || 'Query API failed');
+  }
+
+  return response.json(); // → { response, context_used, device, model_type, ... }
+};
+
 /**
  * Send a message to a conversation
  * @param {string} userId - User ID
@@ -41,17 +85,17 @@ export const sendMessage = async (
   waitForResponse = true
 ) => {
   // Get conversation ID (use default if not provided)
-  let finalConversationId = conversationId;
-  if (!finalConversationId) {
-    const avatarRef = doc(db, 'avatars', avatarId);
+  let currentConversationId = conversationId;
+  if (!currentConversationId) {
+    const avatarRef = doc(db, 'users', user_id, 'avatars', avatarId);
     const avatarDoc = await getDoc(avatarRef);
     if (!avatarDoc.exists()) {
       throw new Error('Digital twin not found');
     }
     const avatarData = avatarDoc.data();
-    finalConversationId =
+    currentConversationId =
       avatarData.default_conversation || avatarData.conversations?.[0];
-    if (!finalConversationId) {
+    if (!currentConversationId) {
       throw new Error('No conversation found for digital twin');
     }
   }
@@ -65,7 +109,7 @@ export const sendMessage = async (
     const mediaId = uuidv4();
     const mediaRef = ref(
       storage,
-      `users/${userId}/avatars/${avatarId}/conversations/${finalConversationId}/messages/${messageId}/${file.name}`
+      `users/${userId}/avatars/${avatarId}/conversations/${currentConversationId}/messages/${messageId}/${file.name}`
     );
     await uploadBytes(mediaRef, file);
     const downloadURL = await getDownloadURL(mediaRef);
@@ -93,15 +137,17 @@ export const sendMessage = async (
   const messageRef = await addDoc(
     collection(
       db,
+      'users',
+      userId,
       'avatars',
       avatarId,
       'conversations',
-      finalConversationId,
+      currentConversationId,
       'messages'
     ),
     {
       message_id: messageId,
-      conversation_id: finalConversationId,
+      conversation_id: currentConversationId,
       avatar_id: avatarId,
       user_id: userId,
       role: sender, // 'user' or 'assistant'
@@ -115,10 +161,12 @@ export const sendMessage = async (
   // Update conversation's updated_at timestamp
   const conversationRef = doc(
     db,
+    'users',
+    userId,
     'avatars',
     avatarId,
     'conversations',
-    finalConversationId
+    currentConversationId
   );
   await updateDoc(conversationRef, {
     updated_at: timestamp,
@@ -138,12 +186,6 @@ export const sendMessage = async (
   };
 
   if (waitForResponse) {
-    // TODO: Call your messaging API (Cloud Run) here
-    // Example:
-    // const aiResponse = await callMessagingAPI(userId, avatarId, message);
-    // Save AI response to Firestore
-    // Return both messages
-
     return {
       status: 'success',
       user_message: userMessage,
@@ -172,17 +214,17 @@ export const getMessages = async (
   maxMessages = 50
 ) => {
   // Get conversation ID (use default if not provided)
-  let finalConversationId = conversationId;
-  if (!finalConversationId) {
-    const avatarRef = doc(db, 'avatars', avatarId);
+  let currentConversationId = conversationId;
+  if (!currentConversationId) {
+    const avatarRef = doc(db, 'users', user_id, 'avatars', avatarId);
     const avatarDoc = await getDoc(avatarRef);
     if (!avatarDoc.exists() || avatarDoc.data().user_id !== userId) {
       throw new Error('Digital twin not found or unauthorized');
     }
     const avatarData = avatarDoc.data();
-    finalConversationId =
+    currentConversationId =
       avatarData.default_conversation || avatarData.conversations?.[0];
-    if (!finalConversationId) {
+    if (!currentConversationId) {
       throw new Error('No conversation found for digital twin');
     }
   }
@@ -193,7 +235,7 @@ export const getMessages = async (
       'avatars',
       avatarId,
       'conversations',
-      finalConversationId,
+      currentConversationId,
       'messages'
     ),
     orderBy('timestamp', 'asc'),

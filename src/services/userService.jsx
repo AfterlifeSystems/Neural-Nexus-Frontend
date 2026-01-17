@@ -27,7 +27,7 @@ export const getUserProfile = async (userId) => {
 
     // Get digital twins (replace old avatars collection)
     const twinsQuery = query(
-      collection(db, 'avatars'),
+      collection(db, 'users', userId, 'avatars'),
       where('user_id', '==', userId)
     );
     const twinsSnapshot = await getDocs(twinsQuery);

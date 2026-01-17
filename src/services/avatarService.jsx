@@ -1,4 +1,4 @@
-// services/avatar_Service.jsx
+// services/avatarService.jsx
 import {
   collection,
   addDoc,
@@ -22,10 +22,8 @@ import {
 } from 'firebase/storage';
 import { db, storage } from '../firebase/config';
 import { v4 as uuidv4 } from 'uuid';
-import { getAuth } from 'firebase/auth';
 
-export const createAvatar = async (name, description, iconFile) => {
-  const user = getAuth().currentUser;
+export const createAvatar = async (user, name, description, iconFile) => {
   if (!user) throw new Error('No authenticated user');
 
   const userId = user.uid;
@@ -33,7 +31,7 @@ export const createAvatar = async (name, description, iconFile) => {
   const conversationId = uuidv4(); // Create default conversation ID
 
   console.log(
-    'XXXXXXXXXXXXXXXXXXXXXXXXXX USER XXXXXXXXXXXXXXXXXXXXXXXXXXX AVATAR_SERVICE'
+    'XXXXXXXXXXXXXXXXXXXXXXXXXX USER XXXXXXXXXXXXXXXXXXXXXXXXXXX avatarService'
   );
   console.log(user);
   // Create directory structure in Storage (using .keep files)
@@ -103,6 +101,8 @@ export const createAvatar = async (name, description, iconFile) => {
   // Create default conversation document (store summary and counts)
   const conversationRef = doc(
     db,
+    'users',
+    userId,
     'avatars',
     avatarId,
     'conversations',
@@ -117,7 +117,7 @@ export const createAvatar = async (name, description, iconFile) => {
   });
 
   // Create avatar (digital twin) document with avatarId as document ID
-  const avatarRef = doc(db, 'avatars', avatarId);
+  const avatarRef = doc(db, 'users', userId, 'avatars', avatarId);
   await setDoc(avatarRef, avatarData);
 
   // Update user's avatars list
@@ -136,7 +136,7 @@ export const createAvatar = async (name, description, iconFile) => {
 
 export const getAvatars = async (userId, limitCount = 50, skip = 0) => {
   const avatarsQuery = query(
-    collection(db, 'avatars'),
+    collection(db, 'users', userId, 'avatars'),
     where('user_id', '==', userId),
     orderBy('created_at', 'asc')
   );
@@ -173,7 +173,7 @@ export const getAvatars = async (userId, limitCount = 50, skip = 0) => {
 };
 
 export const updateAvatar = async (userId, avatarId, updates) => {
-  const avatarRef = doc(db, 'avatars', avatarId);
+  const avatarRef = doc(db, 'users', userId, 'avatars', avatarId);
   const avatarDoc = await getDoc(avatarRef);
 
   if (!avatarDoc.exists() || avatarDoc.data().user_id !== userId) {
@@ -216,7 +216,7 @@ export const updateAvatarWithIcon = async (
   description,
   iconFile
 ) => {
-  const avatarRef = doc(db, 'avatars', avatarId);
+  const avatarRef = doc(db, 'users', userId, 'avatars', avatarId);
   const avatarDoc = await getDoc(avatarRef);
 
   if (!avatarDoc.exists() || avatarDoc.data().user_id !== userId) {
@@ -280,7 +280,7 @@ export const updateAvatarWithIcon = async (
 };
 
 export const deleteAvatar = async (userId, avatarId) => {
-  const avatarRef = doc(db, 'avatars', avatarId);
+  const avatarRef = doc(db, 'users', userId, 'avatars', avatarId);
   const avatarDoc = await getDoc(avatarRef);
 
   if (!avatarDoc.exists() || avatarDoc.data().user_id !== userId) {
@@ -316,7 +316,7 @@ export const deleteAvatar = async (userId, avatarId) => {
 
 export const selectAvatar = async (userId, avatarId) => {
   userId = getAuth().currentUser.id;
-  const avatarRef = doc(db, 'avatars', avatarId);
+  const avatarRef = doc(db, 'users', userId, 'avatars', avatarId);
   const avatarDoc = await getDoc(avatarRef);
 
   if (!avatarDoc.exists() || avatarDoc.data().user_id !== userId) {
@@ -364,7 +364,7 @@ export const createConversation = async (
   avatarId,
   title = 'New Conversation'
 ) => {
-  const avatarRef = doc(db, 'avatars', avatarId);
+  const avatarRef = doc(db, 'users', userId, 'avatars', avatarId);
   const avatarDoc = await getDoc(avatarRef);
 
   if (!avatarDoc.exists() || avatarDoc.data().user_id !== userId) {
@@ -407,7 +407,7 @@ export const createConversation = async (
  * Get all conversations for an avatar
  */
 export const getConversations = async (userId, avatarId) => {
-  const avatarRef = doc(db, 'avatars', avatarId);
+  const avatarRef = doc(db, 'users', userId, 'avatars', avatarId);
   const avatarDoc = await getDoc(avatarRef);
 
   if (!avatarDoc.exists() || avatarDoc.data().user_id !== userId) {
@@ -415,7 +415,7 @@ export const getConversations = async (userId, avatarId) => {
   }
 
   const conversationsQuery = query(
-    collection(db, `avatars/${avatarId}/conversations`),
+    collection(db, `users/${user_id}/avatars/${avatarId}/conversations`),
     orderBy('updated_at', 'desc')
   );
 
@@ -432,7 +432,7 @@ export const getConversations = async (userId, avatarId) => {
  * Get a specific conversation
  */
 export const getConversation = async (userId, avatarId, conversationId) => {
-  const avatarRef = doc(db, 'avatars', avatarId);
+  const avatarRef = doc(db, 'users', userId, 'avatars', avatarId);
   const avatarDoc = await getDoc(avatarRef);
 
   if (!avatarDoc.exists() || avatarDoc.data().user_id !== userId) {
@@ -467,7 +467,7 @@ export const updateConversation = async (
   conversationId,
   updates
 ) => {
-  const avatarRef = doc(db, 'avatars', avatarId);
+  const avatarRef = doc(db, 'users', userId, 'avatars', avatarId);
   const avatarDoc = await getDoc(avatarRef);
 
   if (!avatarDoc.exists() || avatarDoc.data().user_id !== userId) {
@@ -492,7 +492,7 @@ export const updateConversation = async (
  * Delete a conversation (but ensure at least one remains)
  */
 export const deleteConversation = async (userId, avatarId, conversationId) => {
-  const avatarRef = doc(db, 'avatars', avatarId);
+  const avatarRef = doc(db, 'users', userId, 'avatars', avatarId);
   const avatarDoc = await getDoc(avatarRef);
 
   if (!avatarDoc.exists() || avatarDoc.data().user_id !== userId) {

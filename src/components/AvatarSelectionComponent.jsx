@@ -19,7 +19,7 @@ import AvatarCardComponent from './AvatarCardComponent';
 import { useMedia } from '../context/MediaContext';
 import AuthComponent from './AuthComponent';
 import { signup, login, logout } from '../services/authService';
-import { selectAvatar } from '../services/avatar_Service';
+import { selectAvatar } from '../services/avatarService';
 
 const AvatarSelectionComponent = ({}) => {
   const { accessToken, user, userAvatars, setActiveAvatar, lastUsedAvatar } =

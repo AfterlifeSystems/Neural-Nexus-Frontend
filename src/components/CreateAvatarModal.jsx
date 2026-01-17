@@ -1,13 +1,15 @@
 import React, { useState, useEffect } from 'react';
 import { UserPenIcon } from 'lucide-react';
 import { toast } from 'react-hot-toast';
-import { createAvatar } from '../services/avatar_Service';
+import { createAvatar } from '../services/avatarService';
+import { useAuth } from '../context/AuthContext';
 
 const CreateAvatarModal = ({ setShowCreateModal }) => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const [newAvatarName, setNewAvatarName] = useState('');
   const [newAvatarDescription, setNewAvatarDescription] = useState('');
+  const { user } = useAuth();
 
   const handleCreate = async () => {
     if (!newAvatarName.trim()) {
@@ -18,6 +20,7 @@ const CreateAvatarModal = ({ setShowCreateModal }) => {
     setError(null);
     try {
       const created = await createAvatar(
+        user,
         newAvatarName,
         newAvatarDescription,
         null

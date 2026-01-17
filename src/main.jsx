@@ -18,13 +18,13 @@ import BillingDashboard from './components/BillingDashboard';
 import AccountSettings from './components/AccountSettings';
 import { useAuth } from './context/AuthContext';
 import VantaBackground from './components/VantaBackground.jsx';
-import { getAuth } from 'firebase/auth';
+import LoadingSpinner from './components/LoadingSpinner.jsx';
 // Root redirect component – decides where authenticated users land
 const RootRedirect = () => {
-  // const { user, loading, accessToken } = useAuth();
-  const user = getAuth().currentUser;
+  const { user, loading, accessToken } = useAuth();
 
   // if (loading) return null;
+  if (loading) return <LoadingSpinner />;
 
   return user ? (
     <Navigate to="/avatars" replace />
