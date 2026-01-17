@@ -9,6 +9,7 @@ import {
   getDoc,
   doc,
   updateDoc,
+  setDoc,
   query,
   where,
   orderBy,
@@ -70,38 +71,34 @@ export const callLocalQueryApi = async (
  * @param {string} conversationId - Conversation ID (if not provided, uses default)
  * @param {string} message - Message text (optional if mediaFiles provided)
  * @param {File[]} mediaFiles - Media files (optional)
- * @param {string} sender - Sender type ('user' or 'assistant')
+ * @param {string} role - Sender type ('user' or 'assistant')
  * @param {boolean} waitForResponse - Whether to wait for AI response
  */
+// Updated sendMessage: use doc() + setDoc instead of addDoc → document ID = message_id
 export const sendMessage = async (
   userId,
   avatarId,
   conversationId = null,
   message = '',
   mediaFiles = [],
-  sender = 'user',
+  role = 'user',
   waitForResponse = true
 ) => {
-  // Get conversation ID (use default if not provided)
   let currentConversationId = conversationId;
   if (!currentConversationId) {
-    const avatarRef = doc(db, 'users', user_id, 'avatars', avatarId);
+    const avatarRef = doc(db, 'users', userId, 'avatars', avatarId); // fixed user_id → userId
     const avatarDoc = await getDoc(avatarRef);
-    if (!avatarDoc.exists()) {
-      throw new Error('Digital twin not found');
-    }
+    if (!avatarDoc.exists()) throw new Error('Digital twin not found');
+
     const avatarData = avatarDoc.data();
     currentConversationId =
       avatarData.default_conversation || avatarData.conversations?.[0];
-    if (!currentConversationId) {
-      throw new Error('No conversation found for digital twin');
-    }
+    if (!currentConversationId) throw new Error('No conversation found');
   }
 
   const messageId = uuidv4();
   const timestamp = new Date();
 
-  // Upload media files and store structured metadata
   const mediaItems = [];
   for (const file of mediaFiles) {
     const mediaId = uuidv4();
@@ -111,7 +108,6 @@ export const sendMessage = async (
     );
     await uploadBytes(mediaRef, file);
     const downloadURL = await getDownloadURL(mediaRef);
-
     mediaItems.push({
       id: mediaId,
       type: file.type.startsWith('image/')
@@ -128,11 +124,22 @@ export const sendMessage = async (
     });
   }
 
-  // Determine message type
   const messageType = mediaFiles.length > 0 && !message ? 'media' : 'text';
 
-  // Save user message in the conversation's messages subcollection using canonical fields
-  const messageRef = await addDoc(
+  const messageData = {
+    message_id: messageId,
+    conversation_id: currentConversationId,
+    avatar_id: avatarId,
+    user_id: userId,
+    role,
+    content: message || null,
+    timestamp,
+    type: messageType,
+    media: mediaItems,
+  };
+
+  // Use setDoc with known ID instead of addDoc
+  const messageRef = doc(
     collection(
       db,
       'users',
@@ -143,20 +150,12 @@ export const sendMessage = async (
       currentConversationId,
       'messages'
     ),
-    {
-      message_id: messageId,
-      conversation_id: currentConversationId,
-      avatar_id: avatarId,
-      user_id: userId,
-      role: sender, // 'user' or 'assistant'
-      content: message || null,
-      timestamp: timestamp,
-      type: messageType,
-      media: mediaItems,
-    }
+    messageId // ← document ID = message_id
   );
 
-  // Update conversation's updated_at timestamp
+  await setDoc(messageRef, messageData);
+
+  // Update conversation timestamp
   const conversationRef = doc(
     db,
     'users',
@@ -166,15 +165,14 @@ export const sendMessage = async (
     'conversations',
     currentConversationId
   );
-  await updateDoc(conversationRef, {
-    updated_at: timestamp,
-  });
+  await updateDoc(conversationRef, { updated_at: timestamp });
 
   const userMessage = {
+    id: messageId, // ← consistent with doc id
     message_id: messageId,
     timestamp: timestamp.toISOString(),
     content: message || null,
-    role: sender,
+    role,
     media: mediaItems,
     type: messageType,
   };
@@ -191,13 +189,29 @@ export const sendMessage = async (
     );
   } catch (err) {
     console.error('AI query failed:', err);
+    aiResponseData = { response: '[Error]' };
   }
 
-  // Save AI response to Firestore
   const aiMessageId = uuidv4();
   const aiTimestamp = new Date();
 
-  await addDoc(
+  const aiMessageData = {
+    message_id: aiMessageId,
+    conversation_id: currentConversationId,
+    avatar_id: avatarId,
+    user_id: userId,
+    role: 'assistant',
+    content: aiResponseData.response || '[No response]',
+    timestamp: aiTimestamp,
+    type: 'text',
+    metadata: {
+      context_used: aiResponseData.context_used,
+      device: aiResponseData.device,
+      model_type: aiResponseData.model_type,
+    },
+  };
+
+  const aiMessageRef = doc(
     collection(
       db,
       'users',
@@ -208,22 +222,10 @@ export const sendMessage = async (
       currentConversationId,
       'messages'
     ),
-    {
-      message_id: aiMessageId,
-      conversation_id: currentConversationId,
-      avatar_id: avatarId,
-      user_id: userId,
-      role: 'assistant',
-      content: aiResponseData.response || '[No response]',
-      timestamp: aiTimestamp,
-      type: 'text',
-      metadata: {
-        context_used: aiResponseData.context_used,
-        device: aiResponseData.device,
-        model_type: aiResponseData.model_type,
-      },
-    }
+    aiMessageId
   );
+
+  await setDoc(aiMessageRef, aiMessageData);
 
   return {
     status: 'success',
@@ -275,6 +277,7 @@ export const getMessages = async (
     orderBy('timestamp', 'asc'),
     firestoreLimit(maxMessages)
   );
+  // ... conversation resolution unchanged ...
 
   const snapshot = await getDocs(messagesQuery);
   const messages = [];
@@ -283,12 +286,12 @@ export const getMessages = async (
     const data = docSnapshot.data();
     const mediaUrls = await Promise.all(
       (data.media || []).map(async (media) => {
-        const storagePath = media.storagePath || media.storage_path || null;
+        const storagePath = media.storagePath || media.storage_path;
         if (storagePath) {
           try {
             return await getDownloadURL(ref(storage, storagePath));
-          } catch (error) {
-            console.error('Error getting media URL:', error);
+          } catch (e) {
+            console.error('Media URL error:', e);
             return media.url || null;
           }
         }
@@ -297,26 +300,19 @@ export const getMessages = async (
     );
 
     messages.push({
-      _id: docSnapshot.id,
-      id: docSnapshot.id,
+      id: data.message_id || docSnapshot.id, // ← primary id = message_id
       message_id: data.message_id || docSnapshot.id,
       type: data.type || 'text',
       content: data.content || data.message || '',
-      message: data.content || data.message || '', // Keep both for compatibility
-      timestamp:
-        (data.timestamp?.toDate && data.timestamp.toDate().toISOString()) ||
-        data.timestamp ||
-        new Date().toISOString(),
-      sender: data.role || data.sender || 'user',
+      role: data.role || 'user',
+      timestamp: data.timestamp?.toDate?.()
+        ? data.timestamp.toDate().toISOString()
+        : data.timestamp || new Date().toISOString(),
       media: mediaUrls
-        .map((url, idx) => ({
-          ...(data.media[idx] || {}),
-          url,
-        }))
-        .filter((media) => media.url),
+        .map((url, idx) => (url ? { ...data.media[idx], url } : null))
+        .filter(Boolean),
     });
   }
-
   return messages;
 };
 
@@ -327,7 +323,12 @@ export const getMessages = async (
  * @param {Function} callback - Callback function for new messages
  * @returns {Function} Unsubscribe function
  */
-export const subscribeToMessages = (avatarId, conversationId, callback) => {
+export const subscribeToMessages = (
+  userId,
+  avatarId,
+  conversationId,
+  callback
+) => {
   const messagesQuery = query(
     collection(
       db,
@@ -342,23 +343,20 @@ export const subscribeToMessages = (avatarId, conversationId, callback) => {
     orderBy('timestamp', 'asc')
   );
 
-  // Return unsubscribe function
   return onSnapshot(messagesQuery, (snapshot) => {
     const messages = snapshot.docs.map((docSnapshot) => {
       const data = docSnapshot.data();
       return {
-        _id: docSnapshot.id,
-        id: docSnapshot.id,
+        id: data.message_id || docSnapshot.id, // prefer message_id
         message_id: data.message_id || docSnapshot.id,
         content: data.content || data.message || '',
-        message: data.content || data.message || '', // Keep both for compatibility
-        sender: data.role || data.sender || 'user',
-        timestamp:
-          (data.timestamp?.toDate && data.timestamp.toDate().toISOString()) ||
-          data.timestamp ||
-          new Date().toISOString(),
+        role: data.role || 'user',
+        timestamp: data.timestamp?.toDate?.()
+          ? data.timestamp.toDate().toISOString()
+          : data.timestamp || new Date().toISOString(),
         media: data.media || [],
         type: data.type || 'text',
+        metadata: data.metadata || {},
       };
     });
     callback(messages);

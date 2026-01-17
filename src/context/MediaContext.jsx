@@ -30,7 +30,7 @@ export const MediaProvider = ({ children }) => {
   const [messages, setMessages] = useState([]);
   const [activeConversation, setActiveConversation] = useState(null);
   const [inputMessage, setInputMessage] = useState('');
-  const [sender, setSender] = useState('user');
+  const [role, setRole] = useState('user');
   const [mediaFiles, setMediaFiles] = useState([]);
   const [isTranscribing, setIsTranscribing] = useState(false);
   const [isThoughtToImageEnabled, setIsThoughtToImageEnabled] = useState(false);
@@ -122,7 +122,7 @@ export const MediaProvider = ({ children }) => {
           // Transform messages to use id, role, content format
           const transformedMessages = newMessages.map((msg) => ({
             id: msg.id || msg._id || msg.message_id,
-            role: msg.role || msg.sender || 'user',
+            role: msg.role || msg.role || 'user',
             content: msg.content || msg.message || '',
             timestamp: msg.timestamp,
             media: msg.media || [],
@@ -180,7 +180,7 @@ export const MediaProvider = ({ children }) => {
       const tempMessage = {
         id: tempId,
         content: inputMessage,
-        role: sender,
+        role: role,
         timestamp: new Date().toISOString(),
         media: mediaFiles.map((f) => ({
           filename: f.name,
@@ -208,7 +208,7 @@ export const MediaProvider = ({ children }) => {
         activeConversation,
         inputMessage,
         mediaFiles,
-        sender,
+        role,
         true // Wait for AI response
       );
 
@@ -279,8 +279,8 @@ export const MediaProvider = ({ children }) => {
         setMediaFiles,
         handleFileChange,
         removeFile,
-        sender,
-        setSender,
+        role,
+        setRole,
         isTranscribing,
         startTranscription,
         stopTranscription,

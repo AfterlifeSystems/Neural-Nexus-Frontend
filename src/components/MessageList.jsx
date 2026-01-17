@@ -12,82 +12,74 @@ const MessageList = ({ messages, messagesEndRef }) => {
     }
   }, [messages, messagesEndRef]);
 
-  // Debug: Log message count and timestamp info
+  // Debug log – shows what actually reaches the component
   useEffect(() => {
-    const validMessages = messages.filter((msg) => msg?.role);
-    if (validMessages.length > 0) {
-      const timestamps = validMessages
-        .map((m) => (m.timestamp ? new Date(m.timestamp).getTime() : null))
-        .filter((t) => t !== null)
-        .sort((a, b) => a - b);
+    console.log(
+      'MessageList received messages:',
+      messages.map((m) => ({
+        id: m.id,
+        role: m.role,
+        hasRole: !!m.role,
+        contentPreview: m.content?.slice(0, 50) || '(no content)',
+        isLoading: m.isLoading,
+      }))
+    );
 
-      if (timestamps.length > 0) {
-        const oldest = new Date(timestamps[0]);
-        const newest = new Date(timestamps[timestamps.length - 1]);
-        console.log(
-          `MessageList: Rendering ${validMessages.length} of ${messages.length} total messages | ` +
-            `Time range: ${oldest.toLocaleString()} to ${newest.toLocaleString()}`
-        );
-      } else {
-        console.log(
-          `MessageList: Rendering ${validMessages.length} of ${messages.length} total messages`
-        );
-      }
-    } else {
-      console.log(
-        `MessageList: Rendering ${validMessages.length} of ${messages.length} total messages`
-      );
-    }
+    const valid = messages.filter((msg) => msg?.role);
+    console.log(
+      `Rendering ${valid.length} / ${messages.length} messages (after role filter)`
+    );
   }, [messages]);
 
   return (
     <div className="flex-grow mb-4 space-y-2 px-2 flex flex-col">
       {messages
-        .filter((msg) => msg?.role) // Filter out messages without role
+        // Temporary relaxed filter – helps debug missing assistant messages
+        .filter((msg) => msg?.role || msg?.sender || msg?.isLoading)
         .map((msg) => {
           const isLoading = msg.isLoading || msg.isPending;
-          // Use id field for key
-          const messageKey = msg.id || `msg-${msg.timestamp}-${Math.random()}`;
+
+          // Prefer role, fall back to sender (old field name safety)
+          const role = msg.role || msg.sender || 'user';
+
+          const messageKey =
+            msg.id || msg.message_id || `temp-${msg.timestamp || Date.now()}`;
 
           return (
             <div
               key={messageKey}
               className={`max-w-[70%] p-2 rounded-lg break-words transition-all duration-150 ${
-                msg.role === 'user'
+                role === 'user'
                   ? 'bg-teal-600 self-end text-white'
-                  : msg.role === 'assistant'
+                  : role === 'assistant'
                   ? 'bg-indigo-700 self-start text-white'
                   : 'bg-indigo-700 self-center italic text-gray-300'
               }`}
             >
-              {/* LOADING INDICATOR */}
               {isLoading ? (
                 <div className="flex items-center space-x-2">
                   <div className="flex space-x-1">
                     <div
                       className="w-2 h-2 bg-white rounded-full animate-bounce"
                       style={{ animationDelay: '0ms' }}
-                    ></div>
+                    />
                     <div
                       className="w-2 h-2 bg-white rounded-full animate-bounce"
                       style={{ animationDelay: '150ms' }}
-                    ></div>
+                    />
                     <div
                       className="w-2 h-2 bg-white rounded-full animate-bounce"
                       style={{ animationDelay: '300ms' }}
-                    ></div>
+                    />
                   </div>
                 </div>
               ) : (
                 <>
-                  {/* TEXT CONTENT */}
                   {msg.content && (
                     <div className="whitespace-pre-wrap">{msg.content}</div>
                   )}
 
-                  {/* MEDIA CONTENT */}
-                  {msg.media &&
-                    Array.isArray(msg.media) &&
+                  {msg.media?.length > 0 &&
                     msg.media.map((media, index) => (
                       <div
                         key={media.id || media.filename || index}
@@ -122,8 +114,7 @@ const MessageList = ({ messages, messagesEndRef }) => {
                       </div>
                     ))}
 
-                  {/* TIMESTAMP */}
-                  <div className="text-xs text-white-400 mt-1 text-right select-none">
+                  <div className="text-xs text-gray-400 mt-1 text-right select-none">
                     {msg.timestamp &&
                       new Date(msg.timestamp).toLocaleTimeString(undefined, {
                         hour: '2-digit',
@@ -135,6 +126,7 @@ const MessageList = ({ messages, messagesEndRef }) => {
             </div>
           );
         })}
+
       <div ref={messagesEndRef} />
     </div>
   );
