@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { UserPenIcon } from 'lucide-react';
 import { toast } from 'react-hot-toast';
-import { createAvatar } from '../services/avatar_Service';
+import { createAvatar } from '../services/avatarService';
 import { useAuth } from '../context/AuthContext';
 
 const CreateAvatarModal = ({ setShowCreateModal }) => {

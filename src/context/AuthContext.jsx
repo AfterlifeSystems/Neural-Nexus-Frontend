@@ -34,7 +34,7 @@ import {
   createAvatar,
   deleteAvatar,
   selectAvatar,
-} from '../services/avatar_Service.jsx';
+} from '../services/avatarService.jsx';
 
 import toast from 'react-hot-toast';
 import { X } from 'lucide-react';
@@ -81,80 +81,6 @@ export const AuthProvider = ({ children }) => {
     return unsubscribe;
   }, []);
 
-  // useEffect(() => {
-  //   if (!user) return;
-  //   let unsubscribeProfile = () => {};
-  //   let unsubscribeAvatars = () => {};
-  //   let unsubscribeMessages = () => {};
-
-  //   if (user) {
-  //     // user profile data in firestore
-  //     const profileRef = doc(db, 'users', user.uid); // contains current avatar
-  //     const unsubscribeProfile = onSnapshot(profileRef, (profileSnap) => {
-  //       setProfile(profileSnap.exists() ? profileSnap.data() : null);
-  //       console.log(
-  //         'XXXXXXXXXXXXXXXXXXXXXX CURRENT USER PROFILE AUTH CONTEXT USE EFFECT XXXXXXXXXXXXXXXXXX'
-  //       );
-  //       console.log(profileSnap);
-  //     });
-
-  //     // user avatar list in firestore
-  //     const avatarsRef = collection(db, `users/${user.uid}/avatars`); //contains current_conversation for each avatar
-  //     const unsubscribeAvatars = onSnapshot(avatarsRef, (avatarSnap) => {
-  //       const list = avatarSnap.docs.map((doc) => ({
-  //         id: doc.id,
-  //         ...doc.data(),
-  //       }));
-  //       setUserAvatars(list);
-
-  //       // and set it as activeAvatar (full object, not just id)
-  //       if (profile?.last_used_avatar) {
-  //         const matchingAvatar = list.find(
-  //           (avatar) => avatar.id === profile.last_used_avatar
-  //         );
-
-  //         if (matchingAvatar) {
-  //           setActiveAvatar(matchingAvatar);
-  //           console.log('Active avatar set:', matchingAvatar.id);
-  //         } else {
-  //           console.log('No matching avatar found for last_used_avatar');
-  //           setActiveAvatar(null);
-  //         }
-  //       } else {
-  //         setActiveAvatar(null);
-  //       }
-  //       console.log('User avatars count:', list.length);
-  //       console.log(
-  //         'XXXXXXXXXXXXXXXXXXXXXXXXX USER AVATARS AUTH CONTEXT USE EFFECT XXXXXXXXXXXXXXXXXXXXXX'
-  //       );
-  //       console.log(avatarSnap);
-  //     });
-
-  //     // messages from the default_conversation of the user's current avatar
-  //     if (activeAvatar) {
-  //       const messagesRef = collection(
-  //         db,
-  //         `avatars/${profile.last_used_avatar}/conversations/${activeAvatar.default_conversation}/messages`
-  //       );
-  //       unsubscribeMessages = onSnapshot(messagesRef, (messageSnap) => {
-  //         setMessages(
-  //           messageSnap.docs.map((doc) => ({ id: doc.id, ...doc.data() }))
-  //         );
-  //         console.log(
-  //           'XXXXXXXXXXXXXXXXXXXXXXXXXXX PROFILE.LAST_USED_AVATAR MESSAGE XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX'
-  //         );
-  //         console.log(messageSnap);
-  //       });
-  //     }
-  //     //
-  //     return () => {
-  //       unsubscribeProfile();
-  //       unsubscribeAvatars();
-  //       unsubscribeMessages();
-  //     };
-  //   }
-  // }, [user]);
-
   useEffect(() => {
     if (!user) return;
     const unsub = onSnapshot(doc(db, 'users', user.uid), (snap) => {
@@ -169,12 +95,10 @@ export const AuthProvider = ({ children }) => {
       return;
     }
 
-    const ref = query(
-      collection(db, 'avatars'),
-      where('user_id', '==', user.uid),
-      orderBy('created_at', 'asc')
-    );
-    const unsub = onSnapshot(ref, (snap) => {
+    const ref = collection(db, 'users', user.uid, 'avatars');
+    const q = query(ref, orderBy('created_at', 'asc'));
+
+    const unsub = onSnapshot(q, (snap) => {
       const avatars = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
       setUserAvatars(avatars);
     });

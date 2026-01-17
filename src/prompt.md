@@ -1654,7 +1654,7 @@ import {
   createAvatar as createAvatarInFirestore,
   deleteAvatar as deleteAvatarFromFirestore,
   selectAvatar as selectAvatarInFirestore,
-} from '../services/avatar_Service.jsx';
+} from '../services/avatarService.jsx';
 import toast from 'react-hot-toast';
 import { X } from 'lucide-react';
 import { signup, login, logout } from '../services/authService';

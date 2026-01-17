@@ -1,12 +1,5 @@
-<!-- Avatar messaging -->
-This is my localhost query endpoint; I need to send messages from the react frontend chat area, persist the messages in the firestore (media persists in storage), hit a local messaging api endpoint, receive the response and store the response in the firestore messages, and display the message response in the chat area (update with the new response).
+I need to send messages to a local api for inference. the messages start in the chat area, go to the input bar are sent with the messageService, the message is added to the firestore at users/user_id/avatars/avatar_id/conversations/conversation_id/messages/message_id before reachine the inference endpoint that computes inference and responds. The response will be a streaming response in the future. the response needs to be saved in the firestore as a new message and displayed in the Message List. The user's message must also have been displayed in the Message list. There should be a loading icon until the response of the inference endpoint is received. I need the code to integrate this as well as an explanation of how this was successfully performed please.
 
-http://localhost:8090/docs#/default/query_query_post
-
-{"openapi":"3.1.0","info":{"title":"Neural Nexus Messaging API","description":"API for AI messaging with LoRA context support","version":"1.0.0"},"paths":{"/health":{"get":{"summary":"Health Check","description":"Health check endpoint.","operationId":"health_check_health_get","responses":{"200":{"description":"Successful Response","content":{"application/json":{"schema":{"$ref":"#/components/schemas/HealthResponse"}}}}}}},"/query":{"post":{"summary":"Query","description":"Unified query endpoint supporting multiple input modes:\n\n1. Text only: Provide user_input without image\n2. Image only: Provide image without user_input (or empty string)\n3. Image + text: Provide both user_input and image\n\nAdditional features:\n- If avatar_id is provided: attempts to use adapter\n- If use_context=True: retrieves context from vectorstore\n- Works gracefully even if features are unavailable\n\nExamples:\n    Text only:\n        curl -X POST -F \"user_input=What is AI?\" -F \"user_id=123\"\n    \n    Image only:\n        curl -X POST -F \"user_id=123\" -F \"image=@photo.jpg\"\n    \n    Image + text:\n        curl -X POST -F \"user_input=What's in this image?\" -F \"user_id=123\" -F \"image=@photo.jpg\"","operationId":"query_query_post","requestBody":{"content":{"multipart/form-data":{"schema":{"$ref":"#/components/schemas/Body_query_query_post"}}},"required":true},"responses":{"200":{"description":"Successful Response","content":{"application/json":{"schema":{"$ref":"#/components/schemas/QueryResponse"}}}},"422":{"description":"Validation Error","content":{"application/json":{"schema":{"$ref":"#/components/schemas/HTTPValidationError"}}}}}}}},"components":{"schemas":{"Body_query_query_post":{"properties":{"user_input":{"anyOf":[{"type":"string"},{"type":"null"}],"title":"User Input"},"user_id":{"type":"string","title":"User Id"},"avatar_id":{"anyOf":[{"type":"string"},{"type":"null"}],"title":"Avatar Id"},"use_context":{"type":"boolean","title":"Use Context","default":false},"max_new_tokens":{"type":"integer","title":"Max New Tokens","default":150},"image":{"anyOf":[{"type":"string","format":"binary"},{"type":"null"}],"title":"Image"}},"type":"object","required":["user_id"],"title":"Body_query_query_post"},"HTTPValidationError":{"properties":{"detail":{"items":{"$ref":"#/components/schemas/ValidationError"},"type":"array","title":"Detail"}},"type":"object","title":"HTTPValidationError"},"HealthResponse":{"properties":{"status":{"type":"string","title":"Status"},"device":{"type":"string","title":"Device"},"model_loaded":{"type":"boolean","title":"Model Loaded"}},"type":"object","required":["status","device","model_loaded"],"title":"HealthResponse"},"QueryResponse":{"properties":{"response":{"type":"string","title":"Response"},"context_used":{"type":"boolean","title":"Context Used"},"device":{"type":"string","title":"Device"},"model_type":{"type":"string","title":"Model Type"},"user_id":{"type":"string","title":"User Id"},"avatar_id":{"anyOf":[{"type":"string"},{"type":"null"}],"title":"Avatar Id"},"vectorstore_url":{"anyOf":[{"type":"string"},{"type":"null"}],"title":"Vectorstore Url"},"error":{"anyOf":[{"type":"string"},{"type":"null"}],"title":"Error"}},"type":"object","required":["response","context_used","device","model_type","user_id"],"title":"QueryResponse"},"ValidationError":{"properties":{"loc":{"items":{"anyOf":[{"type":"string"},{"type":"integer"}]},"type":"array","title":"Location"},"msg":{"type":"string","title":"Message"},"type":{"type":"string","title":"Error Type"}},"type":"object","required":["loc","msg","type"],"title":"ValidationError"}}}}
-
-
--------------------------
 
 // src/components/ChatArea.jsx
 
@@ -164,8 +157,7 @@ const ChatArea = ({
   );
 };
 export default ChatArea;
-----------------_
-
+##########################################
 import { useRef, useEffect, useState } from 'react';
 import { Upload } from 'lucide-react';
 import { AudioLines } from 'lucide-react';
@@ -413,8 +405,709 @@ const InputBar = ({
 };
 
 export default InputBar;
-----------------
+##########################################
 
+import React, { createContext, useContext, useState, useEffect } from 'react';
+import {
+  onAuthStateChanged,
+  createUserWithEmailAndPassword,
+  signInWithEmailAndPassword,
+  signOut,
+  updateProfile,
+  updatePassword as firebaseUpdatePassword,
+  sendPasswordResetEmail,
+  sendEmailVerification,
+  GoogleAuthProvider,
+  signInWithPopup,
+  signInWithRedirect,
+  getRedirectResult,
+  browserLocalPersistence,
+} from 'firebase/auth';
+
+import {
+  doc,
+  getDoc,
+  updateDoc,
+  setDoc,
+  query,
+  collection,
+  where,
+  orderBy,
+  onSnapshot,
+} from 'firebase/firestore';
+import { auth, db, storage } from '../firebase/config.js';
+import { getUserProfile } from '../services/userService';
+
+import {
+  getAvatars,
+  createAvatar,
+  deleteAvatar,
+  selectAvatar,
+} from '../services/avatarService.jsx';
+
+import toast from 'react-hot-toast';
+import { X } from 'lucide-react';
+import { signup, login, logout } from '../services/authService';
+
+const AuthContext = createContext();
+
+export const AuthProvider = ({ children }) => {
+  const [user, setUser] = useState(null); // current user auth object
+  const [profile, setProfile] = useState(null);
+
+  const [userAvatars, setUserAvatars] = useState([]); // avatars of the user
+  const [communityAvatars, setCommunityAvatars] = useState([]); // avatars shared by the community
+  const [proprietaryAvatars, setProprietaryAvatars] = useState([]); // avatars created by Afterlife Systems Inc. (businesses, bibles, restaurants, etc.)
+
+  const [activeAvatar, setActiveAvatar] = useState(null);
+
+  const [loading, setLoading] = useState(true);
+  const [accessToken, setAccessToken] = useState(null); // Firebase ID token for backend API
+
+  const [messages, setMessages] = useState(null);
+
+  // TESTING
+  useEffect(() => {
+    auth.setPersistence(browserLocalPersistence);
+    const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
+      setUser(currentUser);
+      console.log(
+        'XXXXXXXXXXXXXXXXXXXXXX CURRENT USER AUTH CONTEXT USE EFFECT XXXXXXXXXXXXXXXXXXXXXXXXXXX'
+      );
+      // console.log(currentUser);
+      // console.log(currentUser.uid);
+
+      if (!currentUser) {
+        setProfile([]); // object that will contain current avatar
+        setUserAvatars([]); // list of avatars each with current conversation
+        setCommunityAvatars([]);
+        setProprietaryAvatars([]);
+        setMessages([]); // messages of the current conversation
+        setActiveAvatar(null);
+        setLoading(false);
+      }
+    });
+    return unsubscribe;
+  }, []);
+
+  useEffect(() => {
+    if (!user) return;
+    const unsub = onSnapshot(doc(db, 'users', user.uid), (snap) => {
+      setProfile(snap.exists() ? snap.data() : null);
+    });
+    return unsub;
+  }, [user]);
+
+  useEffect(() => {
+    if (!user) {
+      setUserAvatars([]);
+      return;
+    }
+
+    const ref = collection(db, 'users', user.uid, 'avatars');
+    const q = query(ref, orderBy('created_at', 'asc'));
+
+    const unsub = onSnapshot(q, (snap) => {
+      const avatars = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+      setUserAvatars(avatars);
+    });
+    return unsub;
+  }, [user]);
+
+  // Active avatar can be derived in a useMemo or another effect
+  useEffect(() => {
+    if (!profile?.last_used_avatar || userAvatars.length === 0) {
+      setActiveAvatar(null);
+      return;
+    }
+    const match = userAvatars.find((a) => a.id === profile.last_used_avatar);
+    setActiveAvatar(match || null);
+  }, [profile?.last_used_avatar, userAvatars]);
+
+  // verify connection to firebase auth emulator
+  useEffect(() => {
+    if (auth.config) {
+      console.log('Full Auth Config:', auth.config);
+      // Look for a property called 'emulatorConfig' in the object tree
+    }
+  }, []);
+
+  return (
+    <AuthContext.Provider
+      value={{
+        // User state
+        accessToken, // Firebase ID token for backend API calls
+        setAccessToken,
+        user,
+        setUser,
+        userAvatars,
+        setUserAvatars,
+        communityAvatars,
+        setCommunityAvatars,
+        proprietaryAvatars,
+        setProprietaryAvatars,
+        activeAvatar,
+        setActiveAvatar,
+        loading,
+        setLoading,
+        // Firebase instances (for advanced use)
+        firebaseAuth: auth,
+        firestore: db,
+        firebaseStorage: storage,
+      }}
+    >
+      {children}
+    </AuthContext.Provider>
+  );
+};
+
+export const useAuth = () => {
+  const context = useContext(AuthContext);
+  if (!context) {
+    throw new Error('useAuth must be used within AuthProvider');
+  }
+  return context;
+};
+
+###################################
+// services/avatarService.jsx
+import {
+  collection,
+  addDoc,
+  getDocs,
+  getDoc,
+  updateDoc,
+  deleteDoc,
+  doc,
+  setDoc,
+  query,
+  where,
+  orderBy,
+  limit,
+} from 'firebase/firestore';
+import {
+  ref,
+  uploadBytes,
+  getDownloadURL,
+  deleteObject,
+  listAll,
+} from 'firebase/storage';
+import { db, storage } from '../firebase/config';
+import { v4 as uuidv4 } from 'uuid';
+
+export const createAvatar = async (user, name, description, iconFile) => {
+  if (!user) throw new Error('No authenticated user');
+
+  const userId = user.uid;
+  const avatarId = uuidv4();
+  const conversationId = uuidv4(); // Create default conversation ID
+
+  console.log(
+    'XXXXXXXXXXXXXXXXXXXXXXXXXX USER XXXXXXXXXXXXXXXXXXXXXXXXXXX avatarService'
+  );
+  console.log(user);
+  // Create directory structure in Storage (using .keep files)
+  const directories = [
+    `users/${userId}/.keep`,
+    `users/${userId}/avatars/${avatarId}/adapters/.keep`,
+    `users/${userId}/avatars/${avatarId}/adapters/training_data/.keep`,
+  ];
+
+  for (const dirPath of directories) {
+    try {
+      const dirRef = ref(storage, dirPath);
+      await uploadBytes(dirRef, new Blob([''], { type: 'text/plain' }));
+    } catch (error) {
+      console.warn(`Failed to create directory ${dirPath}:`, error);
+    }
+  }
+
+  // Generate download URLs
+  const qloraAdapterUrl = await getDownloadURL(
+    ref(storage, `users/${userId}/avatars/${avatarId}/adapters/.keep`)
+  );
+  const qloraTrainingUrl = await getDownloadURL(
+    ref(
+      storage,
+      `users/${userId}/avatars/${avatarId}/adapters/training_data/.keep`
+    )
+  );
+  // Store as a Digital Twin document following firestore_structure.md
+  const avatarData = {
+    avatar_id: avatarId,
+    user_id: user.uid,
+    name: name,
+    description: (description || '').trim(),
+    created_at: new Date().toISOString(),
+    icon: null, // will be an object {url, storagePath, name, size, type}
+    reference_audio: null,
+    files: [],
+    system_prompt_reference_image_description: '',
+    system_prompt_reference_audio_description: '',
+    system_prompt_description: '',
+    default_conversation: conversationId,
+    conversations: [conversationId],
+    qloraAdapterUrl: qloraAdapterUrl,
+    qloraTrainingUrl: qloraTrainingUrl,
+  };
+
+  // Upload icon if provided and store metadata + URL
+  if (iconFile) {
+    if (iconFile.size > 4 * 1024 * 1024) {
+      throw new Error('Icon exceeds 4 MB limit');
+    }
+    const iconRef = ref(
+      storage,
+      `users/${userId}/avatars/${avatarId}/icon/${uuidv4()}_${iconFile.name}`
+    );
+    await uploadBytes(iconRef, iconFile);
+    const iconUrl = await getDownloadURL(iconRef);
+    avatarData.icon = {
+      url: iconUrl,
+      storagePath: iconRef.fullPath,
+      name: iconFile.name,
+      size: iconFile.size,
+      type: iconFile.type,
+    };
+  }
+  // Create default conversation document (store summary and counts)
+  const conversationRef = doc(
+    db,
+    'users',
+    userId,
+    'avatars',
+    avatarId,
+    'conversations',
+    conversationId
+  );
+  await setDoc(conversationRef, {
+    conversation_id: conversationId,
+    summary: '',
+    created_at: new Date().toISOString(),
+    updated_at: new Date().toISOString(),
+    message_count: 0,
+  });
+
+  // Create avatar (digital twin) document with avatarId as document ID
+  const avatarRef = doc(db, 'users', userId, 'avatars', avatarId);
+  await setDoc(avatarRef, avatarData);
+
+  // Update user's avatars list
+  const userRef = doc(db, 'users', userId);
+  const userDoc = await getDoc(userRef);
+  const avatars = userDoc.data().avatars || [];
+  await updateDoc(userRef, {
+    avatars: [...avatars, avatarId],
+    last_used_avatar: avatarId,
+  });
+
+  return {
+    avatarData,
+  };
+};
+
+export const getAvatars = async (userId, limitCount = 50, skip = 0) => {
+  const avatarsQuery = query(
+    collection(db, 'users', userId, 'avatars'),
+    where('user_id', '==', userId),
+    orderBy('created_at', 'asc')
+  );
+
+  const snapshot = await getDocs(avatarsQuery);
+  const avatars = [];
+
+  for (const docSnapshot of snapshot.docs.slice(skip, skip + limitCount)) {
+    const data = docSnapshot.data();
+    let iconUrl = null;
+
+    if (data.icon) {
+      try {
+        const storagePath = data.icon.storagePath || data.icon;
+        if (storagePath) {
+          iconUrl = await getDownloadURL(ref(storage, storagePath));
+        } else if (data.icon.url) {
+          iconUrl = data.icon.url;
+        }
+      } catch (error) {
+        console.error('Error getting icon URL:', error);
+      }
+    }
+
+    avatars.push({
+      avatar_id: docSnapshot.id,
+      name: data.name,
+      description: data.description,
+      icon: iconUrl,
+    });
+  }
+
+  return avatars;
+};
+
+export const updateAvatar = async (userId, avatarId, updates) => {
+  const avatarRef = doc(db, 'users', userId, 'avatars', avatarId);
+  const avatarDoc = await getDoc(avatarRef);
+
+  if (!avatarDoc.exists() || avatarDoc.data().user_id !== userId) {
+    throw new Error('Digital twin not found or unauthorized');
+  }
+
+  const updateData = {
+    updated_at: new Date().toISOString(),
+    ...updates,
+  };
+
+  // If updating icon path/object, normalize to object shape
+  if (updateData.icon && typeof updateData.icon === 'string') {
+    // assume it's a storage path string; try to resolve URL
+    try {
+      const url = await getDownloadURL(ref(storage, updateData.icon));
+      updateData.icon = {
+        url,
+        storagePath: updateData.icon,
+      };
+    } catch (e) {
+      // leave as-is
+    }
+  }
+
+  await updateDoc(avatarRef, updateData);
+
+  // If icon was updated, return the new URL
+  if (updateData.icon) {
+    return { icon_url: updateData.icon.url || null };
+  }
+
+  return {};
+};
+
+export const updateAvatarWithIcon = async (
+  userId,
+  avatarId,
+  name,
+  description,
+  iconFile
+) => {
+  const avatarRef = doc(db, 'users', userId, 'avatars', avatarId);
+  const avatarDoc = await getDoc(avatarRef);
+
+  if (!avatarDoc.exists() || avatarDoc.data().user_id !== userId) {
+    throw new Error('Digital twin not found or unauthorized');
+  }
+
+  const updates = {
+    updated_at: new Date().toISOString(),
+  };
+
+  if (name !== undefined) {
+    updates.name = name.trim();
+  }
+  if (description !== undefined) {
+    updates.description = (description || '').trim();
+  }
+
+  let iconUrl = null;
+  if (iconFile) {
+    if (iconFile.size > 4 * 1024 * 1024) {
+      throw new Error('Icon exceeds 4 MB limit');
+    }
+
+    // Delete old icon if exists (support object or string)
+    const oldIcon = avatarDoc.data().icon;
+    const oldStoragePath =
+      oldIcon?.storagePath || (typeof oldIcon === 'string' ? oldIcon : null);
+    if (oldStoragePath) {
+      try {
+        await deleteObject(ref(storage, oldStoragePath));
+      } catch (error) {
+        console.warn('Failed to delete old icon:', error);
+      }
+    }
+
+    // Upload new icon and store as object
+    const iconRef = ref(
+      storage,
+      `users/${userId}/avatars/${avatarId}/icon/${uuidv4()}_${iconFile.name}`
+    );
+    await uploadBytes(iconRef, iconFile);
+    const url = await getDownloadURL(iconRef);
+    updates.icon = {
+      url,
+      storagePath: iconRef.fullPath,
+      name: iconFile.name,
+      size: iconFile.size,
+      type: iconFile.type,
+    };
+    iconUrl = url;
+  }
+
+  await updateDoc(avatarRef, updates);
+
+  return {
+    status: 'success',
+    avatar_id: avatarId,
+    updated_fields: Object.keys(updates),
+    icon_url: iconUrl,
+  };
+};
+
+export const deleteAvatar = async (userId, avatarId) => {
+  const avatarRef = doc(db, 'users', userId, 'avatars', avatarId);
+  const avatarDoc = await getDoc(avatarRef);
+
+  if (!avatarDoc.exists() || avatarDoc.data().user_id !== userId) {
+    throw new Error('Avatar not found or unauthorized');
+  }
+
+  // Delete all files in Storage
+  const avatarStorageRef = ref(storage, `users/${userId}/avatars/${avatarId}`);
+  try {
+    const files = await listAll(avatarStorageRef);
+    await Promise.all(files.items.map((file) => deleteObject(file)));
+  } catch (error) {
+    console.warn('Error deleting avatar files:', error);
+  }
+
+  // Delete avatar document
+  await deleteDoc(avatarRef);
+
+  // Remove from user's avatar list
+  const userRef = doc(db, 'users', userId);
+  const userDoc = await getDoc(userRef);
+  const avatars = userDoc.data().avatars || [];
+  await updateDoc(userRef, {
+    avatars: avatars.filter((id) => id !== avatarId),
+  });
+
+  return {
+    status: 'success',
+    avatar_id: avatarId,
+    deleted: true,
+  };
+};
+
+export const selectAvatar = async (userId, avatarId) => {
+  userId = getAuth().currentUser.id;
+  const avatarRef = doc(db, 'users', userId, 'avatars', avatarId);
+  const avatarDoc = await getDoc(avatarRef);
+
+  if (!avatarDoc.exists() || avatarDoc.data().user_id !== userId) {
+    throw new Error('Avatar not found or unauthorized');
+  }
+
+  const avatarData = avatarDoc.data();
+
+  // Update last_used_avatar
+  await updateDoc(doc(db, 'users', userId), {
+    last_used_avatar: avatarId,
+  });
+
+  // Get default conversation ID (or first conversation)
+  const defaultConversationId = avatarData.default_conversation;
+
+  // Get messages from the default conversation
+  const messagesQuery = query(
+    collection(
+      db,
+      `avatars/${avatarId}/conversations/${defaultConversationId}/messages`
+    ),
+    orderBy('timestamp', 'asc'),
+    limit(50)
+  );
+
+  const messagesSnapshot = await getDocs(messagesQuery);
+  const messages = messagesSnapshot.docs.map((doc) => ({
+    _id: doc.id,
+    ...doc.data(),
+    timestamp:
+      doc.data().timestamp?.toDate().toISOString() || new Date().toISOString(),
+  }));
+
+  return {};
+};
+
+// Conversation management functions
+
+/**
+ * Create a new conversation for an avatar
+ */
+export const createConversation = async (
+  userId,
+  avatarId,
+  title = 'New Conversation'
+) => {
+  const avatarRef = doc(db, 'users', userId, 'avatars', avatarId);
+  const avatarDoc = await getDoc(avatarRef);
+
+  if (!avatarDoc.exists() || avatarDoc.data().user_id !== userId) {
+    throw new Error('Avatar not found or unauthorized');
+  }
+
+  const conversationId = uuidv4();
+  const conversationRef = doc(
+    db,
+    `avatars/${avatarId}/conversations`,
+    conversationId
+  );
+
+  await setDoc(conversationRef, {
+    conversation_id: conversationId,
+    avatar_id: avatarId,
+    user_id: userId,
+    title: title.trim(),
+    created_at: new Date(),
+    updated_at: new Date(),
+    is_default: false,
+  });
+
+  // Update avatar's conversations list
+  const avatarData = avatarDoc.data();
+  const conversations = avatarData.conversations || [];
+  await updateDoc(avatarRef, {
+    conversations: [...conversations, conversationId],
+    updated_at: new Date(),
+  });
+
+  return {
+    conversation_id: conversationId,
+    title,
+    created_at: new Date().toISOString(),
+  };
+};
+
+/**
+ * Get all conversations for an avatar
+ */
+export const getConversations = async (userId, avatarId) => {
+  const avatarRef = doc(db, 'users', userId, 'avatars', avatarId);
+  const avatarDoc = await getDoc(avatarRef);
+
+  if (!avatarDoc.exists() || avatarDoc.data().user_id !== userId) {
+    throw new Error('Avatar not found or unauthorized');
+  }
+
+  const conversationsQuery = query(
+    collection(db, `users/${user_id}/avatars/${avatarId}/conversations`),
+    orderBy('updated_at', 'desc')
+  );
+
+  const snapshot = await getDocs(conversationsQuery);
+  return snapshot.docs.map((doc) => ({
+    conversation_id: doc.id,
+    ...doc.data(),
+    created_at: doc.data().created_at?.toDate().toISOString(),
+    updated_at: doc.data().updated_at?.toDate().toISOString(),
+  }));
+};
+
+/**
+ * Get a specific conversation
+ */
+export const getConversation = async (userId, avatarId, conversationId) => {
+  const avatarRef = doc(db, 'users', userId, 'avatars', avatarId);
+  const avatarDoc = await getDoc(avatarRef);
+
+  if (!avatarDoc.exists() || avatarDoc.data().user_id !== userId) {
+    throw new Error('Avatar not found or unauthorized');
+  }
+
+  const conversationRef = doc(
+    db,
+    `avatars/${avatarId}/conversations`,
+    conversationId
+  );
+  const conversationDoc = await getDoc(conversationRef);
+
+  if (!conversationDoc.exists()) {
+    throw new Error('Conversation not found');
+  }
+
+  return {
+    conversation_id: conversationId,
+    ...conversationDoc.data(),
+    created_at: conversationDoc.data().created_at?.toDate().toISOString(),
+    updated_at: conversationDoc.data().updated_at?.toDate().toISOString(),
+  };
+};
+
+/**
+ * Update conversation title
+ */
+export const updateConversation = async (
+  userId,
+  avatarId,
+  conversationId,
+  updates
+) => {
+  const avatarRef = doc(db, 'users', userId, 'avatars', avatarId);
+  const avatarDoc = await getDoc(avatarRef);
+
+  if (!avatarDoc.exists() || avatarDoc.data().user_id !== userId) {
+    throw new Error('Avatar not found or unauthorized');
+  }
+
+  const conversationRef = doc(
+    db,
+    `avatars/${avatarId}/conversations`,
+    conversationId
+  );
+
+  await updateDoc(conversationRef, {
+    ...updates,
+    updated_at: new Date(),
+  });
+
+  return { status: 'success', conversation_id: conversationId };
+};
+
+/**
+ * Delete a conversation (but ensure at least one remains)
+ */
+export const deleteConversation = async (userId, avatarId, conversationId) => {
+  const avatarRef = doc(db, 'users', userId, 'avatars', avatarId);
+  const avatarDoc = await getDoc(avatarRef);
+
+  if (!avatarDoc.exists() || avatarDoc.data().user_id !== userId) {
+    throw new Error('Avatar not found or unauthorized');
+  }
+
+  const avatarData = avatarDoc.data();
+  const conversations = avatarData.conversations || [];
+
+  // Ensure at least one conversation remains
+  if (conversations.length <= 1) {
+    throw new Error(
+      'Cannot delete the last conversation. Each avatar must have at least one conversation.'
+    );
+  }
+
+  // Delete conversation document (this will also delete all messages in subcollection)
+  const conversationRef = doc(
+    db,
+    `avatars/${avatarId}/conversations`,
+    conversationId
+  );
+  await deleteDoc(conversationRef);
+
+  // Update avatar's conversations list
+  const updatedConversations = conversations.filter(
+    (id) => id !== conversationId
+  );
+  const updateData = {
+    conversations: updatedConversations,
+    updated_at: new Date(),
+  };
+
+  // If deleted conversation was default, set first remaining as default
+  if (avatarData.default_conversation === conversationId) {
+    updateData.default_conversation = updatedConversations[0];
+  }
+
+  await updateDoc(avatarRef, updateData);
+
+  return { status: 'success', conversation_id: conversationId };
+};
+####################################
 // services/MessageService — NGROK HTTP API removed; Firestore-backed functions below will be used
 
 // Legacy HTTP-based functions removed (no external NGROK endpoints)
@@ -438,6 +1131,50 @@ import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { db, storage } from '../firebase/config.js';
 import { v4 as uuidv4 } from 'uuid';
 
+// services/api.js
+/**
+ * Call local Neural Nexus messaging API
+ * @param {string} userId
+ * @param {string} avatarId
+ * @param {string} userInput
+ * @param {File[]} mediaFiles
+ * @param {boolean} [useContext=false]
+ * @param {number} [maxNewTokens=150]
+ * @returns {Promise<{response: string, context_used: boolean, ...}>}
+ */
+export const callLocalQueryApi = async (
+  userId,
+  avatarId,
+  userInput,
+  mediaFiles = [],
+  useContext = false, // vectorstore logic
+  maxNewTokens = 150
+) => {
+  const formData = new FormData();
+  formData.append('user_id', userId);
+  formData.append('avatar_id', avatarId || '');
+  formData.append('user_input', userInput || '');
+  formData.append('use_context', useContext.toString());
+  formData.append('max_new_tokens', maxNewTokens.toString());
+
+  mediaFiles.forEach((file) => {
+    formData.append('image', file); // API accepts one image; adjust if multiple needed
+  });
+
+  const response = await fetch('http://localhost:8090/query', {
+    method: 'POST',
+    body: formData,
+    // no headers → browser sets multipart boundary automatically
+  });
+
+  if (!response.ok) {
+    const err = await response.json().catch(() => ({}));
+    throw new Error(err.detail?.[0]?.msg || 'Query API failed');
+  }
+
+  return response.json(); // → { response, context_used, device, model_type, ... }
+};
+
 /**
  * Send a message to a conversation
  * @param {string} userId - User ID
@@ -458,17 +1195,17 @@ export const sendMessage = async (
   waitForResponse = true
 ) => {
   // Get conversation ID (use default if not provided)
-  let finalConversationId = conversationId;
-  if (!finalConversationId) {
-    const avatarRef = doc(db, 'avatars', avatarId);
+  let currentConversationId = conversationId;
+  if (!currentConversationId) {
+    const avatarRef = doc(db, 'users', user_id, 'avatars', avatarId);
     const avatarDoc = await getDoc(avatarRef);
     if (!avatarDoc.exists()) {
       throw new Error('Digital twin not found');
     }
     const avatarData = avatarDoc.data();
-    finalConversationId =
+    currentConversationId =
       avatarData.default_conversation || avatarData.conversations?.[0];
-    if (!finalConversationId) {
+    if (!currentConversationId) {
       throw new Error('No conversation found for digital twin');
     }
   }
@@ -482,7 +1219,7 @@ export const sendMessage = async (
     const mediaId = uuidv4();
     const mediaRef = ref(
       storage,
-      `users/${userId}/avatars/${avatarId}/conversations/${finalConversationId}/messages/${messageId}/${file.name}`
+      `users/${userId}/avatars/${avatarId}/conversations/${currentConversationId}/messages/${messageId}/${file.name}`
     );
     await uploadBytes(mediaRef, file);
     const downloadURL = await getDownloadURL(mediaRef);
@@ -510,15 +1247,17 @@ export const sendMessage = async (
   const messageRef = await addDoc(
     collection(
       db,
+      'users',
+      userId,
       'avatars',
       avatarId,
       'conversations',
-      finalConversationId,
+      currentConversationId,
       'messages'
     ),
     {
       message_id: messageId,
-      conversation_id: finalConversationId,
+      conversation_id: currentConversationId,
       avatar_id: avatarId,
       user_id: userId,
       role: sender, // 'user' or 'assistant'
@@ -532,10 +1271,12 @@ export const sendMessage = async (
   // Update conversation's updated_at timestamp
   const conversationRef = doc(
     db,
+    'users',
+    userId,
     'avatars',
     avatarId,
     'conversations',
-    finalConversationId
+    currentConversationId
   );
   await updateDoc(conversationRef, {
     updated_at: timestamp,
@@ -555,12 +1296,6 @@ export const sendMessage = async (
   };
 
   if (waitForResponse) {
-    // TODO: Call your messaging API (Cloud Run) here
-    // Example:
-    // const aiResponse = await callMessagingAPI(userId, avatarId, message);
-    // Save AI response to Firestore
-    // Return both messages
-
     return {
       status: 'success',
       user_message: userMessage,
@@ -589,17 +1324,17 @@ export const getMessages = async (
   maxMessages = 50
 ) => {
   // Get conversation ID (use default if not provided)
-  let finalConversationId = conversationId;
-  if (!finalConversationId) {
-    const avatarRef = doc(db, 'avatars', avatarId);
+  let currentConversationId = conversationId;
+  if (!currentConversationId) {
+    const avatarRef = doc(db, 'users', user_id, 'avatars', avatarId);
     const avatarDoc = await getDoc(avatarRef);
     if (!avatarDoc.exists() || avatarDoc.data().user_id !== userId) {
       throw new Error('Digital twin not found or unauthorized');
     }
     const avatarData = avatarDoc.data();
-    finalConversationId =
+    currentConversationId =
       avatarData.default_conversation || avatarData.conversations?.[0];
-    if (!finalConversationId) {
+    if (!currentConversationId) {
       throw new Error('No conversation found for digital twin');
     }
   }
@@ -610,7 +1345,7 @@ export const getMessages = async (
       'avatars',
       avatarId,
       'conversations',
-      finalConversationId,
+      currentConversationId,
       'messages'
     ),
     orderBy('timestamp', 'asc'),
@@ -705,1247 +1440,235 @@ export const subscribeToMessages = (avatarId, conversationId, callback) => {
 };
 
 
-----------------------__
+##########################
+// src/components/MessageList.jsx
+import React, { useEffect } from 'react';
+import { useAuth } from '../context/AuthContext';
+import { useMedia } from '../context/MediaContext';
+import SecureImage from './SecureImage';
 
+const MessageList = ({ messages, messagesEndRef }) => {
+  const { accessToken } = useAuth();
+  const { getMediaUrl } = useMedia();
 
-import React, { useState, useEffect, useRef } from 'react';
-import { User, Mic, MicOff, CircleX } from 'lucide-react';
-
-const LiveChat = ({ avatarIcon, onEndLiveChat, onSendVoice }) => {
-  const [isRecording, setIsRecording] = useState(false);
-  const [isAvatarSpeaking, setIsAvatarSpeaking] = useState(false);
-  const [toasts, setToasts] = useState([]);
-  const mediaRecorderRef = useRef(null);
-
-  // Add a toast message
-  const addToast = (message) => {
-    const id = Date.now();
-    setToasts((prev) => [...prev, { id, message }]);
-    setTimeout(() => {
-      setToasts((prev) => prev.filter((toast) => toast.id !== id));
-    }, 3000); // disappear after 3s
-  };
-
-  const startRecording = async () => {
-    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-    mediaRecorderRef.current = new MediaRecorder(stream);
-    mediaRecorderRef.current.start();
-    setIsRecording(true);
-    mediaRecorderRef.current.ondataavailable = (event) => {
-      onSendVoice(event.data);
-      // Example: simulate avatar response after sending voice
-      addToast('Avatar is thinking...');
-      setTimeout(() => {
-        addToast('Hello, this is the avatar speaking!');
-        setIsAvatarSpeaking(true);
-        setTimeout(() => setIsAvatarSpeaking(false), 2000);
-      }, 1000);
-    };
-    mediaRecorderRef.current.onstop = () => {
-      setIsRecording(false);
-    };
-  };
-
-  const stopRecording = () => {
-    if (
-      mediaRecorderRef.current &&
-      mediaRecorderRef.current.state !== 'inactive'
-    ) {
-      mediaRecorderRef.current.stop();
-    }
-  };
-
-  // Push-to-talk using spacebar
   useEffect(() => {
-    const handleKeyDown = (e) => {
-      if (e.code === 'Space') startRecording();
-    };
-    const handleKeyUp = (e) => {
-      if (e.code === 'Space') stopRecording();
-    };
-    window.addEventListener('keydown', handleKeyDown);
-    window.addEventListener('keyup', handleKeyUp);
-    return () => {
-      window.removeEventListener('keydown', handleKeyDown);
-      window.removeEventListener('keyup', handleKeyUp);
-    };
-  }, []);
+    if (messagesEndRef?.current) {
+      messagesEndRef.current.scrollIntoView({ behavior: 'smooth' });
+    }
+  }, [messages, messagesEndRef]);
+
+  // Debug: Log message count and timestamp info
+  useEffect(() => {
+    const validMessages = messages.filter((msg) => msg?.sender);
+    if (validMessages.length > 0) {
+      const timestamps = validMessages
+        .map((m) => (m.timestamp ? new Date(m.timestamp).getTime() : null))
+        .filter((t) => t !== null)
+        .sort((a, b) => a - b);
+
+      if (timestamps.length > 0) {
+        const oldest = new Date(timestamps[0]);
+        const newest = new Date(timestamps[timestamps.length - 1]);
+        console.log(
+          `MessageList: Rendering ${validMessages.length} of ${messages.length} total messages | ` +
+            `Time range: ${oldest.toLocaleString()} to ${newest.toLocaleString()}`
+        );
+      } else {
+        console.log(
+          `MessageList: Rendering ${validMessages.length} of ${messages.length} total messages`
+        );
+      }
+    } else {
+      console.log(
+        `MessageList: Rendering ${validMessages.length} of ${messages.length} total messages`
+      );
+    }
+  }, [messages]);
 
   return (
-    <div className="relative flex flex-col items-center justify-end h-full w-full overflow-hidden">
-      {/* Background Image or User Icon - Large circular image like loginCard but bigger */}
-      <div className="absolute inset-0 flex items-center justify-center bg-white/5">
-        {avatarIcon ? (
-          // Desktop: Large circular image (4x loginCard size), Mobile: full background
-          <div className="hidden md:flex w-80 h-80 bg-white/20 rounded-full items-center justify-center">
-            <img
-              src={avatarIcon}
-              alt="Avatar Icon"
-              className="w-80 h-80 object-cover rounded-full"
-              onError={(e) => {
-                console.error('Avatar image load failed:', e.target.src);
-                e.target.style.display = 'none';
-              }}
-            />
-          </div>
-        ) : (
-          // Fallback User icon - larger circular container
-          <div className="w-80 h-80 bg-white/10 rounded-full flex items-center justify-center border-4 border-white/20">
-            <User className="w-40 h-40 text-gray-400 opacity-20" />
-          </div>
-        )}
+    <div className="flex-grow mb-4 space-y-2 px-2 flex flex-col">
+      {messages
+        .filter((msg) => msg?.sender) // Filter out messages without sender before mapping
+        .map((msg) => {
+          const isLoading = msg.isLoading || msg.isPending;
+          // Generate a unique key - use _id, id, or fallback to index-based key
+          const messageKey =
+            msg._id || msg.id || `msg-${msg.timestamp}-${Math.random()}`;
 
-        {/* Mobile: Full background image */}
-        {avatarIcon && (
-          <div
-            className="md:hidden absolute inset-0 bg-cover bg-center"
-            style={{
-              backgroundImage: `url(${avatarIcon})`,
-            }}
-          />
-        )}
-      </div>
+          return (
+            <div
+              key={messageKey}
+              className={`max-w-[70%] p-2 rounded-lg break-words transition-all duration-150 ${
+                msg.sender === 'user'
+                  ? 'bg-teal-600 self-end text-white'
+                  : msg.sender === 'avatar'
+                  ? 'bg-indigo-700 self-start text-white'
+                  : 'bg-indigo-700 self-center italic text-gray-300'
+              }`}
+            >
+              {/* LOADING INDICATOR */}
+              {isLoading ? (
+                <div className="flex items-center space-x-2">
+                  <div className="flex space-x-1">
+                    <div
+                      className="w-2 h-2 bg-white rounded-full animate-bounce"
+                      style={{ animationDelay: '0ms' }}
+                    ></div>
+                    <div
+                      className="w-2 h-2 bg-white rounded-full animate-bounce"
+                      style={{ animationDelay: '150ms' }}
+                    ></div>
+                    <div
+                      className="w-2 h-2 bg-white rounded-full animate-bounce"
+                      style={{ animationDelay: '300ms' }}
+                    ></div>
+                  </div>
+                </div>
+              ) : (
+                <>
+                  {/* TEXT CONTENT */}
+                  {(msg.content || msg.message) && (
+                    <div className="whitespace-pre-wrap">
+                      {msg.content || msg.message}
+                    </div>
+                  )}
 
-      {/* Overlay for better contrast - lighter on desktop to show the circumscribed image better */}
-      <div className="absolute inset-0 bg-black/30 md:bg-black/20" />
+                  {/* MEDIA CONTENT */}
+                  {msg.media &&
+                    Array.isArray(msg.media) &&
+                    msg.media.map((media, index) => (
+                      <div
+                        key={media.media_id || media.filename || index}
+                        className="mt-2"
+                      >
+                        {media.content_type?.startsWith('image/') ? (
+                          <SecureImage
+                            mediaUrl={media.url}
+                            filename={media.filename}
+                          />
+                        ) : media.content_type?.startsWith('audio/') ? (
+                          <audio controls src={media.url} />
+                        ) : media.content_type?.startsWith('video/') ? (
+                          <video
+                            controls
+                            className="max-w-full max-h-64"
+                            src={media.url}
+                          />
+                        ) : (
+                          <a
+                            href={media.url}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="underline text-blue-300"
+                          >
+                            {media.filename || 'Download file'}
+                          </a>
+                        )}
+                      </div>
+                    ))}
 
-      {/* Toast container */}
-      <div className="absolute top-4 left-1/2 transform -translate-x-1/2 flex flex-col gap-2 z-50">
-        {toasts.map((toast) => (
-          <div
-            key={toast.id}
-            className="px-4 py-2 bg-black/70 text-white rounded-lg shadow-lg animate-slide-down backdrop-blur-sm"
-          >
-            {toast.message}
-          </div>
-        ))}
-      </div>
-
-      {/* Speaking indicator overlay - circumscribed on desktop */}
-      {isAvatarSpeaking && (
-        <div className="absolute inset-0 border-4 border-green-500 animate-pulse  z-10" />
-      )}
-
-      {/* Recording indicator overlay - circumscribed on desktop */}
-      {isRecording && (
-        <div className="absolute inset-0 border-4 border-blue-500 animate-pulse  z-10" />
-      )}
-
-      {/* Control buttons at bottom */}
-      <div className="relative z-20 flex gap-4 mb-8">
-        {/* Microphone button - shows mic when not recording, mic-off when recording */}
-        <button
-          className={`p-4 rounded-full transition-all duration-300 backdrop-blur-sm ${
-            isRecording
-              ? 'bg-red-500/80 hover:bg-red-600/80 text-white'
-              : 'bg-blue-500/80 hover:bg-blue-600/80 text-white'
-          }`}
-          onMouseDown={startRecording}
-          onMouseUp={stopRecording}
-          onTouchStart={startRecording}
-          onTouchEnd={stopRecording}
-        >
-          {isRecording ? (
-            <MicOff className="w-6 h-6" />
-          ) : (
-            <Mic className="w-6 h-6" />
-          )}
-        </button>
-        {/* End button with CircleX icon */}
-        <button
-          className="p-4 rounded-full bg-gray-500/80 hover:bg-red-600/80 text-white transition-all duration-300 backdrop-blur-sm"
-          onClick={onEndLiveChat}
-        >
-          <CircleX className="w-6 h-6" />
-        </button>
-      </div>
+                  {/* TIMESTAMP */}
+                  <div className="text-xs text-white-400 mt-1 text-right select-none">
+                    {msg.timestamp &&
+                      new Date(msg.timestamp).toLocaleTimeString(undefined, {
+                        hour: '2-digit',
+                        minute: '2-digit',
+                      })}
+                  </div>
+                </>
+              )}
+            </div>
+          );
+        })}
+      <div ref={messagesEndRef} />
     </div>
   );
 };
 
-export default LiveChat;
------------------------
-// services/avatar_Service.jsx
-import {
-  collection,
-  addDoc,
-  getDocs,
-  getDoc,
-  updateDoc,
-  deleteDoc,
-  doc,
-  setDoc,
-  query,
-  where,
-  orderBy,
-  limit,
-} from 'firebase/firestore';
-import {
-  ref,
-  uploadBytes,
-  getDownloadURL,
-  deleteObject,
-  listAll,
-} from 'firebase/storage';
-import { db, storage } from '../firebase/config';
-import { v4 as uuidv4 } from 'uuid';
-import { getAuth } from 'firebase/auth';
+export default MessageList;
+#####################################
+<!-- .env -->
+VITE_FIREBASE_API_KEY=AIzaSyDqgvPAVnqZxlK_HVxke80huIm78-OEDv0
+VITE_FIREBASE_AUTH_DOMAIN=neuralnexus-467517.firebaseapp.com
+VITE_FIREBASE_PROJECT_ID=neuralnexus-467517
+VITE_FIREBASE_STORAGE_BUCKET=neuralnexus-467517.firebasestorage.app
+VITE_FIREBASE_MESSAGING_SENDER_ID=915579649879
+VITE_FIREBASE_APP_ID=1:915579649879:web:70a78270d904da8bd14812
+VITE_FIREBASE_MEASUREMENT_ID=G-GC0GRR5B32
+VITE_USE_EMULATORS=true
+VITE_FIRESTORE_EMULATOR_HOST=firestore:8070
+VITE_ALLOW_UNVERIFIED_LOGIN=true
+VITE_USE_FIREBASE_EMULATOR=true
+
+#######################
+
+{"openapi":"3.1.0","info":{"title":"Neural Nexus Messaging API","description":"API for AI messaging with LoRA context support","version":"1.0.0"},"paths":{"/health":{"get":{"summary":"Health Check","description":"Health check endpoint.","operationId":"health_check_health_get","responses":{"200":{"description":"Successful Response","content":{"application/json":{"schema":{"$ref":"#/components/schemas/HealthResponse"}}}}}}},"/query":{"post":{"summary":"Query","description":"Unified query endpoint supporting multiple input modes:\n\n1. Text only: Provide user_input without image\n2. Image only: Provide image without user_input (or empty string)\n3. Image + text: Provide both user_input and image\n\nAdditional features:\n- If avatar_id is provided: attempts to use adapter\n- If use_context=True: retrieves context from vectorstore\n- Works gracefully even if features are unavailable\n\nExamples:\n    Text only:\n        curl -X POST -F \"user_input=What is AI?\" -F \"user_id=123\"\n    \n    Image only:\n        curl -X POST -F \"user_id=123\" -F \"image=@photo.jpg\"\n    \n    Image + text:\n        curl -X POST -F \"user_input=What's in this image?\" -F \"user_id=123\" -F \"image=@photo.jpg\"","operationId":"query_query_post","requestBody":{"content":{"multipart/form-data":{"schema":{"$ref":"#/components/schemas/Body_query_query_post"}}},"required":true},"responses":{"200":{"description":"Successful Response","content":{"application/json":{"schema":{"$ref":"#/components/schemas/QueryResponse"}}}},"422":{"description":"Validation Error","content":{"application/json":{"schema":{"$ref":"#/components/schemas/HTTPValidationError"}}}}}}}},"components":{"schemas":{"Body_query_query_post":{"properties":{"user_input":{"anyOf":[{"type":"string"},{"type":"null"}],"title":"User Input"},"user_id":{"type":"string","title":"User Id"},"avatar_id":{"anyOf":[{"type":"string"},{"type":"null"}],"title":"Avatar Id"},"use_context":{"type":"boolean","title":"Use Context","default":false},"max_new_tokens":{"type":"integer","title":"Max New Tokens","default":150},"image":{"anyOf":[{"type":"string","format":"binary"},{"type":"null"}],"title":"Image"}},"type":"object","required":["user_id"],"title":"Body_query_query_post"},"HTTPValidationError":{"properties":{"detail":{"items":{"$ref":"#/components/schemas/ValidationError"},"type":"array","title":"Detail"}},"type":"object","title":"HTTPValidationError"},"HealthResponse":{"properties":{"status":{"type":"string","title":"Status"},"device":{"type":"string","title":"Device"},"model_loaded":{"type":"boolean","title":"Model Loaded"}},"type":"object","required":["status","device","model_loaded"],"title":"HealthResponse"},"QueryResponse":{"properties":{"response":{"type":"string","title":"Response"},"context_used":{"type":"boolean","title":"Context Used"},"device":{"type":"string","title":"Device"},"model_type":{"type":"string","title":"Model Type"},"user_id":{"type":"string","title":"User Id"},"avatar_id":{"anyOf":[{"type":"string"},{"type":"null"}],"title":"Avatar Id"},"vectorstore_url":{"anyOf":[{"type":"string"},{"type":"null"}],"title":"Vectorstore Url"},"error":{"anyOf":[{"type":"string"},{"type":"null"}],"title":"Error"}},"type":"object","required":["response","context_used","device","model_type","user_id"],"title":"QueryResponse"},"ValidationError":{"properties":{"loc":{"items":{"anyOf":[{"type":"string"},{"type":"integer"}]},"type":"array","title":"Location"},"msg":{"type":"string","title":"Message"},"type":{"type":"string","title":"Error Type"}},"type":"object","required":["loc","msg","type"],"title":"ValidationError"}}}}
+
+###########################
+
+# docker compose.yml - GPU Version of Messaging API
+
+services:
+  messaging-api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: evdev3/nn-messaging-api-gpu
+    container_name: nn-messaging-api-gpu
+    env_file:
+      - .env
+    ports:
+      - "8090:8090"
+    volumes:
+      # Hot reload - mount source code
+      - ./app:/app
+      - ./.env:/.env
+    restart: unless-stopped
+    network_mode: host
+    
+    # GPU configuration
+    deploy:
+      resources:
+        limits:
+          cpus: '4.0'
+          memory: 16G  # Increased for GPU workloads + model caching
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    
+    # Environment variables for GPU usage
+    environment:
+      - FORCE_CPU=0
+      - NVIDIA_VISIBLE_DEVICES=all
+      - NVIDIA_DRIVER_CAPABILITIES=compute,utility
+      # Hot reload specific
+      - PYTHONDONTWRITEBYTECODE=1
+      - PYTHONUNBUFFERED=1
+      # Development mode
+      - PYTHON_ENV=development
+      - FASTAPI_ENV=development
+      # API endpoints for local testing
+      - FIRESTORE_EMULATOR_HOST=firebase-emulator:8070
+      - FIREBASE_AUTH_EMULATOR_HOST=firebase-emulator:9099
+      - FIREBASE_STORAGE_EMULATOR_HOST=firebase-emulator:9199
+    # Health check
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import torch; import requests; torch.cuda.is_available() and requests.get('http://localhost:8090/health').status_code == 200"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s  # Increased start period for model loading
+
+# ADD: Connect to the external network
+networks:
+  neural-nexus-network:
+    external: true
+
+
+#############################
 
-export const createAvatar = async (name, description, iconFile) => {
-  const user = getAuth().currentUser;
-  if (!user) throw new Error('No authenticated user');
-
-  const userId = user.uid;
-  const avatarId = uuidv4();
-  const conversationId = uuidv4(); // Create default conversation ID
-
-  console.log(
-    'XXXXXXXXXXXXXXXXXXXXXXXXXX USER XXXXXXXXXXXXXXXXXXXXXXXXXXX AVATAR_SERVICE'
-  );
-  console.log(user);
-  // Create directory structure in Storage (using .keep files)
-  const directories = [
-    `users/${userId}/.keep`,
-    `users/${userId}/avatars/${avatarId}/adapters/.keep`,
-    `users/${userId}/avatars/${avatarId}/adapters/training_data/.keep`,
-  ];
-
-  for (const dirPath of directories) {
-    try {
-      const dirRef = ref(storage, dirPath);
-      await uploadBytes(dirRef, new Blob([''], { type: 'text/plain' }));
-    } catch (error) {
-      console.warn(`Failed to create directory ${dirPath}:`, error);
-    }
-  }
-
-  // Generate download URLs
-  const qloraAdapterUrl = await getDownloadURL(
-    ref(storage, `users/${userId}/avatars/${avatarId}/adapters/.keep`)
-  );
-  const qloraTrainingUrl = await getDownloadURL(
-    ref(
-      storage,
-      `users/${userId}/avatars/${avatarId}/adapters/training_data/.keep`
-    )
-  );
-  // Store as a Digital Twin document following firestore_structure.md
-  const avatarData = {
-    avatar_id: avatarId,
-    user_id: user.uid,
-    name: name,
-    description: (description || '').trim(),
-    created_at: new Date().toISOString(),
-    icon: null, // will be an object {url, storagePath, name, size, type}
-    reference_audio: null,
-    files: [],
-    system_prompt_reference_image_description: '',
-    system_prompt_reference_audio_description: '',
-    system_prompt_description: '',
-    default_conversation: conversationId,
-    conversations: [conversationId],
-    qloraAdapterUrl: qloraAdapterUrl,
-    qloraTrainingUrl: qloraTrainingUrl,
-  };
-
-  // Upload icon if provided and store metadata + URL
-  if (iconFile) {
-    if (iconFile.size > 4 * 1024 * 1024) {
-      throw new Error('Icon exceeds 4 MB limit');
-    }
-    const iconRef = ref(
-      storage,
-      `users/${userId}/avatars/${avatarId}/icon/${uuidv4()}_${iconFile.name}`
-    );
-    await uploadBytes(iconRef, iconFile);
-    const iconUrl = await getDownloadURL(iconRef);
-    avatarData.icon = {
-      url: iconUrl,
-      storagePath: iconRef.fullPath,
-      name: iconFile.name,
-      size: iconFile.size,
-      type: iconFile.type,
-    };
-  }
-  // Create default conversation document (store summary and counts)
-  const conversationRef = doc(
-    db,
-    'avatars',
-    avatarId,
-    'conversations',
-    conversationId
-  );
-  await setDoc(conversationRef, {
-    conversation_id: conversationId,
-    summary: '',
-    created_at: new Date().toISOString(),
-    updated_at: new Date().toISOString(),
-    message_count: 0,
-  });
-
-  // Create avatar (digital twin) document with avatarId as document ID
-  const avatarRef = doc(db, 'avatars', avatarId);
-  await setDoc(avatarRef, avatarData);
-
-  // Update user's avatars list
-  const userRef = doc(db, 'users', userId);
-  const userDoc = await getDoc(userRef);
-  const avatars = userDoc.data().avatars || [];
-  await updateDoc(userRef, {
-    avatars: [...avatars, avatarId],
-    last_used_avatar: avatarId,
-  });
-
-  return {
-    avatarData,
-  };
-};
-
-export const getAvatars = async (userId, limitCount = 50, skip = 0) => {
-  const avatarsQuery = query(
-    collection(db, 'avatars'),
-    where('user_id', '==', userId),
-    orderBy('created_at', 'asc')
-  );
-
-  const snapshot = await getDocs(avatarsQuery);
-  const avatars = [];
-
-  for (const docSnapshot of snapshot.docs.slice(skip, skip + limitCount)) {
-    const data = docSnapshot.data();
-    let iconUrl = null;
-
-    if (data.icon) {
-      try {
-        const storagePath = data.icon.storagePath || data.icon;
-        if (storagePath) {
-          iconUrl = await getDownloadURL(ref(storage, storagePath));
-        } else if (data.icon.url) {
-          iconUrl = data.icon.url;
-        }
-      } catch (error) {
-        console.error('Error getting icon URL:', error);
-      }
-    }
-
-    avatars.push({
-      avatar_id: docSnapshot.id,
-      name: data.name,
-      description: data.description,
-      icon: iconUrl,
-    });
-  }
-
-  return avatars;
-};
-
-export const updateAvatar = async (userId, avatarId, updates) => {
-  const avatarRef = doc(db, 'avatars', avatarId);
-  const avatarDoc = await getDoc(avatarRef);
-
-  if (!avatarDoc.exists() || avatarDoc.data().user_id !== userId) {
-    throw new Error('Digital twin not found or unauthorized');
-  }
-
-  const updateData = {
-    updated_at: new Date().toISOString(),
-    ...updates,
-  };
-
-  // If updating icon path/object, normalize to object shape
-  if (updateData.icon && typeof updateData.icon === 'string') {
-    // assume it's a storage path string; try to resolve URL
-    try {
-      const url = await getDownloadURL(ref(storage, updateData.icon));
-      updateData.icon = {
-        url,
-        storagePath: updateData.icon,
-      };
-    } catch (e) {
-      // leave as-is
-    }
-  }
-
-  await updateDoc(avatarRef, updateData);
-
-  // If icon was updated, return the new URL
-  if (updateData.icon) {
-    return { icon_url: updateData.icon.url || null };
-  }
-
-  return {};
-};
-
-export const updateAvatarWithIcon = async (
-  userId,
-  avatarId,
-  name,
-  description,
-  iconFile
-) => {
-  const avatarRef = doc(db, 'avatars', avatarId);
-  const avatarDoc = await getDoc(avatarRef);
-
-  if (!avatarDoc.exists() || avatarDoc.data().user_id !== userId) {
-    throw new Error('Digital twin not found or unauthorized');
-  }
-
-  const updates = {
-    updated_at: new Date().toISOString(),
-  };
-
-  if (name !== undefined) {
-    updates.name = name.trim();
-  }
-  if (description !== undefined) {
-    updates.description = (description || '').trim();
-  }
-
-  let iconUrl = null;
-  if (iconFile) {
-    if (iconFile.size > 4 * 1024 * 1024) {
-      throw new Error('Icon exceeds 4 MB limit');
-    }
-
-    // Delete old icon if exists (support object or string)
-    const oldIcon = avatarDoc.data().icon;
-    const oldStoragePath =
-      oldIcon?.storagePath || (typeof oldIcon === 'string' ? oldIcon : null);
-    if (oldStoragePath) {
-      try {
-        await deleteObject(ref(storage, oldStoragePath));
-      } catch (error) {
-        console.warn('Failed to delete old icon:', error);
-      }
-    }
-
-    // Upload new icon and store as object
-    const iconRef = ref(
-      storage,
-      `users/${userId}/avatars/${avatarId}/icon/${uuidv4()}_${iconFile.name}`
-    );
-    await uploadBytes(iconRef, iconFile);
-    const url = await getDownloadURL(iconRef);
-    updates.icon = {
-      url,
-      storagePath: iconRef.fullPath,
-      name: iconFile.name,
-      size: iconFile.size,
-      type: iconFile.type,
-    };
-    iconUrl = url;
-  }
-
-  await updateDoc(avatarRef, updates);
-
-  return {
-    status: 'success',
-    avatar_id: avatarId,
-    updated_fields: Object.keys(updates),
-    icon_url: iconUrl,
-  };
-};
-
-export const deleteAvatar = async (userId, avatarId) => {
-  const avatarRef = doc(db, 'avatars', avatarId);
-  const avatarDoc = await getDoc(avatarRef);
-
-  if (!avatarDoc.exists() || avatarDoc.data().user_id !== userId) {
-    throw new Error('Avatar not found or unauthorized');
-  }
-
-  // Delete all files in Storage
-  const avatarStorageRef = ref(storage, `users/${userId}/avatars/${avatarId}`);
-  try {
-    const files = await listAll(avatarStorageRef);
-    await Promise.all(files.items.map((file) => deleteObject(file)));
-  } catch (error) {
-    console.warn('Error deleting avatar files:', error);
-  }
-
-  // Delete avatar document
-  await deleteDoc(avatarRef);
-
-  // Remove from user's avatar list
-  const userRef = doc(db, 'users', userId);
-  const userDoc = await getDoc(userRef);
-  const avatars = userDoc.data().avatars || [];
-  await updateDoc(userRef, {
-    avatars: avatars.filter((id) => id !== avatarId),
-  });
-
-  return {
-    status: 'success',
-    avatar_id: avatarId,
-    deleted: true,
-  };
-};
-
-export const selectAvatar = async (userId, avatarId) => {
-  userId = getAuth().currentUser.id;
-  const avatarRef = doc(db, 'avatars', avatarId);
-  const avatarDoc = await getDoc(avatarRef);
-
-  if (!avatarDoc.exists() || avatarDoc.data().user_id !== userId) {
-    throw new Error('Avatar not found or unauthorized');
-  }
-
-  const avatarData = avatarDoc.data();
-
-  // Update last_used_avatar
-  await updateDoc(doc(db, 'users', userId), {
-    last_used_avatar: avatarId,
-  });
-
-  // Get default conversation ID (or first conversation)
-  const defaultConversationId = avatarData.default_conversation;
-
-  // Get messages from the default conversation
-  const messagesQuery = query(
-    collection(
-      db,
-      `avatars/${avatarId}/conversations/${defaultConversationId}/messages`
-    ),
-    orderBy('timestamp', 'asc'),
-    limit(50)
-  );
-
-  const messagesSnapshot = await getDocs(messagesQuery);
-  const messages = messagesSnapshot.docs.map((doc) => ({
-    _id: doc.id,
-    ...doc.data(),
-    timestamp:
-      doc.data().timestamp?.toDate().toISOString() || new Date().toISOString(),
-  }));
-
-  return {};
-};
-
-// Conversation management functions
-
-/**
- * Create a new conversation for an avatar
- */
-export const createConversation = async (
-  userId,
-  avatarId,
-  title = 'New Conversation'
-) => {
-  const avatarRef = doc(db, 'avatars', avatarId);
-  const avatarDoc = await getDoc(avatarRef);
-
-  if (!avatarDoc.exists() || avatarDoc.data().user_id !== userId) {
-    throw new Error('Avatar not found or unauthorized');
-  }
-
-  const conversationId = uuidv4();
-  const conversationRef = doc(
-    db,
-    `avatars/${avatarId}/conversations`,
-    conversationId
-  );
-
-  await setDoc(conversationRef, {
-    conversation_id: conversationId,
-    avatar_id: avatarId,
-    user_id: userId,
-    title: title.trim(),
-    created_at: new Date(),
-    updated_at: new Date(),
-    is_default: false,
-  });
-
-  // Update avatar's conversations list
-  const avatarData = avatarDoc.data();
-  const conversations = avatarData.conversations || [];
-  await updateDoc(avatarRef, {
-    conversations: [...conversations, conversationId],
-    updated_at: new Date(),
-  });
-
-  return {
-    conversation_id: conversationId,
-    title,
-    created_at: new Date().toISOString(),
-  };
-};
-
-/**
- * Get all conversations for an avatar
- */
-export const getConversations = async (userId, avatarId) => {
-  const avatarRef = doc(db, 'avatars', avatarId);
-  const avatarDoc = await getDoc(avatarRef);
-
-  if (!avatarDoc.exists() || avatarDoc.data().user_id !== userId) {
-    throw new Error('Avatar not found or unauthorized');
-  }
-
-  const conversationsQuery = query(
-    collection(db, `avatars/${avatarId}/conversations`),
-    orderBy('updated_at', 'desc')
-  );
-
-  const snapshot = await getDocs(conversationsQuery);
-  return snapshot.docs.map((doc) => ({
-    conversation_id: doc.id,
-    ...doc.data(),
-    created_at: doc.data().created_at?.toDate().toISOString(),
-    updated_at: doc.data().updated_at?.toDate().toISOString(),
-  }));
-};
-
-/**
- * Get a specific conversation
- */
-export const getConversation = async (userId, avatarId, conversationId) => {
-  const avatarRef = doc(db, 'avatars', avatarId);
-  const avatarDoc = await getDoc(avatarRef);
-
-  if (!avatarDoc.exists() || avatarDoc.data().user_id !== userId) {
-    throw new Error('Avatar not found or unauthorized');
-  }
-
-  const conversationRef = doc(
-    db,
-    `avatars/${avatarId}/conversations`,
-    conversationId
-  );
-  const conversationDoc = await getDoc(conversationRef);
-
-  if (!conversationDoc.exists()) {
-    throw new Error('Conversation not found');
-  }
-
-  return {
-    conversation_id: conversationId,
-    ...conversationDoc.data(),
-    created_at: conversationDoc.data().created_at?.toDate().toISOString(),
-    updated_at: conversationDoc.data().updated_at?.toDate().toISOString(),
-  };
-};
-
-/**
- * Update conversation title
- */
-export const updateConversation = async (
-  userId,
-  avatarId,
-  conversationId,
-  updates
-) => {
-  const avatarRef = doc(db, 'avatars', avatarId);
-  const avatarDoc = await getDoc(avatarRef);
-
-  if (!avatarDoc.exists() || avatarDoc.data().user_id !== userId) {
-    throw new Error('Avatar not found or unauthorized');
-  }
-
-  const conversationRef = doc(
-    db,
-    `avatars/${avatarId}/conversations`,
-    conversationId
-  );
-
-  await updateDoc(conversationRef, {
-    ...updates,
-    updated_at: new Date(),
-  });
-
-  return { status: 'success', conversation_id: conversationId };
-};
-
-/**
- * Delete a conversation (but ensure at least one remains)
- */
-export const deleteConversation = async (userId, avatarId, conversationId) => {
-  const avatarRef = doc(db, 'avatars', avatarId);
-  const avatarDoc = await getDoc(avatarRef);
-
-  if (!avatarDoc.exists() || avatarDoc.data().user_id !== userId) {
-    throw new Error('Avatar not found or unauthorized');
-  }
-
-  const avatarData = avatarDoc.data();
-  const conversations = avatarData.conversations || [];
-
-  // Ensure at least one conversation remains
-  if (conversations.length <= 1) {
-    throw new Error(
-      'Cannot delete the last conversation. Each avatar must have at least one conversation.'
-    );
-  }
-
-  // Delete conversation document (this will also delete all messages in subcollection)
-  const conversationRef = doc(
-    db,
-    `avatars/${avatarId}/conversations`,
-    conversationId
-  );
-  await deleteDoc(conversationRef);
-
-  // Update avatar's conversations list
-  const updatedConversations = conversations.filter(
-    (id) => id !== conversationId
-  );
-  const updateData = {
-    conversations: updatedConversations,
-    updated_at: new Date(),
-  };
-
-  // If deleted conversation was default, set first remaining as default
-  if (avatarData.default_conversation === conversationId) {
-    updateData.default_conversation = updatedConversations[0];
-  }
-
-  await updateDoc(avatarRef, updateData);
-
-  return { status: 'success', conversation_id: conversationId };
-};
-----------------------
-import React, { createContext, useContext, useState, useEffect } from 'react';
-import {
-  onAuthStateChanged,
-  createUserWithEmailAndPassword,
-  signInWithEmailAndPassword,
-  signOut,
-  updateProfile,
-  updatePassword as firebaseUpdatePassword,
-  sendPasswordResetEmail,
-  sendEmailVerification,
-  GoogleAuthProvider,
-  signInWithPopup,
-  signInWithRedirect,
-  getRedirectResult,
-} from 'firebase/auth';
-
-import {
-  doc,
-  getDoc,
-  updateDoc,
-  setDoc,
-  query,
-  collection,
-  where,
-  orderBy,
-  onSnapshot,
-} from 'firebase/firestore';
-import { auth, db, storage } from '../firebase/config.js';
-import { getUserProfile } from '../services/userService';
-
-import {
-  getAvatars,
-  createAvatar,
-  deleteAvatar,
-  selectAvatar,
-} from '../services/avatar_Service.jsx';
-
-import toast from 'react-hot-toast';
-import { X } from 'lucide-react';
-import { signup, login, logout } from '../services/authService';
-
-const AuthContext = createContext();
-
-export const AuthProvider = ({ children }) => {
-  const [user, setUser] = useState(null);
-  const [userAvatars, setUserAvatars] = useState([]);
-  const [sharedAvatars, setSharedAvatars] = useState([]);
-  const [proprietaryAvatars, setProprietaryAvatars] = useState([]);
-  const [activeAvatar, setActiveAvatar] = useState(null);
-  const [loading, setLoading] = useState(true);
-  const [accessToken, setAccessToken] = useState(null); // Firebase ID token for backend API
-
-  // verify connection to firebase auth emulator
-  useEffect(() => {
-    if (auth.config) {
-      console.log('Full Auth Config:', auth.config);
-      // Look for a property called 'emulatorConfig' in the object tree
-    }
-  }, []);
-
-  // Inside your AuthContext.jsx Live Update Avatars
-  useEffect(() => {
-    if (!user) {
-      setUserAvatars([]);
-      return;
-    }
-
-    // 1. Define the Query
-    const q = query(
-      collection(db, 'avatars'),
-      where('user_id', '==', user.uid),
-      orderBy('created_at', 'asc')
-    );
-
-    // 2. Establish the Listener
-    const unsubscribe = onSnapshot(
-      q,
-      (snapshot) => {
-        const fetchedAvatars = snapshot.docs.map((doc) => ({
-          avatar_id: doc.id,
-          ...doc.data(),
-        }));
-
-        // This updates the global state automatically when
-        // an avatar is added, deleted, or edited!
-        setUserAvatars(fetchedAvatars);
-        console.log(
-          'XXXXXXXXXXXXXXXXXXX ON AVATAR TRIGGER XXXXXXXXXXXXXXXXXXXX'
-        );
-      },
-      (error) => {
-        console.error('Snapshot listener error:', error);
-      }
-    );
-
-    // 3. CLEANUP: This is critical for memory management
-    return () => unsubscribe();
-  }, [user]);
-
-  // Inside your AuthContext.jsx
-  const [userProfile, setUserProfile] = useState(null);
-
-  // Live Update Users
-  useEffect(() => {
-    if (!user) {
-      setUserProfile(null);
-      return;
-    }
-
-    // 1. Reference the specific User Document
-    const userDocRef = doc(db, 'users', user.uid);
-
-    // 2. Establish the Document Listener
-    const unsubscribe = onSnapshot(
-      userDocRef,
-      (docSnapshot) => {
-        if (docSnapshot.exists()) {
-          const data = docSnapshot.data();
-
-          // Update global user profile state
-          setUserProfile(data);
-          console.log(
-            'XXXXXXXXXXXXXXXXXXX ON USER TRIGGER XXXXXXXXXXXXXXXXXXXX'
-          );
-
-          // OPTIONAL: Sync specific logic, like updating localStorage
-          // with the most recent last_used_avatar
-          if (data.last_used_avatar) {
-            localStorage.setItem('last_used_avatar_id', data.last_used_avatar);
-          }
-        } else {
-          console.warn('User profile document does not exist.');
-        }
-      },
-      (error) => {
-        console.error('User profile snapshot error:', error);
-      }
-    );
-
-    // 3. Cleanup listener on unmount
-    return () => unsubscribe();
-  }, [user]);
-
-  // Listen to Firebase auth state changes
-
-  useEffect(() => {
-    const unsubscribeAuth = onAuthStateChanged(auth, async (firebaseUser) => {
-      console.log(
-        'XXXXXXXXXXXXXXXXXXX ON AUTH STATE TRIGGER XXXXXXXXXXXXXXXXXXXX'
-      );
-      if (firebaseUser) {
-        setUser(firebaseUser); // This triggers the onSnapshot useEffects!
-        try {
-          const token = await firebaseUser.getIdToken(
-            /* foreceRefresh = */ true
-          );
-          setAccessToken(token);
-        } catch (err) {
-          console.error('Failed to get fresh ID token', err);
-          setAccessToken(null);
-        }
-      } else {
-        setUser(null);
-        setAccessToken(null);
-      }
-      setLoading(false); // Move this here to ensure it only flips once
-    });
-
-    return unsubscribeAuth;
-  }, []);
-
-  // useEffect(() => {
-  //   const unsubscribeAuth = onAuthStateChanged(auth, async (firebaseUser) => {
-  //     console.log(
-  //       'XXXXXXXXXXXXXXXXXXX ON AUTH STATE TRIGGER XXXXXXXXXXXXXXXXXXXX'
-  //     );
-  //     if (firebaseUser) {
-  //       console.log(firebaseUser);
-  //       setUser(firebaseUser);
-
-  //       try {
-  //         // Debug: ensure uid and token are available
-  //         console.log('Auth state changed for uid:', firebaseUser.uid);
-
-  //         // Get Firebase ID token for backend API calls
-  //         // Firebase automatically refreshes tokens when needed
-  //         let token;
-  //         try {
-  //           token = await firebaseUser.getIdToken();
-  //           setAccessToken(token);
-  //           localStorage.setItem('access_token', token);
-  //         } catch (tokenErr) {
-  //           console.error('Error obtaining ID token:', tokenErr);
-  //         }
-
-  //         // Get Firestore user profile (returns null if missing)
-  //         let profile = null;
-  //         try {
-  //           profile = await getUserProfile(firebaseUser.uid);
-  //         } catch (err) {
-  //           console.error('Error fetching user profile:', err);
-  //           if (
-  //             err.message &&
-  //             err.message.includes('Insufficient Firestore permissions')
-  //           ) {
-  //             toast.error(
-  //               'Firestore permissions error: please check rules and project configuration.'
-  //             );
-  //           } else {
-  //             throw err;
-  //           }
-  //         }
-
-  //         // localStorage.setItem('user', user);
-
-  //         // Store user data in localStorage
-  //         // localStorage.setItem('user', JSON.stringify(profile));
-  //         // localStorage.setItem('firebase_user_id', firebaseUser.uid);
-
-  //         // Load userAvatars from Firestore
-  //         const loadedAvatars = await loadAvatars(firebaseUser.uid);
-
-  //         // Set active avatar if user has last_used_avatar
-  //         if (profile.last_used_avatar && loadedAvatars.length > 0) {
-  //           const lastUsed = loadedAvatars.find(
-  //             (a) => a.avatar_id === profile.last_used_avatar
-  //           );
-  //           if (lastUsed) {
-  //             setActiveAvatar(lastUsed);
-  //           }
-  //         }
-  //       } catch (error) {
-  //         console.error('Error loading user profile:', error);
-  //         setUser(null);
-  //         setAccessToken(null);
-  //       }
-  //     } else {
-  //       // User signed out
-  //       setUser(null);
-  //       setUserAvatars([]);
-  //       setSharedAvatars([]);
-  //       setProprietaryAvatars([]);
-  //       setActiveAvatar(null);
-  //       setAccessToken(null);
-  //       localStorage.removeItem('user');
-  //     }
-
-  //     setLoading(false);
-  //   });
-
-  //   return () => unsubscribeAuth();
-  // }, []);
-
-  // Load userAvatars from Firestore
-  const loadAvatars = async (userId) => {
-    try {
-      const fetchedAvatars = await getAvatars(userId);
-      setUserAvatars(fetchedAvatars);
-      localStorage.setItem('userAvatars', JSON.stringify(fetchedAvatars));
-      return fetchedAvatars;
-    } catch (error) {
-      console.error('Error loading userAvatars:', error);
-      return [];
-    }
-  };
-
-  // const resendVerification = async (email) => {
-  //   try {
-  //     // Firebase doesn't have a direct resend verification for email
-  //     // We need to get the current user and resend
-  //     if (auth.currentUser && auth.currentUser.email === email) {
-  //       await sendEmailVerification(auth.currentUser);
-  //       toast.success(
-  //         (t) => (
-  //           <div className="relative flex flex-col gap-2 p-4">
-  //             <div className="flex justify-between items-start">
-  //               <p className="pr-4">Verification email sent!</p>
-  //               <button
-  //                 onClick={() => toast.dismiss(t.id)}
-  //                 className="p-1 bg-red-600 hover:bg-red-500 rounded text-sm"
-  //               >
-  //                 <X size={16} />
-  //               </button>
-  //             </div>
-  //           </div>
-  //         ),
-  //         { duration: Infinity }
-  //       );
-  //     } else {
-  //       throw new Error('Please log in first to resend verification email');
-  //     }
-  //   } catch (error) {
-  //     console.error('Resend verification error:', error);
-  //     toast.error(
-  //       (t) => (
-  //         <div className="relative flex flex-col gap-2 p-4">
-  //           <div className="flex justify-between items-start">
-  //             <p className="pr-4">
-  //               {error.message || 'Failed to send verification email'}
-  //             </p>
-  //             <button
-  //               onClick={() => toast.dismiss(t.id)}
-  //               className="p-1 bg-red-600 hover:bg-red-500 rounded text-sm"
-  //             >
-  //               <X size={16} />
-  //             </button>
-  //           </div>
-  //         </div>
-  //       ),
-  //       { duration: Infinity }
-  //     );
-  //     throw error;
-  //   }
-  // };
-
-  // const forgotPassword = async (email) => {
-  //   try {
-  //     await sendPasswordResetEmail(auth, email, {
-  //       url: `${window.location.origin}/auth/reset-password`,
-  //     });
-  //     // Don't show toast here - let AuthComponent handle it
-  //   } catch (error) {
-  //     console.error('Forgot password error:', error);
-  //     throw error;
-  //   }
-  // };
-
-  // const updatePassword = async (newPassword) => {
-  //   try {
-  //     if (!auth.currentUser) {
-  //       throw new Error('No user logged in');
-  //     }
-  //     await firebaseUpdatePassword(auth.currentUser, newPassword);
-  //     toast.success('Password updated successfully!');
-  //   } catch (error) {
-  //     console.error('Update password error:', error);
-  //     throw error;
-  //   }
-  // };
-
-  // // Social login with Google
-  // const signInWithProvider = async (provider) => {
-  //   try {
-  //     if (provider === 'google') {
-  //       const googleProvider = new GoogleAuthProvider();
-  //       // Use redirect for better UX
-  //       await signInWithRedirect(auth, googleProvider);
-  //     } else {
-  //       throw new Error(`Provider ${provider} is not supported`);
-  //     }
-  //   } catch (error) {
-  //     console.error(`${provider} login error:`, error);
-  //     toast.error(`${provider} login failed`);
-  //     throw error;
-  //   }
-  // };
-
-  // const getAvatars = async () => {
-  //   if (!currentUser) return;
-
-  //   try {
-  //     const fetchedAvatars = await loadAvatars(currentUser.uid);
-  //     return fetchedAvatars;
-  //   } catch (error) {
-  //     console.error('Get userAvatars error:', error);
-  //     return [];
-  //   }
-  // };
-
-  // const createAvatar = async ({ name, description = '', iconFile = null }) => {
-  //   if (!currentUser) {
-  //     throw new Error('User must be logged in to create avatar');
-  //   }
-
-  //   try {
-  //     const created = await createAvatarInFirestore(
-  //       currentUser.uid,
-  //       name,
-  //       description,
-  //       iconFile
-  //     );
-
-  //     // Reload userAvatars and wait for state update
-  //     const fetchedAvatars = await loadAvatars(currentUser.uid);
-
-  //     // Find the created avatar in the fetched list (should be there)
-  //     const createdAvatar =
-  //       fetchedAvatars.find((a) => a.avatar_id === created.avatar_id) ||
-  //       created; // Fallback to created object if not found
-
-  //     // Set as active avatar
-  //     setActiveAvatar(createdAvatar);
-
-  //     // Update Firestore to mark as last_used_avatar
-  //     await updateDoc(doc(db, 'users', currentUser.uid), {
-  //       last_used_avatar: created.avatar_id,
-  //       avatars: [...(user?.avatars || []), created.avatar_id],
-  //     });
-
-  //     // Update local user state
-  //     if (user) {
-  //       const updatedUser = {
-  //         ...user,
-  //         last_used_avatar: created.avatar_id,
-  //         avatars: [...(user.avatars || []), created.avatar_id],
-  //       };
-  //       setUser(updatedUser);
-  //       localStorage.setItem('user', JSON.stringify(updatedUser));
-  //     }
-
-  //     return created;
-  //   } catch (error) {
-  //     console.error('Create avatar failed:', error);
-  //     throw error;
-  //   }
-  // };
-
-  // const deleteAvatar = async (avatarId) => {
-  //   if (!currentUser) return;
-
-  //   try {
-  //     await deleteAvatarFromFirestore(currentUser.uid, avatarId);
-  //     await loadAvatars(currentUser.uid);
-
-  //     if (activeAvatar?.avatar_id === avatarId) {
-  //       setActiveAvatar(null);
-  //     }
-  //   } catch (error) {
-  //     console.error('Delete avatar failed:', error);
-  //     throw error;
-  //   }
-  // };
-
-  // const selectAvatar = async (avatarId) => {
-  //   if (!currentUser) return;
-
-  //   try {
-  //     const response = await selectAvatarInFirestore(currentUser.uid, avatarId);
-
-  //     if (response.status === 'success') {
-  //       const selectedAvatar = userAvatars.find((a) => a.avatar_id === avatarId);
-  //       if (selectedAvatar) {
-  //         setActiveAvatar(selectedAvatar);
-  //       }
-
-  //       // Update user profile
-  //       await updateDoc(doc(db, 'users', currentUser.uid), {
-  //         last_used_avatar: avatarId,
-  //       });
-
-  //       // Update local user state
-  //       if (user) {
-  //         const updatedUser = { ...user, last_used_avatar: avatarId };
-  //         setUser(updatedUser);
-  //         setUserProfile(updatedUser);
-  //         localStorage.setItem('user', JSON.stringify(updatedUser));
-  //       }
-  //     }
-  //   } catch (error) {
-  //     console.error('Select avatar failed:', error);
-  //     throw error;
-  //   }
-  // };
-
-  // const updateActiveAvatarField = (field, value) => {
-  //   setActiveAvatar((prev) => ({
-  //     ...prev,
-  //     [field]: value,
-  //   }));
-  // };
-
-  // // Handle OAuth redirect result
-  // useEffect(() => {
-  //   getRedirectResult(auth)
-  //     .then((result) => {
-  //       if (result) {
-  //         // User signed in via redirect
-  //         // toast.success('Login successful!');
-  //       }
-  //     })
-  //     .catch((error) => {
-  //       console.error('OAuth redirect error:', error);
-  //       toast.error('Authentication failed');
-  //     });
-  // }, []);
-
-  // if (loading) {
-  //   return <div>Loading...</div>;
-  // }
-
-  return (
-    <AuthContext.Provider
-      value={{
-        // User state
-        accessToken, // Firebase ID token for backend API calls
-        setAccessToken,
-        user,
-        setUser,
-        userAvatars,
-        setUserAvatars,
-        sharedAvatars,
-        setSharedAvatars,
-        proprietaryAvatars,
-        setProprietaryAvatars,
-        activeAvatar,
-        setActiveAvatar,
-        loading,
-        setLoading,
-        // Auth methods
-        // login,
-        // signup,
-        // logout,
-        // resendVerification,
-        // forgotPassword,
-        // updatePassword,
-        // signInWithProvider,
-
-        // Avatar methods
-        // getAvatars,
-        // createAvatar,
-        // deleteAvatar,
-        // selectAvatar,
-        // updateActiveAvatarField,
-
-        // Firebase instances (for advanced use)
-        firebaseAuth: auth,
-        firestore: db,
-        firebaseStorage: storage,
-      }}
-    >
-      {children}
-    </AuthContext.Provider>
-  );
-};
-
-export const useAuth = () => {
-  const context = useContext(AuthContext);
-  if (!context) {
-    throw new Error('useAuth must be used within AuthProvider');
-  }
-  return context;
-};
-------------------
 services:
   app:
     build:
@@ -1997,19 +1720,3 @@ services:
 networks:
   neural-nexus-network:
     driver: bridge
-
--------------------------
-
-VITE_FIREBASE_API_KEY=AIzaSyDqgvPAVnqZxlK_HVxke80huIm78-OEDv0
-VITE_FIREBASE_AUTH_DOMAIN=neuralnexus-467517.firebaseapp.com
-VITE_FIREBASE_PROJECT_ID=neuralnexus-467517
-VITE_FIREBASE_STORAGE_BUCKET=neuralnexus-467517.firebasestorage.app
-
-VITE_FIREBASE_MESSAGING_SENDER_ID=915579649879
-VITE_FIREBASE_APP_ID=1:915579649879:web:70a78270d904da8bd14812
-VITE_FIREBASE_MEASUREMENT_ID=G-GC0GRR5B32
-VITE_USE_FIREBASE_EMULATOR=false
-
-
---------------
-
