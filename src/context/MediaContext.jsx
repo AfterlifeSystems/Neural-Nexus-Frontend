@@ -1,4 +1,15 @@
 // src/context/MediaContext.jsx
+// Used to subscribe to the firestore message for real-time state of messages;
+// calls messageService to send new messages;
+// the messages are displayed in the MessageList Component
+// flow:
+// The Chat Area holds the input bar and the Message list
+// the input bar sends a message through the media context
+// the media context will call the message service
+// the message is displayed in the message list
+// the response is displayed in the message list
+// all messages for the current conversation are displayed in the message list as per the subscription to the messages collection for the current conversation of the active avatar
+
 import React, {
   createContext,
   useContext,
@@ -7,40 +18,27 @@ import React, {
   useRef,
 } from 'react';
 import {
-  getMessages as getMessagesFromFirestore,
   sendMessage as sendMessageToFirestore,
+  subscribeToMessages,
 } from '../services/messageService';
 import { useAuth } from './AuthContext';
 
 const MediaContext = createContext();
 
 export const MediaProvider = ({ children }) => {
-  const { accessToken, activeAvatar, user, currentUser } = useAuth();
-  const [isThoughtToImageEnabled, setIsThoughtToImageEnabled] = useState(false);
-  const [isTranscribing, setIsTranscribing] = useState(false);
-  const [messages, setMessages] = useState({});
-  const [activeConversation, setActiveConversation] = useState(null); // Track active conversation ID
+  const { activeAvatar, user } = useAuth();
+  const [messages, setMessages] = useState([]);
+  const [activeConversation, setActiveConversation] = useState(null);
   const [inputMessage, setInputMessage] = useState('');
   const [sender, setSender] = useState('user');
   const [mediaFiles, setMediaFiles] = useState([]);
-
+  const [isTranscribing, setIsTranscribing] = useState(false);
+  const [isThoughtToImageEnabled, setIsThoughtToImageEnabled] = useState(false);
   const messagesEndRef = useRef(null);
   const fileInputRef = useRef(null);
-  const mediaRecorderRef = useRef(null);
-  const chunksRef = useRef([]);
-  const wsRef = useRef(null);
-  const audioContextRef = useRef(null);
-  const mediaStreamRef = useRef(null);
-  const sourceRef = useRef(null);
-  const processorRef = useRef(null);
-  const MAX_FILE_SIZE_MB = 1 * 1024 * 1024;
+  const unsubscribeRef = useRef(null); // Store unsubscribe function
 
-  // ==================== CACHES ====================
-  // Avatar Cache: Stores avatar metadata
-  const [avatarCache, setAvatarCache] = useState({});
-  // Message Cache: Stores messages per avatar (max 50 per avatar)
-  const [messageCache, setMessageCache] = useState({});
-  const MAX_CACHED_MESSAGES = 50;
+  const MAX_FILE_SIZE_MB = 1 * 1024 * 1024;
 
   const [dataExchangeTypes, setDataExchangeTypes] = useState({
     text: true,
@@ -54,104 +52,21 @@ export const MediaProvider = ({ children }) => {
     telepathy: true,
   });
 
-  // ==================== CACHE FUNCTIONS ====================
-
-  /**
-   * Add avatar to cache
-   */
-  const cacheAvatar = (avatar) => {
-    setAvatarCache((prev) => ({
-      ...prev,
-      [avatar.avatar_id]: {
-        ...avatar,
-        cachedAt: new Date().toISOString(),
-      },
-    }));
-  };
-
-  /**
-   * Get avatar from cache
-   */
-  const getCachedAvatar = (avatarId) => {
-    return avatarCache[avatarId] || null;
-  };
-
-  /**
-   * Add message to cache (maintains rolling window of N messages)
-   */
-  const cacheMessage = (avatarId, message) => {
-    setMessageCache((prev) => {
-      const currentMessages = prev[avatarId] || [];
-      const updatedMessages = [...currentMessages, message];
-
-      // Keep only last N messages (rolling window)
-      const trimmedMessages =
-        updatedMessages.length > MAX_CACHED_MESSAGES
-          ? updatedMessages.slice(-MAX_CACHED_MESSAGES)
-          : updatedMessages;
-
-      return {
-        ...prev,
-        [avatarId]: trimmedMessages,
-      };
-    });
-  };
-
-  /**
-   * Get cached messages for an avatar
-   */
-  const getCachedMessages = (avatarId) => {
-    return messageCache[avatarId] || [];
-  };
-
-  /**
-   * Clear cache for specific avatar
-   */
-  const clearAvatarCache = (avatarId) => {
-    setMessageCache((prev) => {
-      const newCache = { ...prev };
-      delete newCache[avatarId];
-      return newCache;
-    });
-  };
-
-  /**
-   * Populate message cache from database
-   */
-  const populateMessageCache = async (avatarId) => {
-    try {
-      const fetched = await MessageService.getAvatarMessages(
-        avatarId,
-        accessToken
-      );
-
-      // Store in cache
-      setMessageCache((prev) => ({
-        ...prev,
-        [avatarId]: fetched.map((msg) => ({
-          _id: msg._id, // Preserve _id for key prop
-          id: msg._id, // Also set id for consistency
-          content: msg.message,
-          media: msg.media || [],
-          sender: msg.sender,
-          timestamp: msg.timestamp,
-        })),
-      }));
-
-      return fetched;
-    } catch (error) {
-      console.error('Failed to populate message cache:', error);
-      return [];
-    }
-  };
-  // claude.ai/chat/33ca6b04-fb69-486a-9a0d-0780a444f557 working on removing redis
   const startThoughtToImage = async () => {
-    if (!accessToken || !user?.enable_grok_imagine) return;
+    if (!user?.enable_grok_imagine) return;
     setIsThoughtToImageEnabled(true);
   };
 
   const stopThoughtToImage = () => {
     setIsThoughtToImageEnabled(false);
+  };
+
+  const startTranscription = () => {
+    setIsTranscribing(true);
+  };
+
+  const stopTranscription = () => {
+    setIsTranscribing(false);
   };
 
   // Set active conversation when avatar changes
@@ -163,215 +78,145 @@ export const MediaProvider = ({ children }) => {
       setActiveConversation(conversationId);
     } else {
       setActiveConversation(null);
+      setMessages([]); // Clear messages when no avatar
     }
   }, [activeAvatar]);
 
+  // Subscribe to Firestore messages in real-time
   useEffect(() => {
-    if (activeAvatar && activeConversation && currentUser) {
-      console.log(
-        `Loading messages for avatar ${activeAvatar.avatar_id}, conversation ${activeConversation}`
-      );
-
-      // Check cache first
-      const cacheKey = `${activeAvatar.avatar_id}_${activeConversation}`;
-      const cachedMessages = getCachedMessages(cacheKey);
-
-      if (cachedMessages.length > 0) {
-        console.log(`Loaded ${cachedMessages.length} messages from cache`);
-        // Sort cached messages by timestamp
-        const sortedCachedMessages = [...cachedMessages].sort((a, b) => {
-          const timeA = a.timestamp ? new Date(a.timestamp).getTime() : 0;
-          const timeB = b.timestamp ? new Date(b.timestamp).getTime() : 0;
-          return timeA - timeB;
-        });
-        setMessages((prev) => ({
-          ...prev,
-          [cacheKey]: sortedCachedMessages,
-        }));
-      } else {
-        // Fetch from database if cache is empty
-        console.log('Cache empty, fetching from database');
-        fetchMessages();
-      }
+    // Cleanup previous subscription
+    if (unsubscribeRef.current) {
+      console.log('Unsubscribing from previous conversation');
+      unsubscribeRef.current();
+      unsubscribeRef.current = null;
     }
-  }, [activeAvatar?.avatar_id, activeConversation, currentUser]);
 
-  const fetchMessages = async () => {
-    if (!activeAvatar || !activeConversation || !currentUser) return;
+    // Clear messages when switching conversations
+    setMessages([]);
+
+    // Only subscribe if we have all required data
+    if (!activeAvatar?.avatar_id || !activeConversation || !user?.uid) {
+      console.log('Missing required data for subscription:', {
+        avatarId: activeAvatar?.avatar_id,
+        conversationId: activeConversation,
+        userId: user?.uid,
+      });
+      return;
+    }
+
+    console.log(
+      `Subscribing to messages for avatar ${activeAvatar.avatar_id}, conversation ${activeConversation}`
+    );
+    console.log('user.uid' + user.uid);
+    // Set up real-time subscription
     try {
-      // Fetch messages from Firestore using the new structure
-      const fetched = await getMessagesFromFirestore(
-        currentUser.uid,
+      const unsubscribe = subscribeToMessages(
+        user.uid,
         activeAvatar.avatar_id,
         activeConversation,
-        1000 // Get up to 1000 messages
+        (newMessages) => {
+          console.log(
+            `Received ${newMessages.length} messages from subscription`
+          );
+
+          // Transform messages to use id, role, content format
+          const transformedMessages = newMessages.map((msg) => ({
+            id: msg.id || msg._id || msg.message_id,
+            role: msg.role || msg.sender || 'user',
+            content: msg.content || msg.message || '',
+            timestamp: msg.timestamp,
+            media: msg.media || [],
+            type: msg.type || 'text',
+          }));
+
+          // Sort by timestamp
+          const sortedMessages = transformedMessages.sort((a, b) => {
+            const timeA = a.timestamp ? new Date(a.timestamp).getTime() : 0;
+            const timeB = b.timestamp ? new Date(b.timestamp).getTime() : 0;
+            return timeA - timeB;
+          });
+
+          // Update messages state directly (no cache key)
+          setMessages(sortedMessages);
+        }
       );
 
-      console.log(`Fetched ${fetched?.length || 0} messages from Firestore`);
-
-      const transformedMessages = fetched.map((msg) => ({
-        _id: msg._id || msg.message_id,
-        id: msg.id || msg._id || msg.message_id,
-        content: msg.content || msg.message || '',
-        message: msg.message || msg.content || '', // Keep both for compatibility
-        media: msg.media || [],
-        sender: msg.sender || 'user',
-        timestamp: msg.timestamp,
-      }));
-
-      const cacheKey = `${activeAvatar.avatar_id}_${activeConversation}`;
-
-      // Cache messages
-      setMessageCache((prev) => ({
-        ...prev,
-        [cacheKey]: transformedMessages,
-      }));
-
-      setMessages((prev) => ({
-        ...prev,
-        [cacheKey]: transformedMessages,
-      }));
+      // Store unsubscribe function
+      unsubscribeRef.current = unsubscribe;
+      console.log('Successfully subscribed to messages');
     } catch (error) {
-      console.error('Failed to fetch messages:', error);
+      console.error('Failed to subscribe to messages:', error);
     }
-  };
+
+    // Cleanup on unmount or when dependencies change
+    return () => {
+      if (unsubscribeRef.current) {
+        console.log('Cleaning up subscription');
+        unsubscribeRef.current();
+        unsubscribeRef.current = null;
+      }
+    };
+  }, [activeAvatar?.avatar_id, activeConversation, user?.uid]);
+
   // sendMessage - Updated to use Firestore structure
   async function sendMessage() {
+    console.log('MediaContext: sendMessage called');
+
     if (
       !activeAvatar ||
       !activeConversation ||
-      !currentUser ||
+      !user ||
       (!inputMessage.trim() && mediaFiles.length === 0)
-    )
+    ) {
+      console.log('Missing required data for sending message');
       return;
+    }
 
     try {
       const tempId = `temp-${Date.now()}`;
       const loadingId = `loading-${Date.now()}`;
-      const cacheKey = `${activeAvatar.avatar_id}_${activeConversation}`;
 
       // Optimistically add user message to UI
       const tempMessage = {
         id: tempId,
-        _id: tempId,
         content: inputMessage,
-        message: inputMessage, // Keep both for compatibility
-        sender: sender,
+        role: sender,
         timestamp: new Date().toISOString(),
         media: mediaFiles.map((f) => ({
           filename: f.name,
           content_type: f.type,
         })),
+        type: mediaFiles.length > 0 && !inputMessage ? 'media' : 'text',
       };
 
-      setMessages((prev) => ({
-        ...prev,
-        [cacheKey]: [...(prev[cacheKey] || []), tempMessage],
-      }));
-
-      // Cache the user message
-      cacheMessage(cacheKey, tempMessage);
+      setMessages((prev) => [...prev, tempMessage]);
 
       // Add loading message for AI response
       const loadingMessage = {
         id: loadingId,
-        sender: 'avatar',
+        role: 'assistant',
         isLoading: true,
+        timestamp: new Date().toISOString(),
       };
 
-      setMessages((prev) => ({
-        ...prev,
-        [cacheKey]: [...(prev[cacheKey] || []), loadingMessage],
-      }));
+      setMessages((prev) => [...prev, loadingMessage]);
 
-      // Send to Firestore first
+      // Send to Firestore - this will trigger the subscription to update
       const firestoreResponse = await sendMessageToFirestore(
-        currentUser.uid,
+        user.uid,
         activeAvatar.avatar_id,
-        activeConversation, // conversationId
+        activeConversation,
         inputMessage,
         mediaFiles,
         sender,
-        false // Don't wait for AI response here
+        true // Wait for AI response
       );
 
-      // Also send to backend API for AI response
-      let aiResponse = null;
-      try {
-        const backendResponse = await MessageService.saveMessage(
-          activeAvatar.avatar_id,
-          inputMessage,
-          mediaFiles,
-          accessToken,
-          sender
-        );
+      console.log('Message sent successfully:', firestoreResponse);
 
-        if (backendResponse?.ai_response) {
-          aiResponse = backendResponse.ai_response;
-        }
-      } catch (backendError) {
-        console.warn(
-          'Backend API call failed, continuing without AI response:',
-          backendError
-        );
-      }
-
-      // Remove loading message
-      setMessages((prev) => ({
-        ...prev,
-        [cacheKey]: prev[cacheKey].filter((msg) => msg.id !== loadingId),
-      }));
-
-      // Update temp message with real ID from Firestore
-      const realMessageId =
-        firestoreResponse.user_message.message_id ||
-        firestoreResponse.user_message._id;
-      setMessages((prev) => ({
-        ...prev,
-        [cacheKey]: prev[cacheKey].map((msg) =>
-          msg.id === tempId
-            ? {
-                ...msg,
-                _id: realMessageId,
-                id: realMessageId,
-                message_id: realMessageId,
-              }
-            : msg
-        ),
-      }));
-
-      // If AI response is included, save it to Firestore and add to UI
-      if (aiResponse) {
-        // Save AI response to Firestore
-        await sendMessageToFirestore(
-          currentUser.uid,
-          activeAvatar.avatar_id,
-          activeConversation, // conversationId
-          aiResponse.message || '',
-          [],
-          'assistant',
-          false
-        );
-
-        const aiMessage = {
-          _id: aiResponse.message_id,
-          id: aiResponse.message_id,
-          message_id: aiResponse.message_id,
-          content: aiResponse.message,
-          message: aiResponse.message,
-          sender: 'assistant',
-          timestamp: aiResponse.timestamp || new Date().toISOString(),
-          media: [],
-        };
-
-        setMessages((prev) => ({
-          ...prev,
-          [cacheKey]: [...(prev[cacheKey] || []), aiMessage],
-        }));
-
-        // Cache AI response
-        cacheMessage(cacheKey, aiMessage);
-      }
+      // Remove loading message after response is received
+      // The actual messages will come through the subscription
+      setMessages((prev) => prev.filter((msg) => msg.id !== loadingId));
 
       // Clear input
       setInputMessage('');
@@ -380,14 +225,10 @@ export const MediaProvider = ({ children }) => {
     } catch (err) {
       console.error('Failed to send message:', err);
 
-      const cacheKey = `${activeAvatar.avatar_id}_${activeConversation}`;
-      // Remove both optimistic message and loading message on error
-      setMessages((prev) => ({
-        ...prev,
-        [cacheKey]: (prev[cacheKey] || []).filter(
-          (msg) => msg.id !== tempId && !msg.isLoading
-        ),
-      }));
+      // Remove optimistic and loading messages on error
+      setMessages((prev) =>
+        prev.filter((msg) => !msg.id?.startsWith('temp-') && !msg.isLoading)
+      );
 
       if (err.status === 413) {
         alert('One or more files exceed the maximum upload size of 1 MB.');
@@ -411,13 +252,6 @@ export const MediaProvider = ({ children }) => {
     event.target.value = '';
   };
 
-  const getMediaUrl = (media_id, accessToken) => {
-    console.warn(
-      'getMediaUrl: NGROK-based media URLs removed. Use media.url or Firebase Storage download URLs instead.'
-    );
-    return null;
-  };
-
   const handleFileChange = (e) => {
     const files = Array.from(e.target.files).filter(
       (f) => f.size <= MAX_FILE_SIZE_MB
@@ -434,7 +268,6 @@ export const MediaProvider = ({ children }) => {
       value={{
         messages,
         setMessages,
-        fetchMessages,
         messagesEndRef,
         inputMessage,
         setInputMessage,
@@ -442,13 +275,18 @@ export const MediaProvider = ({ children }) => {
         dataExchangeTypes,
         fileInputRef,
         handleFileUpload,
-        getMediaUrl,
         mediaFiles,
         setMediaFiles,
         handleFileChange,
         removeFile,
         sender,
         setSender,
+        isTranscribing,
+        startTranscription,
+        stopTranscription,
+        isThoughtToImageEnabled,
+        startThoughtToImage,
+        stopThoughtToImage,
       }}
     >
       {children}

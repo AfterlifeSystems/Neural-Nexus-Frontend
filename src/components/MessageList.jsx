@@ -1,12 +1,10 @@
 // src/components/MessageList.jsx
 import React, { useEffect } from 'react';
 import { useAuth } from '../context/AuthContext';
-import { useMedia } from '../context/MediaContext';
 import SecureImage from './SecureImage';
 
 const MessageList = ({ messages, messagesEndRef }) => {
   const { accessToken } = useAuth();
-  const { getMediaUrl } = useMedia();
 
   useEffect(() => {
     if (messagesEndRef?.current) {
@@ -16,7 +14,7 @@ const MessageList = ({ messages, messagesEndRef }) => {
 
   // Debug: Log message count and timestamp info
   useEffect(() => {
-    const validMessages = messages.filter((msg) => msg?.sender);
+    const validMessages = messages.filter((msg) => msg?.role);
     if (validMessages.length > 0) {
       const timestamps = validMessages
         .map((m) => (m.timestamp ? new Date(m.timestamp).getTime() : null))
@@ -45,20 +43,19 @@ const MessageList = ({ messages, messagesEndRef }) => {
   return (
     <div className="flex-grow mb-4 space-y-2 px-2 flex flex-col">
       {messages
-        .filter((msg) => msg?.sender) // Filter out messages without sender before mapping
+        .filter((msg) => msg?.role) // Filter out messages without role
         .map((msg) => {
           const isLoading = msg.isLoading || msg.isPending;
-          // Generate a unique key - use _id, id, or fallback to index-based key
-          const messageKey =
-            msg._id || msg.id || `msg-${msg.timestamp}-${Math.random()}`;
+          // Use id field for key
+          const messageKey = msg.id || `msg-${msg.timestamp}-${Math.random()}`;
 
           return (
             <div
               key={messageKey}
               className={`max-w-[70%] p-2 rounded-lg break-words transition-all duration-150 ${
-                msg.sender === 'user'
+                msg.role === 'user'
                   ? 'bg-teal-600 self-end text-white'
-                  : msg.sender === 'avatar'
+                  : msg.role === 'assistant'
                   ? 'bg-indigo-700 self-start text-white'
                   : 'bg-indigo-700 self-center italic text-gray-300'
               }`}
@@ -84,10 +81,8 @@ const MessageList = ({ messages, messagesEndRef }) => {
               ) : (
                 <>
                   {/* TEXT CONTENT */}
-                  {(msg.content || msg.message) && (
-                    <div className="whitespace-pre-wrap">
-                      {msg.content || msg.message}
-                    </div>
+                  {msg.content && (
+                    <div className="whitespace-pre-wrap">{msg.content}</div>
                   )}
 
                   {/* MEDIA CONTENT */}
@@ -95,17 +90,20 @@ const MessageList = ({ messages, messagesEndRef }) => {
                     Array.isArray(msg.media) &&
                     msg.media.map((media, index) => (
                       <div
-                        key={media.media_id || media.filename || index}
+                        key={media.id || media.filename || index}
                         className="mt-2"
                       >
-                        {media.content_type?.startsWith('image/') ? (
+                        {media.type === 'image' ||
+                        media.content_type?.startsWith('image/') ? (
                           <SecureImage
                             mediaUrl={media.url}
-                            filename={media.filename}
+                            filename={media.filename || media.name}
                           />
-                        ) : media.content_type?.startsWith('audio/') ? (
+                        ) : media.type === 'audio' ||
+                          media.content_type?.startsWith('audio/') ? (
                           <audio controls src={media.url} />
-                        ) : media.content_type?.startsWith('video/') ? (
+                        ) : media.type === 'video' ||
+                          media.content_type?.startsWith('video/') ? (
                           <video
                             controls
                             className="max-w-full max-h-64"
@@ -118,7 +116,7 @@ const MessageList = ({ messages, messagesEndRef }) => {
                             rel="noopener noreferrer"
                             className="underline text-blue-300"
                           >
-                            {media.filename || 'Download file'}
+                            {media.filename || media.name || 'Download file'}
                           </a>
                         )}
                       </div>

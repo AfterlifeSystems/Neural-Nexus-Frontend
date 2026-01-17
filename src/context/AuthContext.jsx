@@ -55,8 +55,6 @@ export const AuthProvider = ({ children }) => {
   const [loading, setLoading] = useState(true);
   const [accessToken, setAccessToken] = useState(null); // Firebase ID token for backend API
 
-  const [messages, setMessages] = useState(null);
-
   // TESTING
   useEffect(() => {
     auth.setPersistence(browserLocalPersistence);
@@ -73,7 +71,6 @@ export const AuthProvider = ({ children }) => {
         setUserAvatars([]); // list of avatars each with current conversation
         setCommunityAvatars([]);
         setProprietaryAvatars([]);
-        setMessages([]); // messages of the current conversation
         setActiveAvatar(null);
         setLoading(false);
       }

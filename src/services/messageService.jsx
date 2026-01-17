@@ -1,7 +1,5 @@
 // services/MessageService — NGROK HTTP API removed; Firestore-backed functions below will be used
 
-// Legacy HTTP-based functions removed (no external NGROK endpoints)
-
 // NOTE: Use the Firestore implementations below: sendMessage, getMessages, subscribeToMessages
 
 import {
@@ -174,24 +172,58 @@ export const sendMessage = async (
 
   const userMessage = {
     message_id: messageId,
-    _id: messageId,
-    id: messageId,
     timestamp: timestamp.toISOString(),
     content: message || null,
-    message: message || null, // legacy compatibility
     role: sender,
-    sender: sender,
     media: mediaItems,
     type: messageType,
   };
 
-  if (waitForResponse) {
-    return {
-      status: 'success',
-      user_message: userMessage,
-      ai_response: null, // Replace with actual AI response
-    };
+  let aiResponseData;
+  try {
+    aiResponseData = await callLocalQueryApi(
+      userId,
+      avatarId,
+      message,
+      mediaFiles,
+      false,
+      250
+    );
+  } catch (err) {
+    console.error('AI query failed:', err);
   }
+
+  // Save AI response to Firestore
+  const aiMessageId = uuidv4();
+  const aiTimestamp = new Date();
+
+  await addDoc(
+    collection(
+      db,
+      'users',
+      userId,
+      'avatars',
+      avatarId,
+      'conversations',
+      currentConversationId,
+      'messages'
+    ),
+    {
+      message_id: aiMessageId,
+      conversation_id: currentConversationId,
+      avatar_id: avatarId,
+      user_id: userId,
+      role: 'assistant',
+      content: aiResponseData.response || '[No response]',
+      timestamp: aiTimestamp,
+      type: 'text',
+      metadata: {
+        context_used: aiResponseData.context_used,
+        device: aiResponseData.device,
+        model_type: aiResponseData.model_type,
+      },
+    }
+  );
 
   return {
     status: 'success',
@@ -232,6 +264,8 @@ export const getMessages = async (
   const messagesQuery = query(
     collection(
       db,
+      'users',
+      userId,
       'avatars',
       avatarId,
       'conversations',
@@ -297,6 +331,8 @@ export const subscribeToMessages = (avatarId, conversationId, callback) => {
   const messagesQuery = query(
     collection(
       db,
+      'users',
+      userId,
       'avatars',
       avatarId,
       'conversations',
