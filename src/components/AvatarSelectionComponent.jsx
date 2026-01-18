@@ -147,6 +147,7 @@ const AvatarSelectionComponent = ({}) => {
       // Load messages for this avatar
       // await fetchMessages();
       // toast.success(`Selected ${avatar.name || 'avatar'}`);
+      // console.log('HANDLE CLICK');
       navigate(`/chat/${avatarId}`); // ← ROUTE TO CHAT AREA
       // navigate(/chat:selectedAvatar)
     } else if (actualCardData.type === 'create') {
