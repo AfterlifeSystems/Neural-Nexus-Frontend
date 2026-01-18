@@ -1,6 +1,6 @@
 // services/MessageService — NGROK HTTP API removed; Firestore-backed functions below will be used
 
-// NOTE: Use the Firestore implementations below: sendMessage, getMessages, subscribeToMessages
+// NOTE: Use the Firestore implementations below: sendMessageService, getMessages, subscribeToMessages
 
 import {
   collection,
@@ -74,8 +74,8 @@ export const callLocalQueryApi = async (
  * @param {string} role - Sender type ('user' or 'assistant')
  * @param {boolean} waitForResponse - Whether to wait for AI response
  */
-// Updated sendMessage: use doc() + setDoc instead of addDoc → document ID = message_id
-export const sendMessage = async (
+// Updated sendMessageService: use doc() + setDoc instead of addDoc → document ID = message_id
+export const sendMessageService = async (
   userId,
   avatarId,
   conversationId = null,
@@ -113,8 +113,8 @@ export const sendMessage = async (
       type: file.type.startsWith('image/')
         ? 'image'
         : file.type.startsWith('audio/')
-        ? 'audio'
-        : 'file',
+          ? 'audio'
+          : 'file',
       url: downloadURL,
       storagePath: mediaRef.fullPath,
       name: file.name,

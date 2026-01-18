@@ -18,7 +18,7 @@ import React, {
   useRef,
 } from 'react';
 import {
-  sendMessage as sendMessageToFirestore,
+  sendMessageService,
   subscribeToMessages,
 } from '../services/messageService';
 import { useAuth } from './AuthContext';
@@ -158,9 +158,9 @@ export const MediaProvider = ({ children }) => {
     };
   }, [activeAvatar?.avatar_id, activeConversation, user?.uid]);
 
-  // sendMessage - Updated to use Firestore structure
-  async function sendMessage() {
-    console.log('MediaContext: sendMessage called');
+  // handleSendMessageMediaContext - Updated to use Firestore structure
+  async function handleSendMessageMediaContext() {
+    console.log('MediaContext: handleSendMessageMediaContext called');
 
     if (
       !activeAvatar ||
@@ -202,7 +202,7 @@ export const MediaProvider = ({ children }) => {
       setMessages((prev) => [...prev, loadingMessage]);
 
       // Send to Firestore - this will trigger the subscription to update
-      const firestoreResponse = await sendMessageToFirestore(
+      const firestoreResponse = await sendMessageService(
         user.uid,
         activeAvatar.avatar_id,
         activeConversation,
@@ -219,9 +219,9 @@ export const MediaProvider = ({ children }) => {
       setMessages((prev) => prev.filter((msg) => msg.id !== loadingId));
 
       // Clear input
-      setInputMessage('');
-      setMediaFiles([]);
-      if (fileInputRef.current) fileInputRef.current.value = '';
+      // setInputMessage('');
+      // setMediaFiles([]);
+      // if (fileInputRef.current) fileInputRef.current.value = '';
     } catch (err) {
       console.error('Failed to send message:', err);
 
@@ -271,7 +271,7 @@ export const MediaProvider = ({ children }) => {
         messagesEndRef,
         inputMessage,
         setInputMessage,
-        sendMessage,
+        handleSendMessageMediaContext,
         dataExchangeTypes,
         fileInputRef,
         handleFileUpload,

@@ -26,7 +26,7 @@ const InputBar = ({
   const [isHovered, setIsHovered] = useState(false);
 
   const {
-    sendMessage,
+    handleSendMessageMediaContext,
     inputMessage,
     setInputMessage,
     mediaFiles,
@@ -113,7 +113,7 @@ const InputBar = ({
     setHistoryIndex(-1);
     setTempMessage('');
     setRole('user');
-    sendMessage(mediaFiles, () => {});
+    handleSendMessageMediaContext(mediaFiles, () => {});
     setMediaFiles([]);
     setInputMessage('');
     setCaptions({});

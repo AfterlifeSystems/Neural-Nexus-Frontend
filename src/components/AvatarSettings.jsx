@@ -62,14 +62,9 @@ const AvatarSettings = ({ avatarId, accessToken, onAvatarDeleted }) => {
     password: '',
   });
   const [manualUrl, setManualUrl] = useState('');
-  const {
-    activeAvatar,
-    setActiveAvatar,
-    deleteAvatar,
-    getAvatars,
-    currentUser,
-    selectAvatar,
-  } = useAuth();
+
+  const { user, activeAvatar, deleteAvatar } = useAuth();
+
   const hasRun = useRef(false);
   // Global drag and drop handlers
   useEffect(() => {
@@ -120,10 +115,10 @@ const AvatarSettings = ({ avatarId, accessToken, onAvatarDeleted }) => {
   const initialPopulationOfAvatarData = async () => {
     if (hasRun.current) return;
     hasRun.current = true;
-    if (!activeAvatar?.avatar_id || !currentUser) return;
+    if (!activeAvatar?.avatar_id || !user) return;
     try {
       const avatarProfileData = await avatarService.selectAvatar(
-        currentUser.uid,
+        user.uid,
         activeAvatar.avatar_id
       );
       setUpdatedDesc(avatarProfileData.description);
@@ -141,10 +136,10 @@ const AvatarSettings = ({ avatarId, accessToken, onAvatarDeleted }) => {
     }
   };
   const fetchAvatarData = async () => {
-    if (!activeAvatar?.avatar_id || !currentUser) return null;
+    if (!activeAvatar?.avatar_id || !user) return null;
     try {
       const avatarProfileData = await avatarService.selectAvatar(
-        currentUser.uid,
+        user.uid,
         activeAvatar.avatar_id
       );
       return avatarProfileData;
@@ -173,39 +168,70 @@ const AvatarSettings = ({ avatarId, accessToken, onAvatarDeleted }) => {
       return 'text';
     return 'file';
   };
+
+  // Update the handleFileUpload function in AvatarSettings.jsx
   const handleFileUpload = async (e) => {
     setLoading(true);
-    const items = e.dataTransfer?.items || [];
     const filesList = e.dataTransfer?.files || e.target?.files || [];
-    const formData = new FormData();
-    formData.append('avatar_id', activeAvatar.avatar_id);
-    // Handle files
-    for (let i = 0; i < filesList.length; i++) {
-      formData.append('files', filesList[i]);
+
+    if (filesList.length === 0) {
+      setLoading(false);
+      return;
     }
+
     try {
-      if (!currentUser) throw new Error('Not logged in');
-      const uploaded = await avatarService.uploadDocuments(
-        currentUser.uid,
+      if (!user) throw new Error('Not logged in');
+      if (!activeAvatar) throw new Error('No active avatar');
+
+      // Upload to the data-loading API
+      const uploadResults = await avatarService.uploadToDataLoadingApi(
+        user.uid,
         activeAvatar.avatar_id,
-        filesList
+        activeAvatar.name || updatedAvatarName,
+        Array.from(filesList)
       );
-      if (uploaded && uploaded.length > 0) {
-        setDocuments((prev) => [...prev, ...uploaded]);
+
+      // Check results
+      const successCount = uploadResults.filter((r) => r.success).length;
+      const failCount = uploadResults.filter((r) => !r.success).length;
+
+      if (successCount > 0) {
+        toast.success(`${successCount} file(s) uploaded successfully`);
+
+        // Optionally, also upload to Firebase Storage
+        // const uploaded = await avatarService.uploadDocuments(
+        //   user.uid,
+        //   activeAvatar.avatar_id,
+        //   Array.from(filesList)
+        // );
+
+        // if (uploaded && uploaded.length > 0) {
+        //   setDocuments((prev) => [...prev, ...uploaded]);
+        // }
       }
-      toast.success('Files uploaded successfully');
+
+      if (failCount > 0) {
+        toast.error(`${failCount} file(s) failed to upload`);
+        uploadResults
+          .filter((r) => !r.success)
+          .forEach((r) => {
+            console.error(`Failed: ${r.file} - ${r.error}`);
+          });
+      }
     } catch (err) {
       toast.error('Upload failed: ' + err.message);
+      console.error('Upload error:', err);
     } finally {
       setLoading(false);
     }
   };
+
   const handleUrlUpload = async (url) => {
     setLoading(true);
     try {
-      if (!currentUser) throw new Error('Not logged in');
+      if (!user) throw new Error('Not logged in');
       const docObj = await avatarService.uploadUrl(
-        currentUser.uid,
+        user.uid,
         activeAvatar.avatar_id,
         url
       );
@@ -224,9 +250,9 @@ const AvatarSettings = ({ avatarId, accessToken, onAvatarDeleted }) => {
   const submitSocialLogin = async () => {
     if (!loginCredentials.username || !loginCredentials.password) return;
     try {
-      if (!currentUser) throw new Error('Not logged in');
+      if (!user) throw new Error('Not logged in');
       const login = await avatarService.connectSocial(
-        currentUser.uid,
+        user.uid,
         activeAvatar.avatar_id,
         selectedPlatform,
         loginCredentials.username,
@@ -247,9 +273,9 @@ const AvatarSettings = ({ avatarId, accessToken, onAvatarDeleted }) => {
   };
   const removeSocialLogin = async (id) => {
     try {
-      if (!currentUser) throw new Error('Not logged in');
+      if (!user) throw new Error('Not logged in');
       await avatarService.disconnectSocial(
-        currentUser.uid,
+        user.uid,
         activeAvatar.avatar_id,
         id
       );
@@ -278,12 +304,8 @@ const AvatarSettings = ({ avatarId, accessToken, onAvatarDeleted }) => {
   };
   const deleteDocument = async (id) => {
     try {
-      if (!currentUser) throw new Error('Not logged in');
-      await avatarService.deleteDocument(
-        currentUser.uid,
-        activeAvatar.avatar_id,
-        id
-      );
+      if (!user) throw new Error('Not logged in');
+      await avatarService.deleteDocument(user.uid, activeAvatar.avatar_id, id);
       setDocuments((prev) => prev.filter((doc) => doc.id !== id));
       toast.success('Document deleted');
     } catch (err) {
@@ -411,9 +433,9 @@ const AvatarSettings = ({ avatarId, accessToken, onAvatarDeleted }) => {
     );
     const file = new File([blob], 'avatar-photo.jpg', { type: 'image/jpeg' });
     try {
-      if (!currentUser) throw new Error('Not logged in');
+      if (!user) throw new Error('Not logged in');
       const uploaded = await avatarService.uploadDocuments(
-        currentUser.uid,
+        user.uid,
         activeAvatar.avatar_id,
         [file]
       );
@@ -467,9 +489,9 @@ const AvatarSettings = ({ avatarId, accessToken, onAvatarDeleted }) => {
     formData.append('icon', acceptedFiles[0]);
     formData.append('avatar_id', activeAvatar.avatar_id);
     try {
-      if (!currentUser) throw new Error('Not logged in');
+      if (!user) throw new Error('Not logged in');
       await avatarService.updateAvatarWithIcon(
-        currentUser.uid,
+        user.uid,
         activeAvatar.avatar_id,
         null,
         null,
@@ -487,14 +509,10 @@ const AvatarSettings = ({ avatarId, accessToken, onAvatarDeleted }) => {
     formData.append('description', updatedDesc);
     formData.append('avatar_id', activeAvatar.avatar_id);
     try {
-      if (!currentUser) throw new Error('Not logged in');
-      await avatarService.updateAvatar(
-        currentUser.uid,
-        activeAvatar.avatar_id,
-        {
-          description: updatedDesc,
-        }
-      );
+      if (!user) throw new Error('Not logged in');
+      await avatarService.updateAvatar(user.uid, activeAvatar.avatar_id, {
+        description: updatedDesc,
+      });
       const avatarProfileData = await fetchAvatarData();
       setUpdatedDesc(avatarProfileData.description);
       toast.success('Description updated');
@@ -507,14 +525,10 @@ const AvatarSettings = ({ avatarId, accessToken, onAvatarDeleted }) => {
     formData.append('name', updatedAvatarName);
     formData.append('avatar_id', activeAvatar.avatar_id);
     try {
-      if (!currentUser) throw new Error('Not logged in');
-      await avatarService.updateAvatar(
-        currentUser.uid,
-        activeAvatar.avatar_id,
-        {
-          name: updatedAvatarName,
-        }
-      );
+      if (!user) throw new Error('Not logged in');
+      await avatarService.updateAvatar(user.uid, activeAvatar.avatar_id, {
+        name: updatedAvatarName,
+      });
       const avatarProfileData = await fetchAvatarData();
       setUpdatedAvatarName(avatarProfileData.name);
       toast.success('Name updated');
