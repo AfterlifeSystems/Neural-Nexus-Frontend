@@ -10,6 +10,7 @@ const ProtectedRoute = ({ children }) => {
   console.log('loading: ' + loading);
 
   console.log('user: ' + user);
+  console.log('local storage: ' + localStorage.getItem('user'));
 
   // Show loading spinner while Firebase is still checking auth state
   // Now you can safely use conditionals
@@ -21,7 +22,7 @@ const ProtectedRoute = ({ children }) => {
     return <LoadingSpinner />;
   }
   // Critical: only allow access if we have a valid Firebase user AND a fresh ID token
-  if (!user && !loading) {
+  if (!user) {
     console.log('!USER PROTECTED ROUTE XXXXXXXXXXXXXXXXXXXXXXXX');
     console.log('loading: ' + loading);
     console.log('user: ' + user);

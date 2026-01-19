@@ -19,15 +19,18 @@ import AccountSettings from './components/AccountSettings';
 import { useAuth } from './context/AuthContext';
 import VantaBackground from './components/VantaBackground.jsx';
 import LoadingSpinner from './components/LoadingSpinner.jsx';
+import { auth, db, storage } from './firebase/config.js';
 // Root redirect component – decides where authenticated users land
 const RootRedirect = () => {
   const { user, loading, accessToken } = useAuth();
-
+  console.log('XXXXX auth.currentUser ROOT REDIRECT USER XXXXXXXXXXXXXX');
+  console.log(auth.currentUser);
   // if (loading) return null;
   if (loading) return <LoadingSpinner />;
   console.log('XXXXX ROOT REDIRECT USER XXXXXXXXXXXXXX');
   console.log(user);
   console.log(loading);
+
   return user ? (
     <Navigate to="/avatars" replace />
   ) : (
@@ -50,7 +53,6 @@ createRoot(document.getElementById('root')).render(
 
           <Routes>
             {/* Public landing pages */}
-            {/* <Route path="/" element={<RootRedirect />} /> */}
             <Route path="/welcome" element={<LandingPage />} />
             <Route path="/privacy" element={<PrivacyPolicy />} />
             <Route path="/terms" element={<TermsOfService />} />
@@ -62,8 +64,8 @@ createRoot(document.getElementById('root')).render(
             <Route element={<ProtectedRoute />}>
               <Route path="/avatars" element={<AvatarSelectionComponent />} />
               <Route path="/chat/:avatarId" element={<ChatArea />} />
-              <Route path="/billing" element={<BillingDashboard />} />
-              <Route path="/account" element={<AccountSettings />} />
+              {/* <Route path="/billing" element={<BillingDashboard />} /> */}
+              {/* <Route path="/account" element={<AccountSettings />} /> */}
             </Route>
 
             {/* Catch-all redirect to root */}

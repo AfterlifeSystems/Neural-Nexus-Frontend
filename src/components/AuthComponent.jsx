@@ -117,10 +117,12 @@ const AuthComponent = () => {
     try {
       if (modalView === 'signup') {
         await signup(username, email, password);
+        navigate('/avatars');
         // const res = await signup(username, email, password);
         // Success handled in AuthContext
       } else if (modalView === 'login') {
         await login(email, password);
+        navigate('/avatars');
         // Success handled in AuthContext
       } else if (modalView === 'forgotPassword') {
         await forgotPassword(email);

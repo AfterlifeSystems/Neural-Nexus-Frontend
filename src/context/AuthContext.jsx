@@ -59,20 +59,24 @@ export const AuthProvider = ({ children }) => {
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
       console.log(
+        'XXXXX auth.currentUser onAuthStateChanged AUTH CONTEXT USE EFFECT XXXXXXXXXXXXXX'
+      );
+      console.log(auth.currentUser);
+      console.log(
         'Auth state changed →',
-        currentUser ? currentUser.uid : 'null'
+        currentUser ? currentUser?.uid : 'null'
       );
       setUser(currentUser);
       // Give Firestore listener a moment to catch up (common pattern)
-      setTimeout(() => {
-        setLoading(false);
-      }, 300); // ← 300 ms is usually enough for local emulator + real Firebase
+
       setLoading(false);
       console.log(
         'XXXXXXXXXXXXXXXXXXXXXX CURRENT USER AUTH CONTEXT USE EFFECT XXXXXXXXXXXXXXXXXXXXXXXXXXX'
       );
       console.log(currentUser);
-      console.log(currentUser.uid);
+      if (currentUser) {
+        console.log(currentUser.uid);
+      }
 
       if (!currentUser) {
         console.log(

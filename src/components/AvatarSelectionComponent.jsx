@@ -749,7 +749,7 @@ const AvatarSelectionComponent = ({}) => {
                       <X className="w-4 h-4" />
                     </button>
                   </div>
-                  <button
+                  {/* <button
                     onClick={() => {
                       // navigate(settings:user)
                       setDropdownOpen(false);
@@ -769,7 +769,7 @@ const AvatarSelectionComponent = ({}) => {
                     role="menuitem"
                   >
                     Billing
-                  </button>
+                  </button> */}
                   <button
                     onClick={handleLogout}
                     className="block w-full text-left flex flex-row items-center px-4 py-2 text-sm text-red-500 hover:bg-red-900 hover:text-white transition"

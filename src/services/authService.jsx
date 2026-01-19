@@ -1,5 +1,6 @@
 import {
   createUserWithEmailAndPassword,
+  indexedDBLocalPersistence,
   signInWithEmailAndPassword,
   signOut,
   updateProfile,
@@ -31,7 +32,7 @@ export const signup = async (username, email, password) => {
       username,
       email,
       created_at: new Date(),
-      last_login: null,
+      last_login: new Date(),
       currently_logged_in: true,
       avatars: [],
       last_used_avatar: null,
@@ -49,6 +50,7 @@ export const signup = async (username, email, password) => {
     //   'Signup successful! Please check your email to verify your account.',
     //   { duration: Infinity }
     // );
+    localStorage.setItem(user, userCredential.user);
 
     return userCredential.user;
   } catch (error) {
@@ -80,6 +82,7 @@ export const login = async (email, password) => {
       email,
       password
     );
+
     console.log(
       'XXXXXXXXXXXXXXXXXXXXXX   USE EFFECT LOGIN FROM AUTH SERVICE XXXXXXXXXXXXXXXXXXXXXXXXXXX'
     );
@@ -99,7 +102,19 @@ export const login = async (email, password) => {
       last_login: new Date(),
       currently_logged_in: true,
     });
+
+    console.log(
+      'XXXXXXXXXXXXXXXXXXXXXXXXX userCredential: ' +
+        JSON.stringify(userCredential)
+    );
+    console.log(
+      'XXXXXXXXXXXXXXXXXXXXXXXXX userCredential.user: ' +
+        JSON.stringify(userCredential.user)
+    );
+
+    localStorage.setItem(user, userCredential.user);
     toast.success('Login successful!');
+
     return userCredential.user;
   } catch (error) {
     console.error('Login error:', error);
@@ -136,7 +151,16 @@ try {
 
 export const logout = async () => {
   try {
+    localStorage.clear();
     const user = auth.currentUser;
+    console.log(
+      'XXXXXXXXXXXXXXXXXXXXXXXXX auth.currentUser: ' +
+        JSON.stringify(auth.currentUser)
+    );
+    console.log(
+      'XXXXXXXXXXXXXXXXXXXXXXXXX auth.currentUser.user: ' +
+        JSON.stringify(auth.currentUser.user)
+    );
     console.log(
       'XXXXXXXXXXX AUTH SERVICE XXXXXXXXXXXXXXXXX LOGOUT XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX' +
         auth.currentUser
