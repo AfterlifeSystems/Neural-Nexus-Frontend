@@ -57,7 +57,6 @@ export const AuthProvider = ({ children }) => {
 
   // TESTING
   useEffect(() => {
-    auth.setPersistence(browserLocalPersistence);
     const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
       setUser(currentUser);
       console.log(

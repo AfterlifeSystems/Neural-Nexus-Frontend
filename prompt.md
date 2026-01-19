@@ -11,7 +11,7 @@
 
 # Messages do not populate 
 # deleting the avatar
-# logging out
+
 # vanta background is slow to load
 # color scheme could be updated
 # No loading indicator for message replys
@@ -25,10 +25,12 @@
 Prioritize foundational fixes for stability and core user flow:
 
 Persistent login across refresh and browser navigation – Essential for sessions; implement with JWT or localStorage.
-Logging out – Pairs with login; simple endpoint and clear session.
 Name visible and able to change – Quick UI/backend update for basic editing.
 Description visible and able to change – Similar to name; build on it.
 Image upload – Core avatar feature; use multer or similar for handling.
 Audio upload – Follow image pattern.
 
 Tackle these in sequence tonight for quick wins. Defer UI polish (vanta, colors, indicators) and advanced features (social, sharing, model persona) until basics work. Test each change locally.
+
+# Complete:
+# logging out
