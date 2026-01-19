@@ -80,6 +80,10 @@ export const login = async (email, password) => {
       email,
       password
     );
+    console.log(
+      'XXXXXXXXXXXXXXXXXXXXXX   USE EFFECT LOGIN FROM AUTH SERVICE XXXXXXXXXXXXXXXXXXXXXXXXXXX'
+    );
+    console.log(userCredential);
 
     // Allow unverified emails if we are using the emulator
     const isEmulator = import.meta.env.VITE_USE_FIREBASE_EMULATOR === 'true';
@@ -95,8 +99,7 @@ export const login = async (email, password) => {
       last_login: new Date(),
       currently_logged_in: true,
     });
-    localStorage.setItem('user', userCredential.user);
-    // toast.success('Login successful!');
+    toast.success('Login successful!');
     return userCredential.user;
   } catch (error) {
     console.error('Login error:', error);

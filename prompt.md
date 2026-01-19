@@ -32,5 +32,3 @@ Audio upload – Follow image pattern.
 
 Tackle these in sequence tonight for quick wins. Defer UI polish (vanta, colors, indicators) and advanced features (social, sharing, model persona) until basics work. Test each change locally.
 
-# Complete:
-# logging out

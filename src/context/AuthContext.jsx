@@ -58,14 +58,27 @@ export const AuthProvider = ({ children }) => {
   // TESTING
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
+      console.log(
+        'Auth state changed →',
+        currentUser ? currentUser.uid : 'null'
+      );
       setUser(currentUser);
+      // Give Firestore listener a moment to catch up (common pattern)
+      setTimeout(() => {
+        setLoading(false);
+      }, 300); // ← 300 ms is usually enough for local emulator + real Firebase
+      setLoading(false);
       console.log(
         'XXXXXXXXXXXXXXXXXXXXXX CURRENT USER AUTH CONTEXT USE EFFECT XXXXXXXXXXXXXXXXXXXXXXXXXXX'
       );
-      // console.log(currentUser);
-      // console.log(currentUser.uid);
+      console.log(currentUser);
+      console.log(currentUser.uid);
 
       if (!currentUser) {
+        console.log(
+          'XXXXXXXXXXXXXXXXXXXXXX NOT CURRENT USER AUTH CONTEXT USE EFFECT XXXXXXXXXXXXXXXXXXXXXXXXXXX'
+        );
+        console.log(currentUser);
         setProfile([]); // object that will contain current avatar
         setUserAvatars([]); // list of avatars each with current conversation
         setCommunityAvatars([]);

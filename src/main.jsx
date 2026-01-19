@@ -25,11 +25,13 @@ const RootRedirect = () => {
 
   // if (loading) return null;
   if (loading) return <LoadingSpinner />;
-
+  console.log('XXXXX ROOT REDIRECT USER XXXXXXXXXXXXXX');
+  console.log(user);
+  console.log(loading);
   return user ? (
     <Navigate to="/avatars" replace />
   ) : (
-    <Navigate to="/welcome" replace />
+    <Navigate to="/login" replace />
   );
 };
 
@@ -65,7 +67,8 @@ createRoot(document.getElementById('root')).render(
             </Route>
 
             {/* Catch-all redirect to root */}
-            <Route path="/*" element={<Navigate to="/avatars" replace />} />
+            {/* <Route path="/" element={<RootRedirect />} /> */}
+            {/* <Route path="*" element={<RootRedirect />} /> */}
           </Routes>
         </BrowserRouter>
       </MediaProvider>
