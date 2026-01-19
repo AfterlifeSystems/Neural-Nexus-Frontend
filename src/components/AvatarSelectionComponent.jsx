@@ -17,7 +17,7 @@ import CreateAvatarComponent from './CreateAvatarComponent';
 import CreateAvatarModal from './CreateAvatarModal';
 import AvatarCardComponent from './AvatarCardComponent';
 import { useMedia } from '../context/MediaContext';
-import { signup, login, logout } from '../services/authService';
+import { logout } from '../services/authService';
 import { selectAvatar, configureAvatarApi } from '../services/avatarService';
 
 const AvatarSelectionComponent = ({}) => {

@@ -20,16 +20,12 @@ import { useAuth } from './context/AuthContext';
 import VantaBackground from './components/VantaBackground.jsx';
 import LoadingSpinner from './components/LoadingSpinner.jsx';
 import { auth, db, storage } from './firebase/config.js';
-// Root redirect component – decides where authenticated users land
+
+// main.jsx → RootRedirect
 const RootRedirect = () => {
-  const { user, loading, accessToken } = useAuth();
-  console.log('XXXXX auth.currentUser ROOT REDIRECT USER XXXXXXXXXXXXXX');
-  console.log(auth.currentUser);
-  // if (loading) return null;
-  if (loading) return <LoadingSpinner />;
-  console.log('XXXXX ROOT REDIRECT USER XXXXXXXXXXXXXX');
-  console.log(user);
-  console.log(loading);
+  const { user, loading } = useAuth();
+
+  if (loading) return <LoadingSpinner fullScreen />;
 
   return user ? (
     <Navigate to="/avatars" replace />
