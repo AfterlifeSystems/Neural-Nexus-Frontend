@@ -1,4 +1,3 @@
-// components/AvatarSettings.jsx
 import React, { useState, useEffect, useRef } from 'react';
 import { toast } from 'react-hot-toast';
 import Dropzone from 'react-dropzone';
@@ -23,6 +22,7 @@ import {
   Camera,
   Mic,
 } from 'lucide-react';
+import { v4 as uuidv4 } from 'uuid';
 import { useAuth } from '../context/AuthContext';
 import * as avatarService from '../services/avatarService';
 // Social Media Platform Configuration
@@ -62,14 +62,7 @@ const AvatarSettings = ({ avatarId, accessToken, onAvatarDeleted }) => {
     password: '',
   });
   const [manualUrl, setManualUrl] = useState('');
-  const {
-    activeAvatar,
-    setActiveAvatar,
-    deleteAvatar,
-    getAvatars,
-    currentUser,
-    selectAvatar,
-  } = useAuth();
+  const { user, activeAvatar, deleteAvatar } = useAuth();
   const hasRun = useRef(false);
   // Global drag and drop handlers
   useEffect(() => {
@@ -120,37 +113,23 @@ const AvatarSettings = ({ avatarId, accessToken, onAvatarDeleted }) => {
   const initialPopulationOfAvatarData = async () => {
     if (hasRun.current) return;
     hasRun.current = true;
-    if (!activeAvatar?.avatar_id || !currentUser) return;
+    if (!activeAvatar?.avatar_id || !user) return;
     try {
       const avatarProfileData = await avatarService.selectAvatar(
-        currentUser.uid,
+        user,
+        user.uid,
         activeAvatar.avatar_id
       );
-      setUpdatedDesc(avatarProfileData.description);
-      setUpdatedIcon(avatarProfileData.icon_url);
-      setUpdatedAvatarName(avatarProfileData.name);
+      setUpdatedDesc(avatarProfileData.description || '');
+      setUpdatedIcon(avatarProfileData.icon?.url || null);
+      setUpdatedAvatarName(avatarProfileData.name || '');
       // Load existing documents and social logins if available
-      if (avatarProfileData.documents) {
-        setDocuments(avatarProfileData.documents);
-      }
+      setDocuments(avatarProfileData.files || []);
       if (avatarProfileData.socialLogins) {
         setSocialLogins(avatarProfileData.socialLogins);
       }
     } catch (err) {
       console.error('Failed to fetch avatar profile:', err);
-    }
-  };
-  const fetchAvatarData = async () => {
-    if (!activeAvatar?.avatar_id || !currentUser) return null;
-    try {
-      const avatarProfileData = await avatarService.selectAvatar(
-        currentUser.uid,
-        activeAvatar.avatar_id
-      );
-      return avatarProfileData;
-    } catch (err) {
-      console.error('Failed to fetch avatar profile:', err);
-      return null;
     }
   };
   useEffect(() => {
@@ -174,47 +153,98 @@ const AvatarSettings = ({ avatarId, accessToken, onAvatarDeleted }) => {
     return 'file';
   };
   const handleFileUpload = async (e) => {
-    setLoading(true);
-    const items = e.dataTransfer?.items || [];
     const filesList = e.dataTransfer?.files || e.target?.files || [];
-    const formData = new FormData();
-    formData.append('avatar_id', activeAvatar.avatar_id);
-    // Handle files
-    for (let i = 0; i < filesList.length; i++) {
-      formData.append('files', filesList[i]);
-    }
+    if (filesList.length === 0) return;
     try {
-      if (!currentUser) throw new Error('Not logged in');
-      const uploaded = await avatarService.uploadDocuments(
-        currentUser.uid,
-        activeAvatar.avatar_id,
-        filesList
-      );
-      if (uploaded && uploaded.length > 0) {
-        setDocuments((prev) => [...prev, ...uploaded]);
+      if (!user) throw new Error('Not logged in');
+      if (!activeAvatar) throw new Error('No active avatar');
+      const newPending = Array.from(filesList).map((file) => ({
+        id: uuidv4(),
+        name: file.name,
+        type: determineContentType(file),
+        loading: true,
+        previewUrl: URL.createObjectURL(file),
+        file, // keep file ref for upload
+      }));
+      setDocuments((prev) => [...prev, ...newPending]);
+      for (const pending of newPending) {
+        const file = pending.file;
+        try {
+          const uploadResults = await avatarService.uploadToDataLoadingApi(
+            user.uid,
+            activeAvatar.avatar_id,
+            activeAvatar.name || updatedAvatarName,
+            [file]
+          );
+          if (!uploadResults[0].success) {
+            throw new Error(uploadResults[0].error);
+          }
+          const docMeta = await avatarService.uploadDocumentToStorage(
+            user.uid,
+            activeAvatar.avatar_id,
+            file
+          );
+          const avatarRef = doc(
+            db,
+            'users',
+            user.uid,
+            'avatars',
+            activeAvatar.avatar_id
+          );
+          await updateDoc(avatarRef, {
+            files: arrayUnion(docMeta),
+          });
+          setDocuments((prev) =>
+            prev.map((d) =>
+              d.id === pending.id ? { ...docMeta, loading: false } : d
+            )
+          );
+          toast.success(`${file.name} uploaded successfully`);
+        } catch (error) {
+          toast.error(`Failed to upload ${file.name}: ${error.message}`);
+          setDocuments((prev) => prev.filter((d) => d.id !== pending.id));
+        }
       }
-      toast.success('Files uploaded successfully');
     } catch (err) {
       toast.error('Upload failed: ' + err.message);
-    } finally {
-      setLoading(false);
+      console.error('Upload error:', err);
     }
   };
   const handleUrlUpload = async (url) => {
-    setLoading(true);
+    const tempId = uuidv4();
+    const tempDoc = {
+      id: tempId,
+      name: url,
+      type: 'web',
+      loading: true,
+    };
+    setDocuments((prev) => [...prev, tempDoc]);
     try {
-      if (!currentUser) throw new Error('Not logged in');
-      const docObj = await avatarService.uploadUrl(
-        currentUser.uid,
+      if (!user) throw new Error('Not logged in');
+      if (!activeAvatar) throw new Error('No active avatar');
+      const docMeta = await avatarService.uploadUrl(
+        user.uid,
         activeAvatar.avatar_id,
-        url
+        url,
+        activeAvatar.name || updatedAvatarName
       );
-      if (docObj) setDocuments((prev) => [...prev, docObj]);
+      const avatarRef = doc(
+        db,
+        'users',
+        user.uid,
+        'avatars',
+        activeAvatar.avatar_id
+      );
+      await updateDoc(avatarRef, {
+        files: arrayUnion(docMeta),
+      });
+      setDocuments((prev) =>
+        prev.map((d) => (d.id === tempId ? { ...docMeta, loading: false } : d))
+      );
       toast.success('URL added successfully');
     } catch (err) {
       toast.error('URL upload failed: ' + err.message);
-    } finally {
-      setLoading(false);
+      setDocuments((prev) => prev.filter((d) => d.id !== tempId));
     }
   };
   const handleSocialLogin = (platform) => {
@@ -224,9 +254,9 @@ const AvatarSettings = ({ avatarId, accessToken, onAvatarDeleted }) => {
   const submitSocialLogin = async () => {
     if (!loginCredentials.username || !loginCredentials.password) return;
     try {
-      if (!currentUser) throw new Error('Not logged in');
+      if (!user) throw new Error('Not logged in');
       const login = await avatarService.connectSocial(
-        currentUser.uid,
+        user.uid,
         activeAvatar.avatar_id,
         selectedPlatform,
         loginCredentials.username,
@@ -247,9 +277,9 @@ const AvatarSettings = ({ avatarId, accessToken, onAvatarDeleted }) => {
   };
   const removeSocialLogin = async (id) => {
     try {
-      if (!currentUser) throw new Error('Not logged in');
+      if (!user) throw new Error('Not logged in');
       await avatarService.disconnectSocial(
-        currentUser.uid,
+        user.uid,
         activeAvatar.avatar_id,
         id
       );
@@ -278,12 +308,8 @@ const AvatarSettings = ({ avatarId, accessToken, onAvatarDeleted }) => {
   };
   const deleteDocument = async (id) => {
     try {
-      if (!currentUser) throw new Error('Not logged in');
-      await avatarService.deleteDocument(
-        currentUser.uid,
-        activeAvatar.avatar_id,
-        id
-      );
+      if (!user) throw new Error('Not logged in');
+      await avatarService.deleteDocument(user.uid, activeAvatar.avatar_id, id);
       setDocuments((prev) => prev.filter((doc) => doc.id !== id));
       toast.success('Document deleted');
     } catch (err) {
@@ -296,12 +322,20 @@ const AvatarSettings = ({ avatarId, accessToken, onAvatarDeleted }) => {
     return acc;
   }, {});
   const renderDocumentPreview = (doc) => {
+    if (doc.loading) {
+      return (
+        <div className="flex items-center justify-center h-48 bg-white/5 rounded-lg">
+          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-400"></div>
+        </div>
+      );
+    }
+    const src = doc.previewUrl || doc.url;
     switch (doc.type) {
       case 'image':
         return (
           <div className="relative w-full h-48 bg-white/5 rounded-lg overflow-hidden">
             <img
-              src={doc.url}
+              src={src}
               alt={doc.name}
               className="w-full h-full object-cover"
             />
@@ -310,31 +344,28 @@ const AvatarSettings = ({ avatarId, accessToken, onAvatarDeleted }) => {
       case 'video':
         return (
           <div className="relative w-full h-48 bg-white/5 rounded-lg overflow-hidden">
-            <video
-              src={doc.url}
-              controls
-              className="w-full h-full object-cover"
-            />
+            <video src={src} controls className="w-full h-full object-cover" />
           </div>
         );
       case 'audio':
         return (
           <div className="flex items-center gap-3 p-4 bg-white/5 rounded-lg">
             <Music className="text-blue-400" size={32} />
-            <audio src={doc.url} controls className="flex-1" />
+            <audio src={src} controls className="flex-1" />
           </div>
         );
       case 'pdf':
+      case 'text':
         return (
           <div className="flex items-center gap-3 p-4 bg-white/5 rounded-lg">
             <FileText className="text-red-400" size={32} />
             <a
-              href={doc.url}
+              href={src}
               target="_blank"
               rel="noopener noreferrer"
               className="text-blue-400 hover:underline flex items-center gap-2"
             >
-              Open PDF <ExternalLink size={16} />
+              Open File <ExternalLink size={16} />
             </a>
           </div>
         );
@@ -411,9 +442,9 @@ const AvatarSettings = ({ avatarId, accessToken, onAvatarDeleted }) => {
     );
     const file = new File([blob], 'avatar-photo.jpg', { type: 'image/jpeg' });
     try {
-      if (!currentUser) throw new Error('Not logged in');
+      if (!user) throw new Error('Not logged in');
       const uploaded = await avatarService.uploadDocuments(
-        currentUser.uid,
+        user.uid,
         activeAvatar.avatar_id,
         [file]
       );
@@ -467,56 +498,54 @@ const AvatarSettings = ({ avatarId, accessToken, onAvatarDeleted }) => {
     formData.append('icon', acceptedFiles[0]);
     formData.append('avatar_id', activeAvatar.avatar_id);
     try {
-      if (!currentUser) throw new Error('Not logged in');
+      if (!user) throw new Error('Not logged in');
       await avatarService.updateAvatarWithIcon(
-        currentUser.uid,
+        user.uid,
         activeAvatar.avatar_id,
         null,
         null,
         acceptedFiles[0]
       );
-      const avatarProfileData = await fetchAvatarData();
-      setUpdatedIcon(avatarProfileData.icon_url);
+      const avatarProfileData = await avatarService.selectAvatar(
+        user,
+        user.uid,
+        activeAvatar.avatar_id
+      );
+      setUpdatedIcon(avatarProfileData.icon?.url || null);
       toast.success('Avatar icon updated');
     } catch (err) {
       toast.error(err.message);
     }
   };
   const handleDescSave = async (updatedDesc) => {
-    const formData = new FormData();
-    formData.append('description', updatedDesc);
-    formData.append('avatar_id', activeAvatar.avatar_id);
     try {
-      if (!currentUser) throw new Error('Not logged in');
-      await avatarService.updateAvatar(
-        currentUser.uid,
-        activeAvatar.avatar_id,
-        {
-          description: updatedDesc,
-        }
+      if (!user) throw new Error('Not logged in');
+      await avatarService.updateAvatar(user.uid, activeAvatar.avatar_id, {
+        description: updatedDesc,
+      });
+      const avatarProfileData = await avatarService.selectAvatar(
+        user,
+        user.uid,
+        activeAvatar.avatar_id
       );
-      const avatarProfileData = await fetchAvatarData();
-      setUpdatedDesc(avatarProfileData.description);
+      setUpdatedDesc(avatarProfileData.description || '');
       toast.success('Description updated');
     } catch (err) {
       toast.error(err.message);
     }
   };
   const handleUpdateName = async (updatedAvatarName) => {
-    const formData = new FormData();
-    formData.append('name', updatedAvatarName);
-    formData.append('avatar_id', activeAvatar.avatar_id);
     try {
-      if (!currentUser) throw new Error('Not logged in');
-      await avatarService.updateAvatar(
-        currentUser.uid,
-        activeAvatar.avatar_id,
-        {
-          name: updatedAvatarName,
-        }
+      if (!user) throw new Error('Not logged in');
+      await avatarService.updateAvatar(user.uid, activeAvatar.avatar_id, {
+        name: updatedAvatarName,
+      });
+      const avatarProfileData = await avatarService.selectAvatar(
+        user,
+        user.uid,
+        activeAvatar.avatar_id
       );
-      const avatarProfileData = await fetchAvatarData();
-      setUpdatedAvatarName(avatarProfileData.name);
+      setUpdatedAvatarName(avatarProfileData.name || '');
       toast.success('Name updated');
     } catch (err) {
       toast.error(err.message);
@@ -678,19 +707,18 @@ const AvatarSettings = ({ avatarId, accessToken, onAvatarDeleted }) => {
             <div className="flex gap-2">
               <button
                 onClick={handleCameraCapture}
-                className="flex-1 px-3 py-2 bg-blue-500/20..."
+                className="flex-1 px-3 py-2 bg-blue-500/20 hover:bg-blue-500/30 text-blue-400 rounded-lg transition-all duration-300 border border-blue-500/30 flex items-center justify-center"
               >
                 <Camera size={16} />
               </button>
               <button
                 onClick={handleAudioRecord}
-                className="flex-1 px-3 py-2 bg-purple-500/20..."
+                className="flex-1 px-3 py-2 bg-purple-500/20 hover:bg-purple-500/30 text-purple-400 rounded-lg transition-all duration-300 border border-purple-500/30 flex items-center justify-center"
               >
                 <Mic size={16} />
               </button>
             </div>
           </div>
-          {/* */}
           {/* Name and Description */}
           <div className="flex-grow space-y-4">
             {/* Name Field */}
@@ -950,20 +978,25 @@ const AvatarSettings = ({ avatarId, accessToken, onAvatarDeleted }) => {
                   >
                     <div className="flex justify-between items-start mb-3">
                       <div>
-                        <h4 className="text-white font-medium">{doc.name}</h4>
+                        <h4 className="text-white font-medium flex items-center gap-2">
+                          {doc.name}
+                          {doc.loading && (
+                            <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-blue-400"></div>
+                          )}
+                        </h4>
                         <p className="text-white/60 text-sm">
-                          {new Date(
-                            doc.uploadedAt || doc.created_at
-                          ).toLocaleDateString()}{' '}
-                          • {doc.source}
+                          {new Date(doc.created_at).toLocaleDateString()} •{' '}
+                          {doc.source || 'Uploaded'}
                         </p>
                       </div>
-                      <button
-                        onClick={() => deleteDocument(doc.id)}
-                        className="text-red-400 hover:text-red-300 transition-colors"
-                      >
-                        <Trash2 size={20} />
-                      </button>
+                      {!doc.loading && (
+                        <button
+                          onClick={() => deleteDocument(doc.id)}
+                          className="text-red-400 hover:text-red-300 transition-colors"
+                        >
+                          <Trash2 size={20} />
+                        </button>
+                      )}
                     </div>
                     {renderDocumentPreview(doc)}
                   </div>
@@ -985,5 +1018,4 @@ const AvatarSettings = ({ avatarId, accessToken, onAvatarDeleted }) => {
     </div>
   );
 };
-
 export default AvatarSettings;

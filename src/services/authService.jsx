@@ -80,6 +80,10 @@ export const login = async (email, password) => {
       email,
       password
     );
+    console.log(
+      'XXXXXXXXXXXXXXXXXXXXXX   USE EFFECT LOGIN FROM AUTH SERVICE XXXXXXXXXXXXXXXXXXXXXXXXXXX'
+    );
+    console.log(userCredential);
 
     // Allow unverified emails if we are using the emulator
     const isEmulator = import.meta.env.VITE_USE_FIREBASE_EMULATOR === 'true';
@@ -95,8 +99,7 @@ export const login = async (email, password) => {
       last_login: new Date(),
       currently_logged_in: true,
     });
-    localStorage.setItem('user', userCredential.user);
-    // toast.success('Login successful!');
+    toast.success('Login successful!');
     return userCredential.user;
   } catch (error) {
     console.error('Login error:', error);
@@ -134,24 +137,19 @@ try {
 export const logout = async () => {
   try {
     const user = auth.currentUser;
+    console.log(
+      'XXXXXXXXXXX AUTH SERVICE XXXXXXXXXXXXXXXXX LOGOUT XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX' +
+        auth.currentUser
+    );
+
+    console.log(user);
+
     if (user) {
       await updateDoc(doc(db, 'users', user.uid), {
         currently_logged_in: false,
       });
     }
     await signOut(auth);
-    localStorage.removeItem('user');
-    // Clear local state
-    // setUser(null);
-    // setUserProfile(null);
-    // setIsLoggedIn(false);
-    // setUserAvatars([]);
-    // setActiveAvatar(null);
-    // setAccessToken(null);
-    // localStorage.removeItem('user');
-    // localStorage.removeItem('firebase_user_id');
-    // localStorage.removeItem('avatars');
-    // localStorage.removeItem('access_token');
   } catch (error) {
     console.error('Logout error:', error);
     toast.error('Logout completed with errors');

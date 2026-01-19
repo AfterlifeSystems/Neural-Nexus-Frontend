@@ -55,25 +55,34 @@ export const AuthProvider = ({ children }) => {
   const [loading, setLoading] = useState(true);
   const [accessToken, setAccessToken] = useState(null); // Firebase ID token for backend API
 
-  const [messages, setMessages] = useState(null);
-
   // TESTING
   useEffect(() => {
-    auth.setPersistence(browserLocalPersistence);
     const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
+      console.log(
+        'Auth state changed →',
+        currentUser ? currentUser.uid : 'null'
+      );
       setUser(currentUser);
+      // Give Firestore listener a moment to catch up (common pattern)
+      setTimeout(() => {
+        setLoading(false);
+      }, 300); // ← 300 ms is usually enough for local emulator + real Firebase
+      setLoading(false);
       console.log(
         'XXXXXXXXXXXXXXXXXXXXXX CURRENT USER AUTH CONTEXT USE EFFECT XXXXXXXXXXXXXXXXXXXXXXXXXXX'
       );
-      // console.log(currentUser);
-      // console.log(currentUser.uid);
+      console.log(currentUser);
+      console.log(currentUser.uid);
 
       if (!currentUser) {
+        console.log(
+          'XXXXXXXXXXXXXXXXXXXXXX NOT CURRENT USER AUTH CONTEXT USE EFFECT XXXXXXXXXXXXXXXXXXXXXXXXXXX'
+        );
+        console.log(currentUser);
         setProfile([]); // object that will contain current avatar
         setUserAvatars([]); // list of avatars each with current conversation
         setCommunityAvatars([]);
         setProprietaryAvatars([]);
-        setMessages([]); // messages of the current conversation
         setActiveAvatar(null);
         setLoading(false);
       }

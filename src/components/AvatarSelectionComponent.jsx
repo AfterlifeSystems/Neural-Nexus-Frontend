@@ -17,9 +17,8 @@ import CreateAvatarComponent from './CreateAvatarComponent';
 import CreateAvatarModal from './CreateAvatarModal';
 import AvatarCardComponent from './AvatarCardComponent';
 import { useMedia } from '../context/MediaContext';
-import AuthComponent from './AuthComponent';
 import { signup, login, logout } from '../services/authService';
-import { selectAvatar } from '../services/avatarService';
+import { selectAvatar, configureAvatarApi } from '../services/avatarService';
 
 const AvatarSelectionComponent = ({}) => {
   const { accessToken, user, userAvatars, setActiveAvatar, lastUsedAvatar } =
@@ -130,11 +129,13 @@ const AvatarSelectionComponent = ({}) => {
       // Use AuthContext selectAvatar which updates Firestore
       // await selectAvatar(avatarId);
 
-      // asdf;
-
       const selectedAvatar = userAvatars.find(
         (avatar) => avatar.avatar_id === avatarId
       );
+
+      if (user?.uid) {
+        await configureAvatarApi(user.uid, avatarId);
+      }
 
       cacheAvatarPosition(avatarId, avatarIndex);
       if (selectedAvatar?.icon) {
@@ -146,6 +147,7 @@ const AvatarSelectionComponent = ({}) => {
       // Load messages for this avatar
       // await fetchMessages();
       // toast.success(`Selected ${avatar.name || 'avatar'}`);
+      // console.log('HANDLE CLICK');
       navigate(`/chat/${avatarId}`); // ← ROUTE TO CHAT AREA
       // navigate(/chat:selectedAvatar)
     } else if (actualCardData.type === 'create') {
@@ -270,10 +272,16 @@ const AvatarSelectionComponent = ({}) => {
     }
   }, [user, userAvatars]);
 
-  const handleLogout = () => {
-    setActiveAvatar(null);
-    logout();
-    setDropdownOpen(false);
+  const handleLogout = async () => {
+    try {
+      await logout();
+      setDropdownOpen(false);
+
+      navigate('/login');
+    } catch (err) {
+      console.error('Logout failed', err);
+      // toast.error("Logout failed");
+    }
   };
 
   useEffect(() => {

@@ -46,6 +46,20 @@ services:
       - neural-nexus-network
     restart: unless-stopped
 
+
+
+  chroma:
+    image: chromadb/chroma:latest
+    container_name: chroma
+    ports:
+      - "9410:8000"           # host:9410 → container:8000
+    volumes:
+      - ./chroma_data:/chroma/chroma
+    environment:
+      - IS_PERSISTENT=TRUE
+      - ANONYMIZED_TELEMETRY=FALSE
+    restart: unless-stopped
+
 networks:
   neural-nexus-network:
     driver: bridge

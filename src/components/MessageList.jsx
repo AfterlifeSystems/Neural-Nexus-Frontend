@@ -1,12 +1,10 @@
 // src/components/MessageList.jsx
 import React, { useEffect } from 'react';
 import { useAuth } from '../context/AuthContext';
-import { useMedia } from '../context/MediaContext';
 import SecureImage from './SecureImage';
 
 const MessageList = ({ messages, messagesEndRef }) => {
   const { accessToken } = useAuth();
-  const { getMediaUrl } = useMedia();
 
   useEffect(() => {
     if (messagesEndRef?.current) {
@@ -14,98 +12,90 @@ const MessageList = ({ messages, messagesEndRef }) => {
     }
   }, [messages, messagesEndRef]);
 
-  // Debug: Log message count and timestamp info
+  // Debug log – shows what actually reaches the component
   useEffect(() => {
-    const validMessages = messages.filter((msg) => msg?.sender);
-    if (validMessages.length > 0) {
-      const timestamps = validMessages
-        .map((m) => (m.timestamp ? new Date(m.timestamp).getTime() : null))
-        .filter((t) => t !== null)
-        .sort((a, b) => a - b);
+    console.log(
+      'MessageList received messages:',
+      messages.map((m) => ({
+        id: m.id,
+        role: m.role,
+        hasRole: !!m.role,
+        contentPreview: m.content?.slice(0, 50) || '(no content)',
+        isLoading: m.isLoading,
+      }))
+    );
 
-      if (timestamps.length > 0) {
-        const oldest = new Date(timestamps[0]);
-        const newest = new Date(timestamps[timestamps.length - 1]);
-        console.log(
-          `MessageList: Rendering ${validMessages.length} of ${messages.length} total messages | ` +
-            `Time range: ${oldest.toLocaleString()} to ${newest.toLocaleString()}`
-        );
-      } else {
-        console.log(
-          `MessageList: Rendering ${validMessages.length} of ${messages.length} total messages`
-        );
-      }
-    } else {
-      console.log(
-        `MessageList: Rendering ${validMessages.length} of ${messages.length} total messages`
-      );
-    }
+    const valid = messages.filter((msg) => msg?.role);
+    console.log(
+      `Rendering ${valid.length} / ${messages.length} messages (after role filter)`
+    );
   }, [messages]);
 
   return (
     <div className="flex-grow mb-4 space-y-2 px-2 flex flex-col">
       {messages
-        .filter((msg) => msg?.sender) // Filter out messages without sender before mapping
+        // Temporary relaxed filter – helps debug missing assistant messages
+        .filter((msg) => msg?.role || msg?.sender || msg?.isLoading)
         .map((msg) => {
           const isLoading = msg.isLoading || msg.isPending;
-          // Generate a unique key - use _id, id, or fallback to index-based key
+
+          // Prefer role, fall back to sender (old field name safety)
+          const role = msg.role || msg.sender || 'user';
+
           const messageKey =
-            msg._id || msg.id || `msg-${msg.timestamp}-${Math.random()}`;
+            msg.id || msg.message_id || `temp-${msg.timestamp || Date.now()}`;
 
           return (
             <div
               key={messageKey}
               className={`max-w-[70%] p-2 rounded-lg break-words transition-all duration-150 ${
-                msg.sender === 'user'
+                role === 'user'
                   ? 'bg-teal-600 self-end text-white'
-                  : msg.sender === 'avatar'
+                  : role === 'assistant'
                   ? 'bg-indigo-700 self-start text-white'
                   : 'bg-indigo-700 self-center italic text-gray-300'
               }`}
             >
-              {/* LOADING INDICATOR */}
               {isLoading ? (
                 <div className="flex items-center space-x-2">
                   <div className="flex space-x-1">
                     <div
                       className="w-2 h-2 bg-white rounded-full animate-bounce"
                       style={{ animationDelay: '0ms' }}
-                    ></div>
+                    />
                     <div
                       className="w-2 h-2 bg-white rounded-full animate-bounce"
                       style={{ animationDelay: '150ms' }}
-                    ></div>
+                    />
                     <div
                       className="w-2 h-2 bg-white rounded-full animate-bounce"
                       style={{ animationDelay: '300ms' }}
-                    ></div>
+                    />
                   </div>
                 </div>
               ) : (
                 <>
-                  {/* TEXT CONTENT */}
-                  {(msg.content || msg.message) && (
-                    <div className="whitespace-pre-wrap">
-                      {msg.content || msg.message}
-                    </div>
+                  {msg.content && (
+                    <div className="whitespace-pre-wrap">{msg.content}</div>
                   )}
 
-                  {/* MEDIA CONTENT */}
-                  {msg.media &&
-                    Array.isArray(msg.media) &&
+                  {msg.media?.length > 0 &&
                     msg.media.map((media, index) => (
                       <div
-                        key={media.media_id || media.filename || index}
+                        key={media.id || media.filename || index}
                         className="mt-2"
                       >
-                        {media.content_type?.startsWith('image/') ? (
+                        {media.type === 'image' ||
+                        media.content_type?.startsWith('image/') ? (
                           <SecureImage
                             mediaUrl={media.url}
-                            filename={media.filename}
+                            filename={media.filename || media.name}
                           />
-                        ) : media.content_type?.startsWith('audio/') ? (
+                        ) : media.type === 'audio' ||
+                          media.content_type?.startsWith('audio/') ? (
                           <audio controls src={media.url} />
-                        ) : media.content_type?.startsWith('video/') ? (
+                        ) : media.type === 'video' ||
+                          media.content_type?.startsWith('video/') ? (
                           <video
                             controls
                             className="max-w-full max-h-64"
@@ -118,14 +108,13 @@ const MessageList = ({ messages, messagesEndRef }) => {
                             rel="noopener noreferrer"
                             className="underline text-blue-300"
                           >
-                            {media.filename || 'Download file'}
+                            {media.filename || media.name || 'Download file'}
                           </a>
                         )}
                       </div>
                     ))}
 
-                  {/* TIMESTAMP */}
-                  <div className="text-xs text-white-400 mt-1 text-right select-none">
+                  <div className="text-xs text-gray-400 mt-1 text-right select-none">
                     {msg.timestamp &&
                       new Date(msg.timestamp).toLocaleTimeString(undefined, {
                         hour: '2-digit',
@@ -137,6 +126,7 @@ const MessageList = ({ messages, messagesEndRef }) => {
             </div>
           );
         })}
+
       <div ref={messagesEndRef} />
     </div>
   );

@@ -12,6 +12,7 @@ import {
   where,
   orderBy,
   limit,
+  arrayUnion,
 } from 'firebase/firestore';
 import {
   ref,
@@ -22,6 +23,72 @@ import {
 } from 'firebase/storage';
 import { db, storage } from '../firebase/config';
 import { v4 as uuidv4 } from 'uuid';
+
+// Add this function to your avatarService.jsx file
+
+/**
+ * Upload documents to the data-loading API
+ * @param {string} userId - User ID
+ * @param {string} avatarId - Avatar ID
+ * @param {string} targetAvatarName - Target avatar name
+ * @param {FileList|File[]} files - Files to upload
+ * @param {boolean} isReferenceImage - Whether the file is a reference image
+ * @param {boolean} isReferenceAudio - Whether the file is reference audio
+ * @returns {Promise<Object>} Upload response
+ */
+export const uploadToDataLoadingApi = async (
+  userId,
+  avatarId,
+  targetAvatarName,
+  files,
+  isReferenceImage = false,
+  isReferenceAudio = false
+) => {
+  const API_BASE_URL = 'http://localhost:8060'; // Update this to your API URL
+
+  const results = [];
+
+  // Upload each file separately as the API expects single file uploads
+  for (const file of files) {
+    const formData = new FormData();
+    formData.append('file', file);
+    formData.append('target_avatar_name', targetAvatarName);
+    formData.append('user_id', userId);
+    formData.append('avatar_id', avatarId);
+    formData.append('is_reference_image', isReferenceImage);
+    formData.append('is_reference_audio', isReferenceAudio);
+
+    try {
+      const response = await fetch(`${API_BASE_URL}/upload`, {
+        method: 'POST',
+        body: formData,
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(
+          errorData.detail || `Upload failed with status ${response.status}`
+        );
+      }
+
+      const result = await response.json();
+      results.push({
+        file: file.name,
+        success: true,
+        data: result,
+      });
+    } catch (error) {
+      console.error(`Failed to upload ${file.name}:`, error);
+      results.push({
+        file: file.name,
+        success: false,
+        error: error.message,
+      });
+    }
+  }
+
+  return results;
+};
 
 export const createAvatar = async (user, name, description, iconFile) => {
   if (!user) throw new Error('No authenticated user');
@@ -123,9 +190,14 @@ export const createAvatar = async (user, name, description, iconFile) => {
   // Update user's avatars list
   const userRef = doc(db, 'users', userId);
   const userDoc = await getDoc(userRef);
-  const avatars = userDoc.data().avatars || [];
+  console.log('XXXXXXXXXXXXXXXXXXXXXXXXXXXX I CREATED AN AVATAR');
+  // if (userDoc) {
+  //   console.log(userDoc);
+  // } else {
+  //   console.log('no userDoc');
+  // }
   await updateDoc(userRef, {
-    avatars: [...avatars, avatarId],
+    avatars: arrayUnion(avatarId),
     last_used_avatar: avatarId,
   });
 
@@ -314,8 +386,7 @@ export const deleteAvatar = async (userId, avatarId) => {
   };
 };
 
-export const selectAvatar = async (userId, avatarId) => {
-  userId = getAuth().currentUser.id;
+export const selectAvatar = async (user, userId, avatarId) => {
   const avatarRef = doc(db, 'users', userId, 'avatars', avatarId);
   const avatarDoc = await getDoc(avatarRef);
 
@@ -534,4 +605,34 @@ export const deleteConversation = async (userId, avatarId, conversationId) => {
   await updateDoc(avatarRef, updateData);
 
   return { status: 'success', conversation_id: conversationId };
+};
+
+export const configureAvatarApi = async (userId, avatarId) => {
+  const responseMessagingApi = await fetch(
+    `http://localhost:8090/configure_avatar?user_id=${userId}&avatar_id=${avatarId}`,
+    {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+    }
+  );
+  const responseDataLoadingApi = await fetch(
+    `http://localhost:8060/init_avatar?user_id=${userId}&avatar_id=${avatarId}`,
+    {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+    }
+  );
+
+  if (!responseMessagingApi.ok) {
+    throw new Error('Failed to configure avatar on the messaging server');
+  }
+  if (!responseDataLoadingApi.ok) {
+    throw new Error('Failed to configure avatar on the data loading server');
+  }
+
+  return;
 };

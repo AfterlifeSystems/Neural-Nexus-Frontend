@@ -41,31 +41,8 @@ const AuthComponent = () => {
   // Rotating avatar index
   const [rotatingIndex, setRotatingIndex] = useState(0);
 
-  const {
-    user,
-    // isLoggedIn,
-    // login,
-    // signup,
-    // logout,
-    resendVerification,
-    forgotPassword,
-    signInWithProvider,
-    accessToken,
-    avatars,
-    lastUsedAvatar,
-    setActiveAvatar,
-  } = useAuth();
-  const { setMessages } = useMedia();
-  const [dropdownOpen, setDropdownOpen] = useState(false);
-  const dropdownRef = useRef(null);
-
-  // Inside AuthComponent.jsx
-  useEffect(() => {
-    // If the context says we are logged in and have a user profile, go to avatars
-    if (user) {
-      navigate('/avatars');
-    }
-  }, [user, navigate]);
+  const { user, loading, forgotPassword, signInWithProvider, avatars } =
+    useAuth();
 
   const validIcons = Array.isArray(avatars)
     ? avatars
@@ -111,6 +88,26 @@ const AuthComponent = () => {
     return () => clearInterval(interval);
   }, [avatars]);
 
+  // Redirect when user becomes authenticated
+  useEffect(() => {
+    if (loading) return;
+    if (user) {
+      console.log('User logged in → redirecting to /avatars');
+      navigate('/avatars', { replace: true });
+    }
+  }, [user, loading, navigate]);
+
+  // useEffect(() => {
+  //   // Wait for auth to initialize
+  //   if (loading) return;
+
+  //   // Only redirect if user is authenticated AND currently on /login
+  //   if (user && location.pathname === '/login') {
+  //     console.log('✅ User authenticated on /login, redirecting to /avatars');
+  //     navigate('/avatars', { replace: true });
+  //   }
+  // }, [user, loading, navigate, location.pathname]);
+
   // const avatarToRender = getRotatingAvatarIcon(avatars, rotatingIndex, user);
 
   const handleAuth = async (e) => {
@@ -154,100 +151,7 @@ const AuthComponent = () => {
     } catch (error) {
       // Handle specific error cases
       const errorMsg = error.message || 'Authentication failed';
-
-      if (
-        errorMsg.includes('Email not confirmed') ||
-        errorMsg.includes('verify your email')
-      ) {
-        // Email not verified
-        // toast.error(
-        //   (t) => (
-        //     <div className="flex flex-col gap-3">
-        //       <p className="font-medium">Please verify your email first</p>
-        //       <div className="flex gap-2">
-        //         <button
-        //           onClick={() => {
-        //             resendVerification(email);
-        //             toast.dismiss(t.id);
-        //           }}
-        //           className="px-3 py-1 bg-teal-600 hover:bg-teal-700 rounded text-sm flex items-center gap-1"
-        //         >
-        //           <SendIcon size={14} />
-        //           Resend Email
-        //         </button>
-        //         <button
-        //           onClick={() => toast.dismiss(t.id)}
-        //           className="px-3 py-1 bg-red-500 hover:bg-red-500 rounded text-sm"
-        //         >
-        //           Dismiss
-        //         </button>
-        //       </div>
-        //     </div>
-        //   ),
-        //   { duration: 10000 }
-        // );
-      } else if (
-        errorMsg.includes('Invalid login credentials') ||
-        errorMsg.includes('Invalid email or password')
-      ) {
-        // Wrong password
-        // toast.error(
-        //   (t) => (
-        //     <div className="flex flex-col gap-3">
-        //       <p className="font-medium">Invalid email or password</p>
-        //       <div className="flex gap-2">
-        //         <button
-        //           onClick={() => {
-        //             setModalView('forgotPassword');
-        //             toast.dismiss(t.id);
-        //           }}
-        //           className="px-3 py-1 bg-teal-600 hover:bg-teal-700 rounded text-sm"
-        //         >
-        //           Forgot Password?
-        //         </button>
-        //         <button
-        //           onClick={() => toast.dismiss(t.id)}
-        //           className="px-3 py-1 bg-red-600 hover:bg-red-500 rounded text-sm"
-        //         >
-        //           Try Again
-        //         </button>
-        //       </div>
-        //     </div>
-        //   ),
-        //   { duration: 10000 }
-        // );
-      } else if (errorMsg.includes('User already registered')) {
-        // Already registered
-        toast.error(
-          (t) => (
-            <div className="flex flex-col gap-3">
-              <p className="font-medium">Email already registered</p>
-              <div className="flex gap-2">
-                <button
-                  onClick={() => {
-                    setModalView('login');
-                    toast.dismiss(t.id);
-                  }}
-                  className="px-3 py-1 bg-teal-600 hover:bg-teal-700 rounded text-sm flex items-center gap-1"
-                >
-                  <LogIn size={14} />
-                  Login Instead
-                </button>
-                <button
-                  onClick={() => toast.dismiss(t.id)}
-                  className="px-3 py-1 bg-red-600 hover:bg-red-500 rounded text-sm"
-                >
-                  Dismiss
-                </button>
-              </div>
-            </div>
-          ),
-          { duration: 10000 }
-        );
-      } else {
-        // Generic error
-        toast.error(errorMsg);
-      }
+      console.log(error);
     } finally {
       setIsLoading(false);
     }
