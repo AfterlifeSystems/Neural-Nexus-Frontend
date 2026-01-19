@@ -21,6 +21,11 @@ import { db, storage } from '../firebase/config.js';
 import { v4 as uuidv4 } from 'uuid';
 
 // services/api.js
+
+// Add these functions to avatarService.jsx
+
+// ChromaDB configuration
+
 /**
  * Call local Neural Nexus messaging API
  * @param {string} userId

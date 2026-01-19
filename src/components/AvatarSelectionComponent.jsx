@@ -272,10 +272,16 @@ const AvatarSelectionComponent = ({}) => {
     }
   }, [user, userAvatars]);
 
-  const handleLogout = () => {
-    setActiveAvatar(null);
-    logout();
-    setDropdownOpen(false);
+  const handleLogout = async () => {
+    try {
+      await logout();
+      setDropdownOpen(false);
+
+      navigate('/login');
+    } catch (err) {
+      console.error('Logout failed', err);
+      // toast.error("Logout failed");
+    }
   };
 
   useEffect(() => {

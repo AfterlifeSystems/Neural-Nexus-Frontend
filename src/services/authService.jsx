@@ -134,24 +134,19 @@ try {
 export const logout = async () => {
   try {
     const user = auth.currentUser;
+    console.log(
+      'XXXXXXXXXXX AUTH SERVICE XXXXXXXXXXXXXXXXX LOGOUT XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX' +
+        auth.currentUser
+    );
+
+    console.log(user);
+
     if (user) {
       await updateDoc(doc(db, 'users', user.uid), {
         currently_logged_in: false,
       });
     }
     await signOut(auth);
-    localStorage.removeItem('user');
-    // Clear local state
-    // setUser(null);
-    // setUserProfile(null);
-    // setIsLoggedIn(false);
-    // setUserAvatars([]);
-    // setActiveAvatar(null);
-    // setAccessToken(null);
-    // localStorage.removeItem('user');
-    // localStorage.removeItem('firebase_user_id');
-    // localStorage.removeItem('avatars');
-    // localStorage.removeItem('access_token');
   } catch (error) {
     console.error('Logout error:', error);
     toast.error('Logout completed with errors');
