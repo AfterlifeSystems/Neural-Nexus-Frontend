@@ -67,8 +67,8 @@ createRoot(document.getElementById('root')).render(
             </Route>
 
             {/* Catch-all redirect to root */}
-            {/* <Route path="/" element={<RootRedirect />} /> */}
-            {/* <Route path="*" element={<RootRedirect />} /> */}
+            <Route path="/" element={<RootRedirect />} />
+            <Route path="*" element={<RootRedirect />} />
           </Routes>
         </BrowserRouter>
       </MediaProvider>
