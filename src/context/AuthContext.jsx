@@ -29,13 +29,6 @@ import {
 import { auth, db, storage } from '../firebase/config.js';
 import { getUserProfile } from '../services/userService';
 
-import {
-  getAvatars,
-  createAvatar,
-  deleteAvatar,
-  selectAvatar,
-} from '../services/avatarService.jsx';
-
 import toast from 'react-hot-toast';
 import { X } from 'lucide-react';
 
@@ -58,14 +51,6 @@ export const AuthProvider = ({ children }) => {
   useEffect(() => {
     setLoading(true);
     const unsubscribe = onAuthStateChanged(auth, async (currentUser) => {
-      // console.log(
-      //   'XXXXX auth.currentUser onAuthStateChanged AUTH CONTEXT USE EFFECT XXXXXXXXXXXXXX'
-      // );
-      // console.log(auth.currentUser);
-      // console.log(
-      //   'Auth state changed →',
-      //   currentUser ? currentUser?.uid : 'null'
-      // );
       setUser(currentUser);
 
       // setting the user profile
@@ -75,41 +60,11 @@ export const AuthProvider = ({ children }) => {
       if (currentUser) {
         const token = await currentUser.getIdToken();
         setAccessToken(token);
-
-        // set profile of user
-        // console.log('// set profile of user IN AUTH CONTEXT');
-        // const profileDoc = await getDoc(doc(db, 'users', currentUser.uid));
-
-        // if (!profileDoc.exists()) {
-        //   console.log('USER DOES NOT HAVE A PROFILE AUTH CONTEXT');
-        // } else {
-        //   setProfile(profileDoc.data());
-        // }
       } else {
         setAccessToken(null);
       }
 
       setLoading(false);
-      // console.log(
-      //   'XXXXXXXXXXXXXXXXXXXXXX CURRENT USER AUTH CONTEXT USE EFFECT XXXXXXXXXXXXXXXXXXXXXXXXXXX'
-      // );
-      // console.log(currentUser);
-      // if (currentUser) {
-      //   console.log(currentUser.uid);
-      // }
-
-      // if (!currentUser) {
-      //   console.log(
-      //     'XXXXXXXXXXXXXXXXXXXXXX NOT CURRENT USER AUTH CONTEXT USE EFFECT XXXXXXXXXXXXXXXXXXXXXXXXXXX'
-      //   );
-      //   console.log(currentUser);
-      //   setProfile([]); // object that will contain current avatar
-      //   setUserAvatars([]); // list of avatars each with current conversation
-      //   setCommunityAvatars([]);
-      //   setProprietaryAvatars([]);
-      //   setActiveAvatar(null);
-      //   setLoading(false);
-      // }
     });
     return unsubscribe;
   }, []);
@@ -150,8 +105,21 @@ export const AuthProvider = ({ children }) => {
     setActiveAvatar(match || null);
   }, [profile?.last_used_avatar, userAvatars]);
 
+  // change of the active avatar
   useEffect(() => {
     console.log('ACTIVE AVATAR CHANGED');
+    console.log(`${user}`);
+    console.log(`${activeAvatar}`);
+    // if (activeAvatar) {
+    //   const client = new ChromaClient({
+    //     host: import.meta.env.VITE_CHROMA_CLIENT_HOST,
+    //     port: import.meta.env.VITE_CHROMA_CLIENT_PORT,
+    //     ssl: false,
+    //     tenant: user.uid,
+    //     database: activeAvatar.id,
+    //   });
+    //   setChromaClient(client);
+    // }
   }, [activeAvatar]);
 
   // verify connection to firebase auth emulator

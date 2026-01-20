@@ -20,7 +20,7 @@ const ChatArea = ({
   const { messages, messagesEndRef } = useMedia(); // messages is now a simple array
   const { avatarId } = useParams(); // from /chat/:avatarId
   const navigate = useNavigate();
-  const [activeTab, setActiveTab] = useState('chat');
+  const [activeTab, setActiveTab] = useState('avatar-settings');
 
   // Simple tab switcher
   const handleTabChange = (tab) => {

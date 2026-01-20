@@ -24,7 +24,38 @@ import {
 } from 'lucide-react';
 import { v4 as uuidv4 } from 'uuid';
 import { useAuth } from '../context/AuthContext';
-import * as avatarService from '../services/avatarService';
+import {
+  // uploadUrl,
+  // connectSocial,
+  // disconnectSocial,
+  deleteDocument,
+  // uploadDocuments,
+  updateAvatarWithIcon,
+  selectAvatar,
+  deleteAvatar,
+  updateAvatar,
+  uploadToDataLoadingApi,
+} from '../services/avatarService';
+import { useNavigate } from 'react-router-dom';
+
+import {
+  collection,
+  addDoc,
+  getDocs,
+  getDoc,
+  updateDoc,
+  deleteDoc,
+  doc,
+  setDoc,
+  query,
+  where,
+  orderBy,
+  limit,
+  arrayUnion,
+  arrayRemove,
+} from 'firebase/firestore';
+import { db, storage } from '../firebase/config';
+
 // Social Media Platform Configuration
 const SOCIAL_PLATFORMS = [
   { id: 'youtube', name: 'YouTube', icon: Youtube, color: '#FF0000' },
@@ -40,13 +71,12 @@ const SOCIAL_PLATFORMS = [
   { id: 'microsoft', name: 'Microsoft', icon: Globe, color: '#00A4EF' },
   { id: 'reddit', name: 'Reddit', icon: Globe, color: '#FF4500' },
 ];
-const AvatarSettings = ({ avatarId, accessToken, onAvatarDeleted }) => {
+const AvatarSettings = ({ avatarId, accessToken }) => {
   const [links, setLinks] = useState([]);
   const [newLink, setNewLink] = useState('');
   const [files, setFiles] = useState([]);
   const [editingDesc, setEditingDesc] = useState(false);
   const [updatedDesc, setUpdatedDesc] = useState('');
-  const [updatedIcon, setUpdatedIcon] = useState('');
   const [updatedAvatarName, setUpdatedAvatarName] = useState('');
   const [editingName, setEditingName] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
@@ -62,8 +92,8 @@ const AvatarSettings = ({ avatarId, accessToken, onAvatarDeleted }) => {
     password: '',
   });
   const [manualUrl, setManualUrl] = useState('');
-  const { user, profile, activeAvatar, deleteAvatar } = useAuth();
-  const hasRun = useRef(false);
+  const { user, profile, activeAvatar } = useAuth();
+  const navigate = useNavigate();
 
   // Global drag and drop handlers
   useEffect(() => {
@@ -111,31 +141,7 @@ const AvatarSettings = ({ avatarId, accessToken, onAvatarDeleted }) => {
       document.removeEventListener('paste', handlePaste);
     };
   }, []);
-  // const initialPopulationOfAvatarData = async () => {
-  //   if (hasRun.current) return;
-  //   hasRun.current = true;
-  //   if (!activeAvatar?.avatar_id || !user) return;
-  //   try {
-  //     // const avatarProfileData = await avatarService.selectAvatar(
-  //     //   user,
-  //     //   user.uid,
-  //     //   activeAvatar.avatar_id
-  //     // );
-  //     // setUpdatedDesc(activeAvatar.description || '');
-  //     // setUpdatedIcon(activeAvatar.icon?.url || null);
-  //     // setUpdatedAvatarName(activeAvatar.name || '');
-  //     // Load existing documents and social logins if available
-  //     // setDocuments(activeAvatar.files || []);
-  //     // if (activeAvatar.socialLogins) {
-  //       // setSocialLogins(activeAvatar.socialLogins);
-  //     }
-  //   } catch (err) {
-  //     console.error('Failed to fetch avatar profile:', err);
-  //   }
-  // };
-  // useEffect(() => {
-  //   initialPopulationOfAvatarData();
-  // }, []);
+
   const determineContentType = (file) => {
     const type = file.type;
     if (type.startsWith('image/')) return 'image';
@@ -171,7 +177,7 @@ const AvatarSettings = ({ avatarId, accessToken, onAvatarDeleted }) => {
       for (const pending of newPending) {
         const file = pending.file;
         try {
-          const uploadResults = await avatarService.uploadToDataLoadingApi(
+          const uploadResults = await uploadToDataLoadingApi(
             user.uid,
             activeAvatar.avatar_id,
             activeAvatar.name,
@@ -180,30 +186,16 @@ const AvatarSettings = ({ avatarId, accessToken, onAvatarDeleted }) => {
           if (!uploadResults[0].success) {
             throw new Error(uploadResults[0].error);
           }
-          const docMeta = await avatarService.uploadDocumentToStorage(
-            user.uid,
-            activeAvatar.avatar_id,
-            file
-          );
-          const avatarRef = doc(
-            db,
-            'users',
-            user.uid,
-            'avatars',
-            activeAvatar.avatar_id
-          );
-          await updateDoc(avatarRef, {
-            files: arrayUnion(docMeta),
-          });
+          toast.success(`${file.name} uploaded successfully`);
+
           setDocuments((prev) =>
             prev.map((d) =>
-              d.id === pending.id ? { ...docMeta, loading: false } : d
+              d.id === pending.id ? { ...file.name, loading: false } : d
             )
           );
-          toast.success(`${file.name} uploaded successfully`);
         } catch (error) {
           toast.error(`Failed to upload ${file.name}: ${error.message}`);
-          setDocuments((prev) => prev.filter((d) => d.id !== pending.id));
+          setDocuments(activeAvatar.files);
         }
       }
     } catch (err) {
@@ -223,7 +215,7 @@ const AvatarSettings = ({ avatarId, accessToken, onAvatarDeleted }) => {
     try {
       if (!user) throw new Error('Not logged in');
       if (!activeAvatar) throw new Error('No active avatar');
-      const docMeta = await avatarService.uploadUrl(
+      const docMeta = await uploadUrl(
         user.uid,
         activeAvatar.avatar_id,
         url,
@@ -256,7 +248,7 @@ const AvatarSettings = ({ avatarId, accessToken, onAvatarDeleted }) => {
     if (!loginCredentials.username || !loginCredentials.password) return;
     try {
       if (!user) throw new Error('Not logged in');
-      const login = await avatarService.connectSocial(
+      const login = await connectSocial(
         user.uid,
         activeAvatar.avatar_id,
         selectedPlatform,
@@ -279,11 +271,7 @@ const AvatarSettings = ({ avatarId, accessToken, onAvatarDeleted }) => {
   const removeSocialLogin = async (id) => {
     try {
       if (!user) throw new Error('Not logged in');
-      await avatarService.disconnectSocial(
-        user.uid,
-        activeAvatar.avatar_id,
-        id
-      );
+      await disconnectSocial(user.uid, activeAvatar.avatar_id, id);
       setSocialLogins((prev) => prev.filter((login) => login.id !== id));
       toast.success('Social account disconnected');
     } catch (err) {
@@ -310,7 +298,7 @@ const AvatarSettings = ({ avatarId, accessToken, onAvatarDeleted }) => {
   const deleteDocument = async (id) => {
     try {
       if (!user) throw new Error('Not logged in');
-      await avatarService.deleteDocument(user.uid, activeAvatar.avatar_id, id);
+      await deleteDocument(user.uid, activeAvatar.avatar_id, id);
       setDocuments((prev) => prev.filter((doc) => doc.id !== id));
       toast.success('Document deleted');
     } catch (err) {
@@ -443,15 +431,13 @@ const AvatarSettings = ({ avatarId, accessToken, onAvatarDeleted }) => {
     );
     const file = new File([blob], 'avatar-photo.jpg', { type: 'image/jpeg' });
     try {
-      if (!user) throw new Error('Not logged in');
-      const uploaded = await avatarService.uploadDocuments(
-        user.uid,
-        activeAvatar.avatar_id,
-        [file]
-      );
-      if (uploaded && uploaded.length > 0)
-        setDocuments((prev) => [...prev, ...uploaded]);
-      cleanupMedia();
+      // if (!user) throw new Error('Not logged in');
+      // const uploaded = await uploadDocuments(user.uid, activeAvatar.avatar_id, [
+      //   file,
+      // ]);
+      // if (uploaded && uploaded.length > 0)
+      //   setDocuments((prev) => [...prev, ...uploaded]);
+      // cleanupMedia();
       toast.success('Photo captured successfully');
     } catch (err) {
       toast.error('Photo upload failed: ' + err.message);
@@ -500,18 +486,11 @@ const AvatarSettings = ({ avatarId, accessToken, onAvatarDeleted }) => {
     formData.append('avatar_id', activeAvatar.avatar_id);
     try {
       if (!user) throw new Error('Not logged in');
-      await avatarService.updateAvatarWithIcon(
+      await updateAvatarWithIcon(
         user.uid,
         activeAvatar.avatar_id,
         acceptedFiles[0]
       );
-      const avatarProfileData = await avatarService.selectAvatar(
-        user,
-        user.uid,
-        activeAvatar.avatar_id
-      );
-
-      setUpdatedIcon(avatarProfileData.icon?.url || null);
       toast.success('Avatar icon updated');
     } catch (err) {
       toast.error(err.message);
@@ -520,10 +499,10 @@ const AvatarSettings = ({ avatarId, accessToken, onAvatarDeleted }) => {
   const handleDescSave = async (updatedDesc) => {
     try {
       if (!user) throw new Error('Not logged in');
-      await avatarService.updateAvatar(user.uid, activeAvatar.avatar_id, {
+      await updateAvatar(user.uid, activeAvatar.avatar_id, {
         description: updatedDesc,
       });
-      const avatarProfileData = await avatarService.selectAvatar(
+      const avatarProfileData = await selectAvatar(
         user,
         user.uid,
         activeAvatar.avatar_id
@@ -537,10 +516,10 @@ const AvatarSettings = ({ avatarId, accessToken, onAvatarDeleted }) => {
   const handleUpdateName = async (updatedAvatarName) => {
     try {
       if (!user) throw new Error('Not logged in');
-      await avatarService.updateAvatar(user.uid, activeAvatar.avatar_id, {
+      await updateAvatar(user.uid, activeAvatar.avatar_id, {
         name: updatedAvatarName,
       });
-      const avatarProfileData = await avatarService.selectAvatar(
+      const avatarProfileData = await selectAvatar(
         user,
         user.uid,
         activeAvatar.avatar_id
@@ -561,11 +540,9 @@ const AvatarSettings = ({ avatarId, accessToken, onAvatarDeleted }) => {
     }
     setIsDeleting(true);
     try {
-      await deleteAvatar(activeAvatar.avatar_id);
+      await deleteAvatar(user.uid, activeAvatar.avatar_id);
       toast.success('Avatar deleted successfully');
-      if (onAvatarDeleted) {
-        onAvatarDeleted();
-      }
+      navigate('/avatars');
     } catch (err) {
       console.error('Delete avatar error:', err);
       toast.error(err.message || 'Failed to delete avatar');
@@ -666,7 +643,7 @@ const AvatarSettings = ({ avatarId, accessToken, onAvatarDeleted }) => {
         <div className="flex gap-6 items-start">
           {/* Icon Upload */}
           <div className="flex flex-col gap-3">
-            {activeAvatar.icon ? (
+            {activeAvatar?.icon ? (
               <Dropzone
                 onDrop={handleIconUpload}
                 multiple={false}
@@ -1006,15 +983,44 @@ const AvatarSettings = ({ avatarId, accessToken, onAvatarDeleted }) => {
           ))}
         </div>
       )}
-      {documents.length === 0 && !loading && (
-        <div className="bg-white/5 backdrop-blur-lg rounded-2xl border border-white/20 p-12 text-center">
-          <File className="mx-auto mb-4 text-white/40" size={64} />
-          <p className="text-white/60 text-lg">No documents yet</p>
-          <p className="text-white/40">
-            Start by dragging files or pasting URLs
-          </p>
+      <div className="bg-white/5 backdrop-blur-lg rounded-2xl border border-white/20 p-6">
+        <h3 className="text-xl font-semibold text-white mb-4 flex items-center gap-2">
+          <File size={20} />
+          Files in {activeAvatar.name}
+        </h3>
+
+        <div className="space-y-2">
+          {activeAvatar.files && activeAvatar.files.length > 0 ? (
+            activeAvatar.files.map((file, index) => (
+              <div
+                key={file.id || index}
+                className="flex items-center justify-between p-3 bg-white/5 border border-white/10 rounded-lg hover:bg-white/10 transition-colors"
+              >
+                <div className="flex items-center gap-3">
+                  {/* Determine icon based on file type if available */}
+                  <FileText size={18} className="text-blue-400" />
+                  <span className="text-white text-sm font-medium">
+                    {typeof file === 'string' ? file : file.name}
+                  </span>
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <span className="text-xs text-white/40">
+                    {file.created_at
+                      ? new Date(file.created_at).toLocaleDateString()
+                      : ''}
+                  </span>
+                  {/* Add a delete or view button here if needed */}
+                </div>
+              </div>
+            ))
+          ) : (
+            <p className="text-white/40 text-sm italic">
+              No files attached to this avatar.
+            </p>
+          )}
         </div>
-      )}
+      </div>
     </div>
   );
 };
