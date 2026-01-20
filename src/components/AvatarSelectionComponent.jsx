@@ -20,6 +20,16 @@ import { useMedia } from '../context/MediaContext';
 import { logout } from '../services/authService';
 import { selectAvatar, configureAvatarApi } from '../services/avatarService';
 
+import {
+  createUserWithEmailAndPassword,
+  indexedDBLocalPersistence,
+  signInWithEmailAndPassword,
+  signOut,
+  updateProfile,
+} from 'firebase/auth';
+import { doc, setDoc, getDoc, updateDoc } from 'firebase/firestore';
+import { auth, db, storage } from '../firebase/config.js';
+
 const AvatarSelectionComponent = ({}) => {
   const { accessToken, user, userAvatars, setActiveAvatar, lastUsedAvatar } =
     useAuth();
@@ -173,7 +183,7 @@ const AvatarSelectionComponent = ({}) => {
           return;
         }
 
-        // Use AuthContext selectAvatar which updates Firestore
+        // Use AuthContext selectAvatar which updates FirestoreF
         await selectAvatar(avatarId);
 
         const selectedAvatar = userAvatars.find(
@@ -271,10 +281,23 @@ const AvatarSelectionComponent = ({}) => {
       hasInitialized.current = false;
     }
   }, [user, userAvatars]);
-
   const handleLogout = async () => {
     try {
-      await logout();
+      try {
+        // localStorage.clear();
+        const user = auth.currentUser;
+
+        if (user) {
+          await updateDoc(doc(db, 'users', user.uid), {
+            currently_logged_in: false,
+          });
+        }
+        await signOut(auth);
+      } catch (error) {
+        console.error('Logout error:', error);
+        toast.error('Logout completed with errors');
+        // throw error;
+      }
       setDropdownOpen(false);
 
       navigate('/login');
