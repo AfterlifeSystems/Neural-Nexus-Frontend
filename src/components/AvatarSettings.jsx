@@ -62,8 +62,9 @@ const AvatarSettings = ({ avatarId, accessToken, onAvatarDeleted }) => {
     password: '',
   });
   const [manualUrl, setManualUrl] = useState('');
-  const { user, activeAvatar, deleteAvatar } = useAuth();
+  const { user, profile, activeAvatar, deleteAvatar } = useAuth();
   const hasRun = useRef(false);
+
   // Global drag and drop handlers
   useEffect(() => {
     const handleDragEnter = (e) => {
@@ -754,7 +755,7 @@ const AvatarSettings = ({ avatarId, accessToken, onAvatarDeleted }) => {
               ) : (
                 <div className="flex justify-between items-center px-4 py-2 bg-white/5 border border-white/10 rounded-lg">
                   <span className="text-white font-medium">
-                    {updatedAvatarName || 'No name yet'}
+                    {updatedAvatarName || activeAvatar?.name}
                   </span>
                   <button
                     onClick={() => setEditingName(true)}
@@ -800,7 +801,7 @@ const AvatarSettings = ({ avatarId, accessToken, onAvatarDeleted }) => {
               ) : (
                 <div className="flex justify-between items-start px-4 py-2 bg-white/5 border border-white/10 rounded-lg min-h-[80px]">
                   <p className="text-white/80 flex-grow">
-                    {updatedDesc || 'No description yet'}
+                    {updatedDesc || activeAvatar?.description}
                   </p>
                   <button
                     onClick={() => setEditingDesc(true)}
