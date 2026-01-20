@@ -150,6 +150,10 @@ export const AuthProvider = ({ children }) => {
     setActiveAvatar(match || null);
   }, [profile?.last_used_avatar, userAvatars]);
 
+  useEffect(() => {
+    console.log('ACTIVE AVATAR CHANGED');
+  }, [activeAvatar]);
+
   // verify connection to firebase auth emulator
   useEffect(() => {
     if (auth.config) {

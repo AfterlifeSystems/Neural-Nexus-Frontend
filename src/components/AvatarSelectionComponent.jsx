@@ -46,10 +46,19 @@ const AvatarSelectionComponent = ({}) => {
   const hasInitialized = useRef(false);
   const [showCreateModal, setShowCreateModal] = useState(false);
 
-  const isValidImageUrl = (url) => {
-    if (!url) return false;
-    if (url.startsWith('data:image/')) return url.includes('base64,');
-    return /^(https?:\/\/|\/)/.test(url);
+  const isValidImageObjectUrl = (urlObject) => {
+    if (!urlObject) return false;
+
+    if (urlObject.url.startsWith('data:image/'))
+      return urlObject.url.includes('base64,');
+    return /^(https?:\/\/|\/)/.test(urlObject.url);
+  };
+
+  const isValidImageUrl = (urlLink) => {
+    if (!urlLink) return false;
+
+    if (urlLink.startsWith('data:image/')) return urlLink.includes('base64,');
+    return /^(https?:\/\/|\/)/.test(urlLink);
   };
 
   const clearOtherAvatarCache = (currentAvatarId) => {
@@ -219,7 +228,10 @@ const AvatarSelectionComponent = ({}) => {
         ),
         type: 'avatar',
         text: avatar.name,
-        image: avatar.icon && isValidImageUrl(avatar.icon) ? avatar.icon : null,
+        image:
+          avatar.icon && isValidImageObjectUrl(avatar.icon)
+            ? avatar.icon.url
+            : null,
         avatar_data: avatar,
       })) || [];
 
@@ -406,7 +418,10 @@ const AvatarSelectionComponent = ({}) => {
         id: avatar.avatar_id,
         type: 'avatar',
         text: avatar.name,
-        image: avatar.icon && isValidImageUrl(avatar.icon) ? avatar.icon : null,
+        image:
+          avatar.icon && isValidImageObjectUrl(avatar.icon)
+            ? avatar.icon.url
+            : null,
         originalIndex: idx,
       })) || []),
       {
@@ -447,7 +462,10 @@ const AvatarSelectionComponent = ({}) => {
         id: avatar.avatar_id,
         type: 'avatar',
         text: avatar.name,
-        image: avatar.icon && isValidImageUrl(avatar.icon) ? avatar.icon : null,
+        image:
+          avatar.icon && isValidImageObjectUrl(avatar.icon)
+            ? avatar.icon.url
+            : null,
         originalIndex: idx,
       })) || []),
       {

@@ -281,30 +281,17 @@ export const updateAvatar = async (userId, avatarId, updates) => {
   return {};
 };
 
-export const updateAvatarWithIcon = async (
-  userId,
-  avatarId,
-  name,
-  description,
-  iconFile
-) => {
+export const updateAvatarWithIcon = async (userId, avatarId, iconFile) => {
   const avatarRef = doc(db, 'users', userId, 'avatars', avatarId);
   const avatarDoc = await getDoc(avatarRef);
 
   if (!avatarDoc.exists() || avatarDoc.data().user_id !== userId) {
-    throw new Error('Digital twin not found or unauthorized');
+    throw new Error('Avatar not found or unauthorized');
   }
 
   const updates = {
     updated_at: new Date().toISOString(),
   };
-
-  if (name !== undefined) {
-    updates.name = name.trim();
-  }
-  if (description !== undefined) {
-    updates.description = (description || '').trim();
-  }
 
   let iconUrl = null;
   if (iconFile) {
