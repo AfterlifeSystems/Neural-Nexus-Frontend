@@ -51,8 +51,15 @@ const AuthComponent = () => {
   // Rotating avatar index
   const [rotatingIndex, setRotatingIndex] = useState(0);
 
-  const { user, loading, forgotPassword, signInWithProvider, avatars } =
-    useAuth();
+  const {
+    user,
+    loading,
+    profile,
+    setProfile,
+    forgotPassword,
+    signInWithProvider,
+    avatars,
+  } = useAuth();
 
   const validIcons = Array.isArray(avatars)
     ? avatars
@@ -151,6 +158,15 @@ const AuthComponent = () => {
           const userRef = doc(db, 'users', uid);
           await setDoc(userRef, userDoc);
           console.log(`✅ Profile created in Firestore for UID: ${uid}`);
+
+          // set the current profile to the newly created profile
+          console.log(
+            '// set profile of user IN SIGNUP OF  AUTH COMPONENT XXXXXXXXXXXXX'
+          );
+          let profileDoc = await getDoc(
+            doc(db, 'users', userCredential.user.uid)
+          );
+          setProfile(profileDoc.data());
           // return userCredential.user;
 
           // await setDoc(doc(db, 'users', userCredential.user.uid), userDoc);
@@ -213,6 +229,13 @@ const AuthComponent = () => {
             last_login: new Date(),
             currently_logged_in: true,
           });
+
+          // set the current user profile
+          console.log('// set profile of user IN AUTH COMPONENT XXXXXXXXXXXXX');
+          let profileDoc = await getDoc(
+            doc(db, 'users', userCredential.user.uid)
+          );
+          setProfile(profileDoc.data());
 
           console.log(
             'XXXXXXXXXXXXXXXXXXXXXXXXX userCredential: ' +

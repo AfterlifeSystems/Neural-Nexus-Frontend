@@ -17,22 +17,21 @@ import CreateAvatarComponent from './CreateAvatarComponent';
 import CreateAvatarModal from './CreateAvatarModal';
 import AvatarCardComponent from './AvatarCardComponent';
 import { useMedia } from '../context/MediaContext';
-import { logout } from '../services/authService';
 import { selectAvatar, configureAvatarApi } from '../services/avatarService';
 
-import {
-  createUserWithEmailAndPassword,
-  indexedDBLocalPersistence,
-  signInWithEmailAndPassword,
-  signOut,
-  updateProfile,
-} from 'firebase/auth';
+import { signOut } from 'firebase/auth';
 import { doc, setDoc, getDoc, updateDoc } from 'firebase/firestore';
 import { auth, db, storage } from '../firebase/config.js';
 
 const AvatarSelectionComponent = ({}) => {
-  const { accessToken, user, userAvatars, setActiveAvatar, lastUsedAvatar } =
-    useAuth();
+  const {
+    accessToken,
+    user,
+    profile,
+    userAvatars,
+    setActiveAvatar,
+    lastUsedAvatar,
+  } = useAuth();
   const { setMessages, fetchMessages } = useMedia();
   const navigate = useNavigate();
   const [currentCardIndex, setCurrentCardIndex] = useState(0);
@@ -328,7 +327,7 @@ const AvatarSelectionComponent = ({}) => {
   }, []);
 
   useEffect(() => {
-    console.log('Avatar Selection Component user: ' + user);
+    console.log('Avatar Selection Component user: ' + JSON.stringify(user));
   }, []);
 
   const handleDotClick = (index) => {
@@ -762,7 +761,7 @@ const AvatarSelectionComponent = ({}) => {
                 >
                   <div className="flex justify-between items-center px-4 py-2 border-b border-white/20">
                     <span className="text-white text-sm font-semibold">
-                      {user?.username}
+                      {profile?.username}
                     </span>
                     <button
                       onClick={() => setDropdownOpen(false)}

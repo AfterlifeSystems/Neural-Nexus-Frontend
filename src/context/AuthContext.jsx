@@ -67,11 +67,24 @@ export const AuthProvider = ({ children }) => {
       //   currentUser ? currentUser?.uid : 'null'
       // );
       setUser(currentUser);
+
+      // setting the user profile
+
       // Give Firestore listener a moment to catch up (common pattern)
 
       if (currentUser) {
         const token = await currentUser.getIdToken();
         setAccessToken(token);
+
+        // set profile of user
+        // console.log('// set profile of user IN AUTH CONTEXT');
+        // const profileDoc = await getDoc(doc(db, 'users', currentUser.uid));
+
+        // if (!profileDoc.exists()) {
+        //   console.log('USER DOES NOT HAVE A PROFILE AUTH CONTEXT');
+        // } else {
+        //   setProfile(profileDoc.data());
+        // }
       } else {
         setAccessToken(null);
       }
@@ -101,7 +114,9 @@ export const AuthProvider = ({ children }) => {
     return unsubscribe;
   }, []);
 
+  // sets the profile whenever user changes in auth context
   useEffect(() => {
+    console.log('USER HAVE CHANGED IN AUTH CONTEXT; CHANGING USER PROFILE');
     if (!user) return;
     const unsub = onSnapshot(doc(db, 'users', user.uid), (snap) => {
       setProfile(snap.exists() ? snap.data() : null);
@@ -157,6 +172,8 @@ export const AuthProvider = ({ children }) => {
         setCommunityAvatars,
         proprietaryAvatars,
         setProprietaryAvatars,
+        profile,
+        setProfile,
         activeAvatar,
         setActiveAvatar,
         loading,
