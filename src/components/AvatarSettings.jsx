@@ -62,8 +62,9 @@ const AvatarSettings = ({ avatarId, accessToken, onAvatarDeleted }) => {
     password: '',
   });
   const [manualUrl, setManualUrl] = useState('');
-  const { user, activeAvatar, deleteAvatar } = useAuth();
+  const { user, profile, activeAvatar, deleteAvatar } = useAuth();
   const hasRun = useRef(false);
+
   // Global drag and drop handlers
   useEffect(() => {
     const handleDragEnter = (e) => {
@@ -110,31 +111,31 @@ const AvatarSettings = ({ avatarId, accessToken, onAvatarDeleted }) => {
       document.removeEventListener('paste', handlePaste);
     };
   }, []);
-  const initialPopulationOfAvatarData = async () => {
-    if (hasRun.current) return;
-    hasRun.current = true;
-    if (!activeAvatar?.avatar_id || !user) return;
-    try {
-      const avatarProfileData = await avatarService.selectAvatar(
-        user,
-        user.uid,
-        activeAvatar.avatar_id
-      );
-      setUpdatedDesc(avatarProfileData.description || '');
-      setUpdatedIcon(avatarProfileData.icon?.url || null);
-      setUpdatedAvatarName(avatarProfileData.name || '');
-      // Load existing documents and social logins if available
-      setDocuments(avatarProfileData.files || []);
-      if (avatarProfileData.socialLogins) {
-        setSocialLogins(avatarProfileData.socialLogins);
-      }
-    } catch (err) {
-      console.error('Failed to fetch avatar profile:', err);
-    }
-  };
-  useEffect(() => {
-    initialPopulationOfAvatarData();
-  }, []);
+  // const initialPopulationOfAvatarData = async () => {
+  //   if (hasRun.current) return;
+  //   hasRun.current = true;
+  //   if (!activeAvatar?.avatar_id || !user) return;
+  //   try {
+  //     // const avatarProfileData = await avatarService.selectAvatar(
+  //     //   user,
+  //     //   user.uid,
+  //     //   activeAvatar.avatar_id
+  //     // );
+  //     // setUpdatedDesc(activeAvatar.description || '');
+  //     // setUpdatedIcon(activeAvatar.icon?.url || null);
+  //     // setUpdatedAvatarName(activeAvatar.name || '');
+  //     // Load existing documents and social logins if available
+  //     // setDocuments(activeAvatar.files || []);
+  //     // if (activeAvatar.socialLogins) {
+  //       // setSocialLogins(activeAvatar.socialLogins);
+  //     }
+  //   } catch (err) {
+  //     console.error('Failed to fetch avatar profile:', err);
+  //   }
+  // };
+  // useEffect(() => {
+  //   initialPopulationOfAvatarData();
+  // }, []);
   const determineContentType = (file) => {
     const type = file.type;
     if (type.startsWith('image/')) return 'image';
@@ -173,7 +174,7 @@ const AvatarSettings = ({ avatarId, accessToken, onAvatarDeleted }) => {
           const uploadResults = await avatarService.uploadToDataLoadingApi(
             user.uid,
             activeAvatar.avatar_id,
-            activeAvatar.name || updatedAvatarName,
+            activeAvatar.name,
             [file]
           );
           if (!uploadResults[0].success) {
@@ -226,7 +227,7 @@ const AvatarSettings = ({ avatarId, accessToken, onAvatarDeleted }) => {
         user.uid,
         activeAvatar.avatar_id,
         url,
-        activeAvatar.name || updatedAvatarName
+        activeAvatar.name
       );
       const avatarRef = doc(
         db,
@@ -502,8 +503,6 @@ const AvatarSettings = ({ avatarId, accessToken, onAvatarDeleted }) => {
       await avatarService.updateAvatarWithIcon(
         user.uid,
         activeAvatar.avatar_id,
-        null,
-        null,
         acceptedFiles[0]
       );
       const avatarProfileData = await avatarService.selectAvatar(
@@ -511,6 +510,7 @@ const AvatarSettings = ({ avatarId, accessToken, onAvatarDeleted }) => {
         user.uid,
         activeAvatar.avatar_id
       );
+
       setUpdatedIcon(avatarProfileData.icon?.url || null);
       toast.success('Avatar icon updated');
     } catch (err) {
@@ -666,7 +666,7 @@ const AvatarSettings = ({ avatarId, accessToken, onAvatarDeleted }) => {
         <div className="flex gap-6 items-start">
           {/* Icon Upload */}
           <div className="flex flex-col gap-3">
-            {updatedIcon ? (
+            {activeAvatar.icon ? (
               <Dropzone
                 onDrop={handleIconUpload}
                 multiple={false}
@@ -676,7 +676,7 @@ const AvatarSettings = ({ avatarId, accessToken, onAvatarDeleted }) => {
                 {({ getRootProps, getInputProps, open }) => (
                   <div className="relative w-32 h-32 rounded-2xl overflow-hidden cursor-pointer group">
                     <img
-                      src={updatedIcon}
+                      src={activeAvatar.icon.url}
                       alt="avatar"
                       className="w-full h-full object-cover"
                     />
@@ -754,7 +754,7 @@ const AvatarSettings = ({ avatarId, accessToken, onAvatarDeleted }) => {
               ) : (
                 <div className="flex justify-between items-center px-4 py-2 bg-white/5 border border-white/10 rounded-lg">
                   <span className="text-white font-medium">
-                    {updatedAvatarName || 'No name yet'}
+                    {activeAvatar?.name}
                   </span>
                   <button
                     onClick={() => setEditingName(true)}
@@ -800,7 +800,7 @@ const AvatarSettings = ({ avatarId, accessToken, onAvatarDeleted }) => {
               ) : (
                 <div className="flex justify-between items-start px-4 py-2 bg-white/5 border border-white/10 rounded-lg min-h-[80px]">
                   <p className="text-white/80 flex-grow">
-                    {updatedDesc || 'No description yet'}
+                    {activeAvatar?.description}
                   </p>
                   <button
                     onClick={() => setEditingDesc(true)}

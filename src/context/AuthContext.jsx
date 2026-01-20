@@ -38,7 +38,6 @@ import {
 
 import toast from 'react-hot-toast';
 import { X } from 'lucide-react';
-import { signup, login, logout } from '../services/authService';
 
 const AuthContext = createContext();
 
@@ -57,40 +56,67 @@ export const AuthProvider = ({ children }) => {
 
   // TESTING
   useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
-      console.log(
-        'Auth state changed →',
-        currentUser ? currentUser.uid : 'null'
-      );
+    setLoading(true);
+    const unsubscribe = onAuthStateChanged(auth, async (currentUser) => {
+      // console.log(
+      //   'XXXXX auth.currentUser onAuthStateChanged AUTH CONTEXT USE EFFECT XXXXXXXXXXXXXX'
+      // );
+      // console.log(auth.currentUser);
+      // console.log(
+      //   'Auth state changed →',
+      //   currentUser ? currentUser?.uid : 'null'
+      // );
       setUser(currentUser);
-      // Give Firestore listener a moment to catch up (common pattern)
-      setTimeout(() => {
-        setLoading(false);
-      }, 300); // ← 300 ms is usually enough for local emulator + real Firebase
-      setLoading(false);
-      console.log(
-        'XXXXXXXXXXXXXXXXXXXXXX CURRENT USER AUTH CONTEXT USE EFFECT XXXXXXXXXXXXXXXXXXXXXXXXXXX'
-      );
-      console.log(currentUser);
-      console.log(currentUser.uid);
 
-      if (!currentUser) {
-        console.log(
-          'XXXXXXXXXXXXXXXXXXXXXX NOT CURRENT USER AUTH CONTEXT USE EFFECT XXXXXXXXXXXXXXXXXXXXXXXXXXX'
-        );
-        console.log(currentUser);
-        setProfile([]); // object that will contain current avatar
-        setUserAvatars([]); // list of avatars each with current conversation
-        setCommunityAvatars([]);
-        setProprietaryAvatars([]);
-        setActiveAvatar(null);
-        setLoading(false);
+      // setting the user profile
+
+      // Give Firestore listener a moment to catch up (common pattern)
+
+      if (currentUser) {
+        const token = await currentUser.getIdToken();
+        setAccessToken(token);
+
+        // set profile of user
+        // console.log('// set profile of user IN AUTH CONTEXT');
+        // const profileDoc = await getDoc(doc(db, 'users', currentUser.uid));
+
+        // if (!profileDoc.exists()) {
+        //   console.log('USER DOES NOT HAVE A PROFILE AUTH CONTEXT');
+        // } else {
+        //   setProfile(profileDoc.data());
+        // }
+      } else {
+        setAccessToken(null);
       }
+
+      setLoading(false);
+      // console.log(
+      //   'XXXXXXXXXXXXXXXXXXXXXX CURRENT USER AUTH CONTEXT USE EFFECT XXXXXXXXXXXXXXXXXXXXXXXXXXX'
+      // );
+      // console.log(currentUser);
+      // if (currentUser) {
+      //   console.log(currentUser.uid);
+      // }
+
+      // if (!currentUser) {
+      //   console.log(
+      //     'XXXXXXXXXXXXXXXXXXXXXX NOT CURRENT USER AUTH CONTEXT USE EFFECT XXXXXXXXXXXXXXXXXXXXXXXXXXX'
+      //   );
+      //   console.log(currentUser);
+      //   setProfile([]); // object that will contain current avatar
+      //   setUserAvatars([]); // list of avatars each with current conversation
+      //   setCommunityAvatars([]);
+      //   setProprietaryAvatars([]);
+      //   setActiveAvatar(null);
+      //   setLoading(false);
+      // }
     });
     return unsubscribe;
   }, []);
 
+  // sets the profile whenever user changes in auth context
   useEffect(() => {
+    console.log('USER HAVE CHANGED IN AUTH CONTEXT; CHANGING USER PROFILE');
     if (!user) return;
     const unsub = onSnapshot(doc(db, 'users', user.uid), (snap) => {
       setProfile(snap.exists() ? snap.data() : null);
@@ -124,6 +150,10 @@ export const AuthProvider = ({ children }) => {
     setActiveAvatar(match || null);
   }, [profile?.last_used_avatar, userAvatars]);
 
+  useEffect(() => {
+    console.log('ACTIVE AVATAR CHANGED');
+  }, [activeAvatar]);
+
   // verify connection to firebase auth emulator
   useEffect(() => {
     if (auth.config) {
@@ -146,6 +176,8 @@ export const AuthProvider = ({ children }) => {
         setCommunityAvatars,
         proprietaryAvatars,
         setProprietaryAvatars,
+        profile,
+        setProfile,
         activeAvatar,
         setActiveAvatar,
         loading,
