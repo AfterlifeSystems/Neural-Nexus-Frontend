@@ -46,7 +46,6 @@ const AvatarSettings = ({ avatarId, accessToken, onAvatarDeleted }) => {
   const [files, setFiles] = useState([]);
   const [editingDesc, setEditingDesc] = useState(false);
   const [updatedDesc, setUpdatedDesc] = useState('');
-  const [updatedIcon, setUpdatedIcon] = useState('');
   const [updatedAvatarName, setUpdatedAvatarName] = useState('');
   const [editingName, setEditingName] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
@@ -63,7 +62,6 @@ const AvatarSettings = ({ avatarId, accessToken, onAvatarDeleted }) => {
   });
   const [manualUrl, setManualUrl] = useState('');
   const { user, profile, activeAvatar, deleteAvatar } = useAuth();
-  const hasRun = useRef(false);
 
   // Global drag and drop handlers
   useEffect(() => {
@@ -111,31 +109,7 @@ const AvatarSettings = ({ avatarId, accessToken, onAvatarDeleted }) => {
       document.removeEventListener('paste', handlePaste);
     };
   }, []);
-  // const initialPopulationOfAvatarData = async () => {
-  //   if (hasRun.current) return;
-  //   hasRun.current = true;
-  //   if (!activeAvatar?.avatar_id || !user) return;
-  //   try {
-  //     // const avatarProfileData = await avatarService.selectAvatar(
-  //     //   user,
-  //     //   user.uid,
-  //     //   activeAvatar.avatar_id
-  //     // );
-  //     // setUpdatedDesc(activeAvatar.description || '');
-  //     // setUpdatedIcon(activeAvatar.icon?.url || null);
-  //     // setUpdatedAvatarName(activeAvatar.name || '');
-  //     // Load existing documents and social logins if available
-  //     // setDocuments(activeAvatar.files || []);
-  //     // if (activeAvatar.socialLogins) {
-  //       // setSocialLogins(activeAvatar.socialLogins);
-  //     }
-  //   } catch (err) {
-  //     console.error('Failed to fetch avatar profile:', err);
-  //   }
-  // };
-  // useEffect(() => {
-  //   initialPopulationOfAvatarData();
-  // }, []);
+
   const determineContentType = (file) => {
     const type = file.type;
     if (type.startsWith('image/')) return 'image';
@@ -505,13 +479,6 @@ const AvatarSettings = ({ avatarId, accessToken, onAvatarDeleted }) => {
         activeAvatar.avatar_id,
         acceptedFiles[0]
       );
-      const avatarProfileData = await avatarService.selectAvatar(
-        user,
-        user.uid,
-        activeAvatar.avatar_id
-      );
-
-      setUpdatedIcon(avatarProfileData.icon?.url || null);
       toast.success('Avatar icon updated');
     } catch (err) {
       toast.error(err.message);
@@ -1006,7 +973,7 @@ const AvatarSettings = ({ avatarId, accessToken, onAvatarDeleted }) => {
           ))}
         </div>
       )}
-      {documents.length === 0 && !loading && (
+      {/* {documents.length === 0 && !loading && (
         <div className="bg-white/5 backdrop-blur-lg rounded-2xl border border-white/20 p-12 text-center">
           <File className="mx-auto mb-4 text-white/40" size={64} />
           <p className="text-white/60 text-lg">No documents yet</p>
@@ -1014,7 +981,7 @@ const AvatarSettings = ({ avatarId, accessToken, onAvatarDeleted }) => {
             Start by dragging files or pasting URLs
           </p>
         </div>
-      )}
+      )} */}
     </div>
   );
 };

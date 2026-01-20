@@ -75,41 +75,11 @@ export const AuthProvider = ({ children }) => {
       if (currentUser) {
         const token = await currentUser.getIdToken();
         setAccessToken(token);
-
-        // set profile of user
-        // console.log('// set profile of user IN AUTH CONTEXT');
-        // const profileDoc = await getDoc(doc(db, 'users', currentUser.uid));
-
-        // if (!profileDoc.exists()) {
-        //   console.log('USER DOES NOT HAVE A PROFILE AUTH CONTEXT');
-        // } else {
-        //   setProfile(profileDoc.data());
-        // }
       } else {
         setAccessToken(null);
       }
 
       setLoading(false);
-      // console.log(
-      //   'XXXXXXXXXXXXXXXXXXXXXX CURRENT USER AUTH CONTEXT USE EFFECT XXXXXXXXXXXXXXXXXXXXXXXXXXX'
-      // );
-      // console.log(currentUser);
-      // if (currentUser) {
-      //   console.log(currentUser.uid);
-      // }
-
-      // if (!currentUser) {
-      //   console.log(
-      //     'XXXXXXXXXXXXXXXXXXXXXX NOT CURRENT USER AUTH CONTEXT USE EFFECT XXXXXXXXXXXXXXXXXXXXXXXXXXX'
-      //   );
-      //   console.log(currentUser);
-      //   setProfile([]); // object that will contain current avatar
-      //   setUserAvatars([]); // list of avatars each with current conversation
-      //   setCommunityAvatars([]);
-      //   setProprietaryAvatars([]);
-      //   setActiveAvatar(null);
-      //   setLoading(false);
-      // }
     });
     return unsubscribe;
   }, []);
