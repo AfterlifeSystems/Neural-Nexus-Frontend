@@ -29,13 +29,6 @@ import {
 import { auth, db, storage } from '../firebase/config.js';
 import { getUserProfile } from '../services/userService';
 
-import {
-  getAvatars,
-  createAvatar,
-  deleteAvatar,
-  selectAvatar,
-} from '../services/avatarService.jsx';
-
 import toast from 'react-hot-toast';
 import { X } from 'lucide-react';
 
@@ -58,14 +51,6 @@ export const AuthProvider = ({ children }) => {
   useEffect(() => {
     setLoading(true);
     const unsubscribe = onAuthStateChanged(auth, async (currentUser) => {
-      // console.log(
-      //   'XXXXX auth.currentUser onAuthStateChanged AUTH CONTEXT USE EFFECT XXXXXXXXXXXXXX'
-      // );
-      // console.log(auth.currentUser);
-      // console.log(
-      //   'Auth state changed →',
-      //   currentUser ? currentUser?.uid : 'null'
-      // );
       setUser(currentUser);
 
       // setting the user profile

@@ -13,6 +13,7 @@ import {
   orderBy,
   limit,
   arrayUnion,
+  arrayRemove,
 } from 'firebase/firestore';
 import {
   ref,
@@ -339,12 +340,12 @@ export const updateAvatarWithIcon = async (userId, avatarId, iconFile) => {
 };
 
 export const deleteAvatar = async (userId, avatarId) => {
+  // this needs to be updated to recursively delete all messages in the conversation collection,
+  // all conversations in the avatar collection,
+  // and the avatar
+  // currently deletes the avatar from the array list in the users document
+  const userRef = doc(db, 'users', userId);
   const avatarRef = doc(db, 'users', userId, 'avatars', avatarId);
-  const avatarDoc = await getDoc(avatarRef);
-
-  if (!avatarDoc.exists() || avatarDoc.data().user_id !== userId) {
-    throw new Error('Avatar not found or unauthorized');
-  }
 
   // Delete all files in Storage
   const avatarStorageRef = ref(storage, `users/${userId}/avatars/${avatarId}`);
@@ -356,21 +357,32 @@ export const deleteAvatar = async (userId, avatarId) => {
   }
 
   // Delete avatar document
+  const avatarDoc = await getDoc(avatarRef);
+  if (!avatarDoc.exists()) {
+    throw new Error('Avatar not found or unauthorized');
+  }
+
   await deleteDoc(avatarRef);
 
   // Remove from user's avatar list
-  const userRef = doc(db, 'users', userId);
-  const userDoc = await getDoc(userRef);
-  const avatars = userDoc.data().avatars || [];
-  await updateDoc(userRef, {
-    avatars: avatars.filter((id) => id !== avatarId),
-  });
+  await updateDoc(userRef, { avatars: arrayRemove(avatarId) });
 
   return {
     status: 'success',
     avatar_id: avatarId,
     deleted: true,
   };
+};
+
+export const deleteDocument = async (userId, avatarId, filename) => {
+  // update document file list
+  avatarRef = doc(db, 'users', userId, 'avatars', avatarId);
+  try {
+  } catch (error) {
+    console.error(`error removing file ${filename} from array: `, error);
+    throw error;
+  }
+  updateDoc(avatarRef, { files: arrayRemove(filename) });
 };
 
 export const selectAvatar = async (user, userId, avatarId) => {

@@ -24,7 +24,20 @@ import {
 } from 'lucide-react';
 import { v4 as uuidv4 } from 'uuid';
 import { useAuth } from '../context/AuthContext';
-import * as avatarService from '../services/avatarService';
+import {
+  // uploadUrl,
+  // connectSocial,
+  // disconnectSocial,
+  deleteDocument,
+  // uploadDocuments,
+  updateAvatarWithIcon,
+  selectAvatar,
+  deleteAvatar,
+  updateAvatar,
+  uploadToDataLoadingApi,
+} from '../services/avatarService';
+import { useNavigate } from 'react-router-dom';
+
 // Social Media Platform Configuration
 const SOCIAL_PLATFORMS = [
   { id: 'youtube', name: 'YouTube', icon: Youtube, color: '#FF0000' },
@@ -40,7 +53,7 @@ const SOCIAL_PLATFORMS = [
   { id: 'microsoft', name: 'Microsoft', icon: Globe, color: '#00A4EF' },
   { id: 'reddit', name: 'Reddit', icon: Globe, color: '#FF4500' },
 ];
-const AvatarSettings = ({ avatarId, accessToken, onAvatarDeleted }) => {
+const AvatarSettings = ({ avatarId, accessToken }) => {
   const [links, setLinks] = useState([]);
   const [newLink, setNewLink] = useState('');
   const [files, setFiles] = useState([]);
@@ -61,7 +74,8 @@ const AvatarSettings = ({ avatarId, accessToken, onAvatarDeleted }) => {
     password: '',
   });
   const [manualUrl, setManualUrl] = useState('');
-  const { user, profile, activeAvatar, deleteAvatar } = useAuth();
+  const { user, profile, activeAvatar } = useAuth();
+  const navigate = useNavigate();
 
   // Global drag and drop handlers
   useEffect(() => {
@@ -145,7 +159,7 @@ const AvatarSettings = ({ avatarId, accessToken, onAvatarDeleted }) => {
       for (const pending of newPending) {
         const file = pending.file;
         try {
-          const uploadResults = await avatarService.uploadToDataLoadingApi(
+          const uploadResults = await uploadToDataLoadingApi(
             user.uid,
             activeAvatar.avatar_id,
             activeAvatar.name,
@@ -154,30 +168,18 @@ const AvatarSettings = ({ avatarId, accessToken, onAvatarDeleted }) => {
           if (!uploadResults[0].success) {
             throw new Error(uploadResults[0].error);
           }
-          const docMeta = await avatarService.uploadDocumentToStorage(
-            user.uid,
-            activeAvatar.avatar_id,
-            file
-          );
-          const avatarRef = doc(
-            db,
-            'users',
-            user.uid,
-            'avatars',
-            activeAvatar.avatar_id
-          );
           await updateDoc(avatarRef, {
-            files: arrayUnion(docMeta),
+            files: arrayUnion(file.name),
           });
           setDocuments((prev) =>
             prev.map((d) =>
-              d.id === pending.id ? { ...docMeta, loading: false } : d
+              d.id === pending.id ? { ...file.name, loading: false } : d
             )
           );
           toast.success(`${file.name} uploaded successfully`);
         } catch (error) {
           toast.error(`Failed to upload ${file.name}: ${error.message}`);
-          setDocuments((prev) => prev.filter((d) => d.id !== pending.id));
+          setDocuments(activeAvatar.files);
         }
       }
     } catch (err) {
@@ -197,7 +199,7 @@ const AvatarSettings = ({ avatarId, accessToken, onAvatarDeleted }) => {
     try {
       if (!user) throw new Error('Not logged in');
       if (!activeAvatar) throw new Error('No active avatar');
-      const docMeta = await avatarService.uploadUrl(
+      const docMeta = await uploadUrl(
         user.uid,
         activeAvatar.avatar_id,
         url,
@@ -230,7 +232,7 @@ const AvatarSettings = ({ avatarId, accessToken, onAvatarDeleted }) => {
     if (!loginCredentials.username || !loginCredentials.password) return;
     try {
       if (!user) throw new Error('Not logged in');
-      const login = await avatarService.connectSocial(
+      const login = await connectSocial(
         user.uid,
         activeAvatar.avatar_id,
         selectedPlatform,
@@ -253,11 +255,7 @@ const AvatarSettings = ({ avatarId, accessToken, onAvatarDeleted }) => {
   const removeSocialLogin = async (id) => {
     try {
       if (!user) throw new Error('Not logged in');
-      await avatarService.disconnectSocial(
-        user.uid,
-        activeAvatar.avatar_id,
-        id
-      );
+      await disconnectSocial(user.uid, activeAvatar.avatar_id, id);
       setSocialLogins((prev) => prev.filter((login) => login.id !== id));
       toast.success('Social account disconnected');
     } catch (err) {
@@ -284,7 +282,7 @@ const AvatarSettings = ({ avatarId, accessToken, onAvatarDeleted }) => {
   const deleteDocument = async (id) => {
     try {
       if (!user) throw new Error('Not logged in');
-      await avatarService.deleteDocument(user.uid, activeAvatar.avatar_id, id);
+      await deleteDocument(user.uid, activeAvatar.avatar_id, id);
       setDocuments((prev) => prev.filter((doc) => doc.id !== id));
       toast.success('Document deleted');
     } catch (err) {
@@ -417,15 +415,13 @@ const AvatarSettings = ({ avatarId, accessToken, onAvatarDeleted }) => {
     );
     const file = new File([blob], 'avatar-photo.jpg', { type: 'image/jpeg' });
     try {
-      if (!user) throw new Error('Not logged in');
-      const uploaded = await avatarService.uploadDocuments(
-        user.uid,
-        activeAvatar.avatar_id,
-        [file]
-      );
-      if (uploaded && uploaded.length > 0)
-        setDocuments((prev) => [...prev, ...uploaded]);
-      cleanupMedia();
+      // if (!user) throw new Error('Not logged in');
+      // const uploaded = await uploadDocuments(user.uid, activeAvatar.avatar_id, [
+      //   file,
+      // ]);
+      // if (uploaded && uploaded.length > 0)
+      //   setDocuments((prev) => [...prev, ...uploaded]);
+      // cleanupMedia();
       toast.success('Photo captured successfully');
     } catch (err) {
       toast.error('Photo upload failed: ' + err.message);
@@ -474,7 +470,7 @@ const AvatarSettings = ({ avatarId, accessToken, onAvatarDeleted }) => {
     formData.append('avatar_id', activeAvatar.avatar_id);
     try {
       if (!user) throw new Error('Not logged in');
-      await avatarService.updateAvatarWithIcon(
+      await updateAvatarWithIcon(
         user.uid,
         activeAvatar.avatar_id,
         acceptedFiles[0]
@@ -487,10 +483,10 @@ const AvatarSettings = ({ avatarId, accessToken, onAvatarDeleted }) => {
   const handleDescSave = async (updatedDesc) => {
     try {
       if (!user) throw new Error('Not logged in');
-      await avatarService.updateAvatar(user.uid, activeAvatar.avatar_id, {
+      await updateAvatar(user.uid, activeAvatar.avatar_id, {
         description: updatedDesc,
       });
-      const avatarProfileData = await avatarService.selectAvatar(
+      const avatarProfileData = await selectAvatar(
         user,
         user.uid,
         activeAvatar.avatar_id
@@ -504,10 +500,10 @@ const AvatarSettings = ({ avatarId, accessToken, onAvatarDeleted }) => {
   const handleUpdateName = async (updatedAvatarName) => {
     try {
       if (!user) throw new Error('Not logged in');
-      await avatarService.updateAvatar(user.uid, activeAvatar.avatar_id, {
+      await updateAvatar(user.uid, activeAvatar.avatar_id, {
         name: updatedAvatarName,
       });
-      const avatarProfileData = await avatarService.selectAvatar(
+      const avatarProfileData = await selectAvatar(
         user,
         user.uid,
         activeAvatar.avatar_id
@@ -528,11 +524,9 @@ const AvatarSettings = ({ avatarId, accessToken, onAvatarDeleted }) => {
     }
     setIsDeleting(true);
     try {
-      await deleteAvatar(activeAvatar.avatar_id);
+      await deleteAvatar(user.uid, activeAvatar.avatar_id);
       toast.success('Avatar deleted successfully');
-      if (onAvatarDeleted) {
-        onAvatarDeleted();
-      }
+      navigate('/avatars');
     } catch (err) {
       console.error('Delete avatar error:', err);
       toast.error(err.message || 'Failed to delete avatar');
@@ -633,7 +627,7 @@ const AvatarSettings = ({ avatarId, accessToken, onAvatarDeleted }) => {
         <div className="flex gap-6 items-start">
           {/* Icon Upload */}
           <div className="flex flex-col gap-3">
-            {activeAvatar.icon ? (
+            {activeAvatar?.icon ? (
               <Dropzone
                 onDrop={handleIconUpload}
                 multiple={false}
