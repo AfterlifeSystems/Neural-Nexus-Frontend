@@ -72,6 +72,12 @@ export const uploadToDataLoadingApi = async (
         );
       }
 
+      // update the uploaded file list
+      avatarRef = doc(db, 'users', userId, 'avatars', avatarId);
+      await updateDoc(avatarRef, {
+        files: arrayUnion(file.name),
+      });
+
       const result = await response.json();
       results.push({
         file: file.name,

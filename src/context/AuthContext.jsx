@@ -105,8 +105,21 @@ export const AuthProvider = ({ children }) => {
     setActiveAvatar(match || null);
   }, [profile?.last_used_avatar, userAvatars]);
 
+  // change of the active avatar
   useEffect(() => {
     console.log('ACTIVE AVATAR CHANGED');
+    console.log(`${user}`);
+    console.log(`${activeAvatar}`);
+    // if (activeAvatar) {
+    //   const client = new ChromaClient({
+    //     host: import.meta.env.VITE_CHROMA_CLIENT_HOST,
+    //     port: import.meta.env.VITE_CHROMA_CLIENT_PORT,
+    //     ssl: false,
+    //     tenant: user.uid,
+    //     database: activeAvatar.id,
+    //   });
+    //   setChromaClient(client);
+    // }
   }, [activeAvatar]);
 
   // verify connection to firebase auth emulator

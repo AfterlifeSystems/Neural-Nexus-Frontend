@@ -38,6 +38,24 @@ import {
 } from '../services/avatarService';
 import { useNavigate } from 'react-router-dom';
 
+import {
+  collection,
+  addDoc,
+  getDocs,
+  getDoc,
+  updateDoc,
+  deleteDoc,
+  doc,
+  setDoc,
+  query,
+  where,
+  orderBy,
+  limit,
+  arrayUnion,
+  arrayRemove,
+} from 'firebase/firestore';
+import { db, storage } from '../firebase/config';
+
 // Social Media Platform Configuration
 const SOCIAL_PLATFORMS = [
   { id: 'youtube', name: 'YouTube', icon: Youtube, color: '#FF0000' },
@@ -168,15 +186,13 @@ const AvatarSettings = ({ avatarId, accessToken }) => {
           if (!uploadResults[0].success) {
             throw new Error(uploadResults[0].error);
           }
-          await updateDoc(avatarRef, {
-            files: arrayUnion(file.name),
-          });
+          toast.success(`${file.name} uploaded successfully`);
+
           setDocuments((prev) =>
             prev.map((d) =>
               d.id === pending.id ? { ...file.name, loading: false } : d
             )
           );
-          toast.success(`${file.name} uploaded successfully`);
         } catch (error) {
           toast.error(`Failed to upload ${file.name}: ${error.message}`);
           setDocuments(activeAvatar.files);
@@ -967,15 +983,44 @@ const AvatarSettings = ({ avatarId, accessToken }) => {
           ))}
         </div>
       )}
-      {/* {documents.length === 0 && !loading && (
-        <div className="bg-white/5 backdrop-blur-lg rounded-2xl border border-white/20 p-12 text-center">
-          <File className="mx-auto mb-4 text-white/40" size={64} />
-          <p className="text-white/60 text-lg">No documents yet</p>
-          <p className="text-white/40">
-            Start by dragging files or pasting URLs
-          </p>
+      <div className="bg-white/5 backdrop-blur-lg rounded-2xl border border-white/20 p-6">
+        <h3 className="text-xl font-semibold text-white mb-4 flex items-center gap-2">
+          <File size={20} />
+          Files in {activeAvatar.name}
+        </h3>
+
+        <div className="space-y-2">
+          {activeAvatar.files && activeAvatar.files.length > 0 ? (
+            activeAvatar.files.map((file, index) => (
+              <div
+                key={file.id || index}
+                className="flex items-center justify-between p-3 bg-white/5 border border-white/10 rounded-lg hover:bg-white/10 transition-colors"
+              >
+                <div className="flex items-center gap-3">
+                  {/* Determine icon based on file type if available */}
+                  <FileText size={18} className="text-blue-400" />
+                  <span className="text-white text-sm font-medium">
+                    {typeof file === 'string' ? file : file.name}
+                  </span>
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <span className="text-xs text-white/40">
+                    {file.created_at
+                      ? new Date(file.created_at).toLocaleDateString()
+                      : ''}
+                  </span>
+                  {/* Add a delete or view button here if needed */}
+                </div>
+              </div>
+            ))
+          ) : (
+            <p className="text-white/40 text-sm italic">
+              No files attached to this avatar.
+            </p>
+          )}
         </div>
-      )} */}
+      </div>
     </div>
   );
 };
