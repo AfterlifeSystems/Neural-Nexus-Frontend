@@ -175,7 +175,9 @@ const AvatarSettings = ({ avatarId, accessToken }) => {
       }));
 
       for (const pending of newPending) {
-        const loadingToastId = toast.loading(`Uploading ${pending.name}...`);
+        const loadingToastId = toast.loading(`Uploading ${pending.name}...`, {
+          position: 'bottom-left',
+        });
         const file = pending.file;
         try {
           const uploadResults = await uploadToDataLoadingApi(
@@ -188,10 +190,14 @@ const AvatarSettings = ({ avatarId, accessToken }) => {
             throw new Error(uploadResults[0].error);
           }
           toast.dismiss(loadingToastId);
-          toast.success(`${pending.name} uploaded successfully`);
+          toast.success(`${pending.name} uploaded successfully`, {
+            position: 'bottom-left',
+          });
         } catch (error) {
           toast.dismiss(loadingToastId);
-          toast.error(`Failed to upload ${file.name}: ${error.message}`);
+          toast.error(`Failed to upload ${file.name}: ${error.message}`, {
+            position: 'bottom-left',
+          });
         }
       }
     } catch (err) {
@@ -926,12 +932,12 @@ const AvatarSettings = ({ avatarId, accessToken }) => {
       <div className="bg-white/5 backdrop-blur-lg rounded-2xl border border-white/20 p-6">
         <h3 className="text-xl font-semibold text-white mb-4 flex items-center gap-2">
           <File size={20} />
-          Files in {activeAvatar.name}
+          Files in {activeAvatar?.name}
         </h3>
 
         <div className="space-y-2">
-          {activeAvatar.files && activeAvatar.files.length > 0 ? (
-            activeAvatar.files.map((file, index) => (
+          {activeAvatar?.files && activeAvatar?.files.length > 0 ? (
+            activeAvatar?.files.map((file, index) => (
               <div
                 key={file.id || index}
                 className="flex items-center justify-between p-3 bg-white/5 border border-white/10 rounded-lg hover:bg-white/10 transition-colors"
@@ -940,7 +946,7 @@ const AvatarSettings = ({ avatarId, accessToken }) => {
                   {/* Determine icon based on file type if available */}
                   <FileText size={18} className="text-blue-400" />
                   <span className="text-white text-sm font-medium">
-                    {typeof file === 'string' ? file : file.name}
+                    {typeof file === 'string' ? file : file?.name}
                   </span>
                 </div>
 

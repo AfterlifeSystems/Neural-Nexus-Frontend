@@ -157,6 +157,7 @@ export const sendMessageService = async (
     ),
     messageId // ← document ID = message_id
   );
+  // console.log (user message is populated here but the loading message is not populated)
 
   await setDoc(messageRef, messageData);
 
@@ -171,16 +172,6 @@ export const sendMessageService = async (
     currentConversationId
   );
   await updateDoc(conversationRef, { updated_at: timestamp });
-
-  const userMessage = {
-    id: messageId, // ← consistent with doc id
-    message_id: messageId,
-    timestamp: timestamp.toISOString(),
-    content: message || null,
-    role,
-    media: mediaItems,
-    type: messageType,
-  };
 
   let aiResponseData;
   try {
@@ -234,8 +225,8 @@ export const sendMessageService = async (
 
   return {
     status: 'success',
-    user_message: userMessage,
-    ai_response: null,
+    user_message: messageData,
+    ai_response: aiResponseData,
   };
 };
 
