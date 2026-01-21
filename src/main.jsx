@@ -5,7 +5,7 @@ import './index.css';
 import { AuthProvider } from './context/AuthContext';
 import { MediaProvider } from './context/MediaContext.jsx';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
-import { ToastContainer, Zoom } from 'react-toastify';
+
 import 'react-toastify/dist/ReactToastify.css';
 import LandingPage from './components/Landing/LandingPage.jsx';
 import PrivacyPolicy from './components/Landing/PrivacyPolicy.jsx';
@@ -21,6 +21,8 @@ import VantaBackground from './components/VantaBackground.jsx';
 import LoadingSpinner from './components/LoadingSpinner.jsx';
 import { auth, db, storage } from './firebase/config.js';
 
+import { toast, Toaster } from 'react-hot-toast';
+
 // main.jsx → RootRedirect
 const RootRedirect = () => {
   const { user, loading } = useAuth();
@@ -35,17 +37,22 @@ const RootRedirect = () => {
 };
 
 createRoot(document.getElementById('root')).render(
-  <StrictMode>
+  <>
+    <Toaster
+      position="top-center"
+      toastOptions={{
+        duration: 4000,
+        style: {
+          background: 'rgba(30,30,40,0.95)',
+          color: 'white',
+          border: '1px solid rgba(255,255,255,0.12)',
+        },
+      }}
+    />
     <AuthProvider>
       <MediaProvider>
         <BrowserRouter>
           <VantaBackground />
-          <ToastContainer
-            position="top-center"
-            autoClose={false}
-            closeOnClick
-            transition={Zoom}
-          />
 
           <Routes>
             {/* Public landing pages */}
@@ -71,5 +78,5 @@ createRoot(document.getElementById('root')).render(
         </BrowserRouter>
       </MediaProvider>
     </AuthProvider>
-  </StrictMode>
+  </>
 );

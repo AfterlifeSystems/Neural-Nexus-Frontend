@@ -82,7 +82,6 @@ const AvatarSettings = ({ avatarId, accessToken }) => {
   const [isDeleting, setIsDeleting] = useState(false);
   // New state for document management
   const [isDragging, setIsDragging] = useState(false);
-  const [documents, setDocuments] = useState([]);
   const [socialLogins, setSocialLogins] = useState([]);
   const [loading, setLoading] = useState(false);
   const [showLoginModal, setShowLoginModal] = useState(false);
@@ -165,6 +164,7 @@ const AvatarSettings = ({ avatarId, accessToken }) => {
     try {
       if (!user) throw new Error('Not logged in');
       if (!activeAvatar) throw new Error('No active avatar');
+
       const newPending = Array.from(filesList).map((file) => ({
         id: uuidv4(),
         name: file.name,
@@ -173,8 +173,9 @@ const AvatarSettings = ({ avatarId, accessToken }) => {
         previewUrl: URL.createObjectURL(file),
         file, // keep file ref for upload
       }));
-      setDocuments((prev) => [...prev, ...newPending]);
+
       for (const pending of newPending) {
+        const loadingToastId = toast.loading(`Uploading ${pending.name}...`);
         const file = pending.file;
         try {
           const uploadResults = await uploadToDataLoadingApi(
@@ -186,16 +187,11 @@ const AvatarSettings = ({ avatarId, accessToken }) => {
           if (!uploadResults[0].success) {
             throw new Error(uploadResults[0].error);
           }
-          toast.success(`${file.name} uploaded successfully`);
-
-          setDocuments((prev) =>
-            prev.map((d) =>
-              d.id === pending.id ? { ...file.name, loading: false } : d
-            )
-          );
+          toast.dismiss(loadingToastId);
+          toast.success(`${pending.name} uploaded successfully`);
         } catch (error) {
+          toast.dismiss(loadingToastId);
           toast.error(`Failed to upload ${file.name}: ${error.message}`);
-          setDocuments(activeAvatar.files);
         }
       }
     } catch (err) {
@@ -211,7 +207,6 @@ const AvatarSettings = ({ avatarId, accessToken }) => {
       type: 'web',
       loading: true,
     };
-    setDocuments((prev) => [...prev, tempDoc]);
     try {
       if (!user) throw new Error('Not logged in');
       if (!activeAvatar) throw new Error('No active avatar');
@@ -231,13 +226,9 @@ const AvatarSettings = ({ avatarId, accessToken }) => {
       await updateDoc(avatarRef, {
         files: arrayUnion(docMeta),
       });
-      setDocuments((prev) =>
-        prev.map((d) => (d.id === tempId ? { ...docMeta, loading: false } : d))
-      );
       toast.success('URL added successfully');
     } catch (err) {
       toast.error('URL upload failed: ' + err.message);
-      setDocuments((prev) => prev.filter((d) => d.id !== tempId));
     }
   };
   const handleSocialLogin = (platform) => {
@@ -299,7 +290,6 @@ const AvatarSettings = ({ avatarId, accessToken }) => {
     try {
       if (!user) throw new Error('Not logged in');
       await deleteDocument(user.uid, activeAvatar.avatar_id, id);
-      setDocuments((prev) => prev.filter((doc) => doc.id !== id));
       toast.success('Document deleted');
     } catch (err) {
       toast.error('Failed to delete: ' + err.message);
