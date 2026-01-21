@@ -265,6 +265,7 @@ const AuthComponent = () => {
                   return 'Too many attempts — try again later';
                 return err.message || 'Login failed';
               },
+              duration: 4000,
             }
           )
           .then(() => {
@@ -327,7 +328,6 @@ const AuthComponent = () => {
 
   return (
     <>
-      <Toaster position="top-center" />
       <div className="fixed inset-0 flex items-center justify-center z-[999]">
         {/* <VantaBackground /> */}
 

@@ -615,15 +615,6 @@ export const deleteConversation = async (userId, avatarId, conversationId) => {
 };
 
 export const configureAvatarApi = async (userId, avatarId) => {
-  const responseMessagingApi = await fetch(
-    `${import.meta.env.VITE_MESSAGING_API}/configure_avatar?user_id=${userId}&avatar_id=${avatarId}`,
-    {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-    }
-  );
   const responseDataLoadingApi = await fetch(
     `${import.meta.env.VITE_DATA_LOADING_API}/init_avatar?user_id=${userId}&avatar_id=${avatarId}`,
     {
@@ -634,6 +625,15 @@ export const configureAvatarApi = async (userId, avatarId) => {
     }
   );
 
+  const responseMessagingApi = await fetch(
+    `${import.meta.env.VITE_MESSAGING_API}/configure_avatar?user_id=${userId}&avatar_id=${avatarId}`,
+    {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+    }
+  );
   if (!responseMessagingApi.ok) {
     throw new Error('Failed to configure avatar on the messaging server');
   }

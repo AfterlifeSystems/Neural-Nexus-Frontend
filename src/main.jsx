@@ -41,7 +41,6 @@ createRoot(document.getElementById('root')).render(
     <Toaster
       position="top-center"
       toastOptions={{
-        duration: 4000,
         style: {
           background: 'rgba(30,30,40,0.95)',
           color: 'white',
@@ -49,11 +48,10 @@ createRoot(document.getElementById('root')).render(
         },
       }}
     />
+    <VantaBackground />
     <AuthProvider>
       <MediaProvider>
         <BrowserRouter>
-          <VantaBackground />
-
           <Routes>
             {/* Public landing pages */}
             <Route path="/welcome" element={<LandingPage />} />

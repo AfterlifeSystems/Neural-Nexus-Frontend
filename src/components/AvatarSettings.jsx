@@ -295,11 +295,7 @@ const AvatarSettings = ({ avatarId, accessToken }) => {
       toast.error('Failed to delete: ' + err.message);
     }
   };
-  const groupedDocuments = documents.reduce((acc, doc) => {
-    if (!acc[doc.type]) acc[doc.type] = [];
-    acc[doc.type].push(doc);
-    return acc;
-  }, {});
+
   const renderDocumentPreview = (doc) => {
     if (doc.loading) {
       return (
