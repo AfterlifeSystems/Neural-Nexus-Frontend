@@ -936,53 +936,7 @@ const AvatarSettings = ({ avatarId, accessToken }) => {
         </div>
       </div>
       {/* Documents Section */}
-      {Object.keys(groupedDocuments).length > 0 && (
-        <div className="space-y-6">
-          {Object.entries(groupedDocuments).map(([type, docs]) => (
-            <div
-              key={type}
-              className="bg-white/5 backdrop-blur-lg rounded-2xl border border-white/20 p-6"
-            >
-              <h3 className="text-xl font-semibold text-white mb-4 flex items-center gap-2 capitalize">
-                {getTypeIcon(type)}
-                {type}s ({docs.length})
-              </h3>
-              <div className="space-y-4">
-                {docs.map((doc) => (
-                  <div
-                    key={doc.id}
-                    className="bg-white/5 border border-white/10 rounded-xl p-4"
-                  >
-                    <div className="flex justify-between items-start mb-3">
-                      <div>
-                        <h4 className="text-white font-medium flex items-center gap-2">
-                          {doc.name}
-                          {doc.loading && (
-                            <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-blue-400"></div>
-                          )}
-                        </h4>
-                        <p className="text-white/60 text-sm">
-                          {new Date(doc.created_at).toLocaleDateString()} •{' '}
-                          {doc.source || 'Uploaded'}
-                        </p>
-                      </div>
-                      {!doc.loading && (
-                        <button
-                          onClick={() => deleteDocument(doc.id)}
-                          className="text-red-400 hover:text-red-300 transition-colors"
-                        >
-                          <Trash2 size={20} />
-                        </button>
-                      )}
-                    </div>
-                    {renderDocumentPreview(doc)}
-                  </div>
-                ))}
-              </div>
-            </div>
-          ))}
-        </div>
-      )}
+
       <div className="bg-white/5 backdrop-blur-lg rounded-2xl border border-white/20 p-6">
         <h3 className="text-xl font-semibold text-white mb-4 flex items-center gap-2">
           <File size={20} />
@@ -1011,6 +965,12 @@ const AvatarSettings = ({ avatarId, accessToken }) => {
                       : ''}
                   </span>
                   {/* Add a delete or view button here if needed */}
+                  <button
+                    onClick={() => deleteDocument(doc.id)}
+                    className="text-red-400 hover:text-red-300 transition-colors"
+                  >
+                    <Trash2 size={20} />
+                  </button>
                 </div>
               </div>
             ))

@@ -45,8 +45,6 @@ export const uploadToDataLoadingApi = async (
   isReferenceImage = false,
   isReferenceAudio = false
 ) => {
-  const API_BASE_URL = 'http://localhost:8060'; // Update this to your API URL
-
   const results = [];
 
   // Upload each file separately as the API expects single file uploads
@@ -60,10 +58,13 @@ export const uploadToDataLoadingApi = async (
     formData.append('is_reference_audio', isReferenceAudio);
 
     try {
-      const response = await fetch(`${API_BASE_URL}/upload`, {
-        method: 'POST',
-        body: formData,
-      });
+      const response = await fetch(
+        `${import.meta.env.VITE_DATA_LOADING_API}/upload`,
+        {
+          method: 'POST',
+          body: formData,
+        }
+      );
 
       if (!response.ok) {
         const errorData = await response.json();
@@ -73,7 +74,8 @@ export const uploadToDataLoadingApi = async (
       }
 
       // update the uploaded file list
-      avatarRef = doc(db, 'users', userId, 'avatars', avatarId);
+      const avatarRef = doc(db, 'users', userId, 'avatars', avatarId);
+
       await updateDoc(avatarRef, {
         files: arrayUnion(file.name),
       });
@@ -614,7 +616,7 @@ export const deleteConversation = async (userId, avatarId, conversationId) => {
 
 export const configureAvatarApi = async (userId, avatarId) => {
   const responseMessagingApi = await fetch(
-    `http://localhost:8090/configure_avatar?user_id=${userId}&avatar_id=${avatarId}`,
+    `${import.meta.env.VITE_MESSAGING_API}/configure_avatar?user_id=${userId}&avatar_id=${avatarId}`,
     {
       method: 'POST',
       headers: {
@@ -623,7 +625,7 @@ export const configureAvatarApi = async (userId, avatarId) => {
     }
   );
   const responseDataLoadingApi = await fetch(
-    `http://localhost:8060/init_avatar?user_id=${userId}&avatar_id=${avatarId}`,
+    `${import.meta.env.VITE_DATA_LOADING_API}/init_avatar?user_id=${userId}&avatar_id=${avatarId}`,
     {
       method: 'POST',
       headers: {

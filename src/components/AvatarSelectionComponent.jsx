@@ -332,11 +332,11 @@ const AvatarSelectionComponent = ({}) => {
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
-  useEffect(() => {
-    if (user) {
-      toast.dismiss();
-    }
-  }, []);
+  // useEffect(() => {
+  //   if (user) {
+  //     toast.dismiss();
+  //   }
+  // }, []);
 
   useEffect(() => {
     console.log('Avatar Selection Component user: ' + JSON.stringify(user));
