@@ -82,7 +82,6 @@ const AvatarSettings = ({ avatarId, accessToken }) => {
   const [isDeleting, setIsDeleting] = useState(false);
   // New state for document management
   const [isDragging, setIsDragging] = useState(false);
-  const [documents, setDocuments] = useState([]);
   const [socialLogins, setSocialLogins] = useState([]);
   const [loading, setLoading] = useState(false);
   const [showLoginModal, setShowLoginModal] = useState(false);
@@ -165,6 +164,7 @@ const AvatarSettings = ({ avatarId, accessToken }) => {
     try {
       if (!user) throw new Error('Not logged in');
       if (!activeAvatar) throw new Error('No active avatar');
+
       const newPending = Array.from(filesList).map((file) => ({
         id: uuidv4(),
         name: file.name,
@@ -173,8 +173,11 @@ const AvatarSettings = ({ avatarId, accessToken }) => {
         previewUrl: URL.createObjectURL(file),
         file, // keep file ref for upload
       }));
-      setDocuments((prev) => [...prev, ...newPending]);
+
       for (const pending of newPending) {
+        const loadingToastId = toast.loading(`Uploading ${pending.name}...`, {
+          position: 'bottom-left',
+        });
         const file = pending.file;
         try {
           const uploadResults = await uploadToDataLoadingApi(
@@ -186,16 +189,15 @@ const AvatarSettings = ({ avatarId, accessToken }) => {
           if (!uploadResults[0].success) {
             throw new Error(uploadResults[0].error);
           }
-          toast.success(`${file.name} uploaded successfully`);
-
-          setDocuments((prev) =>
-            prev.map((d) =>
-              d.id === pending.id ? { ...file.name, loading: false } : d
-            )
-          );
+          toast.dismiss(loadingToastId);
+          toast.success(`${pending.name} uploaded successfully`, {
+            position: 'bottom-left',
+          });
         } catch (error) {
-          toast.error(`Failed to upload ${file.name}: ${error.message}`);
-          setDocuments(activeAvatar.files);
+          toast.dismiss(loadingToastId);
+          toast.error(`Failed to upload ${file.name}: ${error.message}`, {
+            position: 'bottom-left',
+          });
         }
       }
     } catch (err) {
@@ -211,7 +213,6 @@ const AvatarSettings = ({ avatarId, accessToken }) => {
       type: 'web',
       loading: true,
     };
-    setDocuments((prev) => [...prev, tempDoc]);
     try {
       if (!user) throw new Error('Not logged in');
       if (!activeAvatar) throw new Error('No active avatar');
@@ -231,13 +232,9 @@ const AvatarSettings = ({ avatarId, accessToken }) => {
       await updateDoc(avatarRef, {
         files: arrayUnion(docMeta),
       });
-      setDocuments((prev) =>
-        prev.map((d) => (d.id === tempId ? { ...docMeta, loading: false } : d))
-      );
       toast.success('URL added successfully');
     } catch (err) {
       toast.error('URL upload failed: ' + err.message);
-      setDocuments((prev) => prev.filter((d) => d.id !== tempId));
     }
   };
   const handleSocialLogin = (platform) => {
@@ -299,17 +296,12 @@ const AvatarSettings = ({ avatarId, accessToken }) => {
     try {
       if (!user) throw new Error('Not logged in');
       await deleteDocument(user.uid, activeAvatar.avatar_id, id);
-      setDocuments((prev) => prev.filter((doc) => doc.id !== id));
       toast.success('Document deleted');
     } catch (err) {
       toast.error('Failed to delete: ' + err.message);
     }
   };
-  const groupedDocuments = documents.reduce((acc, doc) => {
-    if (!acc[doc.type]) acc[doc.type] = [];
-    acc[doc.type].push(doc);
-    return acc;
-  }, {});
+
   const renderDocumentPreview = (doc) => {
     if (doc.loading) {
       return (
@@ -936,62 +928,16 @@ const AvatarSettings = ({ avatarId, accessToken }) => {
         </div>
       </div>
       {/* Documents Section */}
-      {Object.keys(groupedDocuments).length > 0 && (
-        <div className="space-y-6">
-          {Object.entries(groupedDocuments).map(([type, docs]) => (
-            <div
-              key={type}
-              className="bg-white/5 backdrop-blur-lg rounded-2xl border border-white/20 p-6"
-            >
-              <h3 className="text-xl font-semibold text-white mb-4 flex items-center gap-2 capitalize">
-                {getTypeIcon(type)}
-                {type}s ({docs.length})
-              </h3>
-              <div className="space-y-4">
-                {docs.map((doc) => (
-                  <div
-                    key={doc.id}
-                    className="bg-white/5 border border-white/10 rounded-xl p-4"
-                  >
-                    <div className="flex justify-between items-start mb-3">
-                      <div>
-                        <h4 className="text-white font-medium flex items-center gap-2">
-                          {doc.name}
-                          {doc.loading && (
-                            <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-blue-400"></div>
-                          )}
-                        </h4>
-                        <p className="text-white/60 text-sm">
-                          {new Date(doc.created_at).toLocaleDateString()} •{' '}
-                          {doc.source || 'Uploaded'}
-                        </p>
-                      </div>
-                      {!doc.loading && (
-                        <button
-                          onClick={() => deleteDocument(doc.id)}
-                          className="text-red-400 hover:text-red-300 transition-colors"
-                        >
-                          <Trash2 size={20} />
-                        </button>
-                      )}
-                    </div>
-                    {renderDocumentPreview(doc)}
-                  </div>
-                ))}
-              </div>
-            </div>
-          ))}
-        </div>
-      )}
+
       <div className="bg-white/5 backdrop-blur-lg rounded-2xl border border-white/20 p-6">
         <h3 className="text-xl font-semibold text-white mb-4 flex items-center gap-2">
           <File size={20} />
-          Files in {activeAvatar.name}
+          Files in {activeAvatar?.name}
         </h3>
 
         <div className="space-y-2">
-          {activeAvatar.files && activeAvatar.files.length > 0 ? (
-            activeAvatar.files.map((file, index) => (
+          {activeAvatar?.files && activeAvatar?.files.length > 0 ? (
+            activeAvatar?.files.map((file, index) => (
               <div
                 key={file.id || index}
                 className="flex items-center justify-between p-3 bg-white/5 border border-white/10 rounded-lg hover:bg-white/10 transition-colors"
@@ -1000,7 +946,7 @@ const AvatarSettings = ({ avatarId, accessToken }) => {
                   {/* Determine icon based on file type if available */}
                   <FileText size={18} className="text-blue-400" />
                   <span className="text-white text-sm font-medium">
-                    {typeof file === 'string' ? file : file.name}
+                    {typeof file === 'string' ? file : file?.name}
                   </span>
                 </div>
 
@@ -1011,6 +957,12 @@ const AvatarSettings = ({ avatarId, accessToken }) => {
                       : ''}
                   </span>
                   {/* Add a delete or view button here if needed */}
+                  <button
+                    onClick={() => deleteDocument(doc.id)}
+                    className="text-red-400 hover:text-red-300 transition-colors"
+                  >
+                    <Trash2 size={20} />
+                  </button>
                 </div>
               </div>
             ))

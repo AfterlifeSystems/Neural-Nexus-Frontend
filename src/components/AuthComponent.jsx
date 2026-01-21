@@ -201,72 +201,79 @@ const AuthComponent = () => {
         // const res = await signup(username, email, password);
         // Success handled in AuthContext
       } else if (modalView === 'login') {
-        try {
-          const userCredential = await signInWithEmailAndPassword(
-            auth,
-            email,
-            password
-          );
-          // localStorage.setItem('user', JSON.stringify(userCredential.user));
+        toast
+          .promise(
+            (async () => {
+              const userCredential = await signInWithEmailAndPassword(
+                auth,
+                email,
+                password
+              );
+              // localStorage.setItem('user', JSON.stringify(userCredential.user));
 
-          console.log(
-            'XXXXXXXXXXXXXXXXXXXXXX   USE EFFECT LOGIN FROM AUTH SERVICE XXXXXXXXXXXXXXXXXXXXXXXXXXX'
-          );
-          console.log(userCredential);
+              console.log(
+                'XXXXXXXXXXXXXXXXXXXXXX   USE EFFECT LOGIN FROM AUTH SERVICE XXXXXXXXXXXXXXXXXXXXXXXXXXX'
+              );
+              console.log(userCredential);
 
-          // Allow unverified emails if we are using the emulator
-          const isEmulator =
-            import.meta.env.VITE_USE_FIREBASE_EMULATOR === 'true';
+              // Allow unverified emails if we are using the emulator
+              const isEmulator =
+                import.meta.env.VITE_USE_FIREBASE_EMULATOR === 'true';
 
-          // Check if email is verified
-          // if (!userCredential.user.emailVerified && !isEmulator) {
-          //   await signOut(auth);
-          //   throw new Error('Please verify your email before logging in');
-          // }
+              // Check if email is verified
+              // if (!userCredential.user.emailVerified && !isEmulator) {
+              //   await signOut(auth);
+              //   throw new Error('Please verify your email before logging in');
+              // }
 
-          // Update last_login in Firestore
-          await updateDoc(doc(db, 'users', userCredential.user.uid), {
-            last_login: new Date(),
-            currently_logged_in: true,
+              // Update last_login in Firestore
+              await updateDoc(doc(db, 'users', userCredential.user.uid), {
+                last_login: new Date(),
+                currently_logged_in: true,
+              });
+
+              // set the current user profile
+              console.log(
+                '// set profile of user IN AUTH COMPONENT XXXXXXXXXXXXX'
+              );
+              let profileDoc = await getDoc(
+                doc(db, 'users', userCredential.user.uid)
+              );
+              setProfile(profileDoc.data());
+
+              console.log(
+                'XXXXXXXXXXXXXXXXXXXXXXXXX userCredential: ' +
+                  JSON.stringify(userCredential)
+              );
+              console.log(
+                'XXXXXXXXXXXXXXXXXXXXXXXXX userCredential.user: ' +
+                  JSON.stringify(userCredential.user)
+              );
+              return userCredential.user;
+            })(),
+            {
+              loading: 'Logging in...',
+              success: 'Login successful!',
+              error: (err) => {
+                if (err.code === 'auth/user-not-found')
+                  return 'No account found with this email';
+                if (err.code === 'auth/wrong-password')
+                  return 'Incorrect password';
+                if (err.code === 'auth/invalid-email')
+                  return 'Invalid email address';
+                if (err.code === 'auth/too-many-requests')
+                  return 'Too many attempts — try again later';
+                return err.message || 'Login failed';
+              },
+              duration: 4000,
+            }
+          )
+          .then(() => {
+            navigate('/avatars');
+          })
+          .catch((err) => {
+            console.log('catching error: ' + err);
           });
-
-          // set the current user profile
-          console.log('// set profile of user IN AUTH COMPONENT XXXXXXXXXXXXX');
-          let profileDoc = await getDoc(
-            doc(db, 'users', userCredential.user.uid)
-          );
-          setProfile(profileDoc.data());
-
-          console.log(
-            'XXXXXXXXXXXXXXXXXXXXXXXXX userCredential: ' +
-              JSON.stringify(userCredential)
-          );
-          console.log(
-            'XXXXXXXXXXXXXXXXXXXXXXXXX userCredential.user: ' +
-              JSON.stringify(userCredential.user)
-          );
-
-          // localStorage.setItem(user, userCredential.user);
-          toast.success('Login successful!');
-
-          navigate('/avatars');
-        } catch (error) {
-          console.error('Login error:', error);
-
-          let errorMessage = 'Login failed. Please try again.';
-          if (error.code === 'auth/user-not-found') {
-            errorMessage = 'No account found with this email';
-          } else if (error.code === 'auth/wrong-password') {
-            errorMessage = 'Incorrect password';
-          } else if (error.code === 'auth/invalid-email') {
-            errorMessage = 'Invalid email address';
-          } else if (error.message) {
-            errorMessage = error.message;
-          }
-
-          toast.error(errorMessage);
-          throw error;
-        }
 
         // Success handled in AuthContext
       } else if (modalView === 'forgotPassword') {
@@ -321,7 +328,6 @@ const AuthComponent = () => {
 
   return (
     <>
-      <Toaster position="top-center" />
       <div className="fixed inset-0 flex items-center justify-center z-[999]">
         {/* <VantaBackground /> */}
 
@@ -340,6 +346,35 @@ const AuthComponent = () => {
               <h2 className="text-5xl font-bold text-white mb-6">
                 Neural Nexus
               </h2>
+              {import.meta.env.VITE_TESTING === 'true' && (
+                <button
+                  onClick={() => {
+                    console.log(import.meta.env.VITE_TESTING);
+                    toast.dismiss();
+
+                    toast.promise(
+                      new Promise((resolve, reject) => {
+                        setTimeout(() => {
+                          // Change to reject() to test error path
+                          // resolve('fake upload result');
+                          reject();
+                          // reject(new Error("fake upload error"));
+                        }, 2400);
+                      }),
+                      {
+                        loading: 'Uploading document...',
+                        success: 'Document uploaded',
+                        error: 'Upload failed',
+                      }
+                    );
+                    toast.success('success works');
+                    toast.error('error works');
+                  }}
+                  className="px-4 py-2 bg-indigo-600 text-white rounded"
+                >
+                  Test Promise Toast
+                </button>
+              )}
             </div>
             {validIcons?.length > 0 && (
               <div className="flex justify-center items-center pb-6">

@@ -40,10 +40,9 @@ const MessageList = ({ messages, messagesEndRef }) => {
           const isLoading = msg.isLoading || msg.isPending;
 
           // Prefer role, fall back to sender (old field name safety)
-          const role = msg.role || msg.sender || 'user';
+          const role = msg.role || 'user';
 
-          const messageKey =
-            msg.id || msg.message_id || `temp-${msg.timestamp || Date.now()}`;
+          const messageKey = msg.id || `temp-${msg.timestamp || Date.now()}`;
 
           return (
             <div
@@ -52,8 +51,8 @@ const MessageList = ({ messages, messagesEndRef }) => {
                 role === 'user'
                   ? 'bg-teal-600 self-end text-white'
                   : role === 'assistant'
-                  ? 'bg-indigo-700 self-start text-white'
-                  : 'bg-indigo-700 self-center italic text-gray-300'
+                    ? 'bg-indigo-700 self-start text-white'
+                    : 'bg-indigo-700 self-center italic text-gray-300'
               }`}
             >
               {isLoading ? (

@@ -216,7 +216,7 @@ export const MediaProvider = ({ children }) => {
 
       // Remove loading message after response is received
       // The actual messages will come through the subscription
-      setMessages((prev) => prev.filter((msg) => msg.id !== loadingId));
+      // setMessages((prev) => prev.filter((msg) => msg.id !== loadingId));
 
       // Clear input
       // setInputMessage('');

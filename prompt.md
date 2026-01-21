@@ -1,9 +1,5 @@
-# viewing documents display but do not persist on load of Avatar settings
-# persistent login across refresh and browser navigation
 # image upload
 # audio upload
-# name visible and able to change
-# description visible and able to change
 
 # social media accounts don't connect
 # only accepts a single type of document (text Q & A)
@@ -24,9 +20,7 @@
 
 Prioritize foundational fixes for stability and core user flow:
 
-Persistent login across refresh and browser navigation – Essential for sessions; implement with JWT or localStorage.
-Name visible and able to change – Quick UI/backend update for basic editing.
-Description visible and able to change – Similar to name; build on it.
+
 Image upload – Core avatar feature; use multer or similar for handling.
 Audio upload – Follow image pattern.
 
