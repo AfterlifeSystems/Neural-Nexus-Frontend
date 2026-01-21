@@ -772,33 +772,35 @@ const AvatarSelectionComponent = ({}) => {
                 User Settings
               </button>
               {/* // Add this button temporarily to your AvatarSettings component */}
-              <button
-                onClick={() => {
-                  console.log('test toast button clicked');
-                  toast.dismiss();
+              {import.meta.env.VITE_TESTING === 'true' && (
+                <button
+                  onClick={() => {
+                    console.log('test toast button clicked');
+                    toast.dismiss();
 
-                  toast.promise(
-                    new Promise((resolve, reject) => {
-                      setTimeout(() => {
-                        // Change to reject() to test error path
-                        // resolve('fake upload result');
-                        reject();
-                        // reject(new Error("fake upload error"));
-                      }, 2400);
-                    }),
-                    {
-                      loading: 'Uploading document...',
-                      success: 'Document uploaded',
-                      error: 'Upload failed',
-                    }
-                  );
-                  toast.success('success works');
-                  toast.error('error works');
-                }}
-                className="px-4 py-2 bg-indigo-600 text-white rounded"
-              >
-                Test Promise Toast
-              </button>
+                    toast.promise(
+                      new Promise((resolve, reject) => {
+                        setTimeout(() => {
+                          // Change to reject() to test error path
+                          // resolve('fake upload result');
+                          reject();
+                          // reject(new Error("fake upload error"));
+                        }, 2400);
+                      }),
+                      {
+                        loading: 'Uploading document...',
+                        success: 'Document uploaded',
+                        error: 'Upload failed',
+                      }
+                    );
+                    toast.success('success works');
+                    toast.error('error works');
+                  }}
+                  className="px-4 py-2 bg-indigo-600 text-white rounded"
+                >
+                  Test Promise Toast
+                </button>
+              )}
               {dropdownOpen && (
                 <div
                   id="user-menu"

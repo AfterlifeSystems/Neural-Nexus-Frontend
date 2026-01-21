@@ -346,32 +346,35 @@ const AuthComponent = () => {
               <h2 className="text-5xl font-bold text-white mb-6">
                 Neural Nexus
               </h2>
-              <button
-                onClick={() => {
-                  toast.dismiss();
+              {import.meta.env.VITE_TESTING === 'true' && (
+                <button
+                  onClick={() => {
+                    console.log(import.meta.env.VITE_TESTING);
+                    toast.dismiss();
 
-                  toast.promise(
-                    new Promise((resolve, reject) => {
-                      setTimeout(() => {
-                        // Change to reject() to test error path
-                        // resolve('fake upload result');
-                        reject();
-                        // reject(new Error("fake upload error"));
-                      }, 2400);
-                    }),
-                    {
-                      loading: 'Uploading document...',
-                      success: 'Document uploaded',
-                      error: 'Upload failed',
-                    }
-                  );
-                  toast.success('success works');
-                  toast.error('error works');
-                }}
-                className="px-4 py-2 bg-indigo-600 text-white rounded"
-              >
-                Test Promise Toast
-              </button>
+                    toast.promise(
+                      new Promise((resolve, reject) => {
+                        setTimeout(() => {
+                          // Change to reject() to test error path
+                          // resolve('fake upload result');
+                          reject();
+                          // reject(new Error("fake upload error"));
+                        }, 2400);
+                      }),
+                      {
+                        loading: 'Uploading document...',
+                        success: 'Document uploaded',
+                        error: 'Upload failed',
+                      }
+                    );
+                    toast.success('success works');
+                    toast.error('error works');
+                  }}
+                  className="px-4 py-2 bg-indigo-600 text-white rounded"
+                >
+                  Test Promise Toast
+                </button>
+              )}
             </div>
             {validIcons?.length > 0 && (
               <div className="flex justify-center items-center pb-6">
