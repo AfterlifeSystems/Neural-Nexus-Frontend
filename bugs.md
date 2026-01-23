@@ -7,3 +7,5 @@ data is not deleted in firestore or storage after deleting
 
 i need to be able to delete documents from both the firestore and the chromadb vectorstore
 i need to be able to see toasts or loading indicators about what is going on with the application.
+
+name does not populate on user settings button pop up on first render after creating an account
