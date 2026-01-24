@@ -152,7 +152,7 @@ const AvatarSelectionComponent = ({}) => {
       );
 
       if (user?.uid) {
-        await configureAvatarApi(user.uid, avatarId);
+        await configureAvatarApi(accessToken, user.uid, avatarId);
       }
 
       cacheAvatarPosition(avatarId, avatarIndex);

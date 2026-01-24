@@ -13,6 +13,9 @@ name does not populate on user settings button pop up on first render after crea
 navigating away from avatar settings does not continue to process uploaded documents.
 cannot see all of input bar because of loading toast for uploaded document
 
+if documents are too large the data-loading api fails to process the document into a vectorstore or analyze the content
+
+documents with newline characters or '' will not process.
 
 # Conversation Notes
 Wow no I didn't mention any othe above... you need a lot of work on short term memory, long term memory, and identity for starters
@@ -101,3 +104,4 @@ moral foundations (care, fiarness, loyalty, authority, sanctity, liberty), dark 
 
 
 sometimes you read a passage and you hear a person's voice in your head. Sometimes you read a quote of something someone said and you can feel them. This is the abstraction of those experiences collected an d brought to a new dimension. 
+
