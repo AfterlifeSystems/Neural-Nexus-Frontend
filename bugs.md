@@ -26,9 +26,6 @@ live mode needs audio transcription
 live mode button doesn't function
 need to use vllm inference provider
 need to calculate cost of customer acquisition, cost of avatar, cost per message.
-
-There is lots to do. not a mess. work in progress. I see the entire application...
-
 social media logins dont work
 
 uploaded documents do not get analyzed by data loading api
@@ -59,3 +56,48 @@ need to create process to attach adapters
 need to create method of processing data from chatgpt, grok, and claude and neural nexus to allow for adapter training. very worthwhile; chain of thought reasoning patterns massive amount of data. scales beyond retrieval augmented generation
 
 need a universal metric of authenticity to evaluate responses from llm and ensure the llm is true-to-life.
+need to create reference image and reference audio
+
+need to create text from reference image and reference audio
+
+need to use reference audio to identify user in video 
+need to be able to acquire data from youtube videos
+
+need to be able to allow for the avatar to query first.
+
+need to create community avatars (Evan Woods is the first community avatar... I am sharing the avatar of myself with the rest of the world. anyone can talk to my avatar and anyone can also share their own personal avatar. )
+
+need to create proprietary avatars for businesses and services. agentic ordering. place for prayers.
+
+I want to create Mom, Place-for-prayers, myself, elon musk, shivon zilis, gracie abrams, lex fridman so he can interview himself
+
+need to be able to delete avatar
+need to be able to update user information
+need to rate limit usage
+need to offer subscriptions and tiers of use
+need to integrate subscriptable automation of personal avatars
+need users
+
+need a different color scheme.
+
+There is so much to do:
+Atomic Parts for authentic LLMS
+Linguistic: Vocabulary size, syntax patterns sentiment lexicon
+Behavioral: Response latency simulation, decision biases, chain-of-thought reasoning patterns
+Knowledge: short term, long term conversational memory, sense of self, awareness of relationships, awareness of the world, facts are limited to authenticity of the individual (not everyone is an astro-physicist)
+Emotional: Valence/arousal Scores
+Social: relationship graphs
+
+Analyze media and documents for the following insights and add the insights to the avatar document for prompt injection and tuning. Maximally true-to-life authenticity is the objective.
+audio tone-of-voice-inflection.
+
+Inner Persona
+Outer Persona
+OCEAN persona metrics (Openness, Conscientiousness, Extraversion, Agreeableness, Neuroticism)
+use personahub... review Cambridge Analytica psychological profiles
+capture metadata such as:
+interests, hobbies, values (schwartz's basic human values: power, achievement, benevolence, etc.)
+moral foundations (care, fiarness, loyalty, authority, sanctity, liberty), dark traits ( Machiavellianism, narcissism, psychopathy, sadism), political orientation, religious beliefs, emotional states, cognitive styles, decision-making patterns, cultural background, socioeconomic status, social network ties, motivations, attitudes toward risk
+
+
+sometimes you read a passage and you hear a person's voice in your head. Sometimes you read a quote of something someone said and you can feel them. This is the abstraction of those experiences collected an d brought to a new dimension. 
