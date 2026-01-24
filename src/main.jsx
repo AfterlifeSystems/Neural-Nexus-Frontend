@@ -23,8 +23,6 @@ import { auth, db, storage } from './firebase/config.js';
 
 import { toast, Toaster } from 'react-hot-toast';
 
-import { UserStateProvider } from './context/UserStateContext.jsx';
-
 // main.jsx → RootRedirect
 const RootRedirect = () => {
   const { user, loading } = useAuth();
@@ -51,34 +49,32 @@ createRoot(document.getElementById('root')).render(
       }}
     />
     <VantaBackground />
-    <UserStateProvider>
-      <AuthProvider>
-        <MediaProvider>
-          <BrowserRouter>
-            <Routes>
-              {/* Public landing pages */}
-              <Route path="/welcome" element={<LandingPage />} />
-              <Route path="/privacy" element={<PrivacyPolicy />} />
-              <Route path="/terms" element={<TermsOfService />} />
+    <AuthProvider>
+      <MediaProvider>
+        <BrowserRouter>
+          <Routes>
+            {/* Public landing pages */}
+            <Route path="/welcome" element={<LandingPage />} />
+            <Route path="/privacy" element={<PrivacyPolicy />} />
+            <Route path="/terms" element={<TermsOfService />} />
 
-              {/* Login is public */}
-              <Route path="/login" element={<AuthComponent />} />
+            {/* Login is public */}
+            <Route path="/login" element={<AuthComponent />} />
 
-              {/* All protected routes under one layout */}
-              <Route element={<ProtectedRoute />}>
-                <Route path="/avatars" element={<AvatarSelectionComponent />} />
-                <Route path="/chat/:avatarId" element={<ChatArea />} />
-                {/* <Route path="/billing" element={<BillingDashboard />} /> */}
-                {/* <Route path="/account" element={<AccountSettings />} /> */}
-              </Route>
+            {/* All protected routes under one layout */}
+            <Route element={<ProtectedRoute />}>
+              <Route path="/avatars" element={<AvatarSelectionComponent />} />
+              <Route path="/chat/:avatarId" element={<ChatArea />} />
+              {/* <Route path="/billing" element={<BillingDashboard />} /> */}
+              {/* <Route path="/account" element={<AccountSettings />} /> */}
+            </Route>
 
-              {/* Catch-all redirect to root */}
-              <Route path="/" element={<RootRedirect />} />
-              <Route path="*" element={<RootRedirect />} />
-            </Routes>
-          </BrowserRouter>
-        </MediaProvider>
-      </AuthProvider>
-    </UserStateProvider>
+            {/* Catch-all redirect to root */}
+            <Route path="/" element={<RootRedirect />} />
+            <Route path="*" element={<RootRedirect />} />
+          </Routes>
+        </BrowserRouter>
+      </MediaProvider>
+    </AuthProvider>
   </>
 );
