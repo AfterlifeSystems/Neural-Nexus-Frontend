@@ -27,7 +27,6 @@ import {
   onSnapshot,
 } from 'firebase/firestore';
 import { auth, db, storage } from '../firebase/config.js';
-import { getUserProfile } from '../services/userService';
 
 import toast from 'react-hot-toast';
 import { X } from 'lucide-react';

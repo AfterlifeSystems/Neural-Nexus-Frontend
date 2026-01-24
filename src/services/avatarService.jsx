@@ -614,9 +614,9 @@ export const deleteConversation = async (userId, avatarId, conversationId) => {
   return { status: 'success', conversation_id: conversationId };
 };
 
-export const configureAvatarApi = async (userId, avatarId) => {
+export const configureAvatarApi = async (accessToken, userId, avatarId) => {
   const responseMessagingApi = await fetch(
-    `${import.meta.env.VITE_MESSAGING_API}/configure_avatar?user_id=${userId}&avatar_id=${avatarId}`,
+    `${import.meta.env.VITE_MESSAGING_API}/configure_avatar?accessToken=${accessToken}&user_id=${userId}&avatar_id=${avatarId}`,
     {
       method: 'POST',
       headers: {
