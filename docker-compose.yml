@@ -20,6 +20,7 @@ services:
       - FIREBASE_STORAGE_EMULATOR_HOST=firebase-emulator:9199  # ✅ Add this
     depends_on:
       - firebase-emulator
+      - chroma
     stdin_open: true
     tty: true
     restart: unless-stopped

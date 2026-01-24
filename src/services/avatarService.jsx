@@ -614,7 +614,17 @@ export const deleteConversation = async (userId, avatarId, conversationId) => {
   return { status: 'success', conversation_id: conversationId };
 };
 
-export const configureAvatarApi = async (userId, avatarId) => {
+export const configureAvatarApi = async (accessToken, userId, avatarId) => {
+  const responseMessagingApi = await fetch(
+    `${import.meta.env.VITE_MESSAGING_API}/configure_avatar?accessToken=${accessToken}&user_id=${userId}&avatar_id=${avatarId}`,
+    {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+    }
+  );
+
   const responseDataLoadingApi = await fetch(
     `${import.meta.env.VITE_DATA_LOADING_API}/init_avatar?user_id=${userId}&avatar_id=${avatarId}`,
     {
@@ -625,15 +635,6 @@ export const configureAvatarApi = async (userId, avatarId) => {
     }
   );
 
-  const responseMessagingApi = await fetch(
-    `${import.meta.env.VITE_MESSAGING_API}/configure_avatar?user_id=${userId}&avatar_id=${avatarId}`,
-    {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-    }
-  );
   if (!responseMessagingApi.ok) {
     throw new Error('Failed to configure avatar on the messaging server');
   }
@@ -641,5 +642,5 @@ export const configureAvatarApi = async (userId, avatarId) => {
     throw new Error('Failed to configure avatar on the data loading server');
   }
 
-  return;
+  return { success: true };
 };
