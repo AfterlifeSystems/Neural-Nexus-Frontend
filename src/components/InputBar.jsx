@@ -12,8 +12,6 @@ const InputBar = ({
   setShowDataExchangeDropdown,
   showDataExchangeDropdown,
   dropdownRef,
-  isLiveChatView = false,
-  onActivateLiveChat,
 }) => {
   const fileInputRef = useRef(null);
   const textareaRef = useRef(null);
@@ -95,12 +93,13 @@ const InputBar = ({
   };
 
   const handleSendMessage = () => {
-    if (!inputMessage.trim() && mediaFiles.length === 0) {
-      if (isLiveChatView && onActivateLiveChat) {
-        onActivateLiveChat();
-      }
-      return;
-    }
+    // handle live chat activation
+    // if (!inputMessage.trim() && mediaFiles.length === 0) {
+    //   if (isLiveChatView && onActivateLiveChat) {
+    //     onActivateLiveChat();
+    //   }
+    //   return;
+    // }
 
     if (
       inputMessage.trim() &&
@@ -224,7 +223,7 @@ const InputBar = ({
         <button
           onClick={() => {
             if (!inputMessage.trim() && mediaFiles.length === 0) {
-              if (onActivateLiveChat) onActivateLiveChat();
+              // enable live-chat
             } else {
               handleSendMessage();
             }

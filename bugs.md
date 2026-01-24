@@ -105,3 +105,4 @@ moral foundations (care, fiarness, loyalty, authority, sanctity, liberty), dark 
 
 sometimes you read a passage and you hear a person's voice in your head. Sometimes you read a quote of something someone said and you can feel them. This is the abstraction of those experiences collected an d brought to a new dimension. 
 
+message notifications... in browser notifications

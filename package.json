@@ -21,7 +21,7 @@
     "@vercel/speed-insights": "^1.2.0",
     "@vitejs/plugin-rsc": "^0.5.11",
     "axios": "^1.13.2",
-    "firebase": "^12.7.0",
+    "firebase": "^12.8.0",
     "firebase-admin": "^13.6.0",
     "framer-motion": "^12.23.0",
     "lucide-react": "^0.511.0",
