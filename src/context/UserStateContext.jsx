@@ -30,11 +30,11 @@ export const useUserState = () => {
 
 export const UserStateProvider = ({ children }) => {
   const [manager] = useState(() => new UserStateManager(db, storage, auth));
-  const [currentUser, setCurrentUser] = useState(null);
+  const [currentUser, setCurrentUser] = useState(null); // auth information
   const [loading, setLoading] = useState(true);
 
   // Real-time states
-  const [activeUser, setActiveUser] = useState(null);
+  const [activeUser, setActiveUser] = useState(null); // firestore metadata
   const [activeAvatar, setActiveAvatar] = useState(null);
   const [allAvatars, setAllAvatars] = useState([]);
   const [allConversations, setAllConversations] = useState([]);
@@ -44,6 +44,95 @@ export const UserStateProvider = ({ children }) => {
   );
   const [allAvatarAdapterTrainingData, setAllAvatarAdapterTrainingData] =
     useState([]);
+
+  // ── All actions as top-level hooks ──────────────────────────────────────
+  const signup = useCallback(
+    (email, pw, name) => manager.signupUser(email, pw, name),
+    [manager]
+  );
+  const login = useCallback(
+    (email, pw) => manager.loginUser(email, pw),
+    [manager]
+  );
+  const logout = useCallback(() => manager.logoutUser(), [manager]);
+  const updateUser = useCallback(
+    (payload) => manager.updateUser(payload),
+    [manager]
+  );
+  const deleteUser = useCallback(() => manager.deleteUser(), [manager]);
+
+  const createAvatar = useCallback(
+    (uid, name, desc) => manager.createAvatar(uid, name, desc),
+    [manager]
+  );
+  const updateAvatar = useCallback(
+    (uid, aid, payload) => manager.updateAvatar(uid, aid, payload),
+    [manager]
+  );
+  const updateAvatarMetadata = useCallback(
+    (uid, aid, meta) => manager.updateAvatarMetadata(uid, aid, meta),
+    [manager]
+  );
+  const deleteAvatar = useCallback(
+    (aid, delUser) => manager.deleteAvatar(aid, delUser),
+    [manager]
+  );
+  const changeActiveAvatar = useCallback(
+    (aid) => manager.changeActiveAvatar(aid),
+    [manager]
+  );
+
+  const createConversation = useCallback(
+    (uid, aid) => manager.createConversation(uid, aid),
+    [manager]
+  );
+  const changeCurrentConversation = useCallback(
+    (cid) => manager.changeCurrentConversation(cid),
+    [manager]
+  );
+  const deleteConversation = useCallback(
+    (cid, delUser) => manager.deleteConversation(cid, delUser),
+    [manager]
+  );
+
+  const createMessage = useCallback(
+    (...args) => manager.messageManager.createMessage(...args),
+    [manager]
+  );
+  const editMessage = useCallback(
+    (...args) => manager.editMessage(...args),
+    [manager]
+  );
+  const getLlamaApiPayload = useCallback(
+    (msgs) => manager.messageManager.getLlamaApiPayload(msgs),
+    [manager]
+  );
+
+  const uploadDocument = useCallback(
+    (file, uid, aid) =>
+      manager.avatarDocumentManager.uploadDocument(file, uid, aid),
+    [manager]
+  );
+  const saveTrainingData = useCallback(
+    (data, uid, aid, name) =>
+      manager.avatarDocumentManager.saveTrainingData(data, uid, aid, name),
+    [manager]
+  );
+  const updateAvatarIcon = useCallback(
+    (file, uid, aid) =>
+      manager.avatarDocumentManager.updateAvatarIcon(file, uid, aid),
+    [manager]
+  );
+  const updateAvatarReferenceAudio = useCallback(
+    (file, uid, aid) =>
+      manager.avatarDocumentManager.updateAvatarReferenceAudio(file, uid, aid),
+    [manager]
+  );
+  const updateAvatarAdapter = useCallback(
+    (file, uid, aid) =>
+      manager.avatarDocumentManager.updateAvatarAdapter(file, uid, aid),
+    [manager]
+  );
 
   // 1. Auth listener + top-level user & avatars
   useEffect(() => {
@@ -185,103 +274,27 @@ export const UserStateProvider = ({ children }) => {
       allMessages,
       allUploadedAvatarDocuments,
       allAvatarAdapterTrainingData,
-
-      // Auth & user actions
-      signup: useCallback(
-        (email, pw, name) => manager.signupUser(email, pw, name),
-        [manager]
-      ),
-      login: useCallback(
-        (email, pw) => manager.loginUser(email, pw),
-        [manager]
-      ),
-      logout: useCallback(() => manager.logoutUser(), [manager]),
-      updateUser: useCallback(
-        (payload) => manager.updateUser(payload),
-        [manager]
-      ),
-      deleteUser: useCallback(() => manager.deleteUser(), [manager]),
-
-      // Avatar actions
-      createAvatar: useCallback(
-        (uid, name, desc) => manager.createAvatar(uid, name, desc),
-        [manager]
-      ),
-      updateAvatar: useCallback(
-        (uid, aid, payload) => manager.updateAvatar(uid, aid, payload),
-        [manager]
-      ),
-      updateAvatarMetadata: useCallback(
-        (uid, aid, meta) => manager.updateAvatarMetadata(uid, aid, meta),
-        [manager]
-      ),
-      deleteAvatar: useCallback(
-        (aid, delUser) => manager.deleteAvatar(aid, delUser),
-        [manager]
-      ),
-      changeActiveAvatar: useCallback(
-        (aid) => manager.changeActiveAvatar(aid),
-        [manager]
-      ),
-
-      // Conversation actions
-      createConversation: useCallback(
-        (uid, aid) => manager.createConversation(uid, aid),
-        [manager]
-      ),
-      changeCurrentConversation: useCallback(
-        (cid) => manager.changeCurrentConversation(cid),
-        [manager]
-      ),
-      deleteConversation: useCallback(
-        (cid, delUser) => manager.deleteConversation(cid, delUser),
-        [manager]
-      ),
-
-      // Message actions
-      createMessage: useCallback(
-        (...args) => manager.messageManager.createMessage(...args),
-        [manager]
-      ),
-      editMessage: useCallback(
-        (...args) => manager.editMessage(...args),
-        [manager]
-      ),
-      getLlamaApiPayload: useCallback(
-        (msgs) => manager.messageManager.getLlamaApiPayload(msgs),
-        [manager]
-      ),
-
-      // Document actions
-      uploadDocument: useCallback(
-        (file, uid, aid) =>
-          manager.avatarDocumentManager.uploadDocument(file, uid, aid),
-        [manager]
-      ),
-      saveTrainingData: useCallback(
-        (data, uid, aid, name) =>
-          manager.avatarDocumentManager.saveTrainingData(data, uid, aid, name),
-        [manager]
-      ),
-      updateAvatarIcon: useCallback(
-        (file, uid, aid) =>
-          manager.avatarDocumentManager.updateAvatarIcon(file, uid, aid),
-        [manager]
-      ),
-      updateAvatarReferenceAudio: useCallback(
-        (file, uid, aid) =>
-          manager.avatarDocumentManager.updateAvatarReferenceAudio(
-            file,
-            uid,
-            aid
-          ),
-        [manager]
-      ),
-      updateAvatarAdapter: useCallback(
-        (file, uid, aid) =>
-          manager.avatarDocumentManager.updateAvatarAdapter(file, uid, aid),
-        [manager]
-      ),
+      signup,
+      login,
+      logout,
+      updateUser,
+      deleteUser,
+      createAvatar,
+      updateAvatar,
+      updateAvatarMetadata,
+      deleteAvatar,
+      changeActiveAvatar,
+      createConversation,
+      changeCurrentConversation,
+      deleteConversation,
+      createMessage,
+      editMessage,
+      getLlamaApiPayload,
+      uploadDocument,
+      saveTrainingData,
+      updateAvatarIcon,
+      updateAvatarReferenceAudio,
+      updateAvatarAdapter,
     }),
     [
       manager,
@@ -294,6 +307,27 @@ export const UserStateProvider = ({ children }) => {
       allMessages,
       allUploadedAvatarDocuments,
       allAvatarAdapterTrainingData,
+      signup,
+      login,
+      logout,
+      updateUser,
+      deleteUser,
+      createAvatar,
+      updateAvatar,
+      updateAvatarMetadata,
+      deleteAvatar,
+      changeActiveAvatar,
+      createConversation,
+      changeCurrentConversation,
+      deleteConversation,
+      createMessage,
+      editMessage,
+      getLlamaApiPayload,
+      uploadDocument,
+      saveTrainingData,
+      updateAvatarIcon,
+      updateAvatarReferenceAudio,
+      updateAvatarAdapter,
     ]
   );
 

@@ -23,6 +23,8 @@ import { signOut } from 'firebase/auth';
 import { doc, setDoc, getDoc, updateDoc } from 'firebase/firestore';
 import { auth, db, storage } from '../firebase/config.js';
 
+import { useUserState } from '../context/UserStateContext.jsx';
+
 const AvatarSelectionComponent = ({}) => {
   const {
     accessToken,
@@ -32,6 +34,32 @@ const AvatarSelectionComponent = ({}) => {
     setActiveAvatar,
     lastUsedAvatar,
   } = useAuth();
+
+  const {
+    manager,
+    currentUser,
+    loading,
+    activeUser,
+    activeAvatar,
+    allAvatars,
+    allConversations,
+    allMessages,
+    allUploadedAvatarDocuments,
+    allAvatarAdapterTrainingData,
+  } = useUserState();
+
+  // Option 2 – log every time something relevant changes (good for debugging)
+  useEffect(() => {
+    console.log('Context updated:', {
+      currentUser: currentUser?.uid,
+      activeUserDisplay: activeUser,
+      activeAvatarName: activeAvatar?.name,
+      avatarsCount: allAvatars.length,
+      messagesCount: allMessages.length,
+      loading,
+    });
+  }, [currentUser, activeUser, activeAvatar, allAvatars, allMessages, loading]);
+
   const { setMessages, fetchMessages } = useMedia();
   const navigate = useNavigate();
   const [currentCardIndex, setCurrentCardIndex] = useState(0);
