@@ -784,7 +784,7 @@ const AvatarSettings = ({ avatarId, accessToken }) => {
         </div>
       </div>
       {/* Social Media Section */}
-      <div className="bg-white/5 backdrop-blur-lg rounded-2xl border border-white/20 p-6">
+      {/* <div className="bg-white/5 backdrop-blur-lg rounded-2xl border border-white/20 p-6">
         <h2 className="text-2xl font-semibold text-white mb-4 flex items-center gap-2">
           <Link size={24} />
           Social Media Accounts
@@ -862,7 +862,7 @@ const AvatarSettings = ({ avatarId, accessToken }) => {
             );
           })}
         </div>
-      </div>
+      </div> */}
       {/* Upload Section */}
       <div className="bg-white/5 backdrop-blur-lg rounded-2xl border border-white/20 p-6">
         <h2 className="text-2xl font-semibold text-white mb-4 flex items-center gap-2">
