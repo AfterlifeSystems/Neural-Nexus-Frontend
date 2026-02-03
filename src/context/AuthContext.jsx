@@ -70,7 +70,7 @@ export const AuthProvider = ({ children }) => {
 
   // sets the profile whenever user changes in auth context
   useEffect(() => {
-    console.log('USER HAVE CHANGED IN AUTH CONTEXT; CHANGING USER PROFILE');
+    console.log('USER HAS CHANGED IN AUTH CONTEXT; CHANGING USER PROFILE');
     if (!user) return;
     const unsub = onSnapshot(doc(db, 'users', user.uid), (snap) => {
       setProfile(snap.exists() ? snap.data() : null);

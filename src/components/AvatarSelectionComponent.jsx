@@ -17,7 +17,7 @@ import CreateAvatarComponent from './CreateAvatarComponent';
 import CreateAvatarModal from './CreateAvatarModal';
 import AvatarCardComponent from './AvatarCardComponent';
 import { useMedia } from '../context/MediaContext';
-import { selectAvatar, configureAvatarApi } from '../services/avatarService';
+import { selectAvatar } from '../services/avatarService';
 
 import { signOut } from 'firebase/auth';
 import { doc, setDoc, getDoc, updateDoc } from 'firebase/firestore';
@@ -152,9 +152,7 @@ const AvatarSelectionComponent = ({}) => {
         (avatar) => avatar.avatar_id === avatarId
       );
 
-      if (user?.uid) {
-        await configureAvatarApi(accessToken, user.uid, avatarId);
-      }
+      // when the avatar is selected, the backend is responsible for updating the identity and awareness of the avatar
 
       cacheAvatarPosition(avatarId, avatarIndex);
       if (selectedAvatar?.icon) {
