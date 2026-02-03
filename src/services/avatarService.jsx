@@ -218,6 +218,7 @@ export const createAvatar = async (user, name, description, iconFile) => {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
+        'x-api-key': `${import.meta.env.VITE_LANGGRAPH_API_KEY}`,
       },
       body: JSON.stringify({
         assistant_id: avatarId,
@@ -245,6 +246,7 @@ export const createAvatar = async (user, name, description, iconFile) => {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
+        'x-api-key': `${import.meta.env.VITE_LANGGRAPH_API_KEY}`,
       },
       body: JSON.stringify({
         thread_id: conversationId,
@@ -270,7 +272,8 @@ export const getAvatars = async (userId, limitCount = 50, skip = 0) => {
   // fetch(${import.meta.env.VITE_ANUBIS_API_URL}+"/assistants/search", {
   //   method: 'POST',
   //   headers: {
-  //     'Content-Type': 'application/json'
+  //     'Content-Type': 'application/json',
+  //     'x-api-key': `${import.meta.env.VITE_LANGGRAPH_API_KEY}`,
   //   },
   //   body: JSON.stringify(  {
   //   "metadata": {"user_id": "2eXDgNUItY7Z9wITPGvJZ73sW2hX" },
