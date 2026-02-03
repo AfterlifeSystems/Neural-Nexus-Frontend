@@ -695,33 +695,33 @@ export const deleteConversation = async (userId, avatarId, conversationId) => {
   return { status: 'success', conversation_id: conversationId };
 };
 
-export const configureAvatarApi = async (accessToken, userId, avatarId) => {
-  const responseMessagingApi = await fetch(
-    `${import.meta.env.VITE_MESSAGING_API}/configure_avatar?accessToken=${accessToken}&user_id=${userId}&avatar_id=${avatarId}`,
-    {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-    }
-  );
+// export const configureAvatarApi = async (accessToken, userId, avatarId) => {
+//   const responseMessagingApi = await fetch(
+//     `${import.meta.env.VITE_MESSAGING_API}/configure_avatar?accessToken=${accessToken}&user_id=${userId}&avatar_id=${avatarId}`,
+//     {
+//       method: 'POST',
+//       headers: {
+//         'Content-Type': 'application/json',
+//       },
+//     }
+//   );
 
-  const responseDataLoadingApi = await fetch(
-    `${import.meta.env.VITE_DATA_LOADING_API}/init_avatar?user_id=${userId}&avatar_id=${avatarId}`,
-    {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-    }
-  );
+//   const responseDataLoadingApi = await fetch(
+//     `${import.meta.env.VITE_DATA_LOADING_API}/init_avatar?user_id=${userId}&avatar_id=${avatarId}`,
+//     {
+//       method: 'POST',
+//       headers: {
+//         'Content-Type': 'application/json',
+//       },
+//     }
+//   );
 
-  if (!responseMessagingApi.ok) {
-    throw new Error('Failed to configure avatar on the messaging server');
-  }
-  if (!responseDataLoadingApi.ok) {
-    throw new Error('Failed to configure avatar on the data loading server');
-  }
+//   if (!responseMessagingApi.ok) {
+//     throw new Error('Failed to configure avatar on the messaging server');
+//   }
+//   if (!responseDataLoadingApi.ok) {
+//     throw new Error('Failed to configure avatar on the data loading server');
+//   }
 
-  return { success: true };
-};
+//   return { success: true };
+// };
