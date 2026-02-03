@@ -210,6 +210,57 @@ export const createAvatar = async (user, name, description, iconFile) => {
     last_used_avatar: avatarId,
   });
 
+  console.log('creating assistant in api');
+
+  let api_creation_response = await fetch(
+    `${import.meta.env.VITE_ANUBIS_API_URL}` + '/assistants',
+    {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        assistant_id: avatarId,
+        graph_id: 'Anubis',
+        config: {},
+        context: {},
+        metadata: { user_id: userId, assistant_id: avatarId },
+        if_exists: 'raise',
+        name: name,
+        description: description,
+      }),
+    }
+  );
+
+  let creation_response_json = await api_creation_response.json();
+  console.log(
+    'API CREATION RESPONSE: ' + JSON.stringify(creation_response_json)
+  );
+
+  //  create initial conversation
+
+  let create_conversation_response = await fetch(
+    `${import.meta.env.VITE_ANUBIS_API_URL}` + '/threads',
+    {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        thread_id: conversationId,
+        metadata: { user_id: '', assistant_id: '', graph_id: 'Anubis' },
+        if_exists: 'raise',
+      }),
+    }
+  );
+
+  let conversation_creation_response_json =
+    await create_conversation_response.json();
+  console.log(
+    'API CREATION RESPONSE: ' +
+      JSON.stringify(conversation_creation_response_json)
+  );
+
   return {
     avatarData,
   };
@@ -221,16 +272,18 @@ export const getAvatars = async (userId, limitCount = 50, skip = 0) => {
   //   headers: {
   //     'Content-Type': 'application/json'
   //   },
-  //   body: JSON.stringify({
-  //     metadata: {},
-  //     graph_id: 'Anubis',
-  //     name: '',
-  //     limit: 10,
-  //     offset: 0,
-  //     sort_by: 'assistant_id',
-  //     sort_order: 'asc',
-  //     select: ['assistant_id']
-  //   })
+  //   body: JSON.stringify(  {
+  //   "metadata": {"user_id": "2eXDgNUItY7Z9wITPGvJZ73sW2hX" },
+  //   "graph_id": "Anubis",
+  //   "name": "",
+  //   "limit": 10,
+  //   "offset": 0,
+  //   "sort_by": "assistant_id",
+  //   "sort_order": "asc",
+  //   "select": [
+  //     "assistant_id", "metadata"
+  //   ]
+  // })
   // })
 
   const snapshot = await getDocs(avatarsQuery);
