@@ -216,13 +216,24 @@ export const createAvatar = async (user, name, description, iconFile) => {
 };
 
 export const getAvatars = async (userId, limitCount = 50, skip = 0) => {
-  const avatarsQuery = query(
-    collection(db, 'users', userId, 'avatars'),
-    where('user_id', '==', userId),
-    orderBy('created_at', 'asc')
-  );
+  fetch(${import.meta.env.VITE_ANUBIS_API_URL}+"/assistants/search", {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify({
+      metadata: {},
+      graph_id: 'Anubis',
+      name: '',
+      limit: 10,
+      offset: 0,
+      sort_by: 'assistant_id',
+      sort_order: 'asc',
+      select: ['assistant_id']
+    })
+  })
 
-  const snapshot = await getDocs(avatarsQuery);
+  // const snapshot = await getDocs(avatarsQuery);
   const avatars = [];
 
   for (const docSnapshot of snapshot.docs.slice(skip, skip + limitCount)) {
@@ -252,6 +263,23 @@ export const getAvatars = async (userId, limitCount = 50, skip = 0) => {
 
   return avatars;
 };
+
+fetch('http://localhost:2024/assistants/search', {
+  method: 'POST',
+  headers: {
+    'Content-Type': 'application/json'
+  },
+  body: JSON.stringify({
+    metadata: {},
+    graph_id: 'Anubis',
+    name: '',
+    limit: 10,
+    offset: 0,
+    sort_by: 'assistant_id',
+    sort_order: 'asc',
+    select: ['assistant_id']
+  })
+})
 
 export const updateAvatar = async (userId, avatarId, updates) => {
   const avatarRef = doc(db, 'users', userId, 'avatars', avatarId);
