@@ -17,7 +17,7 @@ import CreateAvatarComponent from './CreateAvatarComponent';
 import CreateAvatarModal from './CreateAvatarModal';
 import AvatarCardComponent from './AvatarCardComponent';
 import { useMedia } from '../context/MediaContext';
-import { selectAvatar, configureAvatarApi } from '../services/avatarService';
+import { selectAvatar } from '../services/avatarService';
 
 import { signOut } from 'firebase/auth';
 import { doc, setDoc, getDoc, updateDoc } from 'firebase/firestore';
