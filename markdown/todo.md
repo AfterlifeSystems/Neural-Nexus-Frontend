@@ -12,3 +12,5 @@ create simple logins and signup
 create drag-and-drop data uploading
 
 migrate to supabase, mongodb, aws storage
+
+integrate backend api with message list: https://chat.langchain.com/?threadId=b05515ba-2ca0-459e-9dfe-9d95dc8e8f65
