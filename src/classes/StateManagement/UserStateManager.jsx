@@ -7,7 +7,7 @@ import { AvatarDocumentManager } from './AvatarDocumentManager.js';
 export class UserStateManager {
   constructor(project = 'neuralnexus-467517', useEmulator = null) {
     this.projectId = project;
-    
+
     this.activeUser = null; // User object
     this.activeAvatar = null; // Avatar object
     this.allAvatars = []; // limited to 50; ordered by created_at; needs pagination
@@ -29,13 +29,15 @@ export class UserStateManager {
     if (!admin.apps.length) {
       const credentials = process.env.GOOGLE_APPLICATION_CREDENTIALS;
       if (!credentials) {
-        throw new Error('GOOGLE_APPLICATION_CREDENTIALS environment variable is required');
+        throw new Error(
+          'GOOGLE_APPLICATION_CREDENTIALS environment variable is required'
+        );
       }
 
       const serviceAccount = require(credentials);
       admin.initializeApp({
         credential: admin.credential.cert(serviceAccount),
-        storageBucket: `${project}.appspot.com`
+        storageBucket: `${project}.appspot.com`,
       });
     }
 
@@ -50,15 +52,21 @@ export class UserStateManager {
 
     // Initialize managers
     this.messageManager = new MessageManager(this.db, this.bucket);
-    this.avatarDocumentManager = new AvatarDocumentManager(this.db, this.bucket);
+    this.avatarDocumentManager = new AvatarDocumentManager(
+      this.db,
+      this.bucket
+    );
   }
 
   _initEmulator() {
     console.log('🔧 Initializing Firebase with EMULATORS');
 
-    process.env.FIRESTORE_EMULATOR_HOST = process.env.FIRESTORE_EMULATOR_HOST || 'localhost:8080';
-    process.env.FIREBASE_AUTH_EMULATOR_HOST = process.env.FIREBASE_AUTH_EMULATOR_HOST || 'localhost:9099';
-    process.env.FIREBASE_STORAGE_EMULATOR_HOST = process.env.FIREBASE_STORAGE_EMULATOR_HOST || 'localhost:9199';
+    process.env.FIRESTORE_EMULATOR_HOST =
+      process.env.FIRESTORE_EMULATOR_HOST || 'localhost:8080';
+    process.env.FIREBASE_AUTH_EMULATOR_HOST =
+      process.env.FIREBASE_AUTH_EMULATOR_HOST || 'localhost:9099';
+    process.env.FIREBASE_STORAGE_EMULATOR_HOST =
+      process.env.FIREBASE_STORAGE_EMULATOR_HOST || 'localhost:9199';
 
     this.db = admin.firestore();
 
@@ -95,14 +103,14 @@ export class UserStateManager {
   _onSnapshotCollCallback(collRefId, localCollList, filterField = null) {
     return async (snapshot) => {
       const docs = [];
-      snapshot.forEach(doc => {
+      snapshot.forEach((doc) => {
         if (filterField) {
           docs.push(doc.data()[filterField]);
         } else {
           docs.push(doc.data());
         }
       });
-      
+
       localCollList.length = 0;
       localCollList.push(...docs);
       console.log(`Updated local_coll_list for ${collRefId}`);
@@ -111,18 +119,18 @@ export class UserStateManager {
 
   _onSnapshotMessageCollCallback(collRefId, localCollList, convDocRef) {
     return async (snapshot) => {
-      snapshot.docChanges().forEach(change => {
+      snapshot.docChanges().forEach((change) => {
         if (change.type === 'added') {
           convDocRef.update({
             message_count: FieldValue.increment(1),
-            updated_at: FieldValue.serverTimestamp()
+            updated_at: FieldValue.serverTimestamp(),
           });
         }
       });
 
       const docs = [];
-      snapshot.forEach(doc => docs.push(doc.data()));
-      
+      snapshot.forEach((doc) => docs.push(doc.data()));
+
       localCollList.length = 0;
       localCollList.push(...docs);
       console.log(`Updated messages for ${collRefId}`);
@@ -130,7 +138,7 @@ export class UserStateManager {
   }
 
   unsubscribeAll() {
-    Object.values(this.activeListeners).forEach(unsubscribe => unsubscribe());
+    Object.values(this.activeListeners).forEach((unsubscribe) => unsubscribe());
     this.activeListeners = {};
   }
 
@@ -138,7 +146,9 @@ export class UserStateManager {
     if (!this.activeListeners[userId]) {
       console.log(`Starting listener for user ${userId}`);
       const docRef = this.db.collection('users').doc(userId);
-      const unsubscribe = docRef.onSnapshot(this._onSnapshotDocCallback(userId, this.activeUser));
+      const unsubscribe = docRef.onSnapshot(
+        this._onSnapshotDocCallback(userId, this.activeUser)
+      );
       this.activeListeners[userId] = unsubscribe;
     }
   }
@@ -146,9 +156,14 @@ export class UserStateManager {
   subscribeActiveAvatar(userId, avatarId) {
     if (!this.activeListeners[avatarId]) {
       console.log(`Starting listener for avatar ${avatarId}`);
-      const docRef = this.db.collection('users').doc(userId)
-        .collection('avatars').doc(avatarId);
-      const unsubscribe = docRef.onSnapshot(this._onSnapshotDocCallback(avatarId, this.activeAvatar));
+      const docRef = this.db
+        .collection('users')
+        .doc(userId)
+        .collection('avatars')
+        .doc(avatarId);
+      const unsubscribe = docRef.onSnapshot(
+        this._onSnapshotDocCallback(avatarId, this.activeAvatar)
+      );
       this.activeListeners[avatarId] = unsubscribe;
     }
   }
@@ -157,8 +172,13 @@ export class UserStateManager {
     const listener = `${userId}_coll`;
     if (!this.activeListeners[listener]) {
       console.log(`Starting listener for ${userId} avatar collection`);
-      const collRef = this.db.collection('users').doc(userId).collection('avatars');
-      const unsubscribe = collRef.onSnapshot(this._onSnapshotCollCallback(userId, this.allAvatars));
+      const collRef = this.db
+        .collection('users')
+        .doc(userId)
+        .collection('avatars');
+      const unsubscribe = collRef.onSnapshot(
+        this._onSnapshotCollCallback(userId, this.allAvatars)
+      );
       this.activeListeners[listener] = unsubscribe;
     }
   }
@@ -166,11 +186,18 @@ export class UserStateManager {
   subscribeListOfConversationsForActiveAvatar(userId, avatarId) {
     const listener = `${avatarId}_conversations_coll`;
     if (!this.activeListeners[listener]) {
-      const collRef = this.db.collection('users').doc(userId)
-        .collection('avatars').doc(avatarId)
+      const collRef = this.db
+        .collection('users')
+        .doc(userId)
+        .collection('avatars')
+        .doc(avatarId)
         .collection('conversations');
       const unsubscribe = collRef.onSnapshot(
-        this._onSnapshotCollCallback(avatarId, this.allConversations, 'conversation_id')
+        this._onSnapshotCollCallback(
+          avatarId,
+          this.allConversations,
+          'conversation_id'
+        )
       );
       this.activeListeners[listener] = unsubscribe;
     }
@@ -179,8 +206,11 @@ export class UserStateManager {
   subscribeListOfAllUploadedDocumentsForActiveAvatar(userId, avatarId) {
     const listener = `${avatarId}_uploaded_documents_coll`;
     if (!this.activeListeners[listener]) {
-      const collRef = this.db.collection('users').doc(userId)
-        .collection('avatars').doc(avatarId)
+      const collRef = this.db
+        .collection('users')
+        .doc(userId)
+        .collection('avatars')
+        .doc(avatarId)
         .collection('uploaded_documents');
       const unsubscribe = collRef.onSnapshot(
         this._onSnapshotCollCallback(avatarId, this.allUploadedAvatarDocuments)
@@ -192,30 +222,52 @@ export class UserStateManager {
   subscribeListOfAllProcessedTrainingDataForActiveAvatar(userId, avatarId) {
     const listener = `${avatarId}_training_documents_coll`;
     if (!this.activeListeners[listener]) {
-      const collRef = this.db.collection('users').doc(userId)
-        .collection('avatars').doc(avatarId)
+      const collRef = this.db
+        .collection('users')
+        .doc(userId)
+        .collection('avatars')
+        .doc(avatarId)
         .collection('training_documents');
       const unsubscribe = collRef.onSnapshot(
-        this._onSnapshotCollCallback(avatarId, this.allAvatarAdapterTrainingData)
+        this._onSnapshotCollCallback(
+          avatarId,
+          this.allAvatarAdapterTrainingData
+        )
       );
       this.activeListeners[listener] = unsubscribe;
     }
   }
 
-  subscribeListOfAllMessagesForCurrentConversation(userId, avatarId, conversationId) {
+  subscribeListOfAllMessagesForCurrentConversation(
+    userId,
+    avatarId,
+    conversationId
+  ) {
     const listener = `${conversationId}_coll`;
     if (!this.activeListeners[listener]) {
-      const messagesCollRef = this.db.collection('users').doc(userId)
-        .collection('avatars').doc(avatarId)
-        .collection('conversations').doc(conversationId)
+      const messagesCollRef = this.db
+        .collection('users')
+        .doc(userId)
+        .collection('avatars')
+        .doc(avatarId)
+        .collection('conversations')
+        .doc(conversationId)
         .collection('messages');
 
-      const conversationDocRef = this.db.collection('users').doc(userId)
-        .collection('avatars').doc(avatarId)
-        .collection('conversations').doc(conversationId);
+      const conversationDocRef = this.db
+        .collection('users')
+        .doc(userId)
+        .collection('avatars')
+        .doc(avatarId)
+        .collection('conversations')
+        .doc(conversationId);
 
       const unsubscribe = messagesCollRef.onSnapshot(
-        this._onSnapshotMessageCollCallback(conversationId, this.allMessages, conversationDocRef)
+        this._onSnapshotMessageCollCallback(
+          conversationId,
+          this.allMessages,
+          conversationDocRef
+        )
       );
       this.activeListeners[listener] = unsubscribe;
     }
@@ -226,7 +278,7 @@ export class UserStateManager {
       const userRecord = await this.auth.createUser({
         email,
         password,
-        displayName
+        displayName,
       });
 
       const userData = {
@@ -234,7 +286,7 @@ export class UserStateManager {
         display_name: displayName,
         email,
         currently_logged_in: false,
-        created_at: FieldValue.serverTimestamp()
+        created_at: FieldValue.serverTimestamp(),
       };
 
       await this.db.collection('users').doc(userRecord.uid).set(userData);
@@ -256,7 +308,7 @@ export class UserStateManager {
       const updateData = {
         updated_at: FieldValue.serverTimestamp(),
         last_login: FieldValue.serverTimestamp(),
-        currently_logged_in: true
+        currently_logged_in: true,
       };
 
       await userDoc.ref.update(updateData);
@@ -272,7 +324,7 @@ export class UserStateManager {
     try {
       await this.db.collection('users').doc(this.activeUser.user_id).update({
         updated_at: FieldValue.serverTimestamp(),
-        currently_logged_in: false
+        currently_logged_in: false,
       });
       this.unsubscribeAll();
     } catch (error) {
@@ -286,7 +338,7 @@ export class UserStateManager {
       const docRef = this.db.collection('users').doc(this.activeUser.user_id);
       const updateData = {
         ...updatePayload,
-        updated_at: FieldValue.serverTimestamp()
+        updated_at: FieldValue.serverTimestamp(),
       };
       await docRef.update(updateData);
       console.log(`Successfully updated user: ${this.activeUser.user_id}`);
@@ -300,8 +352,11 @@ export class UserStateManager {
   async deleteUser() {
     try {
       const userId = this.activeUser.user_id;
-      const avatarColl = await this.db.collection('users').doc(userId)
-        .collection('avatars').get();
+      const avatarColl = await this.db
+        .collection('users')
+        .doc(userId)
+        .collection('avatars')
+        .get();
 
       // Delete all avatars
       for (const doc of avatarColl.docs) {
@@ -324,12 +379,19 @@ export class UserStateManager {
   }
 
   async createAvatar(userId, name, description = null) {
-    const avatarId = this.db.collection('users').doc(userId)
-      .collection('avatars').doc().id;
+    const avatarId = this.db
+      .collection('users')
+      .doc(userId)
+      .collection('avatars')
+      .doc().id;
 
-    const currentConversationId = this.db.collection('users').doc(userId)
-      .collection('avatars').doc(avatarId)
-      .collection('conversations').doc().id;
+    const currentConversationId = this.db
+      .collection('users')
+      .doc(userId)
+      .collection('avatars')
+      .doc(avatarId)
+      .collection('conversations')
+      .doc().id;
 
     const avatarData = {
       avatar_id: avatarId,
@@ -342,7 +404,7 @@ export class UserStateManager {
       adapter: null,
       metadatas: {},
       created_at: FieldValue.serverTimestamp(),
-      updated_at: FieldValue.serverTimestamp()
+      updated_at: FieldValue.serverTimestamp(),
     };
 
     const conversationData = {
@@ -350,15 +412,24 @@ export class UserStateManager {
       summary: 'Initial Conversation',
       message_count: 0,
       created_at: FieldValue.serverTimestamp(),
-      updated_at: FieldValue.serverTimestamp()
+      updated_at: FieldValue.serverTimestamp(),
     };
 
-    await this.db.collection('users').doc(userId)
-      .collection('avatars').doc(avatarId).set(avatarData);
+    await this.db
+      .collection('users')
+      .doc(userId)
+      .collection('avatars')
+      .doc(avatarId)
+      .set(avatarData);
 
-    await this.db.collection('users').doc(userId)
-      .collection('avatars').doc(avatarId)
-      .collection('conversations').doc(currentConversationId).set(conversationData);
+    await this.db
+      .collection('users')
+      .doc(userId)
+      .collection('avatars')
+      .doc(avatarId)
+      .collection('conversations')
+      .doc(currentConversationId)
+      .set(conversationData);
 
     // Create storage directories
     const directories = [
@@ -366,7 +437,7 @@ export class UserStateManager {
       `users/${userId}/avatars/${avatarId}/adapter/training_data/.keep`,
       `users/${userId}/avatars/${avatarId}/icon/.keep`,
       `users/${userId}/avatars/${avatarId}/reference_audio/.keep`,
-      `users/${userId}/avatars/${avatarId}/message_media/.keep`
+      `users/${userId}/avatars/${avatarId}/message_media/.keep`,
     ];
 
     for (const dirPath of directories) {
@@ -378,8 +449,11 @@ export class UserStateManager {
 
   async updateAvatarMetadata(userId, avatarId, newMetadata) {
     try {
-      const docRef = this.db.collection('users').doc(userId)
-        .collection('avatars').doc(avatarId);
+      const docRef = this.db
+        .collection('users')
+        .doc(userId)
+        .collection('avatars')
+        .doc(avatarId);
 
       const updatePayload = {};
       for (const [key, value] of Object.entries(newMetadata)) {
@@ -396,12 +470,15 @@ export class UserStateManager {
 
   async updateAvatar(userId, avatarId, updatePayload) {
     try {
-      const docRef = this.db.collection('users').doc(userId)
-        .collection('avatars').doc(avatarId);
+      const docRef = this.db
+        .collection('users')
+        .doc(userId)
+        .collection('avatars')
+        .doc(avatarId);
 
       const updateData = {
         ...updatePayload,
-        updated_at: FieldValue.serverTimestamp()
+        updated_at: FieldValue.serverTimestamp(),
       };
 
       await docRef.update(updateData);
@@ -411,16 +488,27 @@ export class UserStateManager {
     }
   }
 
-  async editMessage(userId, avatarId, conversationId, messageId, updatePayload) {
+  async editMessage(
+    userId,
+    avatarId,
+    conversationId,
+    messageId,
+    updatePayload
+  ) {
     try {
-      const docRef = this.db.collection('users').doc(userId)
-        .collection('avatars').doc(avatarId)
-        .collection('conversations').doc(conversationId)
-        .collection('messages').doc(messageId);
+      const docRef = this.db
+        .collection('users')
+        .doc(userId)
+        .collection('avatars')
+        .doc(avatarId)
+        .collection('conversations')
+        .doc(conversationId)
+        .collection('messages')
+        .doc(messageId);
 
       const updateData = {
         ...updatePayload,
-        updated_at: FieldValue.serverTimestamp()
+        updated_at: FieldValue.serverTimestamp(),
       };
 
       await docRef.update(updateData);
@@ -434,18 +522,26 @@ export class UserStateManager {
 
   async createConversation(userId, avatarId) {
     try {
-      const newConversationId = this.db.collection('users').doc(userId)
-        .collection('avatars').doc(avatarId)
-        .collection('conversations').doc().id;
+      const newConversationId = this.db
+        .collection('users')
+        .doc(userId)
+        .collection('avatars')
+        .doc(avatarId)
+        .collection('conversations')
+        .doc().id;
 
       const conversationData = {
         conversation_id: newConversationId,
-        created_at: FieldValue.serverTimestamp()
+        created_at: FieldValue.serverTimestamp(),
       };
 
-      await this.db.collection('users').doc(userId)
-        .collection('avatars').doc(avatarId)
-        .collection('conversations').doc(newConversationId)
+      await this.db
+        .collection('users')
+        .doc(userId)
+        .collection('avatars')
+        .doc(avatarId)
+        .collection('conversations')
+        .doc(newConversationId)
         .set(conversationData);
 
       console.log(`Conversation created successfully ${newConversationId}`);
@@ -464,11 +560,14 @@ export class UserStateManager {
         delete this.activeListeners[listener];
       }
 
-      await this.db.collection('users').doc(this.activeUser.user_id)
-        .collection('avatars').doc(this.activeAvatar.avatar_id)
+      await this.db
+        .collection('users')
+        .doc(this.activeUser.user_id)
+        .collection('avatars')
+        .doc(this.activeAvatar.avatar_id)
         .update({
           updated_at: FieldValue.serverTimestamp(),
-          current_conversation_id: newConversationId
+          current_conversation_id: newConversationId,
         });
 
       this.subscribeListOfAllMessagesForCurrentConversation(
@@ -492,10 +591,10 @@ export class UserStateManager {
           this.activeAvatar.avatar_id,
           `${this.activeAvatar.avatar_id}_conversations_coll`,
           `${this.activeAvatar.avatar_id}_uploaded_documents_coll`,
-          `${this.activeAvatar.avatar_id}_training_documents_coll`
+          `${this.activeAvatar.avatar_id}_training_documents_coll`,
         ];
 
-        listeners.forEach(listener => {
+        listeners.forEach((listener) => {
           if (this.activeListeners[listener]) {
             this.activeListeners[listener]();
             delete this.activeListeners[listener];
@@ -504,11 +603,22 @@ export class UserStateManager {
       }
 
       this.subscribeActiveAvatar(this.activeUser.user_id, newActiveAvatarId);
-      this.subscribeListOfConversationsForActiveAvatar(this.activeUser.user_id, newActiveAvatarId);
-      this.subscribeListOfAllUploadedDocumentsForActiveAvatar(this.activeUser.user_id, newActiveAvatarId);
-      this.subscribeListOfAllProcessedTrainingDataForActiveAvatar(this.activeUser.user_id, newActiveAvatarId);
+      this.subscribeListOfConversationsForActiveAvatar(
+        this.activeUser.user_id,
+        newActiveAvatarId
+      );
+      this.subscribeListOfAllUploadedDocumentsForActiveAvatar(
+        this.activeUser.user_id,
+        newActiveAvatarId
+      );
+      this.subscribeListOfAllProcessedTrainingDataForActiveAvatar(
+        this.activeUser.user_id,
+        newActiveAvatarId
+      );
 
-      console.log(`Successfully switched to new active avatar: ${newActiveAvatarId}`);
+      console.log(
+        `Successfully switched to new active avatar: ${newActiveAvatarId}`
+      );
       return newActiveAvatarId;
     } catch (error) {
       console.error(`Error changing active avatar: ${error}`);
@@ -517,19 +627,23 @@ export class UserStateManager {
   }
 
   async getConversationMediaStoragePaths(userId, avatarId, conversationId) {
-    const messagesRef = this.db.collection('users').doc(userId)
-      .collection('avatars').doc(avatarId)
-      .collection('conversations').doc(conversationId)
+    const messagesRef = this.db
+      .collection('users')
+      .doc(userId)
+      .collection('avatars')
+      .doc(avatarId)
+      .collection('conversations')
+      .doc(conversationId)
       .collection('messages');
 
     const messages = await messagesRef.get();
     const storagePaths = [];
 
-    messages.forEach(messageDoc => {
+    messages.forEach((messageDoc) => {
       const messageData = messageDoc.data();
       const mediaList = messageData.media || [];
 
-      mediaList.forEach(mediaItem => {
+      mediaList.forEach((mediaItem) => {
         if (mediaItem.storagePath) {
           storagePaths.push(mediaItem.storagePath);
         }
@@ -540,7 +654,11 @@ export class UserStateManager {
   }
 
   async deleteConversationMediaFromStorage(userId, avatarId, conversationId) {
-    const storagePaths = await this.getConversationMediaStoragePaths(userId, avatarId, conversationId);
+    const storagePaths = await this.getConversationMediaStoragePaths(
+      userId,
+      avatarId,
+      conversationId
+    );
 
     if (storagePaths.length === 0) {
       console.log('No storage media found to delete.');
@@ -558,10 +676,16 @@ export class UserStateManager {
           await blob.delete();
           deletedCount++;
         } else {
-          failedDeletions.push({ storage_path: storagePath, error: 'Blob does not exist' });
+          failedDeletions.push({
+            storage_path: storagePath,
+            error: 'Blob does not exist',
+          });
         }
       } catch (error) {
-        failedDeletions.push({ storage_path: storagePath, error: error.message });
+        failedDeletions.push({
+          storage_path: storagePath,
+          error: error.message,
+        });
       }
     }
 
@@ -570,7 +694,10 @@ export class UserStateManager {
 
   async deleteConversation(conversationId, deleteUser = false) {
     try {
-      if (conversationId === this.activeAvatar.current_conversation_id && !deleteUser) {
+      if (
+        conversationId === this.activeAvatar.current_conversation_id &&
+        !deleteUser
+      ) {
         console.log('Error: cannot delete current conversation');
         return;
       }
@@ -581,9 +708,13 @@ export class UserStateManager {
         conversationId
       );
 
-      const conversationDocRef = this.db.collection('users').doc(this.activeUser.user_id)
-        .collection('avatars').doc(this.activeAvatar.avatar_id)
-        .collection('conversations').doc(conversationId);
+      const conversationDocRef = this.db
+        .collection('users')
+        .doc(this.activeUser.user_id)
+        .collection('avatars')
+        .doc(this.activeAvatar.avatar_id)
+        .collection('conversations')
+        .doc(conversationId);
 
       await this.db.recursiveDelete(conversationDocRef);
     } catch (error) {
@@ -599,41 +730,60 @@ export class UserStateManager {
         return;
       }
 
-      const conversationColl = await this.db.collection('users').doc(this.activeUser.user_id)
-        .collection('avatars').doc(avatarId)
-        .collection('conversations').get();
+      const conversationColl = await this.db
+        .collection('users')
+        .doc(this.activeUser.user_id)
+        .collection('avatars')
+        .doc(avatarId)
+        .collection('conversations')
+        .get();
 
       for (const doc of conversationColl.docs) {
         await this.deleteConversation(doc.data().conversation_id, deleteUser);
       }
 
       // Delete training documents
-      const trainingColl = await this.db.collection('users').doc(this.activeUser.user_id)
-        .collection('avatars').doc(avatarId)
-        .collection('training_documents').get();
+      const trainingColl = await this.db
+        .collection('users')
+        .doc(this.activeUser.user_id)
+        .collection('avatars')
+        .doc(avatarId)
+        .collection('training_documents')
+        .get();
 
-      const pathsToDelete = trainingColl.docs.map(doc => doc.data().storagePath);
+      const pathsToDelete = trainingColl.docs.map(
+        (doc) => doc.data().storagePath
+      );
       for (const path of pathsToDelete) {
         await this.bucket.file(path).delete();
       }
 
       await this.db.recursiveDelete(
-        this.db.collection('users').doc(this.activeUser.user_id)
-          .collection('avatars').doc(avatarId)
+        this.db
+          .collection('users')
+          .doc(this.activeUser.user_id)
+          .collection('avatars')
+          .doc(avatarId)
           .collection('training_documents')
       );
 
       // Delete uploaded documents
       await this.db.recursiveDelete(
-        this.db.collection('users').doc(this.activeUser.user_id)
-          .collection('avatars').doc(avatarId)
+        this.db
+          .collection('users')
+          .doc(this.activeUser.user_id)
+          .collection('avatars')
+          .doc(avatarId)
           .collection('uploaded_documents')
       );
 
       // Delete avatar
       await this.db.recursiveDelete(
-        this.db.collection('users').doc(this.activeUser.user_id)
-          .collection('avatars').doc(avatarId)
+        this.db
+          .collection('users')
+          .doc(this.activeUser.user_id)
+          .collection('avatars')
+          .doc(avatarId)
       );
     } catch (error) {
       console.error(`Error deleting avatar ${avatarId}: ${error}`);

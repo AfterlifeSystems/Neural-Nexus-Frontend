@@ -32,6 +32,7 @@ const AvatarSelectionComponent = ({}) => {
     setActiveAvatar,
     lastUsedAvatar,
   } = useAuth();
+
   const { setMessages, fetchMessages } = useMedia();
   const navigate = useNavigate();
   const [currentCardIndex, setCurrentCardIndex] = useState(0);
@@ -152,7 +153,7 @@ const AvatarSelectionComponent = ({}) => {
       );
 
       if (user?.uid) {
-        await configureAvatarApi(user.uid, avatarId);
+        await configureAvatarApi(accessToken, user.uid, avatarId);
       }
 
       cacheAvatarPosition(avatarId, avatarIndex);

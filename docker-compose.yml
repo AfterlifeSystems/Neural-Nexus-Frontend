@@ -14,53 +14,7 @@ services:
     environment:
       - CHOKIDAR_USEPOLLING=true
       - CHOKIDAR_INTERVAL=100
-      # Connect to emulator service in docker network
-      - FIRESTORE_EMULATOR_HOST=firebase-emulator:8070
-      - FIREBASE_AUTH_EMULATOR_HOST=firebase-emulator:9099
-      - FIREBASE_STORAGE_EMULATOR_HOST=firebase-emulator:9199  # ✅ Add this
-    depends_on:
-      - firebase-emulator
-      - chroma
     stdin_open: true
     tty: true
     restart: unless-stopped
     command: ["npm", "run", "dev", "--", "--host"]
-    networks:
-      - neural-nexus-network
-
-  firebase-emulator:
-    image: andreysenov/firebase-tools:latest
-    container_name: firebase-emulator
-    ports:
-      - "4000:4000"   # Emulator UI
-      - "8070:8070"   # Firestore
-      - "9099:9099"   # Auth
-      - "9000:9000"   # Realtime DB
-      - "9199:9199"   # Storage
-      - "5001:5001"   # Functions
-    volumes:
-      - ./:/firebase:cached
-    working_dir: /firebase
-    command: >
-      sh -c "firebase emulators:start --project neuralnexus-467517 --only firestore,auth,database,storage,functions"
-    networks:
-      - neural-nexus-network
-    restart: unless-stopped
-
-
-
-  chroma:
-    image: chromadb/chroma:latest
-    container_name: chroma
-    ports:
-      - "9410:8000"           # host:9410 → container:8000
-    volumes:
-      - ./chroma_data:/chroma/chroma
-    environment:
-      - IS_PERSISTENT=TRUE
-      - ANONYMIZED_TELEMETRY=FALSE
-    restart: unless-stopped
-
-networks:
-  neural-nexus-network:
-    driver: bridge

@@ -89,8 +89,6 @@ const ChatArea = ({
                 avatarId={activeAvatar?.avatar_id}
                 accessToken={accessToken}
                 dropdownRef={dropdownRef}
-                isLiveChatView={false}
-                onActivateLiveChat={onActivateLiveChat}
               />
             </div>
           </div>
