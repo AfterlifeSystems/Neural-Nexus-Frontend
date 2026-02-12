@@ -932,7 +932,7 @@ const AvatarSettings = ({ avatarId, accessToken }) => {
       <div className="bg-white/5 backdrop-blur-lg rounded-2xl border border-white/20 p-6">
         <h3 className="text-xl font-semibold text-white mb-4 flex items-center gap-2">
           <File size={20} />
-          Files in {activeAvatar?.name}
+          Data Uploaded for {activeAvatar?.name}
         </h3>
 
         <div className="space-y-2">

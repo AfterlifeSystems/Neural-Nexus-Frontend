@@ -49,19 +49,28 @@ export const uploadToDataLoadingApi = async (
 
   // Upload each file separately as the API expects single file uploads
   for (const file of files) {
+    //   const formData = new FormData();
+    //   formData.append('file', file);
+    //   formData.append('target_avatar_name', targetAvatarName);
+    //   formData.append('user_id', userId);
+    //   formData.append('avatar_id', avatarId);
+    //   formData.append('is_reference_image', isReferenceImage);
+    //   formData.append('is_reference_audio', isReferenceAudio);
+
     const formData = new FormData();
-    formData.append('file', file);
-    formData.append('target_avatar_name', targetAvatarName);
-    formData.append('user_id', userId);
-    formData.append('avatar_id', avatarId);
-    formData.append('is_reference_image', isReferenceImage);
-    formData.append('is_reference_audio', isReferenceAudio);
+    formData.append('files', '@filename');
+    formData.append('user_id', 'test_user_1234');
+    formData.append('assistant_id', 'default_assistant');
 
     try {
       const response = await fetch(
-        `${import.meta.env.VITE_DATA_LOADING_API}/upload`,
+        `${import.meta.env.VITE_ANUBIS_API_URL}` + '/upload-media',
         {
           method: 'POST',
+          headers: {
+            'Content-Type': 'multipart/form-data',
+            'x-api-key': `${import.meta.env.VITE_LANGGRAPH_API_KEY}`,
+          },
           body: formData,
         }
       );
@@ -95,7 +104,6 @@ export const uploadToDataLoadingApi = async (
       });
     }
   }
-
   return results;
 };
 
@@ -320,10 +328,11 @@ export const getAvatars = async (userId, limitCount = 50, skip = 0) => {
   return avatars;
 };
 
-fetch('http://localhost:2024/assistants/search', {
+fetch(`${import.meta.env.VITE_ANUBIS_API_URL}` + '/assistants/search', {
   method: 'POST',
   headers: {
     'Content-Type': 'application/json',
+    'x-api-key': `${import.meta.env.VITE_LANGGRAPH_API_KEY}`,
   },
   body: JSON.stringify({
     metadata: {},
