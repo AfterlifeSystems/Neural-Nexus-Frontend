@@ -152,6 +152,7 @@ export const createAvatar = async (user, name, description, iconFile) => {
       `users/${userId}/avatars/${avatarId}/adapters/training_data/.keep`
     )
   );
+
   // Store as a Digital Twin document following firestore_structure.md
   const avatarData = {
     avatar_id: avatarId,
