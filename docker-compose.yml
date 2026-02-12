@@ -18,3 +18,28 @@ services:
     tty: true
     restart: unless-stopped
     command: ["npm", "run", "dev", "--", "--host"]
+    networks:
+      - neural-nexus-network
+
+  firebase-emulator:
+    image: andreysenov/firebase-tools:latest
+    container_name: firebase-emulator
+    ports:
+      - "4000:4000"   # Emulator UI
+      - "8070:8070"   # Firestore
+      - "9099:9099"   # Auth
+      - "9000:9000"   # Realtime DB
+      - "9199:9199"   # Storage
+      - "5001:5001"   # Functions
+    volumes:
+      - ./:/firebase:cached
+    working_dir: /firebase
+    command: >
+      sh -c "firebase emulators:start --project demo-project --only firestore,auth,database,storage,functions"
+    networks:
+      - neural-nexus-network
+    restart: unless-stopped
+
+networks:
+  neural-nexus-network:
+    driver: bridge

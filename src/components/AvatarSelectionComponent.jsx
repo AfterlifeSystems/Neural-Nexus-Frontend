@@ -84,7 +84,7 @@ const AvatarSelectionComponent = ({}) => {
 
   const cacheAvatarPosition = (avatarId, avatarIndex = null) => {
     try {
-      localStorage.setItem('last_used_avatar_id', avatarId);
+      // localStorage.setItem('last_used_avatar_id', avatarId);
       if (avatarIndex !== null && userAvatars?.length > 0) {
         const positionData = {
           avatarIndex,
@@ -160,7 +160,8 @@ const AvatarSelectionComponent = ({}) => {
       }
       setActiveAvatar(selectedAvatar);
       // await selectAvatar(avatarId); // Update Firestore last_used_avatar
-      localStorage.setItem('last_used_avatar_id', avatarId);
+      // localStorage.setItem('last_used_avatar_id', avatarId);
+
       // Load messages for this avatar
       // await fetchMessages();
       // toast.success(`Selected ${avatar.name || 'avatar'}`);
@@ -263,23 +264,25 @@ const AvatarSelectionComponent = ({}) => {
   };
 
   useEffect(() => {
+    // SET AVATAR CARD INDEX TO LAST USED AVATAR
     if (userAvatars?.length > 0 && !hasInitialized.current) {
       let targetIndex = 0;
 
-      const cachedLastAvatarId = localStorage.getItem('last_used_avatar_id');
-      if (cachedLastAvatarId) {
-        const cachedPosition = getCachedAvatarPosition(cachedLastAvatarId);
-        if (cachedPosition && cachedPosition.avatarIndex < userAvatars.length) {
-          targetIndex = cachedPosition.avatarIndex;
-        }
-      } else if (lastUsedAvatar) {
-        const lastUsedIndex = userAvatars.findIndex(
-          (avatar) => avatar.avatar_id === lastUsedAvatar
-        );
-        if (lastUsedIndex !== -1) {
-          targetIndex = lastUsedIndex;
-        }
-      }
+      // const cachedLastAvatarId = localStorage.getItem('last_used_avatar_id');
+
+      // if (cachedLastAvatarId) {
+      //   const cachedPosition = getCachedAvatarPosition(cachedLastAvatarId);
+      //   if (cachedPosition && cachedPosition.avatarIndex < userAvatars.length) {
+      //     targetIndex = cachedPosition.avatarIndex;
+      //   }
+      // } else if (lastUsedAvatar) {
+      //   const lastUsedIndex = userAvatars.findIndex(
+      //     (avatar) => avatar.avatar_id === lastUsedAvatar
+      //   );
+      //   if (lastUsedIndex !== -1) {
+      //     targetIndex = lastUsedIndex;
+      //   }
+      // }
 
       setCurrentCardIndex(targetIndex);
       if (galleryRef.current) {
@@ -291,6 +294,7 @@ const AvatarSelectionComponent = ({}) => {
       hasInitialized.current = false;
     }
   }, [user, userAvatars]);
+
   const handleLogout = async () => {
     try {
       try {
