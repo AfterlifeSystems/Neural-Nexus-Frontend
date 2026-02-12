@@ -24,6 +24,8 @@ import {
 } from 'firebase/storage';
 import { db, storage } from '../firebase/config';
 import { v4 as uuidv4 } from 'uuid';
+import { get_client } from 'langsmith';
+import { createClient } from '@supabase/supabase-js';
 
 // Add this function to your avatarService.jsx file
 
@@ -38,6 +40,7 @@ import { v4 as uuidv4 } from 'uuid';
  * @returns {Promise<Object>} Upload response
  */
 export const uploadToDataLoadingApi = async (
+  // UPLOAD MEDIA
   userId,
   avatarId,
   targetAvatarName,
@@ -69,7 +72,7 @@ export const uploadToDataLoadingApi = async (
           method: 'POST',
           headers: {
             'Content-Type': 'multipart/form-data',
-            'x-api-key': `${import.meta.env.VITE_LANGGRAPH_API_KEY}`,
+            'x-api-key': `${import.meta.env.VITE_LANGGRAPH_API_SERVER_KEY}`,
           },
           body: formData,
         }
@@ -108,7 +111,12 @@ export const uploadToDataLoadingApi = async (
 };
 
 export const createAvatar = async (user, name, description, iconFile) => {
+  // CREATE ASSISTANT CREATE AVATAR
   if (!user) throw new Error('No authenticated user');
+
+  client = get_client(
+    (url = `${import.meta.env.VITE_LANGGRAPH_API_SERVER_URL}`)
+  );
 
   const userId = user.uid;
   const avatarId = uuidv4();
@@ -215,7 +223,7 @@ export const createAvatar = async (user, name, description, iconFile) => {
   // }
   await updateDoc(userRef, {
     avatars: arrayUnion(avatarId),
-    last_used_avatar: avatarId,
+    // last_used_avatar: avatarId,
   });
 
   console.log('creating assistant in api');
@@ -226,7 +234,7 @@ export const createAvatar = async (user, name, description, iconFile) => {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'x-api-key': `${import.meta.env.VITE_LANGGRAPH_API_KEY}`,
+        'x-api-key': `${import.meta.env.VITE_LANGGRAPH_API_SERVER_KEY}`,
       },
       body: JSON.stringify({
         assistant_id: avatarId,
@@ -254,7 +262,7 @@ export const createAvatar = async (user, name, description, iconFile) => {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'x-api-key': `${import.meta.env.VITE_LANGGRAPH_API_KEY}`,
+        'x-api-key': `${import.meta.env.VITE_LANGGRAPH_API_SERVER_KEY}`,
       },
       body: JSON.stringify({
         thread_id: conversationId,
@@ -277,11 +285,12 @@ export const createAvatar = async (user, name, description, iconFile) => {
 };
 
 export const getAvatars = async (userId, limitCount = 50, skip = 0) => {
+  // SEARCH ASSISTANTS
   // fetch(${import.meta.env.VITE_ANUBIS_API_URL}+"/assistants/search", {
   //   method: 'POST',
   //   headers: {
   //     'Content-Type': 'application/json',
-  //     'x-api-key': `${import.meta.env.VITE_LANGGRAPH_API_KEY}`,
+  //     'x-api-key': `${import.meta.env.VITE_LANGGRAPH_API_SERVER_KEY}`,
   //   },
   //   body: JSON.stringify(  {
   //   "metadata": {"user_id": "2eXDgNUItY7Z9wITPGvJZ73sW2hX" },
@@ -328,25 +337,23 @@ export const getAvatars = async (userId, limitCount = 50, skip = 0) => {
   return avatars;
 };
 
-fetch(`${import.meta.env.VITE_ANUBIS_API_URL}` + '/assistants/search', {
-  method: 'POST',
-  headers: {
-    'Content-Type': 'application/json',
-    'x-api-key': `${import.meta.env.VITE_LANGGRAPH_API_KEY}`,
-  },
-  body: JSON.stringify({
-    metadata: {},
-    graph_id: 'Anubis',
-    name: '',
-    limit: 10,
-    offset: 0,
-    sort_by: 'assistant_id',
-    sort_order: 'asc',
-    select: ['assistant_id'],
-  }),
-});
-
 export const updateAvatar = async (userId, avatarId, updates) => {
+  // PATCH ASSISTANT
+  //   fetch('http://localhost:2024/assistants/123e4567-e89b-12d3-a456-426614174000', {
+  //   method: 'PATCH',
+  //   headers: {
+  //     'Content-Type': 'application/json',
+  //     'x-api-key': `${import.meta.env.VITE_LANGGRAPH_API_SERVER_KEY}`,
+  //   },
+  //   body: JSON.stringify({
+  //     graph_id: 'Anubis',
+  //     config: {},
+  //     context: {},
+  //     metadata: {},
+  //     name: '',
+  //     description: ''
+  //   })
+  // })
   const avatarRef = doc(db, 'users', userId, 'avatars', avatarId);
   const avatarDoc = await getDoc(avatarRef);
 
@@ -468,6 +475,29 @@ export const deleteAvatar = async (userId, avatarId) => {
   // Remove from user's avatar list
   await updateDoc(userRef, { avatars: arrayRemove(avatarId) });
 
+  // LANGSMITH API SERVER
+  client = get_client(`${import.meta.env.VITE_LANGGRAPH_API_SERVER_KEY}`);
+  await client.assistants.delete((assistant_id = avatarId));
+
+  // SUPABASE POSTGRES_DB_STORE
+  const supabase = createClient(
+    `${import.meta.env.VITE_LANGGRAPH_API_SERVER_URL}`,
+    `${import.meta.env.VITE_LANGGRAPH_API_SERVER_KEY}`
+  );
+
+  // DELETE VECTORSTORE DOCUMENTS
+  const { data_vectorstore, error_vectorstore } = await supabase
+    .from('langchain_pg_embedding')
+    .delete()
+    .eq('user_id', userId)
+    .eq('assistant_id', avatarId);
+
+  // DELETE POSTGRES DB STORE ENTRIES
+  const { data_pgdb_store, error_pgdb_store } = await supabase
+    .from('store')
+    .delete()
+    .eq('prefix', `${userId}.${assistantId}`);
+
   return {
     status: 'success',
     avatar_id: avatarId,
@@ -484,22 +514,58 @@ export const deleteDocument = async (userId, avatarId, filename) => {
     throw error;
   }
   updateDoc(avatarRef, { files: arrayRemove(filename) });
+
+  // SUPABASE POSTGRES_DB_STORE
+  const supabase = createClient(
+    `${import.meta.env.VITE_LANGGRAPH_API_SERVER_URL}`,
+    `${import.meta.env.VITE_LANGGRAPH_API_SERVER_KEY}`
+  );
+
+  // DELETE VECTOR STORE DOCUMENT MEDIA UPLOAD
+  const { data_vectorstore, error_vectorstore } = await supabase
+    .from('langchain_pg_embedding')
+    .delete()
+    .eq('user_id', userId)
+    .eq('assistant_id', avatarId)
+    .eq('filename', filename);
 };
 
 export const selectAvatar = async (user, userId, avatarId) => {
   const avatarRef = doc(db, 'users', userId, 'avatars', avatarId);
   const avatarDoc = await getDoc(avatarRef);
 
-  if (!avatarDoc.exists() || avatarDoc.data().user_id !== userId) {
-    throw new Error('Avatar not found or unauthorized');
-  }
+  // CREATE LANGGRAPH API CLIENT
+  client = get_client(
+    (url = `${import.meta.env.VITE_LANGGRAPH_API_SERVER_URL}`)
+  );
+
+  // GET ASSISTANT
+  assistant = await client.assistants.get((assistant_id = avatarId));
+  //   {
+  //   "assistant_id": "9aee271d-ccce-40db-874a-d70529560c77",
+  //   "graph_id": "Anubis",
+  //   "config": {},
+  //   "context": {},
+  //   "metadata": {
+  //     "user_id": "2feaa9d8-50c0-4550-81fa-9fb79bfe23f0",
+  //     "assistant_id": "9aee271d-ccce-40db-874a-d70529560c77"
+  //   },
+  //   "name": "testing_assistant",
+  //   "created_at": "2026-02-12T21:03:37.526944+00:00",
+  //   "updated_at": "2026-02-12T21:03:37.526944+00:00",
+  //   "version": 1,
+  //   "description": null
+  // }
+  // if (!avatarDoc.exists() || avatarDoc.data().user_id !== userId) {
+  //   throw new Error('Avatar not found or unauthorized');
+  // }
 
   const avatarData = avatarDoc.data();
 
   // Update last_used_avatar
-  await updateDoc(doc(db, 'users', userId), {
-    last_used_avatar: avatarId,
-  });
+  // await updateDoc(doc(db, 'users', userId), {
+  //   last_used_avatar: avatarId,
+  // });
 
   // Get default conversation ID (or first conversation)
   const defaultConversationId = avatarData.default_conversation;

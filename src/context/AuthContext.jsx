@@ -31,6 +31,8 @@ import { auth, db, storage } from '../firebase/config.js';
 import toast from 'react-hot-toast';
 import { X } from 'lucide-react';
 
+import { get_client } from 'langsmith';
+
 const AuthContext = createContext();
 
 export const AuthProvider = ({ children }) => {
@@ -79,31 +81,52 @@ export const AuthProvider = ({ children }) => {
   }, [user]);
 
   // set user avatars when user state is updated
-  useEffect(() => {
+  useEffect(async () => {
     if (!user) {
       setUserAvatars([]);
       return;
     }
 
-    const ref = collection(db, 'users', user.uid, 'avatars');
-    const q = query(ref, orderBy('created_at', 'asc'));
+    // langgraph api client
+    client = get_client(
+      (url = `${import.meta.env.VITE_LANGGRAPH_API_SERVER_URL}`)
+    );
 
-    const unsub = onSnapshot(q, (snap) => {
-      const avatars = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
-      setUserAvatars(avatars);
-    });
-    return unsub;
+    // GET AVATARS
+    avatars = await client.assistants.search(
+      (metadata = { user_id: user.uid }),
+      (graph_id = 'Anubis'),
+      (sort_order = 'asc'),
+      (headers = {
+        'x-api-key': `${import.meta.env.VITE_LANGGRAPH_API_SERVER_KEY}`,
+      }),
+      (sort_order = 'created_at'),
+      (response_format = 'object')
+    );
+
+    setUserAvatars(avatars);
+
+    // firebase implementation
+    // const ref = collection(db, 'users', user.uid, 'avatars');
+    // const q = query(ref, orderBy('created_at', 'asc'));
+
+    // const unsub = onSnapshot(q, (snap) => {
+    //   const avatars = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+    //   setUserAvatars(avatars);
+    // });
+
+    return avatars;
   }, [user]);
 
   // Active avatar can be derived in a useMemo or another effect
-  useEffect(() => {
-    if (!profile?.last_used_avatar || userAvatars.length === 0) {
-      setActiveAvatar(null);
-      return;
-    }
-    const match = userAvatars.find((a) => a.id === profile.last_used_avatar);
-    setActiveAvatar(match || null);
-  }, [profile?.last_used_avatar, userAvatars]);
+  // useEffect(() => {
+  //   if (!profile?.last_used_avatar || userAvatars.length === 0) {
+  //     setActiveAvatar(null);
+  //     return;
+  //   }
+  //   const match = userAvatars.find((a) => a.id === profile.last_used_avatar);
+  //   setActiveAvatar(match || null);
+  // }, [profile?.last_used_avatar, userAvatars]);
 
   // change of the active avatar
   useEffect(() => {

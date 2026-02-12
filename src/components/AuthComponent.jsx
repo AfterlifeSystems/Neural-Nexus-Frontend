@@ -150,7 +150,7 @@ const AuthComponent = () => {
             last_login: new Date(),
             currently_logged_in: true,
             avatars: [],
-            last_used_avatar: null,
+            // last_used_avatar: null,
           };
 
           // 3. Write to Firestore
