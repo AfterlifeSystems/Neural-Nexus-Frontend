@@ -14,7 +14,7 @@ import ProtectedRoute from './components/ProtectedRoute';
 import AvatarSelectionComponent from './components/AvatarSelectionComponent';
 import AuthComponent from './components/AuthComponent';
 import ChatArea from './components/ChatArea';
-import BillingDashboard from './components/BillingDashboard';
+
 import AccountSettings from './components/AccountSettings';
 import { useAuth } from './context/AuthContext';
 import VantaBackground from './components/VantaBackground.jsx';
@@ -66,7 +66,6 @@ createRoot(document.getElementById('root')).render(
             <Route element={<ProtectedRoute />}>
               <Route path="/avatars" element={<AvatarSelectionComponent />} />
               <Route path="/chat/:avatarId" element={<ChatArea />} />
-              {/* <Route path="/billing" element={<BillingDashboard />} /> */}
               {/* <Route path="/account" element={<AccountSettings />} /> */}
             </Route>
 

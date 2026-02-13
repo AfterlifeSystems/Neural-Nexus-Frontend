@@ -31,7 +31,9 @@ import { auth, db, storage } from '../firebase/config.js';
 import toast from 'react-hot-toast';
 import { X } from 'lucide-react';
 
-import { get_client } from 'langsmith';
+import { Client } from '@langchain/langgraph-sdk';
+
+import { getAvatars } from '../services/avatarService.jsx';
 
 const AuthContext = createContext();
 
@@ -81,30 +83,23 @@ export const AuthProvider = ({ children }) => {
   }, [user]);
 
   // set user avatars when user state is updated
-  useEffect(async () => {
-    if (!user) {
-      setUserAvatars([]);
-      return;
-    }
+  useEffect(() => {
+    const setAvatarsWhenUserStateIsUpdated = async () => {
+      if (!user) {
+        setUserAvatars([]);
+        return;
+      }
 
-    // langgraph api client
-    client = get_client(
-      (url = `${import.meta.env.VITE_LANGGRAPH_API_SERVER_URL}`)
-    );
+      // GET AVATARS
+      const avatars = await getAvatars(user.uid);
 
-    // GET AVATARS
-    avatars = await client.assistants.search(
-      (metadata = { user_id: user.uid }),
-      (graph_id = 'Anubis'),
-      (sort_order = 'asc'),
-      (headers = {
-        'x-api-key': `${import.meta.env.VITE_LANGGRAPH_API_SERVER_KEY}`,
-      }),
-      (sort_order = 'created_at'),
-      (response_format = 'object')
-    );
+      console.log(`avatars: ${avatars}`);
 
-    setUserAvatars(avatars);
+      setUserAvatars(avatars);
+      return avatars;
+    };
+
+    setAvatarsWhenUserStateIsUpdated();
 
     // firebase implementation
     // const ref = collection(db, 'users', user.uid, 'avatars');
@@ -114,13 +109,11 @@ export const AuthProvider = ({ children }) => {
     //   const avatars = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
     //   setUserAvatars(avatars);
     // });
-
-    return avatars;
   }, [user]);
 
   // Active avatar can be derived in a useMemo or another effect
   // useEffect(() => {
-  //   if (!profile?.last_used_avatar || userAvatars.length === 0) {
+  //   if  (!profile?.last_used_avatar || userAvatars.length === 0) {
   //     setActiveAvatar(null);
   //     return;
   //   }
