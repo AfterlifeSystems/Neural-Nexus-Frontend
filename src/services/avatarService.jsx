@@ -24,7 +24,7 @@ import {
 } from 'firebase/storage';
 import { db, storage } from '../firebase/config';
 import { v4 as uuidv4 } from 'uuid';
-import { get_client } from 'langsmith';
+import { Client } from '@langchain/langgraph-sdk';
 import { createClient } from '@supabase/supabase-js';
 
 // Add this function to your avatarService.jsx file
@@ -114,9 +114,10 @@ export const createAvatar = async (user, name, description, iconFile) => {
   // CREATE ASSISTANT CREATE AVATAR
   if (!user) throw new Error('No authenticated user');
 
-  client = get_client(
-    (url = `${import.meta.env.VITE_LANGGRAPH_API_SERVER_URL}`)
-  );
+  // LANGGRAPH API SERVER CLIENT
+  lg_api_client = Client({
+    url: import.meta.env.VITE_LANGGRAPH_API_SERVER_URL,
+  });
 
   const userId = user.uid;
   const avatarId = uuidv4();
@@ -125,8 +126,10 @@ export const createAvatar = async (user, name, description, iconFile) => {
   console.log(
     'XXXXXXXXXXXXXXXXXXXXXXXXXX USER XXXXXXXXXXXXXXXXXXXXXXXXXXX avatarService'
   );
+
   console.log(user);
   // Create directory structure in Storage (using .keep files)
+
   const directories = [
     `users/${userId}/.keep`,
     `users/${userId}/avatars/${avatarId}/adapters/.keep`,
@@ -213,72 +216,41 @@ export const createAvatar = async (user, name, description, iconFile) => {
   const avatarRef = doc(db, 'users', userId, 'avatars', avatarId);
   await setDoc(avatarRef, avatarData);
 
+  // LANGGRAPH API CREATE ASSISTANT
+  const create_assistant_promise = await lg_api_client.assistant.create({
+    assistantId: avatarId,
+    description: description,
+    name: name,
+    metadata: { user_id: user.uid, assistant_id: avatarId },
+    if_exists: 'raise',
+    graphId: 'Anubis',
+  });
+
   // Update user's avatars list
   const userRef = doc(db, 'users', userId);
   const userDoc = await getDoc(userRef);
   console.log('XXXXXXXXXXXXXXXXXXXXXXXXXXXX I CREATED AN AVATAR');
+
   // if (userDoc) {
   //   console.log(userDoc);
   // } else {
   //   console.log('no userDoc');
   // }
+
   await updateDoc(userRef, {
     avatars: arrayUnion(avatarId),
     // last_used_avatar: avatarId,
   });
 
-  console.log('creating assistant in api');
-
-  let api_creation_response = await fetch(
-    `${import.meta.env.VITE_ANUBIS_API_URL}` + '/assistants',
-    {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'x-api-key': `${import.meta.env.VITE_LANGGRAPH_API_SERVER_KEY}`,
-      },
-      body: JSON.stringify({
-        assistant_id: avatarId,
-        graph_id: 'Anubis',
-        config: {},
-        context: {},
-        metadata: { user_id: userId, assistant_id: avatarId },
-        if_exists: 'raise',
-        name: name,
-        description: description,
-      }),
-    }
-  );
-
-  let creation_response_json = await api_creation_response.json();
-  console.log(
-    'API CREATION RESPONSE: ' + JSON.stringify(creation_response_json)
-  );
-
   //  create initial conversation
 
-  let create_conversation_response = await fetch(
-    `${import.meta.env.VITE_ANUBIS_API_URL}` + '/threads',
-    {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'x-api-key': `${import.meta.env.VITE_LANGGRAPH_API_SERVER_KEY}`,
-      },
-      body: JSON.stringify({
-        thread_id: conversationId,
-        metadata: { user_id: '', assistant_id: '', graph_id: 'Anubis' },
-        if_exists: 'raise',
-      }),
-    }
-  );
-
-  let conversation_creation_response_json =
-    await create_conversation_response.json();
-  console.log(
-    'API CREATION RESPONSE: ' +
-      JSON.stringify(conversation_creation_response_json)
-  );
+  // LANGGRAPH API CREATE THREAD
+  const create_thread_response = await lg_api_client.threads.create({
+    graphId: 'Anubis',
+    metadata: { user_id: user.uid, assistant_id: avatarId },
+    thread_id: conversationId,
+    if_exists: 'raise',
+  });
 
   return {
     avatarData,
@@ -307,30 +279,58 @@ export const getAvatars = async (userId, limitCount = 50, skip = 0) => {
   // })
   // })
 
-  const snapshot = await getDocs(avatarsQuery);
+  // LANGGRAPH API SERVER CLIENT
+  lg_api_client = Client({
+    url: import.meta.env.VITE_LANGGRAPH_API_SERVER_URL,
+  });
+
+  // LIST AVATARS SEARCH ASSISTANTS
+  const assistants_search_promise = await lg_api_client.assistants.search({
+    graphId: 'Anubis',
+    metadata: {
+      user_id: user.uid,
+      assistant_id: avatarId,
+    },
+    sortBy: created_at,
+    sortOrder: 'asc',
+  });
+
+  // const snapshot = await getDocs(avatarsQuery);
   const avatars = [];
 
-  for (const docSnapshot of snapshot.docs.slice(skip, skip + limitCount)) {
-    const data = docSnapshot.data();
-    let iconUrl = null;
+  // for (const docSnapshot of snapshot.docs.slice(skip, skip + limitCount)) {
+  //   const data = docSnapshot.data();
+  //   let iconUrl = null;
 
-    if (data.icon) {
-      try {
-        const storagePath = data.icon.storagePath || data.icon;
-        if (storagePath) {
-          iconUrl = await getDownloadURL(ref(storage, storagePath));
-        } else if (data.icon.url) {
-          iconUrl = data.icon.url;
-        }
-      } catch (error) {
-        console.error('Error getting icon URL:', error);
-      }
-    }
+  //   if (data.icon) {
+  //     try {
+  //       const storagePath = data.icon.storagePath || data.icon;
+  //       if (storagePath) {
+  //         iconUrl = await getDownloadURL(ref(storage, storagePath));
+  //       } else if (data.icon.url) {
+  //         iconUrl = data.icon.url;
+  //       }
+  //     } catch (error) {
+  //       console.error('Error getting icon URL:', error);
+  //     }
+  //   }
 
+  //   avatars.push({
+  //     avatar_id: docSnapshot.id,
+  //     name: data.name,
+  //     description: data.description,
+  //     icon: iconUrl,
+  //   });
+  // }
+
+  console.log(`assistants_search_promise: ${assistants_search_promise}`);
+
+  // Add the icon to the avatars
+  for (const avatar in assistants_search_promise) {
     avatars.push({
-      avatar_id: docSnapshot.id,
-      name: data.name,
-      description: data.description,
+      avatar_id: avatar.avatar_id,
+      name: avatar.name,
+      description: avatar.description,
       icon: iconUrl,
     });
   }
@@ -339,22 +339,6 @@ export const getAvatars = async (userId, limitCount = 50, skip = 0) => {
 };
 
 export const updateAvatar = async (userId, avatarId, updates) => {
-  // PATCH ASSISTANT
-  //   fetch('http://localhost:2024/assistants/123e4567-e89b-12d3-a456-426614174000', {
-  //   method: 'PATCH',
-  //   headers: {
-  //     'Content-Type': 'application/json',
-  //     'x-api-key': `${import.meta.env.VITE_LANGGRAPH_API_SERVER_KEY}`,
-  //   },
-  //   body: JSON.stringify({
-  //     graph_id: 'Anubis',
-  //     config: {},
-  //     context: {},
-  //     metadata: {},
-  //     name: '',
-  //     description: ''
-  //   })
-  // })
   const avatarRef = doc(db, 'users', userId, 'avatars', avatarId);
   const avatarDoc = await getDoc(avatarRef);
 
@@ -477,8 +461,8 @@ export const deleteAvatar = async (userId, avatarId) => {
   await updateDoc(userRef, { avatars: arrayRemove(avatarId) });
 
   // LANGSMITH API SERVER
-  client = get_client(`${import.meta.env.VITE_LANGGRAPH_API_SERVER_KEY}`);
-  await client.assistants.delete((assistant_id = avatarId));
+  client = Client(`${import.meta.env.VITE_LANGGRAPH_API_SERVER_KEY}`);
+  await client.assistants.delete({ assistant_id: avatarId });
 
   // SUPABASE POSTGRES_DB_STORE
   const supabase = createClient(
@@ -536,12 +520,11 @@ export const selectAvatar = async (user, userId, avatarId) => {
   const avatarDoc = await getDoc(avatarRef);
 
   // CREATE LANGGRAPH API CLIENT
-  client = get_client(
-    (url = `${import.meta.env.VITE_LANGGRAPH_API_SERVER_URL}`)
-  );
+  client = Client({ url: import.meta.env.VITE_LANGGRAPH_API_SERVER_URL });
 
   // GET ASSISTANT
-  assistant = await client.assistants.get((assistant_id = avatarId));
+  assistant = await client.assistants.get({ assistant_id: avatarId });
+
   //   {
   //   "assistant_id": "9aee271d-ccce-40db-874a-d70529560c77",
   //   "graph_id": "Anubis",

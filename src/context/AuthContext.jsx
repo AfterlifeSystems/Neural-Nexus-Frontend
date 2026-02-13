@@ -31,7 +31,7 @@ import { auth, db, storage } from '../firebase/config.js';
 import toast from 'react-hot-toast';
 import { X } from 'lucide-react';
 
-import { get_client } from 'langsmith';
+import { Client } from '@langchain/langgraph-sdk';
 
 const AuthContext = createContext();
 
@@ -88,21 +88,23 @@ export const AuthProvider = ({ children }) => {
     }
 
     // langgraph api client
-    client = get_client(
-      (url = `${import.meta.env.VITE_LANGGRAPH_API_SERVER_URL}`)
-    );
+    const client = new Client({
+      url: import.meta.env.VITE_LANGGRAPH_API_SERVER_URL,
+    });
 
     // GET AVATARS
-    avatars = await client.assistants.search(
-      (metadata = { user_id: user.uid }),
-      (graph_id = 'Anubis'),
-      (sort_order = 'asc'),
-      (headers = {
-        'x-api-key': `${import.meta.env.VITE_LANGGRAPH_API_SERVER_KEY}`,
-      }),
-      (sort_order = 'created_at'),
-      (response_format = 'object')
-    );
+    const avatars = await client.assistants.search({
+      metadata: { user_id: user.uid },
+      graph_id: 'Anubis',
+      sort_order: 'asc',
+      headers: {
+        'x-api-key': import.meta.env.VITE_LANGGRAPH_API_SERVER_KEY,
+      },
+      sort_order: 'created_at',
+      response_format: 'object',
+      sort_order: 'created_at',
+      response_format: 'object',
+    });
 
     setUserAvatars(avatars);
 
@@ -120,7 +122,7 @@ export const AuthProvider = ({ children }) => {
 
   // Active avatar can be derived in a useMemo or another effect
   // useEffect(() => {
-  //   if (!profile?.last_used_avatar || userAvatars.length === 0) {
+  //   if  (!profile?.last_used_avatar || userAvatars.length === 0) {
   //     setActiveAvatar(null);
   //     return;
   //   }
