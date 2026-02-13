@@ -102,8 +102,6 @@ export const AuthProvider = ({ children }) => {
       },
       sort_order: 'created_at',
       response_format: 'object',
-      sort_order: 'created_at',
-      response_format: 'object',
     });
 
     setUserAvatars(avatars);
