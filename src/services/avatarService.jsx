@@ -24,7 +24,6 @@ import {
 } from 'firebase/storage';
 import { db, storage } from '../firebase/config';
 import { v4 as uuidv4 } from 'uuid';
-import { Client } from '@langchain/langgraph-sdk';
 import { createClient } from '@supabase/supabase-js';
 
 // Add this function to your avatarService.jsx file
@@ -113,11 +112,6 @@ export const uploadToDataLoadingApi = async (
 export const createAvatar = async (user, name, description, iconFile) => {
   // CREATE ASSISTANT CREATE AVATAR
   if (!user) throw new Error('No authenticated user');
-
-  // LANGGRAPH API SERVER CLIENT
-  lg_api_client = Client({
-    url: import.meta.env.VITE_LANGGRAPH_API_SERVER_URL,
-  });
 
   const userId = user.uid;
   const avatarId = uuidv4();
@@ -217,14 +211,27 @@ export const createAvatar = async (user, name, description, iconFile) => {
   await setDoc(avatarRef, avatarData);
 
   // LANGGRAPH API CREATE ASSISTANT
-  const create_assistant_promise = await lg_api_client.assistant.create({
-    assistantId: avatarId,
-    description: description,
-    name: name,
-    metadata: { user_id: user.uid, assistant_id: avatarId },
-    if_exists: 'raise',
-    graphId: 'Anubis',
-  });
+
+  // // LANGGRAPH API SERVER CLIENT
+  const create_assistant_promise = await fetch(
+    'http://localhost:2024/assistants',
+    {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        assistant_id: avatarId,
+        graph_id: 'Anubis',
+        metadata: { user_id: user.uid, assistant_id: avatarId },
+        if_exists: 'raise',
+        description: description,
+        name: name,
+      }),
+    }
+  );
+
+  console.log(`create_assistant_promise: ${create_assistant_promise.json()}`);
 
   // Update user's avatars list
   const userRef = doc(db, 'users', userId);
@@ -245,12 +252,55 @@ export const createAvatar = async (user, name, description, iconFile) => {
   //  create initial conversation
 
   // LANGGRAPH API CREATE THREAD
-  const create_thread_response = await lg_api_client.threads.create({
-    graphId: 'Anubis',
-    metadata: { user_id: user.uid, assistant_id: avatarId },
-    thread_id: conversationId,
-    if_exists: 'raise',
-  });
+  // const create_thread_response = await lg_api_client.threads.create({
+  //   graphId: 'Anubis',
+  //   metadata: { user_id: user.uid, assistant_id: avatarId },
+  //   thread_id: conversationId,
+  //   if_exists: 'raise',
+  // });
+
+  const create_thread_response = await fetch(
+    `${import.meta.env.VITE_LANGGRAPH_API_SERVER_URL}/threads`,
+    {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-key': `${import.meta.env.VITE_LANGGRAPH_API_SERVER_KEY}`,
+      },
+      body: JSON.stringify({
+        metadata: { user_id: userId, avatar_id: avatarId },
+        if_exists: 'raise',
+        graph_id: 'Anubis',
+        thread_id: conversationId,
+        // ttl: {
+        //   strategy: 'delete',
+        //   ttl: 1,
+        // },
+        // supersteps: [
+        //   {
+        //     updates: [
+        //       {
+        //         values: [{}],
+        //         command: {
+        //           update: null,
+        //           resume: null,
+        //           goto: {
+        //             node: '',
+        //             input: null,
+        //           },
+        //         },
+        //         as_node: '',
+        //       },
+        //     ],
+        //   },
+        // ],
+      }),
+    }
+  );
+
+  console.log(
+    `create_thread_response.json(): ${create_thread_response.json()}`
+  );
 
   return {
     avatarData,
@@ -259,41 +309,56 @@ export const createAvatar = async (user, name, description, iconFile) => {
 
 export const getAvatars = async (userId, limitCount = 50, skip = 0) => {
   // SEARCH ASSISTANTS
-  // fetch(${import.meta.env.VITE_ANUBIS_API_URL}+"/assistants/search", {
-  //   method: 'POST',
-  //   headers: {
-  //     'Content-Type': 'application/json',
-  //     'x-api-key': `${import.meta.env.VITE_LANGGRAPH_API_SERVER_KEY}`,
-  //   },
-  //   body: JSON.stringify(  {
-  //   "metadata": {"user_id": "2eXDgNUItY7Z9wITPGvJZ73sW2hX" },
-  //   "graph_id": "Anubis",
-  //   "name": "",
-  //   "limit": 10,
-  //   "offset": 0,
-  //   "sort_by": "assistant_id",
-  //   "sort_order": "asc",
-  //   "select": [
-  //     "assistant_id", "metadata"
-  //   ]
-  // })
-  // })
 
   // LANGGRAPH API SERVER CLIENT
-  lg_api_client = Client({
-    url: import.meta.env.VITE_LANGGRAPH_API_SERVER_URL,
-  });
+  console.log(
+    `VITE_LANGGRAPH_API_SERVER_URL: ${import.meta.env.VITE_LANGGRAPH_API_SERVER_URL}`
+  );
 
   // LIST AVATARS SEARCH ASSISTANTS
-  const assistants_search_promise = await lg_api_client.assistants.search({
-    graphId: 'Anubis',
-    metadata: {
-      user_id: user.uid,
-      assistant_id: avatarId,
-    },
-    sortBy: created_at,
-    sortOrder: 'asc',
-  });
+  const assistants_search_promise = await fetch(
+    `${import.meta.env.VITE_ANUBIS_API_URL}/assistants/search`,
+    {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-key': `${import.meta.env.VITE_LANGGRAPH_API_SERVER_KEY}`,
+      },
+      body: JSON.stringify({
+        graph_id: 'Anubis',
+        metadata: {
+          user_id: 'xVvtmkUhwwE6CZ6V6y8IojlYKy5C',
+        },
+        if_exists: 'raise',
+        limit: 100,
+        offset: 0,
+        sort_by: 'assistant_id',
+        sort_order: 'asc',
+      }),
+    }
+  );
+
+  // {
+  //   "graph_id": "Anubis",
+  //   "metadata": {
+  //     "user_id": "xVvtmkUhwwE6CZ6V6y8IojlYKy5C"
+  //   },
+  //   "if_exists": "raise",
+  //   "limit": 100,
+  //   "offset": 0,
+  //   "sort_by":"assistant_id",
+  //   "sort_order": "asc"
+  // }
+
+  // xVvtmkUhwwE6CZ6V6y8IojlYKy5C
+  console.log(`userId: ${userId}`);
+  // 3d2b5ea8-69b7-48f0-bf90-b5948be8ac8f
+
+  const assistants_search_promise_json = await assistants_search_promise.json();
+
+  console.log(
+    `assistants_search_promise_json: ${assistants_search_promise_json}`
+  );
 
   // const snapshot = await getDocs(avatarsQuery);
   const avatars = [];
@@ -323,17 +388,15 @@ export const getAvatars = async (userId, limitCount = 50, skip = 0) => {
   //   });
   // }
 
-  console.log(`assistants_search_promise: ${assistants_search_promise}`);
-
   // Add the icon to the avatars
-  for (const avatar in assistants_search_promise) {
-    avatars.push({
-      avatar_id: avatar.avatar_id,
-      name: avatar.name,
-      description: avatar.description,
-      icon: iconUrl,
-    });
-  }
+  // for (const avatar in assistants_search_promise) {
+  //   avatars.push({
+  //     avatar_id: avatar.avatar_id,
+  //     name: avatar.name,
+  //     description: avatar.description,
+  //     icon: iconUrl,
+  //   });
+  // }
 
   return avatars;
 };
@@ -520,7 +583,7 @@ export const selectAvatar = async (user, userId, avatarId) => {
   const avatarDoc = await getDoc(avatarRef);
 
   // CREATE LANGGRAPH API CLIENT
-  client = Client({ url: import.meta.env.VITE_LANGGRAPH_API_SERVER_URL });
+  client = new Client({ url: import.meta.env.VITE_LANGGRAPH_API_SERVER_URL });
 
   // GET ASSISTANT
   assistant = await client.assistants.get({ assistant_id: avatarId });
