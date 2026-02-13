@@ -210,11 +210,9 @@ export const createAvatar = async (user, name, description, iconFile) => {
   const avatarRef = doc(db, 'users', userId, 'avatars', avatarId);
   await setDoc(avatarRef, avatarData);
 
-  // LANGGRAPH API CREATE ASSISTANT
-
   // // LANGGRAPH API SERVER CLIENT
   const create_assistant_promise = await fetch(
-    'http://localhost:2024/assistants',
+    `${import.meta.env.VITE_LANGGRAPH_API_SERVER_URL}/assistants`,
     {
       method: 'POST',
       headers: {
@@ -231,7 +229,11 @@ export const createAvatar = async (user, name, description, iconFile) => {
     }
   );
 
-  console.log(`create_assistant_promise: ${create_assistant_promise.json()}`);
+  const create_assistant_promise_json = await create_assistant_promise.json();
+
+  console.log(
+    `create_assistant_promise_json: ${create_assistant_promise_json}`
+  );
 
   // Update user's avatars list
   const userRef = doc(db, 'users', userId);
@@ -298,9 +300,9 @@ export const createAvatar = async (user, name, description, iconFile) => {
     }
   );
 
-  console.log(
-    `create_thread_response.json(): ${create_thread_response.json()}`
-  );
+  const create_thread_response_json = await create_thread_response.json();
+
+  console.log(`create_thread_response_json: ${create_thread_response_json}`);
 
   return {
     avatarData,
@@ -338,6 +340,7 @@ export const getAvatars = async (userId, limitCount = 50, skip = 0) => {
     }
   );
 
+  // Example body call
   // {
   //   "graph_id": "Anubis",
   //   "metadata": {
@@ -355,13 +358,29 @@ export const getAvatars = async (userId, limitCount = 50, skip = 0) => {
   // 3d2b5ea8-69b7-48f0-bf90-b5948be8ac8f
 
   const assistants_search_promise_json = await assistants_search_promise.json();
+  console.log(
+    'assistants_search_promise_json:',
+    JSON.stringify(assistants_search_promise_json)
+  );
 
   console.log(
     `assistants_search_promise_json: ${assistants_search_promise_json}`
   );
 
   // const snapshot = await getDocs(avatarsQuery);
-  const avatars = [];
+  // const avatars = [];
+
+  const avatars = assistants_search_promise_json.assistants?.map(
+    (assistant) => ({
+      avatar_id: assistant.assistant_id,
+      name: assistant.name || assistants_search_promise.context?.name,
+      description:
+        assistant.context?.description || assistant.metadata?.description,
+      icon: null, // Add icon logic if stored in context/metadata
+    })
+  );
+
+  console.log(`GET AVATRARS ${avatars})`);
 
   // for (const docSnapshot of snapshot.docs.slice(skip, skip + limitCount)) {
   //   const data = docSnapshot.data();

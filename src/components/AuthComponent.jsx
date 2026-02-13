@@ -30,6 +30,8 @@ import { toast, Toaster } from 'react-hot-toast';
 
 import { useNavigate } from 'react-router-dom';
 
+import { createClient } from '@supabase/supabase-js';
+
 const modalRoot =
   document.getElementById('modal-root') ||
   (() => {
@@ -128,12 +130,36 @@ const AuthComponent = () => {
         try {
           console.log(email);
           // Create Firebase Auth user
-          const userCredential = await createUserWithEmailAndPassword(
-            auth,
-            email,
-            password
+          // const userCredential = await createUserWithEmailAndPassword(
+          //   auth,
+          //   email,
+          //   password
+          // );
+
+          // const uid = userCredential.user.uid;
+
+          console.log('signup breakpoint');
+          // SUPABASE POSTGRES_DB_STORE
+          const supabaseClient = createClient(
+            `${import.meta.env.VITE_SUPABASE_URL}`,
+            `${import.meta.env.VITE_SUPABASE_PUBLISHABLE_AUTH_KEY}`
           );
-          const uid = userCredential.user.uid;
+
+          const { data, error } = await supabaseClient.auth.signUp({
+            email: email,
+            password: password,
+            options: {
+              data: {
+                display_name: username,
+              },
+            },
+          });
+
+          // This gives you everything at once
+          console.log('Signup data:', { data });
+          console.log('Signup error:', { error });
+
+          console.log(`user: ${user}`);
 
           // Send email verification
           // await sendEmailVerification(userCredential.user);
@@ -143,7 +169,7 @@ const AuthComponent = () => {
 
           // Create Firestore profile
           const userDoc = {
-            user_id: userCredential.user.uid,
+            user_id: data.user.uid,
             username,
             email,
             created_at: new Date(),
@@ -155,7 +181,7 @@ const AuthComponent = () => {
 
           // 3. Write to Firestore
           // Using doc(db, 'collection', ID) ensures the document ID matches the Auth UID
-          const userRef = doc(db, 'users', uid);
+          const userRef = doc(db, 'users', user.uid);
           await setDoc(userRef, userDoc);
           console.log(`✅ Profile created in Firestore for UID: ${uid}`);
 
@@ -174,7 +200,7 @@ const AuthComponent = () => {
           //   'Signup successful! Please check your email to verify your account.',
           //   { duration: Infinity }
           // );
-          localStorage.setItem('user', JSON.stringify(userCredential.user));
+          localStorage.setItem('user', JSON.stringify(user.uid));
 
           navigate('/avatars');
         } catch (error) {

@@ -220,6 +220,10 @@ const AvatarSelectionComponent = ({}) => {
   };
 
   const authenticatedCards = useMemo(() => {
+    console.log(
+      `authenticatedCards USEMEMO XXXXXXXXXXXXXXXXXX userAvatars: ${userAvatars}`
+    );
+    // getAvatars(user.uid);
     const avatarCards =
       userAvatars?.map((avatar) => ({
         id: avatar.avatar_id,

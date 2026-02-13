@@ -31,8 +31,6 @@ import { auth, db, storage } from '../firebase/config.js';
 import toast from 'react-hot-toast';
 import { X } from 'lucide-react';
 
-import { Client } from '@langchain/langgraph-sdk';
-
 import { getAvatars } from '../services/avatarService.jsx';
 
 const AuthContext = createContext();
@@ -91,11 +89,15 @@ export const AuthProvider = ({ children }) => {
       }
 
       // GET AVATARS
+      console.log('USER HAS LOGGED IN; GETING AVATARS FOR USER');
+      console.log(`user.uid: ${user.uid}`);
       const avatars = await getAvatars(user.uid);
 
+      console.log('AVATARS LIST SHOULD BE RETRIEVED');
       console.log(`avatars: ${avatars}`);
 
       setUserAvatars(avatars);
+      console.log('SETTING AVATARS FOR USER');
       return avatars;
     };
 
