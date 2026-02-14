@@ -49,7 +49,6 @@ const AuthComponent = () => {
   const [password, setPassword] = useState('');
   const [username, setUsername] = useState('');
   // const [showModal, setShowModal] = useState(true);
-  const [isLoading, setIsLoading] = useState(false);
   const [modalView, setModalView] = useState('login'); // 'login', 'signup', 'forgotPassword'
 
   // Rotating avatar index
@@ -57,7 +56,8 @@ const AuthComponent = () => {
 
   const {
     user,
-    loading,
+    isLoading,
+    setIsLoading,
     profile,
     setProfile,
     forgotPassword,
@@ -65,6 +65,7 @@ const AuthComponent = () => {
     avatars,
     setUserAvatars,
     setAccessToken,
+    setUser,
   } = useAuth();
 
   const validIcons = Array.isArray(avatars)
@@ -95,6 +96,10 @@ const AuthComponent = () => {
   //   return avatars[rotatingIndex]?.icon || null;
   // };
 
+  useEffect(() => {
+    console.log('AUTH COMPONENT ENTRYPOINT');
+  });
+
   // Rotation effect (only when there are 2+ avatars)
   useEffect(() => {
     if (!Array.isArray(avatars)) return;
@@ -115,6 +120,9 @@ const AuthComponent = () => {
     console.log(`ENTRYPOINT HANDLE AUTH: isLoading ${isLoading}`);
     e.preventDefault();
     setIsLoading(true);
+    if (!isLoading) {
+      console.log(`is loading is false: ${isLoading}`);
+    }
 
     try {
       if (modalView === 'signup') {
@@ -169,6 +177,7 @@ const AuthComponent = () => {
               '// set profile of user IN SIGNUP OF  AUTH COMPONENT XXXXXXXXXXXXX'
             );
 
+            setUser(data.user);
             setProfile(data.user);
             setAccessToken(data.session.access_token);
             setIsLoading(false);
@@ -243,6 +252,7 @@ const AuthComponent = () => {
               return data.user;
             })(),
             {
+              // toast promise return values (catches errors)
               loading: 'Logging in...',
               success: 'Login successful!',
               error: (error) => {
@@ -256,7 +266,7 @@ const AuthComponent = () => {
                   return 'Too many attempts — try again later';
                 return error.message || 'Login failed';
               },
-              duration: 4000,
+              duration: 5000,
             }
           )
           .then(() => {
@@ -264,8 +274,6 @@ const AuthComponent = () => {
             navigate('/avatars');
           })
           .catch((error) => {
-            console.log('toast.error first message');
-            // toast.error(error.message);
             console.log('catching error: ' + error.message);
           });
 
@@ -392,70 +400,7 @@ const AuthComponent = () => {
               {modalView === 'login' && 'Login'}
               {modalView === 'forgotPassword' && 'Reset Password'}
             </h2>
-            {/* <button
-            type="button"
-            onClick={closeModal}
-            className="p-2 hover:bg-red-500/20 rounded-lg text-white transition"
-          >
-            <X size={24} />
-          </button> */}
           </div>
-
-          {isLoading && (
-            <div className="flex justify-center mb-4">
-              <LoadingSpinner />
-            </div>
-          )}
-
-          {/* Social Login Buttons (not for password reset) */}
-          {/* {modalView !== 'forgotPassword' && (
-          <div className="space-y-3 mb-6">
-            <button
-              onClick={() => handleSocialLogin('google')}
-              className="w-full flex items-center justify-center gap-3 px-4 py-3 bg-white text-gray-800 rounded-lg hover:bg-gray-100 transition font-medium"
-            >
-              <svg className="w-5 h-5" viewBox="0 0 24 24">
-                <path
-                  fill="currentColor"
-                  d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"
-                />
-                <path
-                  fill="currentColor"
-                  d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"
-                />
-                <path
-                  fill="currentColor"
-                  d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"
-                />
-                <path
-                  fill="currentColor"
-                  d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"
-                />
-              </svg>
-              Continue with Google
-            </button>
-
-            <button
-              onClick={() => handleSocialLogin('github')}
-              className="w-full flex items-center justify-center gap-3 px-4 py-3 bg-gray-800 text-white rounded-lg hover:bg-red-500 transition font-medium"
-            >
-              <Github size={20} />
-              Continue with GitHub
-            </button>
-
-            <div className="relative">
-              <div className="absolute inset-0 flex items-center pt-6">
-                <div className="w-full border-t border-white/20"></div>
-              </div>
-            </div>
-
-            <div className="relative flex justify-center text-sm">
-              <span className="px-2 bg-transparent text-white/60">
-                Or continue with email
-              </span>
-            </div>
-          </div>
-        )} */}
 
           {/* Form */}
           <form onSubmit={handleAuth} className="space-y-4">

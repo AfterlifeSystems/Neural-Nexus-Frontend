@@ -83,7 +83,6 @@ const AvatarSettings = ({ avatarId, accessToken }) => {
   // New state for document management
   const [isDragging, setIsDragging] = useState(false);
   const [socialLogins, setSocialLogins] = useState([]);
-  const [loading, setLoading] = useState(false);
   const [showLoginModal, setShowLoginModal] = useState(false);
   const [selectedPlatform, setSelectedPlatform] = useState(null);
   const [loginCredentials, setLoginCredentials] = useState({
@@ -91,7 +90,7 @@ const AvatarSettings = ({ avatarId, accessToken }) => {
     password: '',
   });
   const [manualUrl, setManualUrl] = useState('');
-  const { user, profile, activeAvatar } = useAuth();
+  const { user, profile, activeAvatar, isLoading, setIsLoading } = useAuth();
   const navigate = useNavigate();
 
   // Global drag and drop handlers
@@ -895,7 +894,7 @@ const AvatarSettings = ({ avatarId, accessToken }) => {
                   setManualUrl('');
                 }
               }}
-              disabled={!manualUrl || loading}
+              disabled={!manualUrl || isLoading}
               className="px-6 py-3 bg-blue-500/20 hover:bg-blue-500/30 text-blue-400 font-semibold rounded-lg transition-all duration-300 flex items-center gap-2 border border-blue-500/30 disabled:opacity-50 disabled:cursor-not-allowed"
             >
               <Upload size={20} />

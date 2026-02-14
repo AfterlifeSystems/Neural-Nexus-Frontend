@@ -23,6 +23,8 @@ import { signOut } from 'firebase/auth';
 import { doc, setDoc, getDoc, updateDoc } from 'firebase/firestore';
 import { auth, db, storage } from '../firebase/config.js';
 
+import { getAvatars } from '../services/avatarService.jsx';
+
 const AvatarSelectionComponent = ({}) => {
   const {
     accessToken,
@@ -270,6 +272,10 @@ const AvatarSelectionComponent = ({}) => {
       return null;
     }
   };
+
+  useEffect(() => {
+    console.log(`AVATAR SELECTION COMPONENT ENTRYPOINT`);
+  });
 
   useEffect(() => {
     // SET AVATAR CARD INDEX TO LAST USED AVATAR
