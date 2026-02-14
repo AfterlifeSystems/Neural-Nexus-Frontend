@@ -112,6 +112,7 @@ const AuthComponent = () => {
   }, [avatars]);
 
   const handleAuth = async (e) => {
+    console.log(`ENTRYPOINT HANDLE AUTH: isLoading ${isLoading}`);
     e.preventDefault();
     setIsLoading(true);
 
@@ -190,10 +191,16 @@ const AuthComponent = () => {
                 `${import.meta.env.VITE_SUPABASE_PUBLISHABLE_AUTH_KEY}`
               );
 
+              console.log('signInWithPassword BREAKPOINT');
+
               const { data, error } = await supabase.auth.signInWithPassword({
                 email: email,
                 password: password,
               });
+
+              if (error) {
+                throw error;
+              }
 
               console.log(
                 'XXXXXXXXXXXXXXXXXXXXXX   HANDLE AUTH SERVICE XXXXXXXXXXXXXXXXXXXXXXXXXXX'
@@ -205,6 +212,8 @@ const AuthComponent = () => {
               console.log(
                 '// set profile of user IN AUTH COMPONENT XXXXXXXXXXXXX'
               );
+
+              console.log(`handle Auth Error handleAuthError`);
 
               setProfile(data.user);
               setAccessToken(data.session.access_token);
@@ -255,6 +264,8 @@ const AuthComponent = () => {
             navigate('/avatars');
           })
           .catch((error) => {
+            console.log('toast.error first message');
+            // toast.error(error.message);
             console.log('catching error: ' + error.message);
           });
 

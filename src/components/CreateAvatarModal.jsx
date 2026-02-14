@@ -12,6 +12,7 @@ const CreateAvatarModal = ({ setShowCreateModal }) => {
   const { user } = useAuth();
 
   const handleCreate = async () => {
+    console.log('handleCreate');
     if (!newAvatarName.trim()) {
       setError('Avatar name is required');
       return;

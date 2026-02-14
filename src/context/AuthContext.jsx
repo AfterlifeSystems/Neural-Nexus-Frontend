@@ -66,10 +66,13 @@ export const AuthProvider = ({ children }) => {
       } else if (event === 'SIGNED_IN') {
         console.log('// handle USER SIGNED IN');
         console.log(session);
+        // setUser(session.user);
         // setUser()
       } else if (event === 'SIGNED_OUT') {
         console.log('// handle USER SIGNED OUT');
         console.log(session);
+        setUser(null);
+        setAccessToken(null);
       } else if (event === 'PASSWORD_RECOVERY') {
         console.log('// handle PASSWORD RECOVERY');
         console.log(session);

@@ -26,7 +26,7 @@ const ResetPassword = () => {
       toast.error('Passwords do not match');
       return;
     }
-
+    console.log(`HANDLE SUBMIT: ${iSLoading}`);
     setIsLoading(true);
 
     try {

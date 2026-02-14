@@ -43,6 +43,7 @@ createRoot(document.getElementById('root')).render(
     <Toaster
       position="top-center"
       toastOptions={{
+        duration: 5000,
         style: {
           background: 'rgba(30,30,40,0.95)',
           color: 'white',
@@ -64,11 +65,11 @@ createRoot(document.getElementById('root')).render(
             <Route path="/login" element={<AuthComponent />} />
 
             {/* All protected routes under one layout */}
-            {/* <Route element={<ProtectedRoute />}> */}
-            <Route path="/avatars" element={<AvatarSelectionComponent />} />
-            <Route path="/chat/:avatarId" element={<ChatArea />} />
-            {/* <Route path="/account" element={<AccountSettings />} /> */}
-            {/* </Route> */}
+            <Route element={<ProtectedRoute />}>
+              <Route path="/avatars" element={<AvatarSelectionComponent />} />
+              <Route path="/chat/:avatarId" element={<ChatArea />} />
+              {/* <Route path="/account" element={<AccountSettings />} /> */}
+            </Route>
 
             {/* Catch-all redirect to root */}
             <Route path="/" element={<RootRedirect />} />

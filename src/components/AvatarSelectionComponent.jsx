@@ -31,6 +31,7 @@ const AvatarSelectionComponent = ({}) => {
     userAvatars,
     setActiveAvatar,
     lastUsedAvatar,
+    setUserAvatars,
   } = useAuth();
 
   const { setMessages, fetchMessages } = useMedia();
@@ -219,10 +220,13 @@ const AvatarSelectionComponent = ({}) => {
     }
   };
 
-  const authenticatedCards = useMemo(() => {
+  const authenticatedCards = useMemo(async () => {
     console.log(
       `authenticatedCards USEMEMO XXXXXXXXXXXXXXXXXX userAvatars: ${userAvatars}`
     );
+    const avatars = await getAvatars(user.id);
+    setUserAvatars(avatars);
+
     // getAvatars(user.id);
     const avatarCards =
       userAvatars?.map((avatar) => ({
