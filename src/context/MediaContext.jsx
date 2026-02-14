@@ -107,11 +107,11 @@ export const MediaProvider = ({ children }) => {
     console.log(
       `Subscribing to messages for avatar ${activeAvatar.avatar_id}, conversation ${activeConversation}`
     );
-    console.log('user.uid' + user.uid);
+    console.log('user.id' + user.id);
     // Set up real-time subscription
     try {
       const unsubscribe = subscribeToMessages(
-        user.uid,
+        user.id,
         activeAvatar.avatar_id,
         activeConversation,
         (newMessages) => {
@@ -203,7 +203,7 @@ export const MediaProvider = ({ children }) => {
 
       // Send to Firestore - this will trigger the subscription to update
       const firestoreResponse = await sendMessageService(
-        user.uid,
+        user.id,
         activeAvatar.avatar_id,
         activeConversation,
         inputMessage,

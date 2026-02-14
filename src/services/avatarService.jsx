@@ -113,7 +113,7 @@ export const createAvatar = async (user, name, description, iconFile) => {
   // CREATE ASSISTANT CREATE AVATAR
   if (!user) throw new Error('No authenticated user');
 
-  const userId = user.uid;
+  const userId = user.id;
   const avatarId = uuidv4();
   const conversationId = uuidv4(); // Create default conversation ID
 
@@ -153,7 +153,7 @@ export const createAvatar = async (user, name, description, iconFile) => {
   // Store as a Digital Twin document following firestore_structure.md
   const avatarData = {
     avatar_id: avatarId,
-    user_id: user.uid,
+    user_id: user.id,
     name: name,
     description: (description || '').trim(),
     created_at: new Date().toISOString(),
@@ -221,7 +221,7 @@ export const createAvatar = async (user, name, description, iconFile) => {
       body: JSON.stringify({
         assistant_id: avatarId,
         graph_id: 'Anubis',
-        metadata: { user_id: user.uid, assistant_id: avatarId },
+        metadata: { user_id: user.id, assistant_id: avatarId },
         if_exists: 'raise',
         description: description,
         name: name,
@@ -256,7 +256,7 @@ export const createAvatar = async (user, name, description, iconFile) => {
   // LANGGRAPH API CREATE THREAD
   // const create_thread_response = await lg_api_client.threads.create({
   //   graphId: 'Anubis',
-  //   metadata: { user_id: user.uid, assistant_id: avatarId },
+  //   metadata: { user_id: user.id, assistant_id: avatarId },
   //   thread_id: conversationId,
   //   if_exists: 'raise',
   // });

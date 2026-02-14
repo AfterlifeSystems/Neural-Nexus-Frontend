@@ -181,7 +181,7 @@ const AvatarSettings = ({ avatarId, accessToken }) => {
         const file = pending.file;
         try {
           const uploadResults = await uploadToDataLoadingApi(
-            user.uid,
+            user.id,
             activeAvatar.avatar_id,
             activeAvatar.name,
             [file]
@@ -217,7 +217,7 @@ const AvatarSettings = ({ avatarId, accessToken }) => {
       if (!user) throw new Error('Not logged in');
       if (!activeAvatar) throw new Error('No active avatar');
       const docMeta = await uploadUrl(
-        user.uid,
+        user.id,
         activeAvatar.avatar_id,
         url,
         activeAvatar.name
@@ -225,7 +225,7 @@ const AvatarSettings = ({ avatarId, accessToken }) => {
       const avatarRef = doc(
         db,
         'users',
-        user.uid,
+        user.id,
         'avatars',
         activeAvatar.avatar_id
       );
@@ -246,7 +246,7 @@ const AvatarSettings = ({ avatarId, accessToken }) => {
     try {
       if (!user) throw new Error('Not logged in');
       const login = await connectSocial(
-        user.uid,
+        user.id,
         activeAvatar.avatar_id,
         selectedPlatform,
         loginCredentials.username,
@@ -268,7 +268,7 @@ const AvatarSettings = ({ avatarId, accessToken }) => {
   const removeSocialLogin = async (id) => {
     try {
       if (!user) throw new Error('Not logged in');
-      await disconnectSocial(user.uid, activeAvatar.avatar_id, id);
+      await disconnectSocial(user.id, activeAvatar.avatar_id, id);
       setSocialLogins((prev) => prev.filter((login) => login.id !== id));
       toast.success('Social account disconnected');
     } catch (err) {
@@ -295,7 +295,7 @@ const AvatarSettings = ({ avatarId, accessToken }) => {
   const deleteDocument = async (id) => {
     try {
       if (!user) throw new Error('Not logged in');
-      await deleteDocument(user.uid, activeAvatar.avatar_id, id);
+      await deleteDocument(user.id, activeAvatar.avatar_id, id);
       toast.success('Document deleted');
     } catch (err) {
       toast.error('Failed to delete: ' + err.message);
@@ -424,7 +424,7 @@ const AvatarSettings = ({ avatarId, accessToken }) => {
     const file = new File([blob], 'avatar-photo.jpg', { type: 'image/jpeg' });
     try {
       // if (!user) throw new Error('Not logged in');
-      // const uploaded = await uploadDocuments(user.uid, activeAvatar.avatar_id, [
+      // const uploaded = await uploadDocuments(user.id, activeAvatar.avatar_id, [
       //   file,
       // ]);
       // if (uploaded && uploaded.length > 0)
@@ -479,7 +479,7 @@ const AvatarSettings = ({ avatarId, accessToken }) => {
     try {
       if (!user) throw new Error('Not logged in');
       await updateAvatarWithIcon(
-        user.uid,
+        user.id,
         activeAvatar.avatar_id,
         acceptedFiles[0]
       );
@@ -491,12 +491,12 @@ const AvatarSettings = ({ avatarId, accessToken }) => {
   const handleDescSave = async (updatedDesc) => {
     try {
       if (!user) throw new Error('Not logged in');
-      await updateAvatar(user.uid, activeAvatar.avatar_id, {
+      await updateAvatar(user.id, activeAvatar.avatar_id, {
         description: updatedDesc,
       });
       const avatarProfileData = await selectAvatar(
         user,
-        user.uid,
+        user.id,
         activeAvatar.avatar_id
       );
       setUpdatedDesc(avatarProfileData.description || '');
@@ -508,12 +508,12 @@ const AvatarSettings = ({ avatarId, accessToken }) => {
   const handleUpdateName = async (updatedAvatarName) => {
     try {
       if (!user) throw new Error('Not logged in');
-      await updateAvatar(user.uid, activeAvatar.avatar_id, {
+      await updateAvatar(user.id, activeAvatar.avatar_id, {
         name: updatedAvatarName,
       });
       const avatarProfileData = await selectAvatar(
         user,
-        user.uid,
+        user.id,
         activeAvatar.avatar_id
       );
       setUpdatedAvatarName(avatarProfileData.name || '');
@@ -532,7 +532,7 @@ const AvatarSettings = ({ avatarId, accessToken }) => {
     }
     setIsDeleting(true);
     try {
-      await deleteAvatar(user.uid, activeAvatar.avatar_id);
+      await deleteAvatar(user.id, activeAvatar.avatar_id);
       toast.success('Avatar deleted successfully');
       navigate('/avatars');
     } catch (err) {

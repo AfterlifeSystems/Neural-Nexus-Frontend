@@ -129,14 +129,6 @@ const AuthComponent = () => {
         // await signup(username, email, password);
         try {
           console.log(email);
-          // Create Firebase Auth user
-          // const userCredential = await createUserWithEmailAndPassword(
-          //   auth,
-          //   email,
-          //   password
-          // );
-
-          // const uid = userCredential.user.uid;
 
           console.log('signup breakpoint');
           // SUPABASE POSTGRES_DB_STORE
@@ -154,78 +146,62 @@ const AuthComponent = () => {
               },
             },
           });
+          if (error) {
+            toast.error(error.message);
+            // throw error;
+            // Display user-friendly error messages
+            let errorMessage = 'Signup failed. Please try again.';
+            if (error.code === 'auth/email-already-in-use') {
+              errorMessage = 'This email is already registered';
+              toast.error(errorMessage);
+              navigate('/login');
+            } else if (error.code === 'auth/invalid-email') {
+              errorMessage = 'Please provide a valid email address';
+            } else if (error.code === 'auth/weak-password') {
+              errorMessage = 'Password must be at least 6 characters';
+            } else if (error.message) {
+              errorMessage = error.message;
+            }
+          } else {
+            // This gives you everything at once
+            console.log('Signup data:', { data });
+            console.log('Signup error:', { error });
 
-          // This gives you everything at once
-          console.log('Signup data:', { data });
-          console.log('Signup error:', { error });
+            console.log(`user: ${user}`);
 
-          console.log(`user: ${user}`);
+            // Send email verification
+            // await sendEmailVerification(userCredential.user);
 
-          // Send email verification
-          // await sendEmailVerification(userCredential.user);
+            // set the current profile to the newly created profile
+            console.log(
+              '// set profile of user IN SIGNUP OF  AUTH COMPONENT XXXXXXXXXXXXX'
+            );
 
-          // Update display name
-          // await updateProfile(userCredential.user, { displayName: username });
+            setProfile(data.user);
 
-          // Create Firestore profile
-          const userDoc = {
-            user_id: data.user.uid,
-            username,
-            email,
-            created_at: new Date(),
-            last_login: new Date(),
-            currently_logged_in: true,
-            avatars: [],
-            // last_used_avatar: null,
-          };
+            localStorage.setItem('user', JSON.stringify(data.user));
 
-          // 3. Write to Firestore
-          // Using doc(db, 'collection', ID) ensures the document ID matches the Auth UID
-          const userRef = doc(db, 'users', user.uid);
-          await setDoc(userRef, userDoc);
-          console.log(`✅ Profile created in Firestore for UID: ${uid}`);
-
-          // set the current profile to the newly created profile
-          console.log(
-            '// set profile of user IN SIGNUP OF  AUTH COMPONENT XXXXXXXXXXXXX'
-          );
-          let profileDoc = await getDoc(
-            doc(db, 'users', userCredential.user.uid)
-          );
-          setProfile(profileDoc.data());
-          // return userCredential.user;
-
-          // await setDoc(doc(db, 'users', userCredential.user.uid), userDoc);
-          // toast.success(
-          //   'Signup successful! Please check your email to verify your account.',
-          //   { duration: Infinity }
-          // );
-          localStorage.setItem('user', JSON.stringify(user.uid));
-
-          navigate('/avatars');
+            navigate('/avatars');
+          }
         } catch (error) {
           console.error('Signup error:', error);
           toast.error(error.message);
           // throw error;
           // Display user-friendly error messages
-          let errorMessage = 'Signup failed. Please try again.';
-          if (error.code === 'auth/email-already-in-use') {
-            errorMessage = 'This email is already registered';
-            toast.error(errorMessage);
-            navigate('/login');
-          } else if (error.code === 'auth/invalid-email') {
-            errorMessage = 'Please provide a valid email address';
-          } else if (error.code === 'auth/weak-password') {
-            errorMessage = 'Password must be at least 6 characters';
-          } else if (error.message) {
-            errorMessage = error.message;
-          }
-
-          toast.error(errorMessage);
+          // let errorMessage = 'Signup failed. Please try again.';
+          // if (error.code === 'auth/email-already-in-use') {
+          //   errorMessage = 'This email is already registered';
+          //   toast.error(errorMessage);
+          //   navigate('/login');
+          // } else if (error.code === 'auth/invalid-email') {
+          //   errorMessage = 'Please provide a valid email address';
+          // } else if (error.code === 'auth/weak-password') {
+          //   errorMessage = 'Password must be at least 6 characters';
+          // } else if (error.message) {
+          //   errorMessage = error.message;
+          // }
           throw error;
         }
-        // const res = await signup(username, email, password);
-        // Success handled in AuthContext
       } else if (modalView === 'login') {
         toast
           .promise(
@@ -253,7 +229,7 @@ const AuthComponent = () => {
               // }
 
               // Update last_login in Firestore
-              await updateDoc(doc(db, 'users', userCredential.user.uid), {
+              await updateDoc(doc(db, 'users', userCredential.user.id), {
                 last_login: new Date(),
                 currently_logged_in: true,
               });
@@ -263,7 +239,7 @@ const AuthComponent = () => {
                 '// set profile of user IN AUTH COMPONENT XXXXXXXXXXXXX'
               );
               let profileDoc = await getDoc(
-                doc(db, 'users', userCredential.user.uid)
+                doc(db, 'users', userCredential.user.id)
               );
               setProfile(profileDoc.data());
 

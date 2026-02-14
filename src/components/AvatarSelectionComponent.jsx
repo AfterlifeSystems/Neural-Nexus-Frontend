@@ -223,7 +223,7 @@ const AvatarSelectionComponent = ({}) => {
     console.log(
       `authenticatedCards USEMEMO XXXXXXXXXXXXXXXXXX userAvatars: ${userAvatars}`
     );
-    // getAvatars(user.uid);
+    // getAvatars(user.id);
     const avatarCards =
       userAvatars?.map((avatar) => ({
         id: avatar.avatar_id,
@@ -306,7 +306,7 @@ const AvatarSelectionComponent = ({}) => {
         const user = auth.currentUser;
 
         if (user) {
-          await updateDoc(doc(db, 'users', user.uid), {
+          await updateDoc(doc(db, 'users', user.id), {
             currently_logged_in: false,
           });
         }

@@ -74,7 +74,7 @@ export const AuthProvider = ({ children }) => {
   useEffect(() => {
     console.log('USER HAS CHANGED IN AUTH CONTEXT; CHANGING USER PROFILE');
     if (!user) return;
-    const unsub = onSnapshot(doc(db, 'users', user.uid), (snap) => {
+    const unsub = onSnapshot(doc(db, 'users', user.id), (snap) => {
       setProfile(snap.exists() ? snap.data() : null);
     });
     return unsub;
@@ -90,8 +90,8 @@ export const AuthProvider = ({ children }) => {
 
       // GET AVATARS
       console.log('USER HAS LOGGED IN; GETING AVATARS FOR USER');
-      console.log(`user.uid: ${user.uid}`);
-      const avatars = await getAvatars(user.uid);
+      console.log(`user.id: ${user.id}`);
+      const avatars = await getAvatars(user.id);
 
       console.log('AVATARS LIST SHOULD BE RETRIEVED');
       console.log(`avatars: ${avatars}`);
@@ -104,7 +104,7 @@ export const AuthProvider = ({ children }) => {
     setAvatarsWhenUserStateIsUpdated();
 
     // firebase implementation
-    // const ref = collection(db, 'users', user.uid, 'avatars');
+    // const ref = collection(db, 'users', user.id, 'avatars');
     // const q = query(ref, orderBy('created_at', 'asc'));
 
     // const unsub = onSnapshot(q, (snap) => {
