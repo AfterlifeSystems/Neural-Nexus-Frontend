@@ -33,6 +33,13 @@ import { X } from 'lucide-react';
 
 import { getAvatars } from '../services/avatarService.jsx';
 
+import { createClient } from '@supabase/supabase-js';
+
+const supabase = await createClient(
+  `${import.meta.env.VITE_SUPABASE_URL}`,
+  `${import.meta.env.VITE_SUPABASE_PUBLISHABLE_AUTH_KEY}`
+);
+
 const AuthContext = createContext();
 
 export const AuthProvider = ({ children }) => {
@@ -51,34 +58,58 @@ export const AuthProvider = ({ children }) => {
   // TESTING
   useEffect(() => {
     setLoading(true);
-    const unsubscribe = onAuthStateChanged(auth, async (currentUser) => {
-      setUser(currentUser);
-
-      // setting the user profile
-
-      // Give Firestore listener a moment to catch up (common pattern)
-
-      if (currentUser) {
-        const token = await currentUser.getIdToken();
-        setAccessToken(token);
-      } else {
-        setAccessToken(null);
+    const { data } = supabase.auth.onAuthStateChange((event, session) => {
+      console.log(event, session);
+      if (event === 'INITIAL_SESSION') {
+        // handle initial session
+        console.log('// handle initial session');
+      } else if (event === 'SIGNED_IN') {
+        console.log('// handle USER SIGNED IN');
+        console.log(session);
+        // setUser()
+      } else if (event === 'SIGNED_OUT') {
+        console.log('// handle USER SIGNED OUT');
+        console.log(session);
+      } else if (event === 'PASSWORD_RECOVERY') {
+        console.log('// handle PASSWORD RECOVERY');
+        console.log(session);
+      } else if (event === 'TOKEN_REFRESHED') {
+        console.log('// handle TOKEN_REFRESH ');
+        console.log(session);
+      } else if (event === 'USER_UPDATED') {
+        console.log('// handle USER UPDATED');
+        console.log(session);
       }
-
-      setLoading(false);
     });
-    return unsubscribe;
+
+    // const unsubscribe = onAuthStateChanged(auth, async (currentUser) => {
+    //   setUser(currentUser);
+
+    //   // setting the user profile
+
+    //   // Give Firestore listener a moment to catch up (common pattern)
+
+    //   if (currentUser) {
+    //     const token = await currentUser.getIdToken();
+    //     setAccessToken(token);
+    //   } else {
+    //     setAccessToken(null);
+    //   }
+
+    //   setLoading(false);
+    // });
+    return data.subscription.unsubscribe;
   }, []);
 
   // sets the profile whenever user changes in auth context
-  useEffect(() => {
-    console.log('USER HAS CHANGED IN AUTH CONTEXT; CHANGING USER PROFILE');
-    if (!user) return;
-    const unsub = onSnapshot(doc(db, 'users', user.id), (snap) => {
-      setProfile(snap.exists() ? snap.data() : null);
-    });
-    return unsub;
-  }, [user]);
+  // useEffect(() => {
+  //   console.log('USER HAS CHANGED IN AUTH CONTEXT; CHANGING USER PROFILE');
+  //   if (!user) return;
+  //   const unsub = onSnapshot(doc(db, 'users', user.id), (snap) => {
+  //     setProfile(snap.exists() ? snap.data() : null);
+  //   });
+  //   return unsub;
+  // }, [user]);
 
   // set user avatars when user state is updated
   useEffect(() => {

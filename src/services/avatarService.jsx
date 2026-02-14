@@ -240,26 +240,7 @@ export const createAvatar = async (user, name, description, iconFile) => {
   const userDoc = await getDoc(userRef);
   console.log('XXXXXXXXXXXXXXXXXXXXXXXXXXXX I CREATED AN AVATAR');
 
-  // if (userDoc) {
-  //   console.log(userDoc);
-  // } else {
-  //   console.log('no userDoc');
-  // }
-
-  await updateDoc(userRef, {
-    avatars: arrayUnion(avatarId),
-    // last_used_avatar: avatarId,
-  });
-
   //  create initial conversation
-
-  // LANGGRAPH API CREATE THREAD
-  // const create_thread_response = await lg_api_client.threads.create({
-  //   graphId: 'Anubis',
-  //   metadata: { user_id: user.id, assistant_id: avatarId },
-  //   thread_id: conversationId,
-  //   if_exists: 'raise',
-  // });
 
   const create_thread_response = await fetch(
     `${import.meta.env.VITE_LANGGRAPH_API_SERVER_URL}/threads`,
@@ -838,34 +819,3 @@ export const deleteConversation = async (userId, avatarId, conversationId) => {
 
   return { status: 'success', conversation_id: conversationId };
 };
-
-// export const configureAvatarApi = async (accessToken, userId, avatarId) => {
-//   const responseMessagingApi = await fetch(
-//     `${import.meta.env.VITE_MESSAGING_API}/configure_avatar?accessToken=${accessToken}&user_id=${userId}&avatar_id=${avatarId}`,
-//     {
-//       method: 'POST',
-//       headers: {
-//         'Content-Type': 'application/json',
-//       },
-//     }
-//   );
-
-//   const responseDataLoadingApi = await fetch(
-//     `${import.meta.env.VITE_DATA_LOADING_API}/init_avatar?user_id=${userId}&avatar_id=${avatarId}`,
-//     {
-//       method: 'POST',
-//       headers: {
-//         'Content-Type': 'application/json',
-//       },
-//     }
-//   );
-
-//   if (!responseMessagingApi.ok) {
-//     throw new Error('Failed to configure avatar on the messaging server');
-//   }
-//   if (!responseDataLoadingApi.ok) {
-//     throw new Error('Failed to configure avatar on the data loading server');
-//   }
-
-//   return { success: true };
-// };

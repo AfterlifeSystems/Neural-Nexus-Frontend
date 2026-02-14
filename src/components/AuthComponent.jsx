@@ -32,6 +32,8 @@ import { useNavigate } from 'react-router-dom';
 
 import { createClient } from '@supabase/supabase-js';
 
+import { getAvatars } from '../services/avatarService.jsx';
+
 const modalRoot =
   document.getElementById('modal-root') ||
   (() => {
@@ -61,6 +63,8 @@ const AuthComponent = () => {
     forgotPassword,
     signInWithProvider,
     avatars,
+    setUserAvatars,
+    setAccessToken,
   } = useAuth();
 
   const validIcons = Array.isArray(avatars)
@@ -106,19 +110,6 @@ const AuthComponent = () => {
 
     return () => clearInterval(interval);
   }, [avatars]);
-
-  // useEffect(() => {
-  //   // Wait for auth to initialize
-  //   if (loading) return;
-
-  //   // Only redirect if user is authenticated AND currently on /login
-  //   if (user && location.pathname === '/login') {
-  //     console.log('✅ User authenticated on /login, redirecting to /avatars');
-  //     navigate('/avatars', { replace: true });
-  //   }
-  // }, [user, loading, navigate, location.pathname]);
-
-  // const avatarToRender = getRotatingAvatarIcon(avatars, rotatingIndex, user);
 
   const handleAuth = async (e) => {
     e.preventDefault();
@@ -178,6 +169,8 @@ const AuthComponent = () => {
             );
 
             setProfile(data.user);
+            setAccessToken(data.session.access_token);
+            setIsLoading(false);
 
             localStorage.setItem('user', JSON.stringify(data.user));
 
@@ -186,95 +179,83 @@ const AuthComponent = () => {
         } catch (error) {
           console.error('Signup error:', error);
           toast.error(error.message);
-          // throw error;
-          // Display user-friendly error messages
-          // let errorMessage = 'Signup failed. Please try again.';
-          // if (error.code === 'auth/email-already-in-use') {
-          //   errorMessage = 'This email is already registered';
-          //   toast.error(errorMessage);
-          //   navigate('/login');
-          // } else if (error.code === 'auth/invalid-email') {
-          //   errorMessage = 'Please provide a valid email address';
-          // } else if (error.code === 'auth/weak-password') {
-          //   errorMessage = 'Password must be at least 6 characters';
-          // } else if (error.message) {
-          //   errorMessage = error.message;
-          // }
           throw error;
         }
       } else if (modalView === 'login') {
         toast
           .promise(
             (async () => {
-              const userCredential = await signInWithEmailAndPassword(
-                auth,
-                email,
-                password
+              const supabase = await createClient(
+                `${import.meta.env.VITE_SUPABASE_URL}`,
+                `${import.meta.env.VITE_SUPABASE_PUBLISHABLE_AUTH_KEY}`
               );
-              // localStorage.setItem('user', JSON.stringify(userCredential.user));
+
+              const { data, error } = await supabase.auth.signInWithPassword({
+                email: email,
+                password: password,
+              });
 
               console.log(
-                'XXXXXXXXXXXXXXXXXXXXXX   USE EFFECT LOGIN FROM AUTH SERVICE XXXXXXXXXXXXXXXXXXXXXXXXXXX'
+                'XXXXXXXXXXXXXXXXXXXXXX   HANDLE AUTH SERVICE XXXXXXXXXXXXXXXXXXXXXXXXXXX'
               );
-              console.log(userCredential);
-
-              // Allow unverified emails if we are using the emulator
-              const isEmulator =
-                import.meta.env.VITE_USE_FIREBASE_EMULATOR === 'true';
-
-              // Check if email is verified
-              // if (!userCredential.user.emailVerified && !isEmulator) {
-              //   await signOut(auth);
-              //   throw new Error('Please verify your email before logging in');
-              // }
-
-              // Update last_login in Firestore
-              await updateDoc(doc(db, 'users', userCredential.user.id), {
-                last_login: new Date(),
-                currently_logged_in: true,
-              });
+              console.log(JSON.stringify(data));
+              localStorage.setItem('user', JSON.stringify(data.user));
 
               // set the current user profile
               console.log(
                 '// set profile of user IN AUTH COMPONENT XXXXXXXXXXXXX'
               );
-              let profileDoc = await getDoc(
-                doc(db, 'users', userCredential.user.id)
-              );
-              setProfile(profileDoc.data());
+
+              setProfile(data.user);
+              setAccessToken(data.session.access_token);
 
               console.log(
                 'XXXXXXXXXXXXXXXXXXXXXXXXX userCredential: ' +
-                  JSON.stringify(userCredential)
+                  JSON.stringify(data)
               );
               console.log(
                 'XXXXXXXXXXXXXXXXXXXXXXXXX userCredential.user: ' +
-                  JSON.stringify(userCredential.user)
+                  JSON.stringify(data.user)
               );
-              return userCredential.user;
+
+              // GET AVATARS
+              console.log('USER HAS LOGGED IN; GETING AVATARS FOR USER');
+              console.log(`user.id: ${data.user.id}`);
+              const avatars = await getAvatars(data.user.id);
+
+              console.log('AVATARS LIST SHOULD BE RETRIEVED');
+              console.log(`avatars: ${avatars}`);
+
+              setUserAvatars(avatars);
+              console.log('SETTING AVATARS FOR USER');
+
+              console.log(`avatars: ${avatars}`);
+
+              return data.user;
             })(),
             {
               loading: 'Logging in...',
               success: 'Login successful!',
-              error: (err) => {
-                if (err.code === 'auth/user-not-found')
+              error: (error) => {
+                if (error.code === 'auth/user-not-found')
                   return 'No account found with this email';
-                if (err.code === 'auth/wrong-password')
+                if (error.code === 'auth/wrong-password')
                   return 'Incorrect password';
-                if (err.code === 'auth/invalid-email')
+                if (error.code === 'auth/invalid-email')
                   return 'Invalid email address';
-                if (err.code === 'auth/too-many-requests')
+                if (error.code === 'auth/too-many-requests')
                   return 'Too many attempts — try again later';
-                return err.message || 'Login failed';
+                return error.message || 'Login failed';
               },
               duration: 4000,
             }
           )
           .then(() => {
+            console.log('navigate / avatars breakpoint');
             navigate('/avatars');
           })
-          .catch((err) => {
-            console.log('catching error: ' + err);
+          .catch((error) => {
+            console.log('catching error: ' + error.message);
           });
 
         // Success handled in AuthContext

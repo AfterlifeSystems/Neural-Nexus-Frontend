@@ -5,6 +5,7 @@ import LoadingSpinner from './LoadingSpinner';
 
 export default function ProtectedRoute() {
   const { user, loading } = useAuth();
+  console.log('ENTRY PROTECTED ROUTE');
 
   if (loading) return <LoadingSpinner fullScreen />;
 
