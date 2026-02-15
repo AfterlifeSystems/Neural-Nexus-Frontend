@@ -128,7 +128,6 @@ const AuthComponent = () => {
         // await signup(username, email, password);
         try {
           console.log(email);
-
           console.log('signup breakpoint');
           // SUPABASE POSTGRES_DB_STORE
           const supabaseClient = createClient(
@@ -204,51 +203,58 @@ const AuthComponent = () => {
           });
 
           if (error) {
-            let errorMessage = 'Login failed. Please try again.';
-          }
-
-          console.log(
-            'XXXXXXXXXXXXXXXXXXXXXX   HANDLE AUTH SERVICE XXXXXXXXXXXXXXXXXXXXXXXXXXX'
-          );
-          console.log(JSON.stringify(data));
-          localStorage.setItem('user', JSON.stringify(data.user));
-
-          // set the current user profile
-          console.log('// set profile of user IN AUTH COMPONENT XXXXXXXXXXXXX');
-
-          console.log(`handle Auth Error handleAuthError`);
-
-          setProfile(data.user);
-          setAccessToken(data.session.access_token);
-
-          console.log(
-            'XXXXXXXXXXXXXXXXXXXXXXXXX userCredential: ' + JSON.stringify(data)
-          );
-          console.log(
-            'XXXXXXXXXXXXXXXXXXXXXXXXX userCredential.user: ' +
-              JSON.stringify(data.user)
-          );
-
-          // GET AVATARS
-          console.log('USER HAS LOGGED IN; GETING AVATARS FOR USER');
-          console.log(`user.id: ${data.user.id}`);
-          const avatars = await getAvatars(data.user.id);
-
-          console.log('AVATARS LIST SHOULD BE RETRIEVED');
-          console.log(`avatars: ${avatars}`);
-
-          console.log('SETTING AVATARS FOR USER');
-          if (avatars) {
-            console.log(`avatars: ${avatars}`);
-            setUserAvatars(avatars);
+            console.log(`Login Error: ${error.message}`);
+            toast.error(`${error.message}`, {
+              options: { duration: 5000 },
+            });
           } else {
-            setUserAvatars([]);
-          }
+            console.log(
+              'XXXXXXXXXXXXXXXXXXXXXX   HANDLE AUTH SERVICE XXXXXXXXXXXXXXXXXXXXXXXXXXX'
+            );
+            console.log(JSON.stringify(data));
+            localStorage.setItem('user', JSON.stringify(data.user));
 
-          setIsLoading(false);
-          // return data.user;
-          console.log('navigate / avatars breakpoint');
-          navigate('/avatars');
+            // set the current user profile
+            console.log(
+              '// set profile of user IN AUTH COMPONENT XXXXXXXXXXXXX'
+            );
+
+            console.log(`handle Auth Error handleAuthError`);
+
+            setUser(data.user);
+            setProfile(data.user);
+            setAccessToken(data.session.access_token);
+
+            console.log(
+              'XXXXXXXXXXXXXXXXXXXXXXXXX userCredential: ' +
+                JSON.stringify(data)
+            );
+            console.log(
+              'XXXXXXXXXXXXXXXXXXXXXXXXX userCredential.user: ' +
+                JSON.stringify(data.user)
+            );
+
+            // GET AVATARS
+            console.log('USER HAS LOGGED IN; GETING AVATARS FOR USER');
+            console.log(`user.id: ${data.user.id}`);
+            const avatars = await getAvatars(data.user.id);
+
+            console.log('AVATARS LIST SHOULD BE RETRIEVED');
+            console.log(`avatars: ${avatars}`);
+
+            console.log('SETTING AVATARS FOR USER');
+            if (avatars) {
+              console.log(`avatars: ${avatars}`);
+              setUserAvatars(avatars);
+            } else {
+              setUserAvatars([]);
+            }
+
+            setIsLoading(false);
+            // return data.user;
+            console.log('navigate / avatars breakpoint');
+            navigate('/avatars');
+          }
         } catch (error) {
           // if (error.code === 'auth/user-not-found')
           //       return = 'No account found with this email';
