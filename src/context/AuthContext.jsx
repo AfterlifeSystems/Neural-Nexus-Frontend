@@ -42,8 +42,6 @@ const supabase = await createClient(
 
 const AuthContext = createContext();
 
-import { useNavigate } from 'react-router-dom';
-
 export const AuthProvider = ({ children }) => {
   const [user, setUser] = useState(null); // current user auth object
   const [profile, setProfile] = useState(null); // the user with metadata included

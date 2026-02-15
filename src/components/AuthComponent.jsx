@@ -146,8 +146,6 @@ const AuthComponent = () => {
             },
           });
           if (error) {
-            toast.error(error.message);
-            // throw error;
             // Display user-friendly error messages
             let errorMessage = 'Signup failed. Please try again.';
             if (error.code === 'auth/email-already-in-use') {
@@ -161,6 +159,8 @@ const AuthComponent = () => {
             } else if (error.message) {
               errorMessage = error.message;
             }
+            console.error('Signup error:', error);
+            toast.error(error.message);
           } else {
             // This gives you everything at once
             console.log('Signup data:', { data });
@@ -191,13 +191,12 @@ const AuthComponent = () => {
           throw error;
         }
       } else if (modalView === 'login') {
+        console.log('signInWithPassword BREAKPOINT');
         try {
           const supabase = await createClient(
             `${import.meta.env.VITE_SUPABASE_URL}`,
             `${import.meta.env.VITE_SUPABASE_PUBLISHABLE_AUTH_KEY}`
           );
-
-          console.log('signInWithPassword BREAKPOINT');
 
           const { data, error } = await supabase.auth.signInWithPassword({
             email: email,
@@ -205,7 +204,7 @@ const AuthComponent = () => {
           });
 
           if (error) {
-            throw error;
+            let errorMessage = 'Login failed. Please try again.';
           }
 
           console.log(
@@ -238,10 +237,14 @@ const AuthComponent = () => {
           console.log('AVATARS LIST SHOULD BE RETRIEVED');
           console.log(`avatars: ${avatars}`);
 
-          setUserAvatars(avatars);
           console.log('SETTING AVATARS FOR USER');
+          if (avatars) {
+            console.log(`avatars: ${avatars}`);
+            setUserAvatars(avatars);
+          } else {
+            setUserAvatars([]);
+          }
 
-          console.log(`avatars: ${avatars}`);
           setIsLoading(false);
           // return data.user;
           console.log('navigate / avatars breakpoint');

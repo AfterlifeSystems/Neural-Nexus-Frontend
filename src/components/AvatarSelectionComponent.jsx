@@ -332,7 +332,6 @@ const AvatarSelectionComponent = ({}) => {
         // throw error;
       }
       setDropdownOpen(false);
-
       navigate('/login');
     } catch (err) {
       console.error('Logout failed', err);

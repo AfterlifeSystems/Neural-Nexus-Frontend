@@ -124,31 +124,31 @@ export const createAvatar = async (user, name, description, iconFile) => {
   console.log(user);
   // Create directory structure in Storage (using .keep files)
 
-  const directories = [
-    `users/${userId}/.keep`,
-    `users/${userId}/avatars/${avatarId}/adapters/.keep`,
-    `users/${userId}/avatars/${avatarId}/adapters/training_data/.keep`,
-  ];
+  // const directories = [
+  //   `users/${userId}/.keep`,
+  //   `users/${userId}/avatars/${avatarId}/adapters/.keep`,
+  //   `users/${userId}/avatars/${avatarId}/adapters/training_data/.keep`,
+  // ];
 
-  for (const dirPath of directories) {
-    try {
-      const dirRef = ref(storage, dirPath);
-      await uploadBytes(dirRef, new Blob([''], { type: 'text/plain' }));
-    } catch (error) {
-      console.warn(`Failed to create directory ${dirPath}:`, error);
-    }
-  }
+  // for (const dirPath of directories) {
+  //   try {
+  //     const dirRef = ref(storage, dirPath);
+  //     await uploadBytes(dirRef, new Blob([''], { type: 'text/plain' }));
+  //   } catch (error) {
+  //     console.warn(`Failed to create directory ${dirPath}:`, error);
+  //   }
+  // }
 
   // Generate download URLs
-  const qloraAdapterUrl = await getDownloadURL(
-    ref(storage, `users/${userId}/avatars/${avatarId}/adapters/.keep`)
-  );
-  const qloraTrainingUrl = await getDownloadURL(
-    ref(
-      storage,
-      `users/${userId}/avatars/${avatarId}/adapters/training_data/.keep`
-    )
-  );
+  // const qloraAdapterUrl = await getDownloadURL(
+  //   ref(storage, `users/${userId}/avatars/${avatarId}/adapters/.keep`)
+  // );
+  // const qloraTrainingUrl = await getDownloadURL(
+  //   ref(
+  //     storage,
+  //     `users/${userId}/avatars/${avatarId}/adapters/training_data/.keep`
+  //   )
+  // );
 
   // Store as a Digital Twin document following firestore_structure.md
   const avatarData = {
@@ -159,56 +159,8 @@ export const createAvatar = async (user, name, description, iconFile) => {
     created_at: new Date().toISOString(),
     icon: null, // will be an object {url, storagePath, name, size, type}
     reference_audio: null,
-    files: [],
-    system_prompt_reference_image_description: '',
-    system_prompt_reference_audio_description: '',
-    system_prompt_description: '',
-    default_conversation: conversationId,
-    conversations: [conversationId],
-    qloraAdapterUrl: qloraAdapterUrl,
-    qloraTrainingUrl: qloraTrainingUrl,
+    active_conversation: conversationId,
   };
-
-  // Upload icon if provided and store metadata + URL
-  if (iconFile) {
-    if (iconFile.size > 4 * 1024 * 1024) {
-      throw new Error('Icon exceeds 4 MB limit');
-    }
-    const iconRef = ref(
-      storage,
-      `users/${userId}/avatars/${avatarId}/icon/${uuidv4()}_${iconFile.name}`
-    );
-    await uploadBytes(iconRef, iconFile);
-    const iconUrl = await getDownloadURL(iconRef);
-    avatarData.icon = {
-      url: iconUrl,
-      storagePath: iconRef.fullPath,
-      name: iconFile.name,
-      size: iconFile.size,
-      type: iconFile.type,
-    };
-  }
-  // Create default conversation document (store summary and counts)
-  const conversationRef = doc(
-    db,
-    'users',
-    userId,
-    'avatars',
-    avatarId,
-    'conversations',
-    conversationId
-  );
-  await setDoc(conversationRef, {
-    conversation_id: conversationId,
-    summary: '',
-    created_at: new Date().toISOString(),
-    updated_at: new Date().toISOString(),
-    message_count: 0,
-  });
-
-  // Create avatar (digital twin) document with avatarId as document ID
-  const avatarRef = doc(db, 'users', userId, 'avatars', avatarId);
-  await setDoc(avatarRef, avatarData);
 
   // // LANGGRAPH API SERVER CLIENT
   const create_assistant_promise = await fetch(
@@ -236,12 +188,9 @@ export const createAvatar = async (user, name, description, iconFile) => {
   );
 
   // Update user's avatars list
-  const userRef = doc(db, 'users', userId);
-  const userDoc = await getDoc(userRef);
   console.log('XXXXXXXXXXXXXXXXXXXXXXXXXXXX I CREATED AN AVATAR');
 
   //  create initial conversation
-
   const create_thread_response = await fetch(
     `${import.meta.env.VITE_LANGGRAPH_API_SERVER_URL}/threads`,
     {

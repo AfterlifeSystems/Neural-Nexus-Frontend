@@ -54,7 +54,7 @@ createRoot(document.getElementById('root')).render(
               <Route path="/avatars" element={<AvatarSelectionComponent />} />
               <Route path="/chat/:avatarId" element={<ChatArea />} />
               {/* <Route path="/account" element={<AccountSettings />} /> */}
-              <Route path="/" element={<LandingPage />} />
+              <Route path="/*" element={<LandingPage />} />
             </Route>
           </Routes>
         </BrowserRouter>
