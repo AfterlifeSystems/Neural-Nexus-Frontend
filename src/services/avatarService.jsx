@@ -62,17 +62,20 @@ export const uploadToDataLoadingApi = async (
     //   formData.append('is_reference_audio', isReferenceAudio);
 
     const formData = new FormData();
-    formData.append('files', '@filename');
-    formData.append('user_id', 'test_user_1234');
-    formData.append('assistant_id', 'default_assistant');
+    formData.append('files', file);
+    formData.append('user_id', userId);
+    formData.append('assistant_id', avatarId);
+
+    console.log(`uploadToDataLoadingApi: ${uploadToDataLoadingApi}`);
+
+    console.log(`avatarId ${avatarId}`);
 
     try {
       const response = await fetch(
-        `${import.meta.env.VITE_ANUBIS_API_URL}` + '/upload-media',
+        `${import.meta.env.VITE_LANGGRAPH_API_SERVER_URL}` + '/upload-media',
         {
           method: 'POST',
           headers: {
-            'Content-Type': 'multipart/form-data',
             'x-api-key': `${import.meta.env.VITE_LANGGRAPH_API_SERVER_KEY}`,
           },
           body: formData,
@@ -87,11 +90,11 @@ export const uploadToDataLoadingApi = async (
       }
 
       // update the uploaded file list
-      const avatarRef = doc(db, 'users', userId, 'avatars', avatarId);
+      // const avatarRef = doc(db, 'users', userId, 'avatars', avatarId);
 
-      await updateDoc(avatarRef, {
-        files: arrayUnion(file.name),
-      });
+      // await updateDoc(avatarRef, {
+      //   files: arrayUnion(file.name),
+      // });
 
       const result = await response.json();
       results.push({

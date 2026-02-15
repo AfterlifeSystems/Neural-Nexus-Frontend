@@ -158,6 +158,7 @@ const AvatarSettings = ({ avatarId, accessToken }) => {
     return 'file';
   };
   const handleFileUpload = async (e) => {
+    console.log('ENTRYPOINT HANDLE FILE UPLOAD');
     const filesList = e.dataTransfer?.files || e.target?.files || [];
     if (filesList.length === 0) return;
     try {
@@ -178,17 +179,23 @@ const AvatarSettings = ({ avatarId, accessToken }) => {
           position: 'bottom-left',
         });
         const file = pending.file;
+        console.log(`activeAvatar: ${activeAvatar}`);
         try {
           const uploadResults = await uploadToDataLoadingApi(
             user.id,
-            activeAvatar.avatar_id,
+            activeAvatar.assistant_id,
             activeAvatar.name,
             [file]
           );
+
+          console.log(`uploadResults: ${JSON.stringify(uploadResults)}`);
+
           if (!uploadResults[0].success) {
             throw new Error(uploadResults[0].error);
           }
           toast.dismiss(loadingToastId);
+          // toast.message(`${pending.name} uploaded successfully`);
+          // toast.message(`Successful Upload Results: ${uploadResults}`);
           toast.success(`${pending.name} uploaded successfully`, {
             position: 'bottom-left',
           });
