@@ -205,7 +205,7 @@ export const createAvatar = async (user, name, description, iconFile) => {
         'x-api-key': `${import.meta.env.VITE_LANGGRAPH_API_SERVER_KEY}`,
       },
       body: JSON.stringify({
-        metadata: { user_id: userId, avatar_id: avatarId },
+        metadata: { user_id: userId, assistant_id: avatarId },
         if_exists: 'raise',
         graph_id: 'Anubis',
         thread_id: conversationId,
@@ -559,7 +559,7 @@ export const selectAvatar = async (user, userId, avatarId) => {
   // });
 
   // Get default conversation ID (or first conversation)
-  const defaultConversationId = avatarData.default_conversation;
+  const defaultConversationId = avatarData.active_conversation;
 
   // Get messages from the default conversation
   const messagesQuery = query(
@@ -755,8 +755,8 @@ export const deleteConversation = async (userId, avatarId, conversationId) => {
   };
 
   // If deleted conversation was default, set first remaining as default
-  if (avatarData.default_conversation === conversationId) {
-    updateData.default_conversation = updatedConversations[0];
+  if (avatarData.active_conversation === conversationId) {
+    updateData.active_conversation = updatedConversations[0];
   }
 
   await updateDoc(avatarRef, updateData);

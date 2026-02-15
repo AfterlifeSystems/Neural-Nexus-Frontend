@@ -27,9 +27,13 @@ const MediaContext = createContext();
 
 export const MediaProvider = ({ children }) => {
   const { activeAvatar, user } = useAuth();
+
   const [messages, setMessages] = useState([]);
   const [activeConversation, setActiveConversation] = useState(null);
+  const [conversationList, setConversationList] = useState([]);
+
   const [inputMessage, setInputMessage] = useState('');
+
   const [role, setRole] = useState('user');
   const [mediaFiles, setMediaFiles] = useState([]);
   const [isTranscribing, setIsTranscribing] = useState(false);
@@ -69,12 +73,92 @@ export const MediaProvider = ({ children }) => {
     setIsTranscribing(false);
   };
 
+  // Get the list of avatar conversations for the current user and avatar
+
+  // useEffect(async () => {
+  //   if (activeAvatar && user) {
+  //     activeAvatarConversations()
+  //   }
+  // });
+
+  async function getConversationList(user, activeAvatar) {
+    const thread_search_response = await fetch(
+      `${import.meta.env.VITE_LANGGRAPH_API_SERVER_URL}/threads/search`,
+      {
+        method: 'POST',
+        headers: {
+          Accept: '*/*',
+        },
+        body: JSON.stringify({
+          metadata: {
+            user_id: user.id,
+            assistant_id: activeAvatar.avatar_id,
+          },
+          limit: 10,
+          offset: 0,
+          sort_by: 'created_at',
+          sort_order: 'desc',
+        }),
+      }
+    );
+
+    const thread_search_response_json = await thread_search_response.json();
+
+    console.log(`${JSON.stringify(thread_search_response_json)}`);
+    setConversationList(thread_search_response_json);
+    return thread_search_response_json;
+  }
+
+  async function setInitialActiveConveration(user, activeAvatar) {
+    if (activeAvatar.active_conversation) {
+      let active_conversation = activeAvatar.active_conversation;
+    } else {
+      active_conversation = conversationList[0];
+      console.log(`active_conversation: ${active_conversation}`);
+    }
+
+    setActiveConversation(active_conversation);
+    return active_conversation;
+  }
+
+  async function getActiveConversationMessages(user, activeAvatar) {
+    if (activeAvatar.active_conversation) {
+      let active_conversation = activeAvatar.active_conversation;
+    } else {
+      active_conversation = conversationList[0];
+      console.log(`active_conversation: ${active_conversation}`);
+    }
+
+    const thread_run_response = await fetch(
+      `${import.meta.env.VITE_LANGGRAPH_API_SERVER_URL}/threads/${active_conversation}/runs`,
+      {
+        headers: {
+          Accept: '*/*',
+        },
+      }
+    );
+
+    const thread_run_response_json = await thread_run_response.json();
+
+    console.log(`thread_run_response_json: ${thread_run_response_json}`);
+    setMessages(thread_run_response_json);
+
+    return thread_run_response_json;
+  }
+
+  async function joinActiveConversation(params) {
+    // There is a conversation run
+    if (activeConversation) {
+      // join the conversation
+    }
+  }
+
   // Set active conversation when avatar changes
   useEffect(() => {
     if (activeAvatar) {
       // Use default conversation from avatar, or first conversation
       const conversationId =
-        activeAvatar.default_conversation || activeAvatar.conversations?.[0];
+        activeAvatar.active_conversation || activeAvatar.conversations?.[0];
       setActiveConversation(conversationId);
     } else {
       setActiveConversation(null);
