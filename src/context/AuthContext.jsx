@@ -42,6 +42,8 @@ const supabase = await createClient(
 
 const AuthContext = createContext();
 
+import { useNavigate } from 'react-router-dom';
+
 export const AuthProvider = ({ children }) => {
   const [user, setUser] = useState(null); // current user auth object
   const [profile, setProfile] = useState(null); // the user with metadata included
@@ -54,47 +56,6 @@ export const AuthProvider = ({ children }) => {
 
   const [isLoading, setIsLoading] = useState(false);
   const [accessToken, setAccessToken] = useState(null); // Firebase ID token for backend API
-
-  useEffect(() => {
-    const initAuth = async () => {
-      setIsLoading(true);
-
-      // Check localStorage first
-      const storedUser = localStorage.getItem('user');
-      if (storedUser) {
-        try {
-          const parsedUser = JSON.parse(storedUser);
-          setUser(parsedUser);
-          setProfile(parsedUser);
-        } catch (e) {
-          console.error('Faled to parse store user.', e);
-        }
-      }
-
-      // Listen to Supabase auth state
-      const {
-        data: { subscription },
-      } = supabase.auth.onAuthStateChange(async (event, session) => {
-        if (session?.user) {
-          setUser(session.user);
-          setProfile(session.user);
-          setAccessToken(session.access_token);
-          localStorage.setItem('user', JSON.stringify(session.user));
-        } else {
-          setUser(null);
-          setProfile(null);
-          setAccessToken(null);
-          localStorage.removeItem('user');
-        }
-        setIsLoading(false);
-      });
-
-      setIsLoading(false);
-
-      return () => subscription.unsubscribe();
-    };
-  });
-
   return (
     <AuthContext.Provider
       value={{

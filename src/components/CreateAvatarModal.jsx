@@ -19,7 +19,7 @@ const CreateAvatarModal = ({ setShowCreateModal }) => {
     console.log(
       `CHANGING THE VALUE OF SET LOADING TO TRUE: CURRENT LOADING VALUE: ${isLoading}`
     );
-    setLoading(true);
+    setIsLoading(true);
     setError(null);
     try {
       const created = await createAvatar(
@@ -48,7 +48,7 @@ const CreateAvatarModal = ({ setShowCreateModal }) => {
       console.log(
         `CHANGING THE VALUE OF SET LOADING TO FALSE: CURRENT LOADING VALUE: ${isLoading}`
       );
-      setLoading(false);
+      setIsLoading(false);
     }
   };
 

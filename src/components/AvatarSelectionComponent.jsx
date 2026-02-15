@@ -228,7 +228,6 @@ const AvatarSelectionComponent = ({}) => {
       `authenticatedCards USEMEMO XXXXXXXXXXXXXXXXXX userAvatars: ${userAvatars}`
     );
 
-    // getAvatars(user.id);
     const avatarCards =
       userAvatars?.map((avatar) => ({
         id: avatar.avatar_id,
@@ -278,34 +277,41 @@ const AvatarSelectionComponent = ({}) => {
 
   useEffect(() => {
     // SET AVATAR CARD INDEX TO LAST USED AVATAR
-    if (userAvatars?.length > 0 && !hasInitialized.current) {
-      let targetIndex = 0;
-
-      // const cachedLastAvatarId = localStorage.getItem('last_used_avatar_id');
-
-      // if (cachedLastAvatarId) {
-      //   const cachedPosition = getCachedAvatarPosition(cachedLastAvatarId);
-      //   if (cachedPosition && cachedPosition.avatarIndex < userAvatars.length) {
-      //     targetIndex = cachedPosition.avatarIndex;
-      //   }
-      // } else if (lastUsedAvatar) {
-      //   const lastUsedIndex = userAvatars.findIndex(
-      //     (avatar) => avatar.avatar_id === lastUsedAvatar
-      //   );
-      //   if (lastUsedIndex !== -1) {
-      //     targetIndex = lastUsedIndex;
-      //   }
-      // }
-
-      setCurrentCardIndex(targetIndex);
-      if (galleryRef.current) {
-        galleryRef.current.setCurrentIndex(targetIndex);
-      }
-      hasInitialized.current = true;
+    let targetIndex = 0;
+    setCurrentCardIndex(targetIndex);
+    if (galleryRef.current) {
+      galleryRef.current.setCurrentIndex(targetIndex);
     }
-    if (!user || !userAvatars?.length) {
-      hasInitialized.current = false;
-    }
+    hasInitialized.current = true;
+    // if (!hasInitialized.current) {
+    //   let targetIndex = 0;
+
+    // const cachedLastAvatarId = localStorage.getItem('last_used_avatar_id');
+
+    // if (cachedLastAvatarId) {
+    //   const cachedPosition = getCachedAvatarPosition(cachedLastAvatarId);
+    //   if (cachedPosition && cachedPosition.avatarIndex < userAvatars.length) {
+    //     targetIndex = cachedPosition.avatarIndex;
+    //   }
+    // } else if (lastUsedAvatar) {
+    //   const lastUsedIndex = userAvatars.findIndex(
+    //     (avatar) => avatar.avatar_id === lastUsedAvatar
+    //   );
+    //   if (lastUsedIndex !== -1) {
+    //     targetIndex = lastUsedIndex;
+    //   }
+    // }
+
+    //   setCurrentCardIndex(targetIndex);
+    //   if (galleryRef.current) {
+    //     galleryRef.current.setCurrentIndex(targetIndex);
+    //   }
+    //   hasInitialized.current = true;
+    // }
+
+    // if (!user || !userAvatars?.length) {
+    //   hasInitialized.current = false;
+    // }
   }, [user, userAvatars]);
 
   const handleLogout = async () => {
@@ -347,12 +353,6 @@ const AvatarSelectionComponent = ({}) => {
     document.addEventListener('mousedown', handleClickOutside);
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
-
-  // useEffect(() => {
-  //   if (user) {
-  //     toast.dismiss();
-  //   }
-  // }, []);
 
   useEffect(() => {
     console.log('Avatar Selection Component user: ' + JSON.stringify(user));
