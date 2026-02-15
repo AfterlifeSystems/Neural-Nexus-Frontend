@@ -97,7 +97,7 @@ export const sendMessageService = async (
 
     const avatarData = avatarDoc.data();
     currentConversationId =
-      avatarData.default_conversation || avatarData.conversations?.[0];
+      avatarData.active_conversation || avatarData.conversations?.[0];
     if (!currentConversationId) throw new Error('No conversation found');
   }
 
@@ -253,7 +253,7 @@ export const getMessages = async (
     }
     const avatarData = avatarDoc.data();
     currentConversationId =
-      avatarData.default_conversation || avatarData.conversations?.[0];
+      avatarData.active_conversation || avatarData.conversations?.[0];
     if (!currentConversationId) {
       throw new Error('No conversation found for digital twin');
     }
