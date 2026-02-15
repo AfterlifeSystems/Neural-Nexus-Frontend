@@ -188,10 +188,14 @@ const AvatarSettings = ({ avatarId, accessToken }) => {
             [file]
           );
 
+          console.log(`uploadResults: ${JSON.stringify(uploadResults)}`);
+
           if (!uploadResults[0].success) {
             throw new Error(uploadResults[0].error);
           }
           toast.dismiss(loadingToastId);
+          // toast.message(`${pending.name} uploaded successfully`);
+          // toast.message(`Successful Upload Results: ${uploadResults}`);
           toast.success(`${pending.name} uploaded successfully`, {
             position: 'bottom-left',
           });
