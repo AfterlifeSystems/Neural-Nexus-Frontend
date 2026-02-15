@@ -2,12 +2,14 @@
 
 'use client';
 import React, { useCallback, useState } from 'react';
+import useAuth from '../context/AuthContext';
 
 export default function DocumentDropZone() {
   const [isDragging, setIsDragging] = useState(false);
   const [documents, setDocuments] = useState([]);
-  const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
+
+  const { isLoading, setIsLoading } = useAuth();
 
   const determineContentType = (file) => {
     const type = file.type;
@@ -61,8 +63,10 @@ export default function DocumentDropZone() {
       setError('No valid files or URLs dropped');
       return;
     }
-
-    setLoading(true);
+    console.log(
+      `CHANGING THE VALUE OF SET LOADING TO TRUE: CURRENT LOADING VALUE: ${isLoading}`
+    );
+    setIsLoading(true);
     try {
       const response = await fetch('/api/documents/upload', {
         method: 'POST',
@@ -82,7 +86,10 @@ export default function DocumentDropZone() {
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Upload failed');
     } finally {
-      setLoading(false);
+      console.log(
+        `CHANGING THE VALUE OF SET LOADING TO FALSE: CURRENT LOADING VALUE: ${isLoading}`
+      );
+      setIsLoading(false);
     }
   }, []);
 
@@ -99,7 +106,10 @@ export default function DocumentDropZone() {
     const text = e.clipboardData.getData('text/plain');
     if (text.startsWith('http://') || text.startsWith('https://')) {
       e.preventDefault();
-      setLoading(true);
+      console.log(
+        `CHANGING THE VALUE OF SET LOADING TO TRUE: CURRENT LOADING VALUE: ${isLoading}`
+      );
+      setIsLoading(true);
       setError(null);
 
       try {
@@ -124,7 +134,7 @@ export default function DocumentDropZone() {
       } catch (err) {
         setError(err instanceof Error ? err.message : 'Paste failed');
       } finally {
-        setLoading(false);
+        setIsLoading(false);
       }
     }
   };
@@ -140,7 +150,7 @@ export default function DocumentDropZone() {
           isDragging
             ? 'border-blue-500 bg-blue-50'
             : 'border-gray-300 hover:border-gray-400'
-        } ${loading ? 'opacity-50 cursor-wait' : ''}`}
+        } ${isLoading ? 'opacity-50 cursor-wait' : ''}`}
       >
         <div className="space-y-2">
           <p className="text-lg font-semibold">Drag & drop documents here</p>
@@ -150,7 +160,9 @@ export default function DocumentDropZone() {
           <p className="text-xs text-gray-500">
             Or paste a URL (Ctrl+V / Cmd+V)
           </p>
-          {loading && <p className="text-blue-600 animate-spin">Loading...</p>}
+          {isLoading && (
+            <p className="text-blue-600 animate-spin">Loading...</p>
+          )}
         </div>
       </div>
 

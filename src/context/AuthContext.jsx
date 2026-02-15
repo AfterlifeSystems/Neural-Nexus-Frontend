@@ -31,15 +31,20 @@ import { auth, db, storage } from '../firebase/config.js';
 import toast from 'react-hot-toast';
 import { X } from 'lucide-react';
 
-import { Client } from '@langchain/langgraph-sdk';
-
 import { getAvatars } from '../services/avatarService.jsx';
+
+import { createClient } from '@supabase/supabase-js';
+
+const supabase = await createClient(
+  `${import.meta.env.VITE_SUPABASE_URL}`,
+  `${import.meta.env.VITE_SUPABASE_PUBLISHABLE_AUTH_KEY}`
+);
 
 const AuthContext = createContext();
 
 export const AuthProvider = ({ children }) => {
   const [user, setUser] = useState(null); // current user auth object
-  const [profile, setProfile] = useState(null);
+  const [profile, setProfile] = useState(null); // the user with metadata included
 
   const [userAvatars, setUserAvatars] = useState([]); // avatars of the user
   const [communityAvatars, setCommunityAvatars] = useState([]); // avatars shared by the community
@@ -47,95 +52,8 @@ export const AuthProvider = ({ children }) => {
 
   const [activeAvatar, setActiveAvatar] = useState(null);
 
-  const [loading, setLoading] = useState(true);
+  const [isLoading, setIsLoading] = useState(false);
   const [accessToken, setAccessToken] = useState(null); // Firebase ID token for backend API
-
-  // TESTING
-  useEffect(() => {
-    setLoading(true);
-    const unsubscribe = onAuthStateChanged(auth, async (currentUser) => {
-      setUser(currentUser);
-
-      // setting the user profile
-
-      // Give Firestore listener a moment to catch up (common pattern)
-
-      if (currentUser) {
-        const token = await currentUser.getIdToken();
-        setAccessToken(token);
-      } else {
-        setAccessToken(null);
-      }
-
-      setLoading(false);
-    });
-    return unsubscribe;
-  }, []);
-
-  // sets the profile whenever user changes in auth context
-  useEffect(() => {
-    console.log('USER HAS CHANGED IN AUTH CONTEXT; CHANGING USER PROFILE');
-    if (!user) return;
-    const unsub = onSnapshot(doc(db, 'users', user.uid), (snap) => {
-      setProfile(snap.exists() ? snap.data() : null);
-    });
-    return unsub;
-  }, [user]);
-
-  // set user avatars when user state is updated
-  useEffect(() => {
-    const setAvatarsWhenUserStateIsUpdated = async () => {
-      if (!user) {
-        setUserAvatars([]);
-        return;
-      }
-
-      // GET AVATARS
-      const avatars = await getAvatars(user.uid);
-
-      console.log(`avatars: ${avatars}`);
-
-      setUserAvatars(avatars);
-      return avatars;
-    };
-
-    setAvatarsWhenUserStateIsUpdated();
-
-    // firebase implementation
-    // const ref = collection(db, 'users', user.uid, 'avatars');
-    // const q = query(ref, orderBy('created_at', 'asc'));
-
-    // const unsub = onSnapshot(q, (snap) => {
-    //   const avatars = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
-    //   setUserAvatars(avatars);
-    // });
-  }, [user]);
-
-  // Active avatar can be derived in a useMemo or another effect
-  // useEffect(() => {
-  //   if  (!profile?.last_used_avatar || userAvatars.length === 0) {
-  //     setActiveAvatar(null);
-  //     return;
-  //   }
-  //   const match = userAvatars.find((a) => a.id === profile.last_used_avatar);
-  //   setActiveAvatar(match || null);
-  // }, [profile?.last_used_avatar, userAvatars]);
-
-  // change of the active avatar
-  useEffect(() => {
-    console.log('ACTIVE AVATAR CHANGED');
-    console.log(`${user}`);
-    console.log(`${activeAvatar}`);
-  }, [activeAvatar]);
-
-  // verify connection to firebase auth emulator
-  useEffect(() => {
-    if (auth.config) {
-      console.log('Full Auth Config:', auth.config);
-      // Look for a property called 'emulatorConfig' in the object tree
-    }
-  }, []);
-
   return (
     <AuthContext.Provider
       value={{
@@ -154,8 +72,8 @@ export const AuthProvider = ({ children }) => {
         setProfile,
         activeAvatar,
         setActiveAvatar,
-        loading,
-        setLoading,
+        isLoading,
+        setIsLoading,
         // Firebase instances (for advanced use)
         firebaseAuth: auth,
         firestore: db,

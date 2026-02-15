@@ -23,6 +23,8 @@ import { signOut } from 'firebase/auth';
 import { doc, setDoc, getDoc, updateDoc } from 'firebase/firestore';
 import { auth, db, storage } from '../firebase/config.js';
 
+import { getAvatars } from '../services/avatarService.jsx';
+
 const AvatarSelectionComponent = ({}) => {
   const {
     accessToken,
@@ -31,6 +33,7 @@ const AvatarSelectionComponent = ({}) => {
     userAvatars,
     setActiveAvatar,
     lastUsedAvatar,
+    setUserAvatars,
   } = useAuth();
 
   const { setMessages, fetchMessages } = useMedia();
@@ -219,7 +222,12 @@ const AvatarSelectionComponent = ({}) => {
     }
   };
 
+  // https://claude.ai/chat/8e125e85-be01-4541-a4f4-da3590f996c1
   const authenticatedCards = useMemo(() => {
+    console.log(
+      `authenticatedCards USEMEMO XXXXXXXXXXXXXXXXXX userAvatars: ${userAvatars}`
+    );
+
     const avatarCards =
       userAvatars?.map((avatar) => ({
         id: avatar.avatar_id,
@@ -264,35 +272,46 @@ const AvatarSelectionComponent = ({}) => {
   };
 
   useEffect(() => {
+    console.log(`AVATAR SELECTION COMPONENT ENTRYPOINT`);
+  });
+
+  useEffect(() => {
     // SET AVATAR CARD INDEX TO LAST USED AVATAR
-    if (userAvatars?.length > 0 && !hasInitialized.current) {
-      let targetIndex = 0;
-
-      // const cachedLastAvatarId = localStorage.getItem('last_used_avatar_id');
-
-      // if (cachedLastAvatarId) {
-      //   const cachedPosition = getCachedAvatarPosition(cachedLastAvatarId);
-      //   if (cachedPosition && cachedPosition.avatarIndex < userAvatars.length) {
-      //     targetIndex = cachedPosition.avatarIndex;
-      //   }
-      // } else if (lastUsedAvatar) {
-      //   const lastUsedIndex = userAvatars.findIndex(
-      //     (avatar) => avatar.avatar_id === lastUsedAvatar
-      //   );
-      //   if (lastUsedIndex !== -1) {
-      //     targetIndex = lastUsedIndex;
-      //   }
-      // }
-
-      setCurrentCardIndex(targetIndex);
-      if (galleryRef.current) {
-        galleryRef.current.setCurrentIndex(targetIndex);
-      }
-      hasInitialized.current = true;
+    let targetIndex = 0;
+    setCurrentCardIndex(targetIndex);
+    if (galleryRef.current) {
+      galleryRef.current.setCurrentIndex(targetIndex);
     }
-    if (!user || !userAvatars?.length) {
-      hasInitialized.current = false;
-    }
+    hasInitialized.current = true;
+    // if (!hasInitialized.current) {
+    //   let targetIndex = 0;
+
+    // const cachedLastAvatarId = localStorage.getItem('last_used_avatar_id');
+
+    // if (cachedLastAvatarId) {
+    //   const cachedPosition = getCachedAvatarPosition(cachedLastAvatarId);
+    //   if (cachedPosition && cachedPosition.avatarIndex < userAvatars.length) {
+    //     targetIndex = cachedPosition.avatarIndex;
+    //   }
+    // } else if (lastUsedAvatar) {
+    //   const lastUsedIndex = userAvatars.findIndex(
+    //     (avatar) => avatar.avatar_id === lastUsedAvatar
+    //   );
+    //   if (lastUsedIndex !== -1) {
+    //     targetIndex = lastUsedIndex;
+    //   }
+    // }
+
+    //   setCurrentCardIndex(targetIndex);
+    //   if (galleryRef.current) {
+    //     galleryRef.current.setCurrentIndex(targetIndex);
+    //   }
+    //   hasInitialized.current = true;
+    // }
+
+    // if (!user || !userAvatars?.length) {
+    //   hasInitialized.current = false;
+    // }
   }, [user, userAvatars]);
 
   const handleLogout = async () => {
@@ -302,7 +321,7 @@ const AvatarSelectionComponent = ({}) => {
         const user = auth.currentUser;
 
         if (user) {
-          await updateDoc(doc(db, 'users', user.uid), {
+          await updateDoc(doc(db, 'users', user.id), {
             currently_logged_in: false,
           });
         }
@@ -313,7 +332,6 @@ const AvatarSelectionComponent = ({}) => {
         // throw error;
       }
       setDropdownOpen(false);
-
       navigate('/login');
     } catch (err) {
       console.error('Logout failed', err);
@@ -334,12 +352,6 @@ const AvatarSelectionComponent = ({}) => {
     document.addEventListener('mousedown', handleClickOutside);
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
-
-  // useEffect(() => {
-  //   if (user) {
-  //     toast.dismiss();
-  //   }
-  // }, []);
 
   useEffect(() => {
     console.log('Avatar Selection Component user: ' + JSON.stringify(user));

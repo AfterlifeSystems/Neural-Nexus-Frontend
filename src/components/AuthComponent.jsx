@@ -30,6 +30,10 @@ import { toast, Toaster } from 'react-hot-toast';
 
 import { useNavigate } from 'react-router-dom';
 
+import { createClient } from '@supabase/supabase-js';
+
+import { getAvatars } from '../services/avatarService.jsx';
+
 const modalRoot =
   document.getElementById('modal-root') ||
   (() => {
@@ -45,7 +49,6 @@ const AuthComponent = () => {
   const [password, setPassword] = useState('');
   const [username, setUsername] = useState('');
   // const [showModal, setShowModal] = useState(true);
-  const [isLoading, setIsLoading] = useState(false);
   const [modalView, setModalView] = useState('login'); // 'login', 'signup', 'forgotPassword'
 
   // Rotating avatar index
@@ -53,12 +56,16 @@ const AuthComponent = () => {
 
   const {
     user,
-    loading,
+    isLoading,
+    setIsLoading,
     profile,
     setProfile,
     forgotPassword,
     signInWithProvider,
     avatars,
+    setUserAvatars,
+    setAccessToken,
+    setUser,
   } = useAuth();
 
   const validIcons = Array.isArray(avatars)
@@ -89,6 +96,10 @@ const AuthComponent = () => {
   //   return avatars[rotatingIndex]?.icon || null;
   // };
 
+  useEffect(() => {
+    console.log('AUTH COMPONENT ENTRYPOINT');
+  });
+
   // Rotation effect (only when there are 2+ avatars)
   useEffect(() => {
     if (!Array.isArray(avatars)) return;
@@ -105,176 +116,236 @@ const AuthComponent = () => {
     return () => clearInterval(interval);
   }, [avatars]);
 
-  // useEffect(() => {
-  //   // Wait for auth to initialize
-  //   if (loading) return;
-
-  //   // Only redirect if user is authenticated AND currently on /login
-  //   if (user && location.pathname === '/login') {
-  //     console.log('✅ User authenticated on /login, redirecting to /avatars');
-  //     navigate('/avatars', { replace: true });
-  //   }
-  // }, [user, loading, navigate, location.pathname]);
-
-  // const avatarToRender = getRotatingAvatarIcon(avatars, rotatingIndex, user);
-
   const handleAuth = async (e) => {
+    console.log(`ENTRYPOINT HANDLE AUTH: isLoading ${isLoading}`);
     e.preventDefault();
-    setIsLoading(true);
+    if (!isLoading) {
+      console.log(`is loading is false: ${isLoading}`);
+    }
 
     try {
       if (modalView === 'signup') {
         // await signup(username, email, password);
         try {
           console.log(email);
-          // Create Firebase Auth user
-          const userCredential = await createUserWithEmailAndPassword(
-            auth,
-            email,
-            password
+          console.log('signup breakpoint');
+          // SUPABASE POSTGRES_DB_STORE
+          const supabaseClient = createClient(
+            `${import.meta.env.VITE_SUPABASE_URL}`,
+            `${import.meta.env.VITE_SUPABASE_PUBLISHABLE_AUTH_KEY}`
           );
-          const uid = userCredential.user.uid;
 
-          // Send email verification
-          // await sendEmailVerification(userCredential.user);
+          const { data, error } = await supabaseClient.auth.signUp({
+            email: email,
+            password: password,
+            options: {
+              data: {
+                display_name: username,
+              },
+            },
+          });
+          if (error) {
+            // Display user-friendly error messages
+            let errorMessage = 'Signup failed. Please try again.';
+            if (error.code === 'auth/email-already-in-use') {
+              errorMessage = 'This email is already registered';
+              toast.error(errorMessage);
+              navigate('/login');
+            } else if (error.code === 'auth/invalid-email') {
+              errorMessage = 'Please provide a valid email address';
+            } else if (error.code === 'auth/weak-password') {
+              errorMessage = 'Password must be at least 6 characters';
+            } else if (error.message) {
+              errorMessage = error.message;
+            }
+            console.error('Signup error:', error);
+            toast.error(error.message);
+          } else {
+            // This gives you everything at once
+            console.log('Signup data:', { data });
+            console.log('Signup error:', { error });
 
-          // Update display name
-          // await updateProfile(userCredential.user, { displayName: username });
+            console.log(`user: ${user}`);
 
-          // Create Firestore profile
-          const userDoc = {
-            user_id: userCredential.user.uid,
-            username,
-            email,
-            created_at: new Date(),
-            last_login: new Date(),
-            currently_logged_in: true,
-            avatars: [],
-            // last_used_avatar: null,
-          };
+            // Send email verification
+            // await sendEmailVerification(userCredential.user);
 
-          // 3. Write to Firestore
-          // Using doc(db, 'collection', ID) ensures the document ID matches the Auth UID
-          const userRef = doc(db, 'users', uid);
-          await setDoc(userRef, userDoc);
-          console.log(`✅ Profile created in Firestore for UID: ${uid}`);
+            // set the current profile to the newly created profile
+            console.log(
+              '// set profile of user IN SIGNUP OF  AUTH COMPONENT XXXXXXXXXXXXX'
+            );
 
-          // set the current profile to the newly created profile
-          console.log(
-            '// set profile of user IN SIGNUP OF  AUTH COMPONENT XXXXXXXXXXXXX'
-          );
-          let profileDoc = await getDoc(
-            doc(db, 'users', userCredential.user.uid)
-          );
-          setProfile(profileDoc.data());
-          // return userCredential.user;
+            setUser(data.user);
+            setProfile(data.user);
+            setAccessToken(data.session.access_token);
+            setIsLoading(false);
 
-          // await setDoc(doc(db, 'users', userCredential.user.uid), userDoc);
-          // toast.success(
-          //   'Signup successful! Please check your email to verify your account.',
-          //   { duration: Infinity }
-          // );
-          localStorage.setItem('user', JSON.stringify(userCredential.user));
+            localStorage.setItem('user', JSON.stringify(data.user));
 
-          navigate('/avatars');
+            navigate('/avatars');
+          }
         } catch (error) {
           console.error('Signup error:', error);
           toast.error(error.message);
-          // throw error;
-          // Display user-friendly error messages
-          let errorMessage = 'Signup failed. Please try again.';
-          if (error.code === 'auth/email-already-in-use') {
-            errorMessage = 'This email is already registered';
-            toast.error(errorMessage);
-            navigate('/login');
-          } else if (error.code === 'auth/invalid-email') {
-            errorMessage = 'Please provide a valid email address';
-          } else if (error.code === 'auth/weak-password') {
-            errorMessage = 'Password must be at least 6 characters';
-          } else if (error.message) {
-            errorMessage = error.message;
-          }
-
-          toast.error(errorMessage);
           throw error;
         }
-        // const res = await signup(username, email, password);
-        // Success handled in AuthContext
       } else if (modalView === 'login') {
-        toast
-          .promise(
-            (async () => {
-              const userCredential = await signInWithEmailAndPassword(
-                auth,
-                email,
-                password
-              );
-              // localStorage.setItem('user', JSON.stringify(userCredential.user));
+        console.log('signInWithPassword BREAKPOINT');
+        try {
+          const supabase = await createClient(
+            `${import.meta.env.VITE_SUPABASE_URL}`,
+            `${import.meta.env.VITE_SUPABASE_PUBLISHABLE_AUTH_KEY}`
+          );
 
-              console.log(
-                'XXXXXXXXXXXXXXXXXXXXXX   USE EFFECT LOGIN FROM AUTH SERVICE XXXXXXXXXXXXXXXXXXXXXXXXXXX'
-              );
-              console.log(userCredential);
-
-              // Allow unverified emails if we are using the emulator
-              const isEmulator =
-                import.meta.env.VITE_USE_FIREBASE_EMULATOR === 'true';
-
-              // Check if email is verified
-              // if (!userCredential.user.emailVerified && !isEmulator) {
-              //   await signOut(auth);
-              //   throw new Error('Please verify your email before logging in');
-              // }
-
-              // Update last_login in Firestore
-              await updateDoc(doc(db, 'users', userCredential.user.uid), {
-                last_login: new Date(),
-                currently_logged_in: true,
-              });
-
-              // set the current user profile
-              console.log(
-                '// set profile of user IN AUTH COMPONENT XXXXXXXXXXXXX'
-              );
-              let profileDoc = await getDoc(
-                doc(db, 'users', userCredential.user.uid)
-              );
-              setProfile(profileDoc.data());
-
-              console.log(
-                'XXXXXXXXXXXXXXXXXXXXXXXXX userCredential: ' +
-                  JSON.stringify(userCredential)
-              );
-              console.log(
-                'XXXXXXXXXXXXXXXXXXXXXXXXX userCredential.user: ' +
-                  JSON.stringify(userCredential.user)
-              );
-              return userCredential.user;
-            })(),
-            {
-              loading: 'Logging in...',
-              success: 'Login successful!',
-              error: (err) => {
-                if (err.code === 'auth/user-not-found')
-                  return 'No account found with this email';
-                if (err.code === 'auth/wrong-password')
-                  return 'Incorrect password';
-                if (err.code === 'auth/invalid-email')
-                  return 'Invalid email address';
-                if (err.code === 'auth/too-many-requests')
-                  return 'Too many attempts — try again later';
-                return err.message || 'Login failed';
-              },
-              duration: 4000,
-            }
-          )
-          .then(() => {
-            navigate('/avatars');
-          })
-          .catch((err) => {
-            console.log('catching error: ' + err);
+          const { data, error } = await supabase.auth.signInWithPassword({
+            email: email,
+            password: password,
           });
 
+          if (error) {
+            console.log(`Login Error: ${error.message}`);
+            toast.error(`${error.message}`, {
+              options: { duration: 5000 },
+            });
+          } else {
+            console.log(
+              'XXXXXXXXXXXXXXXXXXXXXX   HANDLE AUTH SERVICE XXXXXXXXXXXXXXXXXXXXXXXXXXX'
+            );
+            console.log(JSON.stringify(data));
+            localStorage.setItem('user', JSON.stringify(data.user));
+
+            // set the current user profile
+            console.log(
+              '// set profile of user IN AUTH COMPONENT XXXXXXXXXXXXX'
+            );
+
+            console.log(`handle Auth Error handleAuthError`);
+
+            setUser(data.user);
+            setProfile(data.user);
+            setAccessToken(data.session.access_token);
+
+            console.log(
+              'XXXXXXXXXXXXXXXXXXXXXXXXX userCredential: ' +
+                JSON.stringify(data)
+            );
+            console.log(
+              'XXXXXXXXXXXXXXXXXXXXXXXXX userCredential.user: ' +
+                JSON.stringify(data.user)
+            );
+
+            // GET AVATARS
+            console.log('USER HAS LOGGED IN; GETING AVATARS FOR USER');
+            console.log(`user.id: ${data.user.id}`);
+            const avatars = await getAvatars(data.user.id);
+
+            console.log('AVATARS LIST SHOULD BE RETRIEVED');
+            console.log(`avatars: ${avatars}`);
+
+            console.log('SETTING AVATARS FOR USER');
+            if (avatars) {
+              console.log(`avatars: ${avatars}`);
+              setUserAvatars(avatars);
+            } else {
+              setUserAvatars([]);
+            }
+
+            setIsLoading(false);
+            // return data.user;
+            console.log('navigate / avatars breakpoint');
+            navigate('/avatars');
+          }
+        } catch (error) {
+          // if (error.code === 'auth/user-not-found')
+          //       return = 'No account found with this email';
+          //     if (error.code === 'auth/wrong-password')
+          //       return 'Incorrect password';
+          //     if (error.code === 'auth/invalid-email')
+          //       return 'Invalid email address';
+          //     if (error.code === 'auth/too-many-requests')
+          //       return 'Too many attempts — try again later';
+          // return error.message || 'Login failed';
+          toast.error({
+            message: error.message,
+            options: {
+              duration: 5000,
+            },
+          });
+          setIsLoading(false);
+        }
+
+        // toast
+        //   .promise(
+        //     (async () => {
+        // const supabase = await createClient(
+        //   `${import.meta.env.VITE_SUPABASE_URL}`,
+        //   `${import.meta.env.VITE_SUPABASE_PUBLISHABLE_AUTH_KEY}`
+        // );
+        // console.log('signInWithPassword BREAKPOINT');
+        // const { data, error } = await supabase.auth.signInWithPassword({
+        //   email: email,
+        //   password: password,
+        // });
+        // if (error) {
+        //   throw error;
+        // }
+        // console.log(
+        //   'XXXXXXXXXXXXXXXXXXXXXX   HANDLE AUTH SERVICE XXXXXXXXXXXXXXXXXXXXXXXXXXX'
+        // );
+        // console.log(JSON.stringify(data));
+        // localStorage.setItem('user', JSON.stringify(data.user));
+        // // set the current user profile
+        // console.log(
+        //   '// set profile of user IN AUTH COMPONENT XXXXXXXXXXXXX'
+        // );
+        // console.log(`handle Auth Error handleAuthError`);
+        // setProfile(data.user);
+        // setAccessToken(data.session.access_token);
+        // console.log(
+        //   'XXXXXXXXXXXXXXXXXXXXXXXXX userCredential: ' +
+        //     JSON.stringify(data)
+        // );
+        // console.log(
+        //   'XXXXXXXXXXXXXXXXXXXXXXXXX userCredential.user: ' +
+        //     JSON.stringify(data.user)
+        // );
+        // // GET AVATARS
+        // console.log('USER HAS LOGGED IN; GETING AVATARS FOR USER');
+        // console.log(`user.id: ${data.user.id}`);
+        // const avatars = await getAvatars(data.user.id);
+        // console.log('AVATARS LIST SHOULD BE RETRIEVED');
+        // console.log(`avatars: ${avatars}`);
+        // setUserAvatars(avatars);
+        // console.log('SETTING AVATARS FOR USER');
+        // console.log(`avatars: ${avatars}`);
+        // setIsLoading(false);
+        // return data.user;
+        // })(),
+        // {
+        // toast promise return values (catches errors)
+        //   loading: 'Logging in...',
+        //   success: 'Login successful!',
+        //   error: (error) => {
+        //     if (error.code === 'auth/user-not-found')
+        //       return 'No account found with this email';
+        //     if (error.code === 'auth/wrong-password')
+        //       return 'Incorrect password';
+        //     if (error.code === 'auth/invalid-email')
+        //       return 'Invalid email address';
+        //     if (error.code === 'auth/too-many-requests')
+        //       return 'Too many attempts — try again later';
+        //     return error.message || 'Login failed';
+        //   },
+        //   duration: 5000,
+        // }
+        // )
+        // .then(() => {
+        //   console.log('navigate / avatars breakpoint');
+        //   navigate('/avatars');
+        // })
+        // .catch((error) => {
+        //   console.log('catching error: ' + error.message);
+        // });
         // Success handled in AuthContext
       } else if (modalView === 'forgotPassword') {
         await forgotPassword(email);
@@ -306,8 +377,6 @@ const AuthComponent = () => {
       // Handle specific error cases
       const errorMsg = error.message || 'Authentication failed';
       console.log(error);
-    } finally {
-      setIsLoading(false);
     }
   };
 
@@ -398,70 +467,7 @@ const AuthComponent = () => {
               {modalView === 'login' && 'Login'}
               {modalView === 'forgotPassword' && 'Reset Password'}
             </h2>
-            {/* <button
-            type="button"
-            onClick={closeModal}
-            className="p-2 hover:bg-red-500/20 rounded-lg text-white transition"
-          >
-            <X size={24} />
-          </button> */}
           </div>
-
-          {isLoading && (
-            <div className="flex justify-center mb-4">
-              <LoadingSpinner />
-            </div>
-          )}
-
-          {/* Social Login Buttons (not for password reset) */}
-          {/* {modalView !== 'forgotPassword' && (
-          <div className="space-y-3 mb-6">
-            <button
-              onClick={() => handleSocialLogin('google')}
-              className="w-full flex items-center justify-center gap-3 px-4 py-3 bg-white text-gray-800 rounded-lg hover:bg-gray-100 transition font-medium"
-            >
-              <svg className="w-5 h-5" viewBox="0 0 24 24">
-                <path
-                  fill="currentColor"
-                  d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"
-                />
-                <path
-                  fill="currentColor"
-                  d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"
-                />
-                <path
-                  fill="currentColor"
-                  d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"
-                />
-                <path
-                  fill="currentColor"
-                  d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"
-                />
-              </svg>
-              Continue with Google
-            </button>
-
-            <button
-              onClick={() => handleSocialLogin('github')}
-              className="w-full flex items-center justify-center gap-3 px-4 py-3 bg-gray-800 text-white rounded-lg hover:bg-red-500 transition font-medium"
-            >
-              <Github size={20} />
-              Continue with GitHub
-            </button>
-
-            <div className="relative">
-              <div className="absolute inset-0 flex items-center pt-6">
-                <div className="w-full border-t border-white/20"></div>
-              </div>
-            </div>
-
-            <div className="relative flex justify-center text-sm">
-              <span className="px-2 bg-transparent text-white/60">
-                Or continue with email
-              </span>
-            </div>
-          </div>
-        )} */}
 
           {/* Form */}
           <form onSubmit={handleAuth} className="space-y-4">
