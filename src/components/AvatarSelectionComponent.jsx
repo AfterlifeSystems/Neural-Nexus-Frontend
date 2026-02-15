@@ -120,11 +120,12 @@ const AvatarSelectionComponent = ({}) => {
   };
 
   const handleClick = async (cardData) => {
+    console.log('handleClick');
     let actualCardData = cardData;
     if (!cardData.type) {
       const matchingCard = authenticatedCards.find(
         (card) =>
-          card.id === cardData.id ||
+          card.id === cardData.avatar_data.assistant_id ||
           (cardData.text && card.text === cardData.text)
       );
       if (matchingCard) actualCardData = matchingCard;
@@ -132,16 +133,16 @@ const AvatarSelectionComponent = ({}) => {
 
     if (actualCardData.type === 'avatar') {
       const avatarId =
-        actualCardData.id ||
+        actualCardData.avatar_data.assistant_id ||
         userAvatars?.find((avatar) => avatar.name === actualCardData.text)
-          ?.avatar_id;
+          ?.assistant_id;
       if (!avatarId) {
         toast.error('Avatar ID not found');
         return;
       }
 
       const avatarIndex = userAvatars.findIndex(
-        (avatar) => avatar.avatar_id === avatarId
+        (avatar) => avatar.assistant_id === avatarId
       );
 
       setCurrentCardIndex(avatarIndex);
@@ -152,7 +153,7 @@ const AvatarSelectionComponent = ({}) => {
       // await selectAvatar(avatarId);
 
       const selectedAvatar = userAvatars.find(
-        (avatar) => avatar.avatar_id === avatarId
+        (avatar) => avatar.assistant_id === avatarId
       );
 
       // when the avatar is selected, the backend is responsible for updating the identity and awareness of the avatar
