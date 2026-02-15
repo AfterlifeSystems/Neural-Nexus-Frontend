@@ -122,7 +122,7 @@ service firebase.storage {
   "system_prompt_reference_image_description": "",
   "system_prompt_reference_audio_description": "",
   "system_prompt_description": "",
-  "default_conversation": "conversationId1",
+  "active_conversation": "conversationId1",
   "conversations": ["conversationId1", "conversationId2",...]
 }
 
@@ -190,7 +190,7 @@ digital_twin/{avatar_id}
   "system_prompt_reference_image_description": "",
   "system_prompt_reference_audio_description": "",
   "system_prompt_description": "",
-  "default_conversation": "conversationId1",
+  "active_conversation": "conversationId1",
   "conversations": [
     {
       "conversationId": "conversationId1",

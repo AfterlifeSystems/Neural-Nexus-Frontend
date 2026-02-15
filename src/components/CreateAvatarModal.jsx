@@ -10,6 +10,8 @@ const CreateAvatarModal = ({ setShowCreateModal }) => {
   const [newAvatarDescription, setNewAvatarDescription] = useState('');
   const { user, isLoading, setIsLoading, setUserAvatars } = useAuth();
 
+  // 4331fbb8-b4a4-41a3-a0d1-ab0158a1abec
+  // 7e644e6b-f05c-47e9-a179-368517d480f8
   const handleCreate = async () => {
     console.log('handleCreate');
     if (!newAvatarName.trim()) {
@@ -65,6 +67,67 @@ const CreateAvatarModal = ({ setShowCreateModal }) => {
         `CHANGING THE VALUE OF SET LOADING TO FALSE: CURRENT LOADING VALUE: ${isLoading}`
       );
       setIsLoading(false);
+    }
+  };
+
+  const handleClick = async (cardData) => {
+    console.log('handleClick');
+    let actualCardData = cardData;
+    if (!cardData.type) {
+      const matchingCard = authenticatedCards.find(
+        (card) =>
+          card.id === cardData.avatar_data.assistant_id ||
+          (cardData.text && card.text === cardData.text)
+      );
+      if (matchingCard) actualCardData = matchingCard;
+    }
+
+    if (actualCardData.type === 'avatar') {
+      const avatarId =
+        actualCardData.avatar_data.assistant_id ||
+        userAvatars?.find((avatar) => avatar.name === actualCardData.text)
+          ?.assistant_id;
+      if (!avatarId) {
+        toast.error('Avatar ID not found');
+        return;
+      }
+
+      const avatarIndex = userAvatars.findIndex(
+        (avatar) => avatar.assistant_id === avatarId
+      );
+
+      setCurrentCardIndex(avatarIndex);
+      if (galleryRef.current) {
+        galleryRef.current.setCurrentIndex(avatarIndex);
+      }
+      localStorage.setItem('last_used_avatar_index', avatarIndex);
+      localStorage.setItem('last_used_avatar_id', avatarId);
+
+      // Use AuthContext selectAvatar which updates Firestore
+      // await selectAvatar(avatarId);
+
+      const selectedAvatar = userAvatars.find(
+        (avatar) => avatar.assistant_id === avatarId
+      );
+
+      // when the avatar is selected, the backend is responsible for updating the identity and awareness of the avatar
+
+      cacheAvatarPosition(avatarId, avatarIndex);
+      if (selectedAvatar?.icon) {
+        cacheAvatarIcon(avatarId, selectedAvatar.icon, avatarIndex);
+      }
+      setActiveAvatar(selectedAvatar);
+      // await selectAvatar(avatarId); // Update Firestore last_used_avatar
+      // localStorage.setItem('last_used_avatar_id', avatarId);
+
+      // Load messages for this avatar
+      // await fetchMessages();
+      // toast.success(`Selected ${avatar.name || 'avatar'}`);
+      // console.log('HANDLE CLICK');
+      navigate(`/chat/${avatarId}`); // ← ROUTE TO CHAT AREA
+      // navigate(/chat:selectedAvatar)
+    } else if (actualCardData.type === 'create') {
+      setShowCreateModal(true);
     }
   };
 

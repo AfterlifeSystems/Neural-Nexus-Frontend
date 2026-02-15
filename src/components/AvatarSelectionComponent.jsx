@@ -166,6 +166,7 @@ const AvatarSelectionComponent = ({}) => {
         cacheAvatarIcon(avatarId, selectedAvatar.icon, avatarIndex);
       }
       setActiveAvatar(selectedAvatar);
+
       // await selectAvatar(avatarId); // Update Firestore last_used_avatar
       // localStorage.setItem('last_used_avatar_id', avatarId);
 
@@ -281,7 +282,11 @@ const AvatarSelectionComponent = ({}) => {
 
   useEffect(() => {
     // SET AVATAR CARD INDEX TO LAST USED AVATAR
-    let targetIndex = 0;
+    let targetIndex = localStorage.getItem('current_card_index');
+    if (!targetIndex) {
+      let targetIndex = 0;
+      localStorage.setItem('current_card_index', targetIndex);
+    }
     setCurrentCardIndex(targetIndex);
     if (galleryRef.current) {
       galleryRef.current.setCurrentIndex(targetIndex);

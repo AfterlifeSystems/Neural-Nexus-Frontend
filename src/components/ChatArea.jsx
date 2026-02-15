@@ -17,7 +17,16 @@ const ChatArea = ({
   className,
 }) => {
   const { accessToken, activeAvatar, user } = useAuth();
-  const { messages, messagesEndRef } = useMedia(); // messages is now a simple array
+  const {
+    messages,
+    messagesEndRef,
+    currentConversationList,
+    setConversationList,
+    getConversationList,
+    setInitialActiveConversation,
+    getActiveConversationMessages,
+    joinActiveConversation,
+  } = useMedia(); // messages is now a simple array
   const { avatarId } = useParams(); // from /chat/:avatarId
   const navigate = useNavigate();
   const [activeTab, setActiveTab] = useState('avatar-settings');
@@ -32,6 +41,13 @@ const ChatArea = ({
       setActiveTab('chat');
     }
   };
+
+  // Get all the conversations for the current avatar
+  useEffect(() => {
+    getConversationList(user, activeAvatar);
+    setInitialActiveConversation(user, activeAvatar);
+    getActiveConversationMessages(user, activeAvatar);
+  }, [activeAvatar]);
 
   return (
     <div
