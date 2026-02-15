@@ -160,6 +160,7 @@ const AuthComponent = () => {
             }
             console.error('Signup error:', error);
             toast.error(error.message);
+            setIsLoading(false);
           } else {
             // This gives you everything at once
             console.log('Signup data:', { data });
@@ -191,88 +192,85 @@ const AuthComponent = () => {
         }
       } else if (modalView === 'login') {
         console.log('signInWithPassword BREAKPOINT');
-        try {
-          const supabase = await createClient(
-            `${import.meta.env.VITE_SUPABASE_URL}`,
-            `${import.meta.env.VITE_SUPABASE_PUBLISHABLE_AUTH_KEY}`
+        // try {
+        const supabase = await createClient(
+          `${import.meta.env.VITE_SUPABASE_URL}`,
+          `${import.meta.env.VITE_SUPABASE_PUBLISHABLE_AUTH_KEY}`
+        );
+
+        const { data, error } = await supabase.auth.signInWithPassword({
+          email: email,
+          password: password,
+        });
+
+        if (error) {
+          console.log(`Login Error: ${error.message}`);
+          toast.error(`${error.message}`, {
+            options: { duration: 5000 },
+          });
+        } else {
+          console.log(
+            'XXXXXXXXXXXXXXXXXXXXXX   HANDLE AUTH SERVICE XXXXXXXXXXXXXXXXXXXXXXXXXXX'
+          );
+          console.log(JSON.stringify(data));
+          localStorage.setItem('user', JSON.stringify(data.user));
+
+          // set the current user profile
+          console.log('// set profile of user IN AUTH COMPONENT XXXXXXXXXXXXX');
+
+          console.log(`handle Auth Error handleAuthError`);
+
+          setUser(data.user);
+          setProfile(data.user);
+          setAccessToken(data.session.access_token);
+
+          console.log(
+            'XXXXXXXXXXXXXXXXXXXXXXXXX userCredential: ' + JSON.stringify(data)
+          );
+          console.log(
+            'XXXXXXXXXXXXXXXXXXXXXXXXX userCredential.user: ' +
+              JSON.stringify(data.user)
           );
 
-          const { data, error } = await supabase.auth.signInWithPassword({
-            email: email,
-            password: password,
-          });
+          // GET AVATARS
+          console.log('USER HAS LOGGED IN; GETING AVATARS FOR USER');
+          console.log(`user.id: ${data.user.id}`);
+          const avatars = await getAvatars(data.user.id);
 
-          if (error) {
-            console.log(`Login Error: ${error.message}`);
-            toast.error(`${error.message}`, {
-              options: { duration: 5000 },
-            });
-          } else {
-            console.log(
-              'XXXXXXXXXXXXXXXXXXXXXX   HANDLE AUTH SERVICE XXXXXXXXXXXXXXXXXXXXXXXXXXX'
-            );
-            console.log(JSON.stringify(data));
-            localStorage.setItem('user', JSON.stringify(data.user));
+          console.log('AVATARS LIST SHOULD BE RETRIEVED');
+          console.log(`avatars: ${avatars}`);
 
-            // set the current user profile
-            console.log(
-              '// set profile of user IN AUTH COMPONENT XXXXXXXXXXXXX'
-            );
-
-            console.log(`handle Auth Error handleAuthError`);
-
-            setUser(data.user);
-            setProfile(data.user);
-            setAccessToken(data.session.access_token);
-
-            console.log(
-              'XXXXXXXXXXXXXXXXXXXXXXXXX userCredential: ' +
-                JSON.stringify(data)
-            );
-            console.log(
-              'XXXXXXXXXXXXXXXXXXXXXXXXX userCredential.user: ' +
-                JSON.stringify(data.user)
-            );
-
-            // GET AVATARS
-            console.log('USER HAS LOGGED IN; GETING AVATARS FOR USER');
-            console.log(`user.id: ${data.user.id}`);
-            const avatars = await getAvatars(data.user.id);
-
-            console.log('AVATARS LIST SHOULD BE RETRIEVED');
+          console.log('SETTING AVATARS FOR USER');
+          if (avatars) {
             console.log(`avatars: ${avatars}`);
-
-            console.log('SETTING AVATARS FOR USER');
-            if (avatars) {
-              console.log(`avatars: ${avatars}`);
-              setUserAvatars(avatars);
-            } else {
-              setUserAvatars([]);
-            }
-
-            setIsLoading(false);
-            // return data.user;
-            console.log('navigate / avatars breakpoint');
-            navigate('/avatars');
+            setUserAvatars(avatars);
+          } else {
+            setUserAvatars([]);
           }
-        } catch (error) {
-          // if (error.code === 'auth/user-not-found')
-          //       return = 'No account found with this email';
-          //     if (error.code === 'auth/wrong-password')
-          //       return 'Incorrect password';
-          //     if (error.code === 'auth/invalid-email')
-          //       return 'Invalid email address';
-          //     if (error.code === 'auth/too-many-requests')
-          //       return 'Too many attempts — try again later';
-          // return error.message || 'Login failed';
-          toast.error({
-            message: error.message,
-            options: {
-              duration: 5000,
-            },
-          });
+
           setIsLoading(false);
+          // return data.user;
+          console.log('navigate / avatars breakpoint');
+          navigate('/avatars');
         }
+        // } catch (error) {
+        // if (error.code === 'auth/user-not-found')
+        //       return = 'No account found with this email';
+        //     if (error.code === 'auth/wrong-password')
+        //       return 'Incorrect password';
+        //     if (error.code === 'auth/invalid-email')
+        //       return 'Invalid email address';
+        //     if (error.code === 'auth/too-many-requests')
+        //       return 'Too many attempts — try again later';
+        // return error.message || 'Login failed';
+        // toast.error({
+        //   message: error.message,
+        //   options: {
+        //     duration: 5000,
+        //   },
+        // });
+
+        // }
 
         // toast
         //   .promise(

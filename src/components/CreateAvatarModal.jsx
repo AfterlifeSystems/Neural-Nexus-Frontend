@@ -1,14 +1,14 @@
 import React, { useState, useEffect } from 'react';
 import { UserPenIcon } from 'lucide-react';
 import { toast } from 'react-hot-toast';
-import { createAvatar } from '../services/avatarService';
+import { createAvatar, getAvatars } from '../services/avatarService';
 import { useAuth } from '../context/AuthContext';
 
 const CreateAvatarModal = ({ setShowCreateModal }) => {
   const [error, setError] = useState(null);
   const [newAvatarName, setNewAvatarName] = useState('');
   const [newAvatarDescription, setNewAvatarDescription] = useState('');
-  const { user, isLoading, setIsLoading } = useAuth();
+  const { user, isLoading, setIsLoading, setUserAvatars } = useAuth();
 
   const handleCreate = async () => {
     console.log('handleCreate');
@@ -29,6 +29,22 @@ const CreateAvatarModal = ({ setShowCreateModal }) => {
         null
       );
       if (created) {
+        // updating the current list of avatars for the current user
+        try {
+          const avatars = await getAvatars(user.id);
+
+          console.log(`response from getAvatars: avatars: ${avatars}`);
+
+          setUserAvatars(avatars);
+        } catch (error) {
+          console.log(
+            ` Handle Create avatar; getting avatars error; error.message: ${error.message}`
+          );
+          console.log(
+            'indicate error of getting avatar list after successful creation'
+          );
+          toast.error(error.message, { options: { duration: 5000 } });
+        }
         setShowCreateModal(false);
         setNewAvatarName('');
         setNewAvatarDescription('');

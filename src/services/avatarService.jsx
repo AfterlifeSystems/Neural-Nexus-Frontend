@@ -26,6 +26,8 @@ import { db, storage } from '../firebase/config';
 import { v4 as uuidv4 } from 'uuid';
 import { createClient } from '@supabase/supabase-js';
 
+import { useAuth } from '../context/AuthContext';
+
 // Add this function to your avatarService.jsx file
 
 /**
@@ -184,7 +186,7 @@ export const createAvatar = async (user, name, description, iconFile) => {
   const create_assistant_promise_json = await create_assistant_promise.json();
 
   console.log(
-    `create_assistant_promise_json: ${create_assistant_promise_json}`
+    `create_assistant_promise_json: ${JSON.stringify(create_assistant_promise_json)}`
   );
 
   // Update user's avatars list
@@ -232,7 +234,9 @@ export const createAvatar = async (user, name, description, iconFile) => {
 
   const create_thread_response_json = await create_thread_response.json();
 
-  console.log(`create_thread_response_json: ${create_thread_response_json}`);
+  console.log(
+    `create_thread_response_json: ${JSON.stringify(create_thread_response_json)}`
+  );
 
   return {
     avatarData,
@@ -249,7 +253,7 @@ export const getAvatars = async (userId, limitCount = 50, skip = 0) => {
 
   // LIST AVATARS SEARCH ASSISTANTS
   const assistants_search_promise = await fetch(
-    `${import.meta.env.VITE_ANUBIS_API_URL}/assistants/search`,
+    `${import.meta.env.VITE_LANGGRAPH_API_SERVER_URL}/assistants/search`,
     {
       method: 'POST',
       headers: {
@@ -259,12 +263,12 @@ export const getAvatars = async (userId, limitCount = 50, skip = 0) => {
       body: JSON.stringify({
         graph_id: 'Anubis',
         metadata: {
-          user_id: 'xVvtmkUhwwE6CZ6V6y8IojlYKy5C',
+          user_id: userId,
         },
         if_exists: 'raise',
         limit: 100,
         offset: 0,
-        sort_by: 'assistant_id',
+        sort_by: 'created_at',
         sort_order: 'asc',
       }),
     }
@@ -283,9 +287,7 @@ export const getAvatars = async (userId, limitCount = 50, skip = 0) => {
   //   "sort_order": "asc"
   // }
 
-  // xVvtmkUhwwE6CZ6V6y8IojlYKy5C
   console.log(`userId: ${userId}`);
-  // 3d2b5ea8-69b7-48f0-bf90-b5948be8ac8f
 
   const assistants_search_promise_json = await assistants_search_promise.json();
   console.log(
@@ -300,17 +302,7 @@ export const getAvatars = async (userId, limitCount = 50, skip = 0) => {
   // const snapshot = await getDocs(avatarsQuery);
   // const avatars = [];
 
-  const avatars = assistants_search_promise_json.assistants?.map(
-    (assistant) => ({
-      avatar_id: assistant.assistant_id,
-      name: assistant.name || assistants_search_promise.context?.name,
-      description:
-        assistant.context?.description || assistant.metadata?.description,
-      icon: null, // Add icon logic if stored in context/metadata
-    })
-  );
-
-  console.log(`GET AVATRARS ${avatars})`);
+  console.log(`GET AVATRARS ${assistants_search_promise_json}`);
 
   // for (const docSnapshot of snapshot.docs.slice(skip, skip + limitCount)) {
   //   const data = docSnapshot.data();
@@ -347,7 +339,7 @@ export const getAvatars = async (userId, limitCount = 50, skip = 0) => {
   //   });
   // }
 
-  return avatars;
+  return assistants_search_promise_json;
 };
 
 export const updateAvatar = async (userId, avatarId, updates) => {
