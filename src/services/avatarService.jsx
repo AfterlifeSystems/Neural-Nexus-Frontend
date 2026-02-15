@@ -24,8 +24,9 @@ import {
 } from 'firebase/storage';
 import { db, storage } from '../firebase/config';
 import { v4 as uuidv4 } from 'uuid';
-import { get_client } from 'langsmith';
 import { createClient } from '@supabase/supabase-js';
+
+import { useAuth } from '../context/AuthContext';
 
 // Add this function to your avatarService.jsx file
 
@@ -61,17 +62,20 @@ export const uploadToDataLoadingApi = async (
     //   formData.append('is_reference_audio', isReferenceAudio);
 
     const formData = new FormData();
-    formData.append('files', '@filename');
-    formData.append('user_id', 'test_user_1234');
-    formData.append('assistant_id', 'default_assistant');
+    formData.append('files', file);
+    formData.append('user_id', userId);
+    formData.append('assistant_id', avatarId);
+
+    console.log(`uploadToDataLoadingApi: ${uploadToDataLoadingApi}`);
+
+    console.log(`avatarId ${avatarId}`);
 
     try {
       const response = await fetch(
-        `${import.meta.env.VITE_ANUBIS_API_URL}` + '/upload-media',
+        `${import.meta.env.VITE_LANGGRAPH_API_SERVER_URL}` + '/upload-media',
         {
           method: 'POST',
           headers: {
-            'Content-Type': 'multipart/form-data',
             'x-api-key': `${import.meta.env.VITE_LANGGRAPH_API_SERVER_KEY}`,
           },
           body: formData,
@@ -86,11 +90,11 @@ export const uploadToDataLoadingApi = async (
       }
 
       // update the uploaded file list
-      const avatarRef = doc(db, 'users', userId, 'avatars', avatarId);
+      // const avatarRef = doc(db, 'users', userId, 'avatars', avatarId);
 
-      await updateDoc(avatarRef, {
-        files: arrayUnion(file.name),
-      });
+      // await updateDoc(avatarRef, {
+      //   files: arrayUnion(file.name),
+      // });
 
       const result = await response.json();
       results.push({
@@ -114,150 +118,86 @@ export const createAvatar = async (user, name, description, iconFile) => {
   // CREATE ASSISTANT CREATE AVATAR
   if (!user) throw new Error('No authenticated user');
 
-  client = get_client(
-    (url = `${import.meta.env.VITE_LANGGRAPH_API_SERVER_URL}`)
-  );
-
-  const userId = user.uid;
+  const userId = user.id;
   const avatarId = uuidv4();
   const conversationId = uuidv4(); // Create default conversation ID
 
   console.log(
     'XXXXXXXXXXXXXXXXXXXXXXXXXX USER XXXXXXXXXXXXXXXXXXXXXXXXXXX avatarService'
   );
+
   console.log(user);
   // Create directory structure in Storage (using .keep files)
-  const directories = [
-    `users/${userId}/.keep`,
-    `users/${userId}/avatars/${avatarId}/adapters/.keep`,
-    `users/${userId}/avatars/${avatarId}/adapters/training_data/.keep`,
-  ];
 
-  for (const dirPath of directories) {
-    try {
-      const dirRef = ref(storage, dirPath);
-      await uploadBytes(dirRef, new Blob([''], { type: 'text/plain' }));
-    } catch (error) {
-      console.warn(`Failed to create directory ${dirPath}:`, error);
-    }
-  }
+  // const directories = [
+  //   `users/${userId}/.keep`,
+  //   `users/${userId}/avatars/${avatarId}/adapters/.keep`,
+  //   `users/${userId}/avatars/${avatarId}/adapters/training_data/.keep`,
+  // ];
+
+  // for (const dirPath of directories) {
+  //   try {
+  //     const dirRef = ref(storage, dirPath);
+  //     await uploadBytes(dirRef, new Blob([''], { type: 'text/plain' }));
+  //   } catch (error) {
+  //     console.warn(`Failed to create directory ${dirPath}:`, error);
+  //   }
+  // }
 
   // Generate download URLs
-  const qloraAdapterUrl = await getDownloadURL(
-    ref(storage, `users/${userId}/avatars/${avatarId}/adapters/.keep`)
-  );
-  const qloraTrainingUrl = await getDownloadURL(
-    ref(
-      storage,
-      `users/${userId}/avatars/${avatarId}/adapters/training_data/.keep`
-    )
-  );
+  // const qloraAdapterUrl = await getDownloadURL(
+  //   ref(storage, `users/${userId}/avatars/${avatarId}/adapters/.keep`)
+  // );
+  // const qloraTrainingUrl = await getDownloadURL(
+  //   ref(
+  //     storage,
+  //     `users/${userId}/avatars/${avatarId}/adapters/training_data/.keep`
+  //   )
+  // );
+
   // Store as a Digital Twin document following firestore_structure.md
   const avatarData = {
     avatar_id: avatarId,
-    user_id: user.uid,
+    user_id: user.id,
     name: name,
     description: (description || '').trim(),
     created_at: new Date().toISOString(),
     icon: null, // will be an object {url, storagePath, name, size, type}
     reference_audio: null,
-    files: [],
-    system_prompt_reference_image_description: '',
-    system_prompt_reference_audio_description: '',
-    system_prompt_description: '',
-    default_conversation: conversationId,
-    conversations: [conversationId],
-    qloraAdapterUrl: qloraAdapterUrl,
-    qloraTrainingUrl: qloraTrainingUrl,
+    active_conversation: conversationId,
   };
 
-  // Upload icon if provided and store metadata + URL
-  if (iconFile) {
-    if (iconFile.size > 4 * 1024 * 1024) {
-      throw new Error('Icon exceeds 4 MB limit');
-    }
-    const iconRef = ref(
-      storage,
-      `users/${userId}/avatars/${avatarId}/icon/${uuidv4()}_${iconFile.name}`
-    );
-    await uploadBytes(iconRef, iconFile);
-    const iconUrl = await getDownloadURL(iconRef);
-    avatarData.icon = {
-      url: iconUrl,
-      storagePath: iconRef.fullPath,
-      name: iconFile.name,
-      size: iconFile.size,
-      type: iconFile.type,
-    };
-  }
-  // Create default conversation document (store summary and counts)
-  const conversationRef = doc(
-    db,
-    'users',
-    userId,
-    'avatars',
-    avatarId,
-    'conversations',
-    conversationId
-  );
-  await setDoc(conversationRef, {
-    conversation_id: conversationId,
-    summary: '',
-    created_at: new Date().toISOString(),
-    updated_at: new Date().toISOString(),
-    message_count: 0,
-  });
-
-  // Create avatar (digital twin) document with avatarId as document ID
-  const avatarRef = doc(db, 'users', userId, 'avatars', avatarId);
-  await setDoc(avatarRef, avatarData);
-
-  // Update user's avatars list
-  const userRef = doc(db, 'users', userId);
-  const userDoc = await getDoc(userRef);
-  console.log('XXXXXXXXXXXXXXXXXXXXXXXXXXXX I CREATED AN AVATAR');
-  // if (userDoc) {
-  //   console.log(userDoc);
-  // } else {
-  //   console.log('no userDoc');
-  // }
-  await updateDoc(userRef, {
-    avatars: arrayUnion(avatarId),
-    // last_used_avatar: avatarId,
-  });
-
-  console.log('creating assistant in api');
-
-  let api_creation_response = await fetch(
-    `${import.meta.env.VITE_ANUBIS_API_URL}` + '/assistants',
+  // // LANGGRAPH API SERVER CLIENT
+  const create_assistant_promise = await fetch(
+    `${import.meta.env.VITE_LANGGRAPH_API_SERVER_URL}/assistants`,
     {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'x-api-key': `${import.meta.env.VITE_LANGGRAPH_API_SERVER_KEY}`,
       },
       body: JSON.stringify({
         assistant_id: avatarId,
         graph_id: 'Anubis',
-        config: {},
-        context: {},
-        metadata: { user_id: userId, assistant_id: avatarId },
+        metadata: { user_id: user.id, assistant_id: avatarId },
         if_exists: 'raise',
-        name: name,
         description: description,
+        name: name,
       }),
     }
   );
 
-  let creation_response_json = await api_creation_response.json();
+  const create_assistant_promise_json = await create_assistant_promise.json();
+
   console.log(
-    'API CREATION RESPONSE: ' + JSON.stringify(creation_response_json)
+    `create_assistant_promise_json: ${JSON.stringify(create_assistant_promise_json)}`
   );
 
-  //  create initial conversation
+  // Update user's avatars list
+  console.log('XXXXXXXXXXXXXXXXXXXXXXXXXXXX I CREATED AN AVATAR');
 
-  let create_conversation_response = await fetch(
-    `${import.meta.env.VITE_ANUBIS_API_URL}` + '/threads',
+  //  create initial conversation
+  const create_thread_response = await fetch(
+    `${import.meta.env.VITE_LANGGRAPH_API_SERVER_URL}/threads`,
     {
       method: 'POST',
       headers: {
@@ -265,18 +205,40 @@ export const createAvatar = async (user, name, description, iconFile) => {
         'x-api-key': `${import.meta.env.VITE_LANGGRAPH_API_SERVER_KEY}`,
       },
       body: JSON.stringify({
-        thread_id: conversationId,
-        metadata: { user_id: '', assistant_id: '', graph_id: 'Anubis' },
+        metadata: { user_id: userId, avatar_id: avatarId },
         if_exists: 'raise',
+        graph_id: 'Anubis',
+        thread_id: conversationId,
+        // ttl: {
+        //   strategy: 'delete',
+        //   ttl: 1,
+        // },
+        // supersteps: [
+        //   {
+        //     updates: [
+        //       {
+        //         values: [{}],
+        //         command: {
+        //           update: null,
+        //           resume: null,
+        //           goto: {
+        //             node: '',
+        //             input: null,
+        //           },
+        //         },
+        //         as_node: '',
+        //       },
+        //     ],
+        //   },
+        // ],
       }),
     }
   );
 
-  let conversation_creation_response_json =
-    await create_conversation_response.json();
+  const create_thread_response_json = await create_thread_response.json();
+
   console.log(
-    'API CREATION RESPONSE: ' +
-      JSON.stringify(conversation_creation_response_json)
+    `create_thread_response_json: ${JSON.stringify(create_thread_response_json)}`
   );
 
   return {
@@ -286,74 +248,104 @@ export const createAvatar = async (user, name, description, iconFile) => {
 
 export const getAvatars = async (userId, limitCount = 50, skip = 0) => {
   // SEARCH ASSISTANTS
-  // fetch(${import.meta.env.VITE_ANUBIS_API_URL}+"/assistants/search", {
-  //   method: 'POST',
-  //   headers: {
-  //     'Content-Type': 'application/json',
-  //     'x-api-key': `${import.meta.env.VITE_LANGGRAPH_API_SERVER_KEY}`,
-  //   },
-  //   body: JSON.stringify(  {
-  //   "metadata": {"user_id": "2eXDgNUItY7Z9wITPGvJZ73sW2hX" },
-  //   "graph_id": "Anubis",
-  //   "name": "",
-  //   "limit": 10,
-  //   "offset": 0,
-  //   "sort_by": "assistant_id",
-  //   "sort_order": "asc",
-  //   "select": [
-  //     "assistant_id", "metadata"
-  //   ]
-  // })
-  // })
 
-  const snapshot = await getDocs(avatarsQuery);
-  const avatars = [];
+  // LANGGRAPH API SERVER CLIENT
+  console.log(
+    `VITE_LANGGRAPH_API_SERVER_URL: ${import.meta.env.VITE_LANGGRAPH_API_SERVER_URL}`
+  );
 
-  for (const docSnapshot of snapshot.docs.slice(skip, skip + limitCount)) {
-    const data = docSnapshot.data();
-    let iconUrl = null;
-
-    if (data.icon) {
-      try {
-        const storagePath = data.icon.storagePath || data.icon;
-        if (storagePath) {
-          iconUrl = await getDownloadURL(ref(storage, storagePath));
-        } else if (data.icon.url) {
-          iconUrl = data.icon.url;
-        }
-      } catch (error) {
-        console.error('Error getting icon URL:', error);
-      }
+  // LIST AVATARS SEARCH ASSISTANTS
+  const assistants_search_promise = await fetch(
+    `${import.meta.env.VITE_LANGGRAPH_API_SERVER_URL}/assistants/search`,
+    {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-key': `${import.meta.env.VITE_LANGGRAPH_API_SERVER_KEY}`,
+      },
+      body: JSON.stringify({
+        graph_id: 'Anubis',
+        metadata: {
+          user_id: userId,
+        },
+        if_exists: 'raise',
+        limit: 100,
+        offset: 0,
+        sort_by: 'created_at',
+        sort_order: 'asc',
+      }),
     }
+  );
 
-    avatars.push({
-      avatar_id: docSnapshot.id,
-      name: data.name,
-      description: data.description,
-      icon: iconUrl,
-    });
-  }
+  // Example body call
+  // {
+  //   "graph_id": "Anubis",
+  //   "metadata": {
+  //     "user_id": "xVvtmkUhwwE6CZ6V6y8IojlYKy5C"
+  //   },
+  //   "if_exists": "raise",
+  //   "limit": 100,
+  //   "offset": 0,
+  //   "sort_by":"assistant_id",
+  //   "sort_order": "asc"
+  // }
 
-  return avatars;
+  console.log(`userId: ${userId}`);
+
+  const assistants_search_promise_json = await assistants_search_promise.json();
+  console.log(
+    'assistants_search_promise_json:',
+    JSON.stringify(assistants_search_promise_json)
+  );
+
+  console.log(
+    `assistants_search_promise_json: ${assistants_search_promise_json}`
+  );
+
+  // const snapshot = await getDocs(avatarsQuery);
+  // const avatars = [];
+
+  console.log(`GET AVATRARS ${assistants_search_promise_json}`);
+
+  // for (const docSnapshot of snapshot.docs.slice(skip, skip + limitCount)) {
+  //   const data = docSnapshot.data();
+  //   let iconUrl = null;
+
+  //   if (data.icon) {
+  //     try {
+  //       const storagePath = data.icon.storagePath || data.icon;
+  //       if (storagePath) {
+  //         iconUrl = await getDownloadURL(ref(storage, storagePath));
+  //       } else if (data.icon.url) {
+  //         iconUrl = data.icon.url;
+  //       }
+  //     } catch (error) {
+  //       console.error('Error getting icon URL:', error);
+  //     }
+  //   }
+
+  //   avatars.push({
+  //     avatar_id: docSnapshot.id,
+  //     name: data.name,
+  //     description: data.description,
+  //     icon: iconUrl,
+  //   });
+  // }
+
+  // Add the icon to the avatars
+  // for (const avatar in assistants_search_promise) {
+  //   avatars.push({
+  //     avatar_id: avatar.avatar_id,
+  //     name: avatar.name,
+  //     description: avatar.description,
+  //     icon: iconUrl,
+  //   });
+  // }
+
+  return assistants_search_promise_json;
 };
 
 export const updateAvatar = async (userId, avatarId, updates) => {
-  // PATCH ASSISTANT
-  //   fetch('http://localhost:2024/assistants/123e4567-e89b-12d3-a456-426614174000', {
-  //   method: 'PATCH',
-  //   headers: {
-  //     'Content-Type': 'application/json',
-  //     'x-api-key': `${import.meta.env.VITE_LANGGRAPH_API_SERVER_KEY}`,
-  //   },
-  //   body: JSON.stringify({
-  //     graph_id: 'Anubis',
-  //     config: {},
-  //     context: {},
-  //     metadata: {},
-  //     name: '',
-  //     description: ''
-  //   })
-  // })
   const avatarRef = doc(db, 'users', userId, 'avatars', avatarId);
   const avatarDoc = await getDoc(avatarRef);
 
@@ -476,8 +468,8 @@ export const deleteAvatar = async (userId, avatarId) => {
   await updateDoc(userRef, { avatars: arrayRemove(avatarId) });
 
   // LANGSMITH API SERVER
-  client = get_client(`${import.meta.env.VITE_LANGGRAPH_API_SERVER_KEY}`);
-  await client.assistants.delete((assistant_id = avatarId));
+  client = Client(`${import.meta.env.VITE_LANGGRAPH_API_SERVER_KEY}`);
+  await client.assistants.delete({ assistant_id: avatarId });
 
   // SUPABASE POSTGRES_DB_STORE
   const supabase = createClient(
@@ -535,12 +527,11 @@ export const selectAvatar = async (user, userId, avatarId) => {
   const avatarDoc = await getDoc(avatarRef);
 
   // CREATE LANGGRAPH API CLIENT
-  client = get_client(
-    (url = `${import.meta.env.VITE_LANGGRAPH_API_SERVER_URL}`)
-  );
+  client = new Client({ url: import.meta.env.VITE_LANGGRAPH_API_SERVER_URL });
 
   // GET ASSISTANT
-  assistant = await client.assistants.get((assistant_id = avatarId));
+  assistant = await client.assistants.get({ assistant_id: avatarId });
+
   //   {
   //   "assistant_id": "9aee271d-ccce-40db-874a-d70529560c77",
   //   "graph_id": "Anubis",
@@ -772,34 +763,3 @@ export const deleteConversation = async (userId, avatarId, conversationId) => {
 
   return { status: 'success', conversation_id: conversationId };
 };
-
-// export const configureAvatarApi = async (accessToken, userId, avatarId) => {
-//   const responseMessagingApi = await fetch(
-//     `${import.meta.env.VITE_MESSAGING_API}/configure_avatar?accessToken=${accessToken}&user_id=${userId}&avatar_id=${avatarId}`,
-//     {
-//       method: 'POST',
-//       headers: {
-//         'Content-Type': 'application/json',
-//       },
-//     }
-//   );
-
-//   const responseDataLoadingApi = await fetch(
-//     `${import.meta.env.VITE_DATA_LOADING_API}/init_avatar?user_id=${userId}&avatar_id=${avatarId}`,
-//     {
-//       method: 'POST',
-//       headers: {
-//         'Content-Type': 'application/json',
-//       },
-//     }
-//   );
-
-//   if (!responseMessagingApi.ok) {
-//     throw new Error('Failed to configure avatar on the messaging server');
-//   }
-//   if (!responseDataLoadingApi.ok) {
-//     throw new Error('Failed to configure avatar on the data loading server');
-//   }
-
-//   return { success: true };
-// };

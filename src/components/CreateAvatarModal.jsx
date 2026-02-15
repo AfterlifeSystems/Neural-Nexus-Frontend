@@ -1,22 +1,25 @@
 import React, { useState, useEffect } from 'react';
 import { UserPenIcon } from 'lucide-react';
 import { toast } from 'react-hot-toast';
-import { createAvatar } from '../services/avatarService';
+import { createAvatar, getAvatars } from '../services/avatarService';
 import { useAuth } from '../context/AuthContext';
 
 const CreateAvatarModal = ({ setShowCreateModal }) => {
-  const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const [newAvatarName, setNewAvatarName] = useState('');
   const [newAvatarDescription, setNewAvatarDescription] = useState('');
-  const { user } = useAuth();
+  const { user, isLoading, setIsLoading, setUserAvatars } = useAuth();
 
   const handleCreate = async () => {
+    console.log('handleCreate');
     if (!newAvatarName.trim()) {
       setError('Avatar name is required');
       return;
     }
-    setLoading(true);
+    console.log(
+      `CHANGING THE VALUE OF SET LOADING TO TRUE: CURRENT LOADING VALUE: ${isLoading}`
+    );
+    setIsLoading(true);
     setError(null);
     try {
       const created = await createAvatar(
@@ -26,6 +29,22 @@ const CreateAvatarModal = ({ setShowCreateModal }) => {
         null
       );
       if (created) {
+        // updating the current list of avatars for the current user
+        try {
+          const avatars = await getAvatars(user.id);
+
+          console.log(`response from getAvatars: avatars: ${avatars}`);
+
+          setUserAvatars(avatars);
+        } catch (error) {
+          console.log(
+            ` Handle Create avatar; getting avatars error; error.message: ${error.message}`
+          );
+          console.log(
+            'indicate error of getting avatar list after successful creation'
+          );
+          toast.error(error.message, { options: { duration: 5000 } });
+        }
         setShowCreateModal(false);
         setNewAvatarName('');
         setNewAvatarDescription('');
@@ -42,7 +61,10 @@ const CreateAvatarModal = ({ setShowCreateModal }) => {
       toast.error(errorMessage);
       console.error('Create avatar error:', err);
     } finally {
-      setLoading(false);
+      console.log(
+        `CHANGING THE VALUE OF SET LOADING TO FALSE: CURRENT LOADING VALUE: ${isLoading}`
+      );
+      setIsLoading(false);
     }
   };
 
@@ -89,7 +111,7 @@ const CreateAvatarModal = ({ setShowCreateModal }) => {
             className="w-full p-2 mt-1 rounded bg-black/35 text-white border border-gray-700 focus:outline-none focus:ring-2 focus:ring-teal-400 transition-all duration-300"
             autoFocus
             aria-required="true"
-            disabled={loading}
+            disabled={isLoading}
           />
         </label>
         <label className="block mb-4 text-xl sm:text-2xl text-gray-300">
@@ -101,23 +123,23 @@ const CreateAvatarModal = ({ setShowCreateModal }) => {
             className="w-full p-2 mt-1 rounded bg-black/35 text-white border border-gray-700 focus:outline-none focus:ring-2 focus:ring-teal-400 transition-all duration-300"
             rows={3}
             aria-multiline="true"
-            disabled={loading}
+            disabled={isLoading}
           />
         </label>
         <div className="flex justify-end gap-2">
           <button
             onClick={() => setShowCreateModal(false)}
             className="px-4 py-2 rounded bg-black/35 text-white border border-gray-700 hover:bg-teal-600 focus:outline-none focus:ring-2 focus:ring-teal-400 transition-all duration-300 transform hover:scale-105"
-            disabled={loading}
+            disabled={isLoading}
           >
             Cancel
           </button>
           <button
             onClick={handleCreate}
             className="px-4 py-2 rounded bg-black/35 text-white border border-gray-700 hover:bg-teal-600 focus:outline-none focus:ring-2 focus:ring-teal-400 transition-all duration-300 transform hover:scale-105 disabled:opacity-50"
-            disabled={loading || !newAvatarName.trim()}
+            disabled={isLoading || !newAvatarName.trim()}
           >
-            {loading ? 'Creating...' : 'Create'}
+            {isLoading ? 'Creating...' : 'Create'}
           </button>
         </div>
       </div>
