@@ -222,6 +222,7 @@ const AvatarSelectionComponent = ({}) => {
     }
   };
 
+  // https://claude.ai/chat/8e125e85-be01-4541-a4f4-da3590f996c1
   const authenticatedCards = useMemo(() => {
     console.log(
       `authenticatedCards USEMEMO XXXXXXXXXXXXXXXXXX userAvatars: ${userAvatars}`
