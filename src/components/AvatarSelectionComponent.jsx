@@ -222,12 +222,10 @@ const AvatarSelectionComponent = ({}) => {
     }
   };
 
-  const authenticatedCards = useMemo(async () => {
+  const authenticatedCards = useMemo(() => {
     console.log(
       `authenticatedCards USEMEMO XXXXXXXXXXXXXXXXXX userAvatars: ${userAvatars}`
     );
-    const avatars = await getAvatars(user.id);
-    setUserAvatars(avatars);
 
     // getAvatars(user.id);
     const avatarCards =
