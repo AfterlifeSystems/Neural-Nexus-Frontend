@@ -149,6 +149,9 @@ const AvatarSelectionComponent = ({}) => {
       if (galleryRef.current) {
         galleryRef.current.setCurrentIndex(avatarIndex);
       }
+      localStorage.setItem('last_used_avatar_index', avatarIndex);
+      localStorage.setItem('last_used_avatar_id', avatarId);
+
       // Use AuthContext selectAvatar which updates Firestore
       // await selectAvatar(avatarId);
 
