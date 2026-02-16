@@ -36,7 +36,7 @@ export const MediaProvider = ({ children }) => {
 
   const [inputMessage, setInputMessage] = useState('');
 
-  const [role, setRole] = useState('user');
+  const [type, setType] = useState('user');
   const [mediaFiles, setMediaFiles] = useState([]);
   const [isTranscribing, setIsTranscribing] = useState(false);
   const [isThoughtToImageEnabled, setIsThoughtToImageEnabled] = useState(false);
@@ -160,7 +160,7 @@ export const MediaProvider = ({ children }) => {
   ) {
     console.log(`message_content: ${message_content}`);
 
-    let input = { messages: [{ role: 'user' }, { content: message_content }] };
+    let input = { messages: [{ role: 'user', content: message_content }] };
     let url = `${import.meta.env.VITE_LANGGRAPH_API_SERVER_URL}`;
     let api_key = `${import.meta.env.VITE_LANGGRAPH_API_SERVER_KEY}`;
     console.log(`context: ${JSON.stringify(context)}`);
@@ -169,14 +169,10 @@ export const MediaProvider = ({ children }) => {
 
     let apiUrl = `${import.meta.env.VITE_LANGGRAPH_API_SERVER_URL}`;
 
-    const langgraph_api_client = new Client({
-      apiKey: apiKey,
-      apiUrl: apiUrl,
-    });
+    console.log(`assistant_id: ${activeAvatar.metadata.assistant_id}`);
 
-    console.log('verify api client connection breakpoint');
-
-    let payload = {
+    let payload = JSON.stringify({
+      assistant_id: activeAvatar.metadata.assistant_id,
       input: input,
       metadata: {
         user_id: user.id,
@@ -184,79 +180,19 @@ export const MediaProvider = ({ children }) => {
         thread_id: thread_id,
         context: context,
       },
-    };
-
-    const thread_run_await_response = await langgraph_api_client.runs.wait({
-      thread_id: activeAvatar.metadata.active_conversation,
-      assistant_id: activeAvatar.metadata.assistant_id,
-      payload: payload,
     });
 
-    // const thread_run_await_response = await fetch(
-    //   `${url}/threads/${thread_id}/runs/wait`,
-    //   {
-    //     method: 'POST',
-    //     headers: {
-    //       'x-api-header': api_key,
-    //     },
-    //     body: JSON.stringify({
-    //       assistant_id: activeAvatar.metadata.assistant_id,
-    //       input: input,
-    //       metadata: {
-    //         user_id: user.id,
-    //         assistant_id: activeAvatar.metadata.assistant_id,
-    //         thread_id: thread_id,
-    //         context: context,
-    //       },
-    //     }),
-    //   }
-    // );
+    console.log(`payload: ${payload}`);
 
-    fetch(
-      'http://localhost:2024/threads/123e4567-e89b-12d3-a456-426614174000/runs/wait',
+    const thread_run_await_response = await fetch(
+      `${apiUrl}/threads/${thread_id}/runs/wait`,
       {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
+          'x-api-header': apiKey,
         },
-        body: JSON.stringify({
-          assistant_id: '',
-          checkpoint: {
-            thread_id: '',
-            checkpoint_ns: '',
-            checkpoint_id: '',
-            checkpoint_map: {},
-          },
-          input: {},
-          command: {
-            update: null,
-            resume: null,
-            goto: {
-              node: '',
-              input: null,
-            },
-          },
-          metadata: {},
-          config: {
-            tags: [''],
-            recursion_limit: 1,
-            configurable: {},
-          },
-          context: {},
-          webhook: '',
-          interrupt_before: '*',
-          interrupt_after: '*',
-          stream_mode: ['values'],
-          stream_subgraphs: false,
-          stream_resumable: false,
-          on_disconnect: 'continue',
-          feedback_keys: [''],
-          multitask_strategy: 'enqueue',
-          if_not_exists: 'reject',
-          after_seconds: 1,
-          checkpoint_during: false,
-          durability: 'async',
-        }),
+        body: payload,
       }
     );
 
@@ -275,29 +211,30 @@ export const MediaProvider = ({ children }) => {
       );
 
       toast.error(error_thread_run_await_response_json);
+      reponse_message = {};
+    } else {
+      console.log(
+        `thread_run_await_response_json: ${thread_run_await_response_json}`
+      );
+
+      let response_message = thread_run_await_response_json.messages.at(-1);
+
+      console.log(`response_message: ${response_message}`);
     }
 
-    toast.error;
-
-    console.log(
-      `thread_run_await_response_json: ${thread_run_await_response_json}`
-    );
-
-    response_message = thread_run_await_response_json['values']['messages'][-1];
-
-    // Transform messages to use id, role, content format
+    // Transform messages to use id, type, content format
     // const transformedMessages = newMessages.map((msg) => ({
     //   id: msg.id || msg._id || msg.message_id,
-    //   role: msg.role || msg.role || 'user',
+    //   type: msg.type || msg.type || 'user',
     //   content: msg.content || msg.message || '',
     //   timestamp: msg.timestamp,
     //   media: msg.media || [],
     //   type: msg.type || 'text',
     // }));
+
     return response_message;
   }
 
-  // handleSendMessageMediaContext
   async function handleSendMessageMediaContext() {
     console.log('MediaContext: handleSendMessageMediaContext called');
 
@@ -319,13 +256,13 @@ export const MediaProvider = ({ children }) => {
       const tempMessage = {
         id: tempId,
         content: inputMessage,
-        role: role,
+        type: 'human',
         timestamp: new Date().toISOString(),
         media: mediaFiles.map((f) => ({
           filename: f.name,
           content_type: f.type,
         })),
-        type: mediaFiles.length > 0 && !inputMessage ? 'media' : 'text',
+        content_type: mediaFiles.length > 0 && !inputMessage ? 'media' : 'text',
       };
 
       setMessages((prev) => [...prev, tempMessage]);
@@ -333,7 +270,7 @@ export const MediaProvider = ({ children }) => {
       // Add loading message for AI response
       const loadingMessage = {
         id: loadingId,
-        role: 'ai',
+        type: 'ai',
         isLoading: true,
         timestamp: new Date().toISOString(),
       };
@@ -347,12 +284,23 @@ export const MediaProvider = ({ children }) => {
         inputMessage
       );
 
+      if (!response_message) {
+        // clear the temporary message and notify
+        setMessages((prev) =>
+          prev.filter((msg) => !msg.id.startsWith('temp-') && !msg.isLoading)
+        );
+      } else {
+        if (Object.keys(response_message).length == 0) {
+          // clear the temporary message and notify
+        }
+      }
+
       console.log(`response message: ${response_message}`);
 
       // update the response message
       const responseMessage = {
-        id: 'TEMP-ID-XXXXXXXXXXXXXXXXXXXXXXXX',
-        role: 'ai',
+        id: response_message.id,
+        type: response_message.type || 'ai',
         isLoading: true,
         timestamp: new Date().toISOString(),
         content: response_message['content'],
@@ -372,9 +320,11 @@ export const MediaProvider = ({ children }) => {
       );
 
       if (err.status === 413) {
-        alert('One or more files exceed the maximum upload size of 1 MB.');
+        toast.error(
+          'One or more files exceed the maximum upload size of 1 MB.'
+        );
       } else {
-        alert(err.message || 'Failed to send message');
+        toast.error(err.message || 'Failed to send message');
       }
     }
   }
@@ -420,8 +370,8 @@ export const MediaProvider = ({ children }) => {
         setMediaFiles,
         handleFileChange,
         removeFile,
-        role,
-        setRole,
+        type,
+        setType,
         isTranscribing,
         startTranscription,
         stopTranscription,

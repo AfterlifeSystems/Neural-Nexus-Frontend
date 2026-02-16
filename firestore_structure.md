@@ -139,7 +139,7 @@ service firebase.storage {
 # Message Document
 <!-- Location: avatars/{digitalTwinId}/conversations/{conversationId}/messages/{messageId} -->
 {
-  "role": "user",
+  "type": "user",
   "content": "Hello there",
   "media": [
     {
@@ -157,7 +157,7 @@ service firebase.storage {
 }
 <!-- message document response example -->
 {
-  "role": "assistant",
+  "type": "assistant",
   "content": "Hello there response",
   "media": [
     {
@@ -201,7 +201,7 @@ digital_twin/{avatar_id}
       "messages": [
         {
           "messageId": "messageId1",
-          "role": "user",
+          "type": "user",
           "content": "Hello there",
           "media": [
             {
@@ -212,7 +212,7 @@ digital_twin/{avatar_id}
         },
         {
           "messageId": "messageId2",
-          "role": "assistant",
+          "type": "assistant",
           "content": "How are you?",
           "media": []
         }

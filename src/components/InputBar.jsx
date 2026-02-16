@@ -31,8 +31,8 @@ const InputBar = ({
     setMediaFiles,
     handleFileChange,
     removeFile,
-    role,
-    setRole,
+    type,
+    setType,
     isTranscribing,
     startTranscription,
     stopTranscription,
@@ -112,7 +112,7 @@ const InputBar = ({
 
     setHistoryIndex(-1);
     setTempMessage('');
-    setRole('user');
+    setType('user');
     handleSendMessageMediaContext(mediaFiles, () => {});
     setMediaFiles([]);
     setInputMessage('');
