@@ -169,28 +169,6 @@ export const MediaProvider = ({ children }) => {
 
     let apiUrl = `${import.meta.env.VITE_LANGGRAPH_API_SERVER_URL}`;
 
-    // const langgraph_api_client = new Client({
-    //   apiKey: apiKey,
-    //   apiUrl: apiUrl,
-    // });
-
-    // console.log('verify api client connection breakpoint');
-
-    // let payload = {
-    //   input: input,
-    //   metadata: {
-    //     user_id: user.id,
-    //     assistant_id: activeAvatar.metadata.assistant_id,
-    //     thread_id: thread_id,
-    //     context: context,
-    //   },
-    // };
-
-    // const thread_run_await_response = await langgraph_api_client.runs.wait({
-    //   thread_id: activeAvatar.metadata.active_conversation,
-    //   assistant_id: activeAvatar.metadata.assistant_id,
-    //   payload: payload,
-    // });
     console.log(`assistant_id: ${activeAvatar.metadata.assistant_id}`);
 
     let payload = JSON.stringify({
@@ -206,45 +184,6 @@ export const MediaProvider = ({ children }) => {
 
     console.log(`payload: ${payload}`);
 
-    // let payload = JSON.stringify({
-    //       assistant_id: '',
-    //       checkpoint: {
-    //         thread_id: '',
-    //         checkpoint_ns: '',
-    //         checkpoint_id: '',
-    //         checkpoint_map: {},
-    //       },
-    //       input: {},
-    //       command: {
-    //         update: null,
-    //         resume: null,
-    //         goto: {
-    //           node: '',
-    //           input: null,
-    //         },
-    //       },
-    //       metadata: {},
-    //       config: {
-    //         tags: [''],
-    //         recursion_limit: 1,
-    //         configurable: {},
-    //       },
-    //       context: {},
-    //       webhook: '',
-    //       interrupt_before: '*',
-    //       interrupt_after: '*',
-    //       stream_mode: ['values'],
-    //       stream_subgraphs: false,
-    //       stream_resumable: false,
-    //       on_disconnect: 'continue',
-    //       feedback_keys: [''],
-    //       multitask_strategy: 'enqueue',
-    //       if_not_exists: 'reject',
-    //       after_seconds: 1,
-    //       checkpoint_during: false,
-    //       durability: 'async',
-    //     }),
-
     const thread_run_await_response = await fetch(
       `${apiUrl}/threads/${thread_id}/runs/wait`,
       {
@@ -256,54 +195,6 @@ export const MediaProvider = ({ children }) => {
         body: payload,
       }
     );
-
-    // fetch(
-    //   'http://localhost:2024/threads/123e4567-e89b-12d3-a456-426614174000/runs/wait',
-    //   {
-    //     method: 'POST',
-    //     headers: {
-    //       'Content-Type': 'application/json',
-    //     },
-    //     body: JSON.stringify({
-    //       assistant_id: '',
-    //       checkpoint: {
-    //         thread_id: '',
-    //         checkpoint_ns: '',
-    //         checkpoint_id: '',
-    //         checkpoint_map: {},
-    //       },
-    //       input: {},
-    //       command: {
-    //         update: null,
-    //         resume: null,
-    //         goto: {
-    //           node: '',
-    //           input: null,
-    //         },
-    //       },
-    //       metadata: {},
-    //       config: {
-    //         tags: [''],
-    //         recursion_limit: 1,
-    //         configurable: {},
-    //       },
-    //       context: {},
-    //       webhook: '',
-    //       interrupt_before: '*',
-    //       interrupt_after: '*',
-    //       stream_mode: ['values'],
-    //       stream_subgraphs: false,
-    //       stream_resumable: false,
-    //       on_disconnect: 'continue',
-    //       feedback_keys: [''],
-    //       multitask_strategy: 'enqueue',
-    //       if_not_exists: 'reject',
-    //       after_seconds: 1,
-    //       checkpoint_during: false,
-    //       durability: 'async',
-    //     }),
-    //   }
-    // );
 
     const thread_run_await_response_json =
       await thread_run_await_response.json();
@@ -320,19 +211,16 @@ export const MediaProvider = ({ children }) => {
       );
 
       toast.error(error_thread_run_await_response_json);
-    }
-
-    console.log(
-      `thread_run_await_response_json: ${thread_run_await_response_json}`
-    );
-
-    if (values in thread_run_await_response_json) {
-      response_message = thread_run_await_response_json.values.messages.at(-1);
+      reponse_message = {};
     } else {
-      response_message = thread_run_await_response_json.messages.at(-1);
-    }
+      console.log(
+        `thread_run_await_response_json: ${thread_run_await_response_json}`
+      );
 
-    response_message = thread_run_await_response_json['values']['messages'][-1];
+      let response_message = thread_run_await_response_json.messages.at(-1);
+
+      console.log(`response_message: ${response_message}`);
+    }
 
     // Transform messages to use id, type, content format
     // const transformedMessages = newMessages.map((msg) => ({
@@ -343,6 +231,7 @@ export const MediaProvider = ({ children }) => {
     //   media: msg.media || [],
     //   type: msg.type || 'text',
     // }));
+
     return response_message;
   }
 
@@ -367,7 +256,7 @@ export const MediaProvider = ({ children }) => {
       const tempMessage = {
         id: tempId,
         content: inputMessage,
-        type: type,
+        type: 'human',
         timestamp: new Date().toISOString(),
         media: mediaFiles.map((f) => ({
           filename: f.name,
@@ -399,8 +288,8 @@ export const MediaProvider = ({ children }) => {
 
       // update the response message
       const responseMessage = {
-        id: 'TEMP-ID-XXXXXXXXXXXXXXXXXXXXXXXX',
-        type: 'ai',
+        id: response_message.id,
+        type: response_message.type || 'ai',
         isLoading: true,
         timestamp: new Date().toISOString(),
         content: response_message['content'],
@@ -420,9 +309,11 @@ export const MediaProvider = ({ children }) => {
       );
 
       if (err.status === 413) {
-        alert('One or more files exceed the maximum upload size of 1 MB.');
+        toast.error(
+          'One or more files exceed the maximum upload size of 1 MB.'
+        );
       } else {
-        alert(err.message || 'Failed to send message');
+        toast.error(err.message || 'Failed to send message');
       }
     }
   }
