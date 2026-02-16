@@ -1,3 +1,27 @@
+HTTP 422: {"detail":"\"assistant_id\" is a required property\n\nFailed validating \"required\" in schema\n\nOn instance:\n    {}"}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 <!-- bugs.md -->
 data loading api will not allow connections (initializations) while processing documents. 
 

@@ -149,14 +149,14 @@ const InputBar = ({
     }
   }, [inputMessage]);
 
-  useEffect(() => {
-    thoughtToImageService.onReconstructedImage = ({ file }) => {
-      setMediaFiles((prevFiles) => [...prevFiles, file]);
-    };
-    return () => {
-      thoughtToImageService.onReconstructedImage = null;
-    };
-  }, [mediaFiles.length]);
+  // useEffect(() => {
+  //   thoughtToImageService.onReconstructedImage = ({ file }) => {
+  //     setMediaFiles((prevFiles) => [...prevFiles, file]);
+  //   };
+  //   return () => {
+  //     thoughtToImageService.onReconstructedImage = null;
+  //   };
+  // }, [mediaFiles.length]);
 
   return (
     <div

@@ -23,6 +23,8 @@ import {
 } from '../services/messageService';
 import { useAuth } from './AuthContext';
 
+import { Client } from '@langchain/langgraph-sdk';
+
 const MediaContext = createContext();
 
 export const MediaProvider = ({ children }) => {
@@ -72,14 +74,6 @@ export const MediaProvider = ({ children }) => {
   const stopTranscription = () => {
     setIsTranscribing(false);
   };
-
-  // Get the list of avatar conversations for the current user and avatar
-
-  // useEffect(async () => {
-  //   if (activeAvatar && user) {
-  //     activeAvatarConversations()
-  //   }
-  // });
 
   async function getConversationList(user, activeAvatar) {
     const thread_search_response = await fetch(
@@ -164,34 +158,126 @@ export const MediaProvider = ({ children }) => {
     thread_id,
     message_content
   ) {
+    console.log(`message_content: ${message_content}`);
+
     let input = { messages: [{ role: 'user' }, { content: message_content }] };
     let url = `${import.meta.env.VITE_LANGGRAPH_API_SERVER_URL}`;
     let api_key = `${import.meta.env.VITE_LANGGRAPH_API_SERVER_KEY}`;
+    console.log(`context: ${JSON.stringify(context)}`);
 
-    console.log(`context: ${context}`);
+    let apiKey = `${import.meta.env.VITE_LANGGRAPH_API_SERVER_KEY}`;
 
-    const thread_run_await_response = await fetch(
-      `${url}/threads/${thread_id}/runs/wait`,
+    let apiUrl = `${import.meta.env.VITE_LANGGRAPH_API_SERVER_URL}`;
+
+    const langgraph_api_client = new Client({
+      apiKey: apiKey,
+      apiUrl: apiUrl,
+    });
+
+    console.log('verify api client connection breakpoint');
+
+    let payload = {
+      input: input,
+      metadata: {
+        user_id: user.id,
+        assistant_id: activeAvatar.metadata.assistant_id,
+        thread_id: thread_id,
+        context: context,
+      },
+    };
+
+    const thread_run_await_response = await langgraph_api_client.runs.wait({
+      thread_id: activeAvatar.metadata.active_conversation,
+      assistant_id: activeAvatar.metadata.assistant_id,
+      payload: payload,
+    });
+
+    // const thread_run_await_response = await fetch(
+    //   `${url}/threads/${thread_id}/runs/wait`,
+    //   {
+    //     method: 'POST',
+    //     headers: {
+    //       'x-api-header': api_key,
+    //     },
+    //     body: JSON.stringify({
+    //       assistant_id: activeAvatar.metadata.assistant_id,
+    //       input: input,
+    //       metadata: {
+    //         user_id: user.id,
+    //         assistant_id: activeAvatar.metadata.assistant_id,
+    //         thread_id: thread_id,
+    //         context: context,
+    //       },
+    //     }),
+    //   }
+    // );
+
+    fetch(
+      'http://localhost:2024/threads/123e4567-e89b-12d3-a456-426614174000/runs/wait',
       {
         method: 'POST',
         headers: {
-          'x-api-header': api_key,
+          'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          assistant_id: activeAvatar.metadata.assistant_id,
-          input: input,
-          metadata: {
-            user_id: user.id,
-            assistant_id: activeAvatar.metadata.assistant_id,
-            thread_id: thread_id,
-            context: context,
+          assistant_id: '',
+          checkpoint: {
+            thread_id: '',
+            checkpoint_ns: '',
+            checkpoint_id: '',
+            checkpoint_map: {},
           },
+          input: {},
+          command: {
+            update: null,
+            resume: null,
+            goto: {
+              node: '',
+              input: null,
+            },
+          },
+          metadata: {},
+          config: {
+            tags: [''],
+            recursion_limit: 1,
+            configurable: {},
+          },
+          context: {},
+          webhook: '',
+          interrupt_before: '*',
+          interrupt_after: '*',
+          stream_mode: ['values'],
+          stream_subgraphs: false,
+          stream_resumable: false,
+          on_disconnect: 'continue',
+          feedback_keys: [''],
+          multitask_strategy: 'enqueue',
+          if_not_exists: 'reject',
+          after_seconds: 1,
+          checkpoint_during: false,
+          durability: 'async',
         }),
       }
     );
 
     const thread_run_await_response_json =
       await thread_run_await_response.json();
+
+    if (
+      '__error__' in thread_run_await_response_json &&
+      thread_run_await_response_json.__error__?.error
+    ) {
+      const error_thread_run_await_response_json =
+        thread_run_await_response_json.__error__?.error;
+
+      console.log(
+        `error_thread_run_await_response_json: ${error_thread_run_await_response_json}`
+      );
+
+      toast.error(error_thread_run_await_response_json);
+    }
+
+    toast.error;
 
     console.log(
       `thread_run_await_response_json: ${thread_run_await_response_json}`

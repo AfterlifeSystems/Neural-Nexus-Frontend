@@ -9,6 +9,7 @@ import { useMedia } from '../context/MediaContext';
 import AvatarSettings from './AvatarSettings';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useState } from 'react';
+import { useCallback } from 'react';
 
 const ChatArea = ({
   dropdownRef,
@@ -46,47 +47,62 @@ const ChatArea = ({
     }
   };
 
-  // Get all the conversations for the current avatar
-  useEffect(async () => {
-    // whenever the active avatar changes
-    // build context for the conversation
-    console.log(`CHAT AREA BREAKPOINT`);
-    const context = {
-      user_ctx: {
-        user_id: user.id,
-        name: user.name || '',
-        description: user.description || '',
-        metadata: user.metadata || {},
-      },
-      assistant_ctx: {
-        assistant_id: avatarId,
-        user_id: user.id,
-        name: user.name || '',
-        description: user.description || '',
-        metadata: user.metadata || {},
-      },
-    };
+  // async handler callback
+  const avatarChangeHandler = useCallback(async () => {
+    try {
+      // Get all the conversations for the current avatar
+      // whenever the active avatar changes
+      // build context for the conversation
+      console.log(`CHAT AREA BREAKPOINT`);
+      const context = {
+        user_ctx: {
+          user_id: user.id,
+          name: user.name || '',
+          description: user.description || '',
+          metadata: user.metadata || {},
+        },
+        assistant_ctx: {
+          assistant_id: avatarId,
+          user_id: user.id,
+          name: user.name || '',
+          description: user.description || '',
+          metadata: user.metadata || {},
+        },
+      };
 
-    setContext(context);
+      setContext(context);
 
-    // get all the conversations for the active avatar
-    const thread_search_response_json = await getConversationList(
-      user,
-      activeAvatar
-    );
+      // get all the conversations for the active avatar
+      const thread_search_response_json = await getConversationList(
+        user,
+        activeAvatar
+      );
 
-    // establish the initial conversation
-    let active_conversation = activeAvatar.metadata.active_conversation;
-    if (!active_conversation) {
-      if (conversationList) {
-        active_conversation = conversationList[0];
+      // establish the initial conversation
+      let active_conversation = activeAvatar.metadata.active_conversation;
+      if (!active_conversation) {
+        if (conversationList) {
+          active_conversation = conversationList[0];
+        }
       }
+
+      setActiveConversation(active_conversation);
+
+      // get all the messages for the current conversation
+      await getActiveConversationMessages(user, activeAvatar);
+    } catch (error) {
+      console.error(
+        'Failed during avatar Change Handler when the avatar changed: ',
+        error
+      );
     }
+  });
 
-    setActiveConversation(active_conversation);
-
-    // get all the messages for the current conversation
-    await getActiveConversationMessages(user, activeAvatar);
+  // handle avatar selection
+  useEffect(() => {
+    if (activeAvatar) {
+      avatarChangeHandler();
+    }
   }, [activeAvatar]);
 
   return (
