@@ -854,7 +854,7 @@ const AvatarSelectionComponent = ({}) => {
               {dropdownOpen && (
                 <div
                   id="user-menu"
-                  role="menu"
+                  type="menu"
                   className="absolute bottom-[50px] w-full mt-2 right-0 backdrop-blur-lg bg-white/10 rounded-md shadow-lg ring-1 ring-black ring-opacity-5 focus:outline-none z-50"
                 >
                   <div className="flex justify-between items-center px-4 py-2 border-b border-white/20">
@@ -876,7 +876,7 @@ const AvatarSelectionComponent = ({}) => {
                       1;
                     }}
                     className="block w-full text-left px-4 py-2 text-sm text-white hover:bg-teal-600 transition"
-                    role="menuitem"
+                    type="menuitem"
                   >
                     Account Settings
                   </button>
@@ -886,14 +886,14 @@ const AvatarSelectionComponent = ({}) => {
                       setDropdownOpen(false);
                     }}
                     className="block w-full text-left px-4 py-2 text-sm text-white hover:bg-teal-600 transition"
-                    role="menuitem"
+                    type="menuitem"
                   >
                     Billing
                   </button> */}
                   <button
                     onClick={handleLogout}
                     className="block w-full text-left flex flex-row items-center px-4 py-2 text-sm text-red-500 hover:bg-red-900 hover:text-white transition"
-                    role="menuitem"
+                    type="menuitem"
                   >
                     Logout <LogOut className="ml-2 w-4 h-4" />
                   </button>

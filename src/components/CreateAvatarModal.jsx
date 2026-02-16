@@ -145,7 +145,7 @@ const CreateAvatarModal = ({ setShowCreateModal }) => {
   return (
     <div
       className="fixed inset-0 bg-white/5 backdrop-blur-lg rounded-2xl border border-white/20 bg-opacity-75 flex items-center justify-center z-50"
-      role="dialog"
+      type="dialog"
       aria-modal="true"
       aria-labelledby="create-avatar-title"
     >
@@ -160,7 +160,7 @@ const CreateAvatarModal = ({ setShowCreateModal }) => {
           </div>
         </h2>
         {error && (
-          <div className="mb-4 text-red-500 text-sm" role="alert">
+          <div className="mb-4 text-red-500 text-sm" type="alert">
             {error}
           </div>
         )}

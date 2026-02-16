@@ -24,11 +24,6 @@ const MessageList = ({ messages, messagesEndRef }) => {
     }));
 
     console.log('MessageList received messages:', messages);
-    // console.log('MessageList received messages:', messages[0].type);
-    // console.log('MessageList received messages:', messages[1].type);
-
-    // console.log('MessageList received messages:', messages[0].type);
-    // console.log('MessageList received messages:', messages[1].type);
 
     const valid = messages.filter((msg) => msg?.type);
 
