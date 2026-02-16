@@ -262,7 +262,7 @@ export const MediaProvider = ({ children }) => {
           filename: f.name,
           content_type: f.type,
         })),
-        type: mediaFiles.length > 0 && !inputMessage ? 'media' : 'text',
+        content_type: mediaFiles.length > 0 && !inputMessage ? 'media' : 'text',
       };
 
       setMessages((prev) => [...prev, tempMessage]);
@@ -283,6 +283,17 @@ export const MediaProvider = ({ children }) => {
         activeAvatar.metadata.active_conversation,
         inputMessage
       );
+
+      if (!response_message) {
+        // clear the temporary message and notify
+        setMessages((prev) =>
+          prev.filter((msg) => !msg.id.startsWith('temp-') && !msg.isLoading)
+        );
+      } else {
+        if (Object.keys(response_message).length == 0) {
+          // clear the temporary message and notify
+        }
+      }
 
       console.log(`response message: ${response_message}`);
 
