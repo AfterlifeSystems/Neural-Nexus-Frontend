@@ -222,7 +222,12 @@ const AuthComponent = () => {
 
           setUser(data.user);
           setProfile(data.user);
-          setAccessToken(data.session.access_token);
+          console.log(`data.session.access_token: ${data}`);
+          if (data.session?.access_token) {
+            setAccessToken(data.session.access_token);
+          } else {
+            setAccessToken('');
+          }
 
           console.log(
             'XXXXXXXXXXXXXXXXXXXXXXXXX userCredential: ' + JSON.stringify(data)
@@ -249,7 +254,6 @@ const AuthComponent = () => {
           }
 
           setIsLoading(false);
-          // return data.user;
           console.log('navigate / avatars breakpoint');
           navigate('/avatars');
         }
@@ -330,7 +334,7 @@ const AuthComponent = () => {
                     toast.promise(
                       new Promise((resolve, reject) => {
                         setTimeout(() => {
-                          // Change to reject() to test error path
+                          // Change to reject() to test error path`[9]
                           // resolve('fake upload result');
                           reject();
                           // reject(new Error("fake upload error"));
