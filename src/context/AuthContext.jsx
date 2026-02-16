@@ -33,13 +33,6 @@ import { X } from 'lucide-react';
 
 import { getAvatars } from '../services/avatarService.jsx';
 
-import { createClient } from '@supabase/supabase-js';
-
-const supabase = await createClient(
-  `${import.meta.env.VITE_SUPABASE_URL}`,
-  `${import.meta.env.VITE_SUPABASE_PUBLISHABLE_AUTH_KEY}`
-);
-
 const AuthContext = createContext();
 
 export const AuthProvider = ({ children }) => {

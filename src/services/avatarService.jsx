@@ -26,8 +26,6 @@ import { db, storage } from '../firebase/config';
 import { v4 as uuidv4 } from 'uuid';
 import { createClient } from '@supabase/supabase-js';
 
-import { useAuth } from '../context/AuthContext';
-
 // Add this function to your avatarService.jsx file
 
 /**
