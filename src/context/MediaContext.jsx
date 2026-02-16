@@ -17,13 +17,8 @@ import React, {
   useEffect,
   useRef,
 } from 'react';
-import {
-  sendMessageService,
-  subscribeToMessages,
-} from '../services/messageService';
-import { useAuth } from './AuthContext';
 
-import { Client } from '@langchain/langgraph-sdk';
+import { useAuth } from './AuthContext';
 
 const MediaContext = createContext();
 
