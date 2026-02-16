@@ -14,6 +14,7 @@ const MessageList = ({ messages, messagesEndRef }) => {
 
   // Debug log – shows what actually reaches the component
   useEffect(() => {
+    console.log(`messages list breakpoint`);
     console.log(
       'MessageList received messages:',
       messages.map((m) => ({

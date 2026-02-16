@@ -101,6 +101,7 @@ const InputBar = ({
     //   return;
     // }
 
+    console.log(`handle send message`);
     if (
       inputMessage.trim() &&
       (messageHistory.length === 0 ||
