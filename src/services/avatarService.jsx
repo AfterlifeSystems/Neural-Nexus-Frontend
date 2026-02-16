@@ -178,7 +178,11 @@ export const createAvatar = async (user, name, description, iconFile) => {
       body: JSON.stringify({
         assistant_id: avatarId,
         graph_id: 'Anubis',
-        metadata: { user_id: user.id, assistant_id: avatarId },
+        metadata: {
+          user_id: user.id,
+          assistant_id: avatarId,
+          active_conversation: conversationId,
+        },
         if_exists: 'raise',
         description: description,
         name: name,

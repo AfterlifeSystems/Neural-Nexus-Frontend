@@ -23,10 +23,12 @@ import {
 } from '../services/messageService';
 import { useAuth } from './AuthContext';
 
+import { Client } from '@langchain/langgraph-sdk';
+
 const MediaContext = createContext();
 
 export const MediaProvider = ({ children }) => {
-  const { activeAvatar, user } = useAuth();
+  const { activeAvatar, user, context, setContext } = useAuth();
 
   const [messages, setMessages] = useState([]);
   const [activeConversation, setActiveConversation] = useState(null);
@@ -34,7 +36,7 @@ export const MediaProvider = ({ children }) => {
 
   const [inputMessage, setInputMessage] = useState('');
 
-  const [role, setRole] = useState('user');
+  const [type, setType] = useState('user');
   const [mediaFiles, setMediaFiles] = useState([]);
   const [isTranscribing, setIsTranscribing] = useState(false);
   const [isThoughtToImageEnabled, setIsThoughtToImageEnabled] = useState(false);
@@ -73,14 +75,6 @@ export const MediaProvider = ({ children }) => {
     setIsTranscribing(false);
   };
 
-  // Get the list of avatar conversations for the current user and avatar
-
-  // useEffect(async () => {
-  //   if (activeAvatar && user) {
-  //     activeAvatarConversations()
-  //   }
-  // });
-
   async function getConversationList(user, activeAvatar) {
     const thread_search_response = await fetch(
       `${import.meta.env.VITE_LANGGRAPH_API_SERVER_URL}/threads/search`,
@@ -109,7 +103,9 @@ export const MediaProvider = ({ children }) => {
     return thread_search_response_json;
   }
 
-  async function setInitialActiveConveration(user, activeAvatar) {
+  async function switchActiveConveration(activeAvatar, thread_id) {
+    // update the active_conversation on the activeAvatar TODO: update in database
+    activeAvatar.active_conversation = thread_id;
     if (activeAvatar.active_conversation) {
       let active_conversation = activeAvatar.active_conversation;
     } else {
@@ -122,15 +118,19 @@ export const MediaProvider = ({ children }) => {
   }
 
   async function getActiveConversationMessages(user, activeAvatar) {
-    if (activeAvatar.active_conversation) {
-      let active_conversation = activeAvatar.active_conversation;
-    } else {
-      active_conversation = conversationList[0];
-      console.log(`active_conversation: ${active_conversation}`);
+    let active_conversation = activeAvatar.metadata.active_conversation;
+    if (!active_conversation) {
+      if (conversationList) {
+        active_conversation = conversationList[0];
+      } else {
+        console.log(
+          `error no activeAvatar.metadata.active_conversation; no conversationList`
+        );
+      }
     }
 
-    const thread_run_response = await fetch(
-      `${import.meta.env.VITE_LANGGRAPH_API_SERVER_URL}/threads/${active_conversation}/runs`,
+    const thread_get_response = await fetch(
+      `${import.meta.env.VITE_LANGGRAPH_API_SERVER_URL}/threads/${active_conversation}`,
       {
         headers: {
           Accept: '*/*',
@@ -138,111 +138,103 @@ export const MediaProvider = ({ children }) => {
       }
     );
 
-    const thread_run_response_json = await thread_run_response.json();
+    const thread_get_response_json = await thread_get_response.json();
 
-    console.log(`thread_run_response_json: ${thread_run_response_json}`);
-    setMessages(thread_run_response_json);
-
-    return thread_run_response_json;
-  }
-
-  async function joinActiveConversation(params) {
-    // There is a conversation run
-    if (activeConversation) {
-      // join the conversation
-    }
-  }
-
-  // Set active conversation when avatar changes
-  useEffect(() => {
-    if (activeAvatar) {
-      // Use default conversation from avatar, or first conversation
-      const conversationId =
-        activeAvatar.active_conversation || activeAvatar.conversations?.[0];
-      setActiveConversation(conversationId);
+    console.log(`thread_get_response_json: ${thread_get_response_json}`);
+    if (thread_get_response_json['values'] != null) {
+      let response_messages = thread_get_response_json['values']['messages'];
+      console.log(response_messages);
+      setMessages(response_messages);
     } else {
-      setActiveConversation(null);
-      setMessages([]); // Clear messages when no avatar
-    }
-  }, [activeAvatar]);
-
-  // Subscribe to Firestore messages in real-time
-  useEffect(() => {
-    // Cleanup previous subscription
-    if (unsubscribeRef.current) {
-      console.log('Unsubscribing from previous conversation');
-      unsubscribeRef.current();
-      unsubscribeRef.current = null;
+      setMessages([]);
     }
 
-    // Clear messages when switching conversations
-    setMessages([]);
+    // return response_messages;
+  }
 
-    // Only subscribe if we have all required data
-    if (!activeAvatar?.avatar_id || !activeConversation || !user?.uid) {
-      console.log('Missing required data for subscription:', {
-        avatarId: activeAvatar?.avatar_id,
-        conversationId: activeConversation,
-        userId: user?.uid,
-      });
-      return;
-    }
+  async function sendMessageAwaitResponseUpdateMessages(
+    user,
+    activeAvatar,
+    thread_id,
+    message_content
+  ) {
+    console.log(`message_content: ${message_content}`);
 
-    console.log(
-      `Subscribing to messages for avatar ${activeAvatar.avatar_id}, conversation ${activeConversation}`
+    let input = { messages: [{ role: 'user', content: message_content }] };
+    let url = `${import.meta.env.VITE_LANGGRAPH_API_SERVER_URL}`;
+    let api_key = `${import.meta.env.VITE_LANGGRAPH_API_SERVER_KEY}`;
+    console.log(`context: ${JSON.stringify(context)}`);
+
+    let apiKey = `${import.meta.env.VITE_LANGGRAPH_API_SERVER_KEY}`;
+
+    let apiUrl = `${import.meta.env.VITE_LANGGRAPH_API_SERVER_URL}`;
+
+    console.log(`assistant_id: ${activeAvatar.metadata.assistant_id}`);
+
+    let payload = JSON.stringify({
+      assistant_id: activeAvatar.metadata.assistant_id,
+      input: input,
+      metadata: {
+        user_id: user.id,
+        assistant_id: activeAvatar.metadata.assistant_id,
+        thread_id: thread_id,
+        context: context,
+      },
+    });
+
+    console.log(`payload: ${payload}`);
+
+    const thread_run_await_response = await fetch(
+      `${apiUrl}/threads/${thread_id}/runs/wait`,
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-api-header': apiKey,
+        },
+        body: payload,
+      }
     );
-    console.log('user.id' + user.id);
-    // Set up real-time subscription
-    try {
-      const unsubscribe = subscribeToMessages(
-        user.id,
-        activeAvatar.avatar_id,
-        activeConversation,
-        (newMessages) => {
-          console.log(
-            `Received ${newMessages.length} messages from subscription`
-          );
 
-          // Transform messages to use id, role, content format
-          const transformedMessages = newMessages.map((msg) => ({
-            id: msg.id || msg._id || msg.message_id,
-            role: msg.role || msg.role || 'user',
-            content: msg.content || msg.message || '',
-            timestamp: msg.timestamp,
-            media: msg.media || [],
-            type: msg.type || 'text',
-          }));
+    const thread_run_await_response_json =
+      await thread_run_await_response.json();
 
-          // Sort by timestamp
-          const sortedMessages = transformedMessages.sort((a, b) => {
-            const timeA = a.timestamp ? new Date(a.timestamp).getTime() : 0;
-            const timeB = b.timestamp ? new Date(b.timestamp).getTime() : 0;
-            return timeA - timeB;
-          });
+    if (
+      '__error__' in thread_run_await_response_json &&
+      thread_run_await_response_json.__error__?.error
+    ) {
+      const error_thread_run_await_response_json =
+        thread_run_await_response_json.__error__?.error;
 
-          // Update messages state directly (no cache key)
-          setMessages(sortedMessages);
-        }
+      console.log(
+        `error_thread_run_await_response_json: ${error_thread_run_await_response_json}`
       );
 
-      // Store unsubscribe function
-      unsubscribeRef.current = unsubscribe;
-      console.log('Successfully subscribed to messages');
-    } catch (error) {
-      console.error('Failed to subscribe to messages:', error);
+      toast.error(error_thread_run_await_response_json);
+      reponse_message = {};
+    } else {
+      console.log(
+        `thread_run_await_response_json: ${thread_run_await_response_json}`
+      );
+
+      let response_message = thread_run_await_response_json.messages.at(-1);
+
+      console.log(`response_message: ${response_message}`);
     }
 
-    // Cleanup on unmount or when dependencies change
-    return () => {
-      if (unsubscribeRef.current) {
-        console.log('Cleaning up subscription');
-        unsubscribeRef.current();
-        unsubscribeRef.current = null;
-      }
-    };
-  }, [activeAvatar?.avatar_id, activeConversation, user?.uid]);
+    // Transform messages to use id, type, content format
+    // const transformedMessages = newMessages.map((msg) => ({
+    //   id: msg.id || msg._id || msg.message_id,
+    //   type: msg.type || msg.type || 'user',
+    //   content: msg.content || msg.message || '',
+    //   timestamp: msg.timestamp,
+    //   media: msg.media || [],
+    //   type: msg.type || 'text',
+    // }));
 
-  // handleSendMessageMediaContext - Updated to use Firestore structure
+    return response_message;
+  }
+
   async function handleSendMessageMediaContext() {
     console.log('MediaContext: handleSendMessageMediaContext called');
 
@@ -264,13 +256,13 @@ export const MediaProvider = ({ children }) => {
       const tempMessage = {
         id: tempId,
         content: inputMessage,
-        role: role,
+        type: 'human',
         timestamp: new Date().toISOString(),
         media: mediaFiles.map((f) => ({
           filename: f.name,
           content_type: f.type,
         })),
-        type: mediaFiles.length > 0 && !inputMessage ? 'media' : 'text',
+        content_type: mediaFiles.length > 0 && !inputMessage ? 'media' : 'text',
       };
 
       setMessages((prev) => [...prev, tempMessage]);
@@ -278,34 +270,47 @@ export const MediaProvider = ({ children }) => {
       // Add loading message for AI response
       const loadingMessage = {
         id: loadingId,
-        role: 'assistant',
+        type: 'ai',
         isLoading: true,
         timestamp: new Date().toISOString(),
       };
 
       setMessages((prev) => [...prev, loadingMessage]);
 
-      // Send to Firestore - this will trigger the subscription to update
-      const firestoreResponse = await sendMessageService(
-        user.id,
-        activeAvatar.avatar_id,
-        activeConversation,
-        inputMessage,
-        mediaFiles,
-        role,
-        true // Wait for AI response
+      const response_message = await sendMessageAwaitResponseUpdateMessages(
+        user,
+        activeAvatar,
+        activeAvatar.metadata.active_conversation,
+        inputMessage
       );
 
-      console.log('Message sent successfully:', firestoreResponse);
+      if (!response_message) {
+        // clear the temporary message and notify
+        setMessages((prev) =>
+          prev.filter((msg) => !msg.id.startsWith('temp-') && !msg.isLoading)
+        );
+      } else {
+        if (Object.keys(response_message).length == 0) {
+          // clear the temporary message and notify
+        }
+      }
 
-      // Remove loading message after response is received
-      // The actual messages will come through the subscription
-      // setMessages((prev) => prev.filter((msg) => msg.id !== loadingId));
+      console.log(`response message: ${response_message}`);
 
-      // Clear input
-      // setInputMessage('');
-      // setMediaFiles([]);
-      // if (fileInputRef.current) fileInputRef.current.value = '';
+      // update the response message
+      const responseMessage = {
+        id: response_message.id,
+        type: response_message.type || 'ai',
+        isLoading: true,
+        timestamp: new Date().toISOString(),
+        content: response_message['content'],
+      };
+
+      // filter the loading message
+      setMessages((prev) => prev.filter((msg) => !msg.isLoading));
+
+      // insert the new message response
+      setMessages((prev) => [...prev, responseMessage]);
     } catch (err) {
       console.error('Failed to send message:', err);
 
@@ -315,9 +320,11 @@ export const MediaProvider = ({ children }) => {
       );
 
       if (err.status === 413) {
-        alert('One or more files exceed the maximum upload size of 1 MB.');
+        toast.error(
+          'One or more files exceed the maximum upload size of 1 MB.'
+        );
       } else {
-        alert(err.message || 'Failed to send message');
+        toast.error(err.message || 'Failed to send message');
       }
     }
   }
@@ -363,14 +370,20 @@ export const MediaProvider = ({ children }) => {
         setMediaFiles,
         handleFileChange,
         removeFile,
-        role,
-        setRole,
+        type,
+        setType,
         isTranscribing,
         startTranscription,
         stopTranscription,
         isThoughtToImageEnabled,
         startThoughtToImage,
         stopThoughtToImage,
+        getConversationList,
+        getActiveConversationMessages,
+        switchActiveConveration,
+        sendMessageAwaitResponseUpdateMessages,
+        setActiveConversation,
+        activeConversation,
       }}
     >
       {children}

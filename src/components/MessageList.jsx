@@ -14,20 +14,21 @@ const MessageList = ({ messages, messagesEndRef }) => {
 
   // Debug log – shows what actually reaches the component
   useEffect(() => {
-    console.log(
-      'MessageList received messages:',
-      messages.map((m) => ({
-        id: m.id,
-        role: m.role,
-        hasRole: !!m.role,
-        contentPreview: m.content?.slice(0, 50) || '(no content)',
-        isLoading: m.isLoading,
-      }))
-    );
+    // Get all the conversations for the current avatarconsole.log(`messages list breakpoint`);
 
-    const valid = messages.filter((msg) => msg?.role);
+    messages.map((m) => ({
+      id: m.id,
+      type: m.type,
+      contentPreview: m.content?.slice(0, 50) || '(no content)',
+      isLoading: m.isLoading,
+    }));
+
+    console.log('MessageList received messages:', messages);
+
+    const valid = messages.filter((msg) => msg?.type);
+
     console.log(
-      `Rendering ${valid.length} / ${messages.length} messages (after role filter)`
+      `Rendering ${valid.length} / ${messages.length} messages (after type filter)`
     );
   }, [messages]);
 
@@ -35,12 +36,12 @@ const MessageList = ({ messages, messagesEndRef }) => {
     <div className="flex-grow mb-4 space-y-2 px-2 flex flex-col">
       {messages
         // Temporary relaxed filter – helps debug missing assistant messages
-        .filter((msg) => msg?.role || msg?.sender || msg?.isLoading)
+        // .filter((msg) => msg?.type || msg?.sender || msg?.isLoading)
         .map((msg) => {
           const isLoading = msg.isLoading || msg.isPending;
 
-          // Prefer role, fall back to sender (old field name safety)
-          const role = msg.role || 'user';
+          // Prefer type, fall back to sender (old field name safety)
+          const type = msg.type || 'user';
 
           const messageKey = msg.id || `temp-${msg.timestamp || Date.now()}`;
 
@@ -48,9 +49,9 @@ const MessageList = ({ messages, messagesEndRef }) => {
             <div
               key={messageKey}
               className={`max-w-[70%] p-2 rounded-lg break-words transition-all duration-150 ${
-                role === 'user'
+                type === 'user' || type === 'human'
                   ? 'bg-teal-600 self-end text-white'
-                  : role === 'assistant'
+                  : type === 'ai' || type === 'assistant' || type === 'avatar'
                     ? 'bg-indigo-700 self-start text-white'
                     : 'bg-indigo-700 self-center italic text-gray-300'
               }`}

@@ -31,8 +31,8 @@ const InputBar = ({
     setMediaFiles,
     handleFileChange,
     removeFile,
-    role,
-    setRole,
+    type,
+    setType,
     isTranscribing,
     startTranscription,
     stopTranscription,
@@ -101,6 +101,7 @@ const InputBar = ({
     //   return;
     // }
 
+    console.log(`handle send message`);
     if (
       inputMessage.trim() &&
       (messageHistory.length === 0 ||
@@ -111,7 +112,7 @@ const InputBar = ({
 
     setHistoryIndex(-1);
     setTempMessage('');
-    setRole('user');
+    setType('user');
     handleSendMessageMediaContext(mediaFiles, () => {});
     setMediaFiles([]);
     setInputMessage('');
@@ -148,14 +149,14 @@ const InputBar = ({
     }
   }, [inputMessage]);
 
-  useEffect(() => {
-    thoughtToImageService.onReconstructedImage = ({ file }) => {
-      setMediaFiles((prevFiles) => [...prevFiles, file]);
-    };
-    return () => {
-      thoughtToImageService.onReconstructedImage = null;
-    };
-  }, [mediaFiles.length]);
+  // useEffect(() => {
+  //   thoughtToImageService.onReconstructedImage = ({ file }) => {
+  //     setMediaFiles((prevFiles) => [...prevFiles, file]);
+  //   };
+  //   return () => {
+  //     thoughtToImageService.onReconstructedImage = null;
+  //   };
+  // }, [mediaFiles.length]);
 
   return (
     <div

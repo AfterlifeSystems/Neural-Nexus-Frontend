@@ -76,7 +76,7 @@ export const callLocalQueryApi = async (
  * @param {string} conversationId - Conversation ID (if not provided, uses default)
  * @param {string} message - Message text (optional if mediaFiles provided)
  * @param {File[]} mediaFiles - Media files (optional)
- * @param {string} role - Sender type ('user' or 'assistant')
+ * @param {string} type - Sender type ('user' or 'assistant')
  * @param {boolean} waitForResponse - Whether to wait for AI response
  */
 // Updated sendMessageService: use doc() + setDoc instead of addDoc → document ID = message_id
@@ -86,7 +86,7 @@ export const sendMessageService = async (
   conversationId = null,
   message = '',
   mediaFiles = [],
-  role = 'user',
+  type = 'user',
   waitForResponse = true
 ) => {
   let currentConversationId = conversationId;
@@ -136,7 +136,7 @@ export const sendMessageService = async (
     conversation_id: currentConversationId,
     avatar_id: avatarId,
     user_id: userId,
-    role,
+    type,
     content: message || null,
     timestamp,
     type: messageType,
@@ -196,7 +196,7 @@ export const sendMessageService = async (
     conversation_id: currentConversationId,
     avatar_id: avatarId,
     user_id: userId,
-    role: 'assistant',
+    type: 'assistant',
     content: aiResponseData.response || '[No response]',
     timestamp: aiTimestamp,
     type: 'text',
@@ -300,7 +300,7 @@ export const getMessages = async (
       message_id: data.message_id || docSnapshot.id,
       type: data.type || 'text',
       content: data.content || data.message || '',
-      role: data.role || 'user',
+      type: data.type || 'user',
       timestamp: data.timestamp?.toDate?.()
         ? data.timestamp.toDate().toISOString()
         : data.timestamp || new Date().toISOString(),
@@ -346,7 +346,7 @@ export const subscribeToMessages = (
         id: data.message_id || docSnapshot.id, // prefer message_id
         message_id: data.message_id || docSnapshot.id,
         content: data.content || data.message || '',
-        role: data.role || 'user',
+        type: data.type || 'user',
         timestamp: data.timestamp?.toDate?.()
           ? data.timestamp.toDate().toISOString()
           : data.timestamp || new Date().toISOString(),
