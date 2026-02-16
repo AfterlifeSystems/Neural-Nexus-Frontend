@@ -222,7 +222,13 @@ const AuthComponent = () => {
 
           setUser(data.user);
           setProfile(data.user);
-          setAccessToken(data.session.access_token);
+          console.log(`data.session.access_token: ${data}`);
+
+          if (data.session?.access_token) {
+            setAccessToken(data.session.access_token);
+          } else {
+            setAccessToken('');
+          }
 
           console.log(
             'XXXXXXXXXXXXXXXXXXXXXXXXX userCredential: ' + JSON.stringify(data)
