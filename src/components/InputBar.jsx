@@ -101,6 +101,7 @@ const InputBar = ({
     //   return;
     // }
 
+    console.log(`handle send message`);
     if (
       inputMessage.trim() &&
       (messageHistory.length === 0 ||
@@ -148,14 +149,14 @@ const InputBar = ({
     }
   }, [inputMessage]);
 
-  useEffect(() => {
-    thoughtToImageService.onReconstructedImage = ({ file }) => {
-      setMediaFiles((prevFiles) => [...prevFiles, file]);
-    };
-    return () => {
-      thoughtToImageService.onReconstructedImage = null;
-    };
-  }, [mediaFiles.length]);
+  // useEffect(() => {
+  //   thoughtToImageService.onReconstructedImage = ({ file }) => {
+  //     setMediaFiles((prevFiles) => [...prevFiles, file]);
+  //   };
+  //   return () => {
+  //     thoughtToImageService.onReconstructedImage = null;
+  //   };
+  // }, [mediaFiles.length]);
 
   return (
     <div

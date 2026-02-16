@@ -34,9 +34,16 @@ const AvatarSelectionComponent = ({}) => {
     setActiveAvatar,
     lastUsedAvatar,
     setUserAvatars,
+    context,
+    setContext,
   } = useAuth();
 
-  const { setMessages, fetchMessages } = useMedia();
+  const {
+    setMessages,
+    fetchMessages,
+    activeConversation,
+    setActiveConversation,
+  } = useMedia();
   const navigate = useNavigate();
   const [currentCardIndex, setCurrentCardIndex] = useState(0);
   const [searchQuery, setSearchQuery] = useState('');
@@ -152,9 +159,6 @@ const AvatarSelectionComponent = ({}) => {
       localStorage.setItem('last_used_avatar_index', avatarIndex);
       localStorage.setItem('last_used_avatar_id', avatarId);
 
-      // Use AuthContext selectAvatar which updates Firestore
-      // await selectAvatar(avatarId);
-
       const selectedAvatar = userAvatars.find(
         (avatar) => avatar.assistant_id === avatarId
       );
@@ -166,6 +170,28 @@ const AvatarSelectionComponent = ({}) => {
         cacheAvatarIcon(avatarId, selectedAvatar.icon, avatarIndex);
       }
       setActiveAvatar(selectedAvatar);
+
+      // build context for the conversation
+      const context = {
+        user_ctx: {
+          user_id: user.id,
+          name: user.name || '',
+          description: user.description || '',
+          metadata: user.metadata || {},
+        },
+        assistant_ctx: {
+          assistant_id: avatarId,
+          user_id: user.id,
+          name: user.name || '',
+          description: user.description || '',
+          metadata: user.metadata || {},
+        },
+      };
+
+      setContext(context);
+
+      console.log('breakpoint');
+      setActiveConversation(selectedAvatar.metadata.active_conversation);
 
       // await selectAvatar(avatarId); // Update Firestore last_used_avatar
       // localStorage.setItem('last_used_avatar_id', avatarId);

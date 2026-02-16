@@ -51,9 +51,11 @@ export const AuthProvider = ({ children }) => {
   const [proprietaryAvatars, setProprietaryAvatars] = useState([]); // avatars created by Afterlife Systems Inc. (businesses, bibles, restaurants, etc.)
 
   const [activeAvatar, setActiveAvatar] = useState(null);
+  const [context, setContext] = useState(null);
 
   const [isLoading, setIsLoading] = useState(false);
   const [accessToken, setAccessToken] = useState(null); // Firebase ID token for backend API
+
   return (
     <AuthContext.Provider
       value={{
@@ -74,6 +76,8 @@ export const AuthProvider = ({ children }) => {
         setActiveAvatar,
         isLoading,
         setIsLoading,
+        context,
+        setContext,
         // Firebase instances (for advanced use)
         firebaseAuth: auth,
         firestore: db,
