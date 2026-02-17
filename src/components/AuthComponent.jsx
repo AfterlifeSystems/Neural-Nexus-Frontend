@@ -149,12 +149,14 @@ const AuthComponent = () => {
             let errorMessage = 'Signup failed. Please try again.';
             if (error.code === 'auth/email-already-in-use') {
               errorMessage = 'This email is already registered';
-              toast.error(errorMessage);
+              // toast.error(errorMessage);
               navigate('/login');
             } else if (error.code === 'auth/invalid-email') {
               errorMessage = 'Please provide a valid email address';
+              toast.error(errorMessage);
             } else if (error.code === 'auth/weak-password') {
               errorMessage = 'Password must be at least 6 characters';
+              toast.error(errorMessage);
             } else if (error.message) {
               errorMessage = error.message;
             }
@@ -223,7 +225,6 @@ const AuthComponent = () => {
           setUser(data.user);
           setProfile(data.user);
           console.log(`data.session.access_token: ${data}`);
-
           if (data.session?.access_token) {
             setAccessToken(data.session.access_token);
           } else {
@@ -255,7 +256,6 @@ const AuthComponent = () => {
           }
 
           setIsLoading(false);
-          // return data.user;
           console.log('navigate / avatars breakpoint');
           navigate('/avatars');
         }
@@ -336,7 +336,7 @@ const AuthComponent = () => {
                     toast.promise(
                       new Promise((resolve, reject) => {
                         setTimeout(() => {
-                          // Change to reject() to test error path
+                          // Change to reject() to test error path`[9]
                           // resolve('fake upload result');
                           reject();
                           // reject(new Error("fake upload error"));
