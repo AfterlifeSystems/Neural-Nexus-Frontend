@@ -165,13 +165,13 @@ export const createAvatar = async (user, name, description, iconFile) => {
     active_conversation: conversationId,
   };
 
-  // // LANGGRAPH API SERVER CLIENT
+  // LANGGRAPH API SERVER CLIENT
   const create_assistant_promise = await fetch(
     `${import.meta.env.VITE_LANGGRAPH_API_SERVER_URL}/assistants`,
     {
       method: 'POST',
       headers: {
-        'Content-Type': 'application/json',
+        'x-api-key': `${import.meta.env.VITE_LANGGRAPH_API_SERVER_KEY}`,
       },
       body: JSON.stringify({
         assistant_id: avatarId,

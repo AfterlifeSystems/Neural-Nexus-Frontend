@@ -149,12 +149,14 @@ const AuthComponent = () => {
             let errorMessage = 'Signup failed. Please try again.';
             if (error.code === 'auth/email-already-in-use') {
               errorMessage = 'This email is already registered';
-              toast.error(errorMessage);
+              // toast.error(errorMessage);
               navigate('/login');
             } else if (error.code === 'auth/invalid-email') {
               errorMessage = 'Please provide a valid email address';
+              toast.error(errorMessage);
             } else if (error.code === 'auth/weak-password') {
               errorMessage = 'Password must be at least 6 characters';
+              toast.error(errorMessage);
             } else if (error.message) {
               errorMessage = error.message;
             }
