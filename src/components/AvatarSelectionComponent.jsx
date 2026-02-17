@@ -24,6 +24,7 @@ import { doc, setDoc, getDoc, updateDoc } from 'firebase/firestore';
 import { auth, db, storage } from '../firebase/config.js';
 
 import { getAvatars } from '../services/avatarService.jsx';
+import { SupabaseClient } from '@supabase/supabase-js';
 
 const AvatarSelectionComponent = ({}) => {
   const {
@@ -351,20 +352,16 @@ const AvatarSelectionComponent = ({}) => {
 
   const handleLogout = async () => {
     try {
-      try {
-        // localStorage.clear();
-        const user = auth.currentUser;
+      const supabase = new createClient(
+        import.meta.env.VITE_SUPABASE_URL,
+        import.meta.env.VITE_SUPABASE_PUBLISHABLE_AUTH_KEY
+      );
 
-        if (user) {
-          await updateDoc(doc(db, 'users', user.id), {
-            currently_logged_in: false,
-          });
-        }
-        await signOut(auth);
+      try {
+        const { error } = await supabase.auth.signOut(); // sign out the all sessions
       } catch (error) {
         console.error('Logout error:', error);
         toast.error('Logout completed with errors');
-        // throw error;
       }
       setDropdownOpen(false);
       navigate('/login');

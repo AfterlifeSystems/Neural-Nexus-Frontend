@@ -1,37 +1,7 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
-import {
-  onAuthStateChanged,
-  createUserWithEmailAndPassword,
-  signInWithEmailAndPassword,
-  signOut,
-  updateProfile,
-  updatePassword as firebaseUpdatePassword,
-  sendPasswordResetEmail,
-  sendEmailVerification,
-  GoogleAuthProvider,
-  signInWithPopup,
-  signInWithRedirect,
-  getRedirectResult,
-  browserLocalPersistence,
-} from 'firebase/auth';
+import { signOut } from 'firebase/auth';
 
-import {
-  doc,
-  getDoc,
-  updateDoc,
-  setDoc,
-  query,
-  collection,
-  where,
-  orderBy,
-  onSnapshot,
-} from 'firebase/firestore';
 import { auth, db, storage } from '../firebase/config.js';
-
-import toast from 'react-hot-toast';
-import { X } from 'lucide-react';
-
-import { getAvatars } from '../services/avatarService.jsx';
 
 const AuthContext = createContext();
 
