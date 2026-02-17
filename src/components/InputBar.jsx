@@ -4,7 +4,6 @@ import { AudioLines } from 'lucide-react';
 import { useMedia } from '../context/MediaContext';
 import Dock from './Dock';
 import { HiXMark } from 'react-icons/hi2';
-import thoughtToImageService from '../services/ThoughtToImageService';
 
 const InputBar = ({
   avatar_id,

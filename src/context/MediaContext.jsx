@@ -276,6 +276,8 @@ export const MediaProvider = ({ children }) => {
 
       setMessages((prev) => [...prev, loadingMessage]);
 
+      console.log('breakpoint before message send');
+
       const response_message = await sendMessageAwaitResponseUpdateMessages(
         user,
         activeAvatar,
@@ -283,7 +285,7 @@ export const MediaProvider = ({ children }) => {
         inputMessage
       );
 
-      console.log('breakpoint response message');
+      console.log('breakpoint response message after send');
 
       if (!response_message) {
         // clear the temporary message and notify

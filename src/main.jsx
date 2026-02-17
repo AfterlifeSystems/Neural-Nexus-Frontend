@@ -19,8 +19,6 @@ import AccountSettings from './components/AccountSettings';
 import { useAuth } from './context/AuthContext';
 import VantaBackground from './components/VantaBackground.jsx';
 
-import { auth, db, storage } from './firebase/config.js';
-
 import { toast, Toaster } from 'react-hot-toast';
 
 createRoot(document.getElementById('root')).render(
