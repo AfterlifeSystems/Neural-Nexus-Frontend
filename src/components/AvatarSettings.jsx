@@ -38,24 +38,6 @@ import {
 } from '../services/avatarService';
 import { useNavigate } from 'react-router-dom';
 
-import {
-  collection,
-  addDoc,
-  getDocs,
-  getDoc,
-  updateDoc,
-  deleteDoc,
-  doc,
-  setDoc,
-  query,
-  where,
-  orderBy,
-  limit,
-  arrayUnion,
-  arrayRemove,
-} from 'firebase/firestore';
-import { db, storage } from '../firebase/config';
-
 // Social Media Platform Configuration
 const SOCIAL_PLATFORMS = [
   { id: 'youtube', name: 'YouTube', icon: Youtube, color: '#FF0000' },
@@ -213,31 +195,12 @@ const AvatarSettings = ({ avatarId, accessToken }) => {
   };
   const handleUrlUpload = async (url) => {
     const tempId = uuidv4();
-    const tempDoc = {
-      id: tempId,
-      name: url,
-      type: 'web',
-      loading: true,
-    };
+
     try {
       if (!user) throw new Error('Not logged in');
       if (!activeAvatar) throw new Error('No active avatar');
-      const docMeta = await uploadUrl(
-        user.id,
-        activeAvatar.avatar_id,
-        url,
-        activeAvatar.name
-      );
-      const avatarRef = doc(
-        db,
-        'users',
-        user.id,
-        'avatars',
-        activeAvatar.avatar_id
-      );
-      await updateDoc(avatarRef, {
-        files: arrayUnion(docMeta),
-      });
+      console.log('url upload logic here');
+      throw error;
       toast.success('URL added successfully');
     } catch (err) {
       toast.error('URL upload failed: ' + err.message);

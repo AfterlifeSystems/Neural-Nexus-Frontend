@@ -18,13 +18,7 @@ import CreateAvatarModal from './CreateAvatarModal';
 import AvatarCardComponent from './AvatarCardComponent';
 import { useMedia } from '../context/MediaContext';
 import { selectAvatar } from '../services/avatarService';
-
-import { signOut } from 'firebase/auth';
-import { doc, setDoc, getDoc, updateDoc } from 'firebase/firestore';
-import { auth, db, storage } from '../firebase/config.js';
-
-import { getAvatars } from '../services/avatarService.jsx';
-import { SupabaseClient } from '@supabase/supabase-js';
+import { createClient } from '@supabase/supabase-js';
 
 const AvatarSelectionComponent = ({}) => {
   const {

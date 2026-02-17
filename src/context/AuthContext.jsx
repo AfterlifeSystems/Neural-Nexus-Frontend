@@ -1,5 +1,4 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
-import { signOut } from 'firebase/auth';
 
 import { auth, db, storage } from '../firebase/config.js';
 
