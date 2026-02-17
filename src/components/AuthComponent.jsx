@@ -11,17 +11,6 @@ import {
   User,
 } from 'lucide-react';
 
-import {
-  createUserWithEmailAndPassword,
-  indexedDBLocalPersistence,
-  signInWithEmailAndPassword,
-  signOut,
-  updateProfile,
-} from 'firebase/auth';
-
-import { doc, setDoc, getDoc, updateDoc } from 'firebase/firestore';
-import { auth, db, storage } from '../firebase/config.js';
-
 import { useAuth } from '../context/AuthContext';
 import { useMedia } from '../context/MediaContext';
 import VantaBackground from './VantaBackground';
