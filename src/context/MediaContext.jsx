@@ -20,6 +20,8 @@ import React, {
 
 import { useAuth } from './AuthContext';
 
+import { toast } from 'react-hot-toast';
+
 const MediaContext = createContext();
 
 export const MediaProvider = ({ children }) => {
@@ -77,6 +79,7 @@ export const MediaProvider = ({ children }) => {
         method: 'POST',
         headers: {
           Accept: '*/*',
+          'x-api-key': `${import.meta.env.VITE_LANGGRAPH_API_SERVER_KEY}`,
         },
         body: JSON.stringify({
           metadata: {
@@ -129,6 +132,7 @@ export const MediaProvider = ({ children }) => {
       {
         headers: {
           Accept: '*/*',
+          'x-api-key': `${import.meta.env.VITE_LANGGRAPH_API_SERVER_KEY}`,
         },
       }
     );
@@ -184,8 +188,7 @@ export const MediaProvider = ({ children }) => {
       {
         method: 'POST',
         headers: {
-          'Content-Type': 'application/json',
-          'x-api-header': apiKey,
+          'x-api-key': apiKey,
         },
         body: payload,
       }
@@ -193,6 +196,8 @@ export const MediaProvider = ({ children }) => {
 
     const thread_run_await_response_json =
       await thread_run_await_response.json();
+
+    let response_message = {};
 
     if (
       '__error__' in thread_run_await_response_json &&
@@ -206,15 +211,14 @@ export const MediaProvider = ({ children }) => {
       );
 
       toast.error(error_thread_run_await_response_json);
-      reponse_message = {};
     } else {
       console.log(
         `thread_run_await_response_json: ${thread_run_await_response_json}`
       );
-
+      console.log('breakpoint');
       let response_message = thread_run_await_response_json.messages.at(-1);
 
-      console.log(`response_message: ${response_message}`);
+      console.log(`response_message: ${JSON.stringify(response_message)}`);
     }
 
     // Transform messages to use id, type, content format
@@ -279,33 +283,43 @@ export const MediaProvider = ({ children }) => {
         inputMessage
       );
 
+      console.log('breakpoint response message');
+
       if (!response_message) {
         // clear the temporary message and notify
         setMessages((prev) =>
           prev.filter((msg) => !msg.id.startsWith('temp-') && !msg.isLoading)
         );
+        toast.error('Error no response from the server. Please try again.', {
+          duration: 5000,
+        });
       } else {
         if (Object.keys(response_message).length == 0) {
           // clear the temporary message and notify
+          setMessages((prev) =>
+            prev.filter((msg) => !msg.id.startsWith('temp-') && !msg.isLoading)
+          );
+          toast.error('Error no response from the server. Please try again.', {
+            duration: 5000,
+          });
+        } else {
+          console.log(`response message: ${JSON.stringify(response_message)}`);
+
+          // update the response message
+          const responseMessage = {
+            id: response_message.id,
+            type: response_message.type || 'ai',
+            isLoading: true,
+            timestamp: new Date().toISOString(),
+            content: response_message['content'],
+          };
+          // filter the loading message
+          setMessages((prev) => prev.filter((msg) => !msg.isLoading));
+
+          // insert the new message response
+          setMessages((prev) => [...prev, responseMessage]);
         }
       }
-
-      console.log(`response message: ${response_message}`);
-
-      // update the response message
-      const responseMessage = {
-        id: response_message.id,
-        type: response_message.type || 'ai',
-        isLoading: true,
-        timestamp: new Date().toISOString(),
-        content: response_message['content'],
-      };
-
-      // filter the loading message
-      setMessages((prev) => prev.filter((msg) => !msg.isLoading));
-
-      // insert the new message response
-      setMessages((prev) => [...prev, responseMessage]);
     } catch (err) {
       console.error('Failed to send message:', err);
 
