@@ -207,11 +207,7 @@ export const MediaProvider = ({ children }) => {
         `error_thread_run_await_response_json: ${error_thread_run_await_response_json}`
       );
 
-      if (error_thread_run_await_response_json == 'ValidationError') {
-        toast.error(error_thread_run_await_response_json);
-      } else {
-        toast.error('Error receiving message. Please try again.');
-      }
+      toast.error(error_thread_run_await_response_json);
 
       // remove the optimistic and loading
       setMessages((prev) =>
@@ -251,6 +247,8 @@ export const MediaProvider = ({ children }) => {
 
       console.log(`response_message: ${JSON.stringify(response_message)}`);
     }
+
+    return { success: 'TRUE' };
   }
 
   async function handleSendMessageMediaContext() {
@@ -297,13 +295,13 @@ export const MediaProvider = ({ children }) => {
 
       console.log('breakpoint before message send');
 
-      // errors are handled internally to the function
-      await sendMessageAwaitResponseUpdateMessages(
-        user,
-        activeAvatar,
-        activeAvatar.metadata.active_conversation,
-        inputMessage
-      );
+      const { send_message_success } =
+        await sendMessageAwaitResponseUpdateMessages(
+          user,
+          activeAvatar,
+          activeAvatar.metadata.active_conversation,
+          inputMessage
+        );
       console.log('after send message breakpoint');
     } catch (err) {
       console.error('Failed to send message:', err);
