@@ -21,6 +21,8 @@ import React, {
 import { useAuth } from './AuthContext';
 
 import { toast } from 'react-hot-toast';
+import { Client } from '@langchain/langgraph-sdk';
+import { query } from 'firebase/firestore';
 
 const MediaContext = createContext();
 
@@ -127,15 +129,42 @@ export const MediaProvider = ({ children }) => {
       }
     }
 
-    const thread_get_response = await fetch(
-      `${import.meta.env.VITE_LANGGRAPH_API_SERVER_URL}/threads/${active_conversation}`,
-      {
-        headers: {
-          Accept: '*/*',
-          'x-api-key': `${import.meta.env.VITE_LANGGRAPH_API_SERVER_KEY}`,
-        },
-      }
+    console.log(
+      'XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX import.meta.env.VITE_LANGGRAPH_API_SERVER_URL: ',
+      import.meta.env.VITE_LANGGRAPH_API_SERVER_URL
     );
+
+    const langgraph_api_client = new Client({
+      apiUrl: import.meta.env.VITE_LANGGRAPH_API_SERVER_URL,
+      apiKey: import.meta.env.VITE_LANGGRAPH_API_SERVER_KEY,
+    });
+
+    // let searchQuery = JSON.stringify({
+    //   graphId: 'Anubis',
+    //   metadata: { user_id: '6502e491-fc64-44fd-aaaf-047c70587f48' },
+    // });
+
+    // let test_assistants = await langgraph_api_client.assistants.search({
+    //   query: searchQuery,
+    // });
+
+    console.log(`active_conversation: ${active_conversation}`);
+
+    body = JSON.stringify({
+      threadId: active_conversation,
+    });
+
+    const thread_get_reasponse = langgraph_api_client.threads.get(body);
+
+    // const thread_get_response = await fetch(
+    //   `${import.meta.env.VITE_LANGGRAPH_API_SERVER_URL}/threads/${active_conversation}`,
+    //   {
+    //     headers: {
+    //       Accept: '*/*',
+    //       'x-api-key': `${import.meta.env.VITE_LANGGRAPH_API_SERVER_KEY}`,
+    //     },
+    //   }
+    // );
 
     const thread_get_response_json = await thread_get_response.json();
 
@@ -169,29 +198,43 @@ export const MediaProvider = ({ children }) => {
 
     console.log(`assistant_id: ${activeAvatar.metadata.assistant_id}`);
 
-    let payload = JSON.stringify({
-      assistant_id: activeAvatar.metadata.assistant_id,
-      input: input,
-      metadata: {
-        user_id: user.id,
-        assistant_id: activeAvatar.metadata.assistant_id,
-        thread_id: thread_id,
-        context: context,
-      },
+    const langgraph_api_client = new Client({
+      apiUrl: import.meta.env.VITE_LANGGRAPH_API_SERVER_URL,
+      apiKey: import.meta.env.VITE_LANGGRAPH_API_SERVER_KEY,
     });
 
-    console.log(`payload: ${payload}`);
+    runQuery = JSON.stringify({
+      threadId: activeAvatar.metadata.active_conversation,
+      assistantId: activeAvatar.metadata.assistant_id,
+      payload: { input: input },
+    });
 
-    const thread_run_await_response = await fetch(
-      `${apiUrl}/threads/${thread_id}/runs/wait`,
-      {
-        method: 'POST',
-        headers: {
-          'x-api-key': apiKey,
-        },
-        body: payload,
-      }
-    );
+    const thread_run_await_restponse =
+      await langgraph_api_client.runs.wait(runQeury);
+
+    // let payload = JSON.stringify({
+    //   assistant_id: activeAvatar.metadata.assistant_id,
+    //   input: input,
+    //   metadata: {
+    //     user_id: user.id,
+    //     assistant_id: activeAvatar.metadata.assistant_id,
+    //     thread_id: thread_id,
+    //   },
+    // });
+    // context: context,
+
+    // console.log(`payload: ${payload}`);
+
+    // const thread_run_await_response = await fetch(
+    //   `${apiUrl}/threads/${thread_id}/runs/wait`,
+    //   {
+    //     method: 'POST',
+    //     headers: {
+    //       'x-api-key': apiKey,
+    //     },
+    //     body: payload,
+    //   }
+    // );
 
     const thread_run_await_response_json =
       await thread_run_await_response.json();
