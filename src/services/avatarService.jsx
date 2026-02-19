@@ -25,6 +25,7 @@ import {
 import { db, storage } from '../firebase/config';
 import { v4 as uuidv4 } from 'uuid';
 import { createClient } from '@supabase/supabase-js';
+import { Client } from '@langchain/langgraph-sdk';
 
 // Add this function to your avatarService.jsx file
 
@@ -250,34 +251,81 @@ export const createAvatar = async (user, name, description, iconFile) => {
 
 export const getAvatars = async (userId, limitCount = 50, skip = 0) => {
   // SEARCH ASSISTANTS
-
   // LANGGRAPH API SERVER CLIENT
+
   console.log(
     `VITE_LANGGRAPH_API_SERVER_URL: ${import.meta.env.VITE_LANGGRAPH_API_SERVER_URL}`
   );
 
+  let apiUrl = import.meta.env.VITE_LANGGRAPH_API_SERVER_URL;
+  let apiKey = import.meta.env.VITE_LANGGRAPH_API_SERVER_KEY;
+
+  console.log(`apiUrl: ${apiUrl}`);
+  console.log(`apiKey: ${apiKey}`);
+
+  // const langgraph_api_client = new Client(apiUrl, apiKey);
+
+  const langgraph_api_client = new Client({
+    apiUrl: import.meta.env.VITE_LANGGRAPH_API_SERVER_URL,
+    apiKey: import.meta.env.VITE_LANGGRAPH_API_SERVER_KEY,
+  });
+
+  console.log(`userId:${userId}`);
+
+  // let searchQuery = JSON.stringify({
+  //   graphId: 'Anubis',
+  //   metadata: { user_id: userId },
+  //   limit: 100,
+  //   offset: 0,
+  //   sortOrder: 'desc',
+  //   sortBy: 'created_at',
+  // });
+
+  const assistants_search_list = await langgraph_api_client.assistants.search({
+    graphId: 'Anubis',
+    metadata: { user_id: userId },
+    limit: 100,
+    offset: 0,
+    sortOrder: 'desc',
+    sortBy: 'created_at',
+  });
+
+  // console.log(`active_conversation: ${active_conversation}`);
+
+  // const assistants_search_promise =
+  //   await langgraph_api_client.assistants.search({
+  //     graphId: 'Anubis',
+  //     metadata: { user_id: userId },
+  //     limit: 100,
+  //     offset: 0,
+  //     sortOrder: 'desc',
+  //     sortBy: 'created_at',
+  //   });
+
+  console.log('breakpoint');
+
   // LIST AVATARS SEARCH ASSISTANTS
-  const assistants_search_promise = await fetch(
-    `${import.meta.env.VITE_LANGGRAPH_API_SERVER_URL}/assistants/search`,
-    {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'x-api-key': `${import.meta.env.VITE_LANGGRAPH_API_SERVER_KEY}`,
-      },
-      body: JSON.stringify({
-        graph_id: 'Anubis',
-        metadata: {
-          user_id: userId,
-        },
-        if_exists: 'raise',
-        limit: 100,
-        offset: 0,
-        sort_by: 'created_at',
-        sort_order: 'asc',
-      }),
-    }
-  );
+  // const assistants_search_promise = await fetch(
+  //   `${import.meta.env.VITE_LANGGRAPH_API_SERVER_URL}/assistants/search`,
+  //   {
+  //     method: 'POST',
+  //     headers: {
+  //       'Content-Type': 'application/json',
+  //       'x-api-key': `${import.meta.env.VITE_LANGGRAPH_API_SERVER_KEY}`,
+  //     },
+  //     body: JSON.stringify({
+  //       graph_id: 'Anubis',
+  //       metadata: {
+  //         user_id: userId,
+  //       },
+  //       if_exists: 'raise',
+  //       limit: 100,
+  //       offset: 0,
+  //       sort_by: 'created_at',
+  //       sort_order: 'asc',
+  //     }),
+  //   }
+  // );
 
   // Example body call
   // {
@@ -294,20 +342,7 @@ export const getAvatars = async (userId, limitCount = 50, skip = 0) => {
 
   console.log(`userId: ${userId}`);
 
-  const assistants_search_promise_json = await assistants_search_promise.json();
-  console.log(
-    'assistants_search_promise_json:',
-    JSON.stringify(assistants_search_promise_json)
-  );
-
-  console.log(
-    `assistants_search_promise_json: ${assistants_search_promise_json}`
-  );
-
-  // const snapshot = await getDocs(avatarsQuery);
-  // const avatars = [];
-
-  console.log(`GET AVATRARS ${assistants_search_promise_json}`);
+  console.log(`GET AVATARS ${JSON.stringify(assistants_search_list)}`);
 
   // for (const docSnapshot of snapshot.docs.slice(skip, skip + limitCount)) {
   //   const data = docSnapshot.data();
@@ -344,7 +379,7 @@ export const getAvatars = async (userId, limitCount = 50, skip = 0) => {
   //   });
   // }
 
-  return assistants_search_promise_json;
+  return assistants_search_list;
 };
 
 export const updateAvatar = async (userId, avatarId, updates) => {
