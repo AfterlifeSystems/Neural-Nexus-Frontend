@@ -215,17 +215,13 @@ const AuthComponent = () => {
           setProfile(data.user);
           console.log(`data.session.access_token: ${data}`);
           if (data.session?.access_token) {
-            setAccessToken(data.session.access_token);
+            setAccessToken(data.session['access_token']);
           } else {
             setAccessToken('');
           }
 
           console.log(
             'XXXXXXXXXXXXXXXXXXXXXXXXX userCredential: ' + JSON.stringify(data)
-          );
-          console.log(
-            'XXXXXXXXXXXXXXXXXXXXXXXXX userCredential.user: ' +
-              JSON.stringify(data.user)
           );
 
           // GET AVATARS
@@ -234,11 +230,11 @@ const AuthComponent = () => {
           const avatars = await getAvatars(data.user.id);
 
           console.log('AVATARS LIST SHOULD BE RETRIEVED');
-          console.log(`avatars: ${avatars}`);
+          console.log(`avatars: ${JSON.stringify(avatars)}`);
 
           console.log('SETTING AVATARS FOR USER');
           if (avatars) {
-            console.log(`avatars: ${avatars}`);
+            console.log(`avatars: ${JSON.stringify(avatars)}`);
             setUserAvatars(avatars);
           } else {
             setUserAvatars([]);
