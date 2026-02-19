@@ -218,20 +218,10 @@ export const MediaProvider = ({ children }) => {
       activeAvatar.metadata.assistant_id,
       {
         input: { messages },
-        config: {
-          configurable: {
-            user_id: user.id,
-            assistant_id: activeAvatar.metadata.assistant_id,
-          },
-        },
+        user_id: user.id,
+        assistant_id: activeAvatar.metadata.assistant_id,
       }
     );
-
-    //     metadata: {
-    //   user_id: user.id,
-    //   assistant_id: assistant.metadata.assistant_id,
-    //   thread_id: activeAvatar.metadata.active_conversation,
-    // },
 
     console.log(
       `thread_run_await_response_json: ${thread_run_await_response_json}`
