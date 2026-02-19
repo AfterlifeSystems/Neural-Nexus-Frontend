@@ -148,13 +148,18 @@ export const MediaProvider = ({ children }) => {
     //   query: searchQuery,
     // });
 
-    console.log(`active_conversation: ${active_conversation}`);
+    // console.log(`active_conversation: ${active_conversation}`);
 
-    body = JSON.stringify({
-      threadId: active_conversation,
-    });
+    // let body = JSON.stringify({
+    //   threadId: active_conversation,
+    // });
 
-    const thread_get_reasponse = langgraph_api_client.threads.get(body);
+    // console.log(activeConversation);
+
+    const thread_get_response_json =
+      await langgraph_api_client.threads.get(activeConversation);
+
+    // const thread_get_response_json = await thread_get_response.json();
 
     // const thread_get_response = await fetch(
     //   `${import.meta.env.VITE_LANGGRAPH_API_SERVER_URL}/threads/${active_conversation}`,
@@ -166,7 +171,7 @@ export const MediaProvider = ({ children }) => {
     //   }
     // );
 
-    const thread_get_response_json = await thread_get_response.json();
+    // const thread_get_response_json = await thread_get_response.json();
 
     console.log(`thread_get_response_json: ${thread_get_response_json}`);
     if (thread_get_response_json['values'] != null) {
@@ -188,7 +193,7 @@ export const MediaProvider = ({ children }) => {
   ) {
     console.log(`message_content: ${message_content}`);
 
-    let input = { messages: [{ role: 'user', content: message_content }] };
+    let messages = [{ role: 'user', content: message_content }];
 
     console.log(`context: ${JSON.stringify(context)}`);
 
@@ -203,14 +208,28 @@ export const MediaProvider = ({ children }) => {
       apiKey: import.meta.env.VITE_LANGGRAPH_API_SERVER_KEY,
     });
 
-    runQuery = JSON.stringify({
-      threadId: activeAvatar.metadata.active_conversation,
-      assistantId: activeAvatar.metadata.assistant_id,
-      payload: { input: input },
-    });
+    console.log(`messages: ${messages}`);
+    // let runQuery = JSON.stringify();
 
-    const thread_run_await_restponse =
-      await langgraph_api_client.runs.wait(runQeury);
+    // console.log(`runQuery:${JSON.stringify(runQuery)}`);
+
+    const thread_run_await_response_json = await langgraph_api_client.runs.wait(
+      activeAvatar.metadata.active_conversation,
+      activeAvatar.metadata.assistant_id,
+      {
+        input: { messages },
+        config: {
+          configurable: {
+            user_id: user.id,
+            assistant_id: activeAvatar.metadata.assistant_id,
+          },
+        },
+      }
+    );
+
+    console.log(
+      `thread_run_await_response_json: ${thread_run_await_response_json}`
+    );
 
     // let payload = JSON.stringify({
     //   assistant_id: activeAvatar.metadata.assistant_id,
@@ -236,8 +255,7 @@ export const MediaProvider = ({ children }) => {
     //   }
     // );
 
-    const thread_run_await_response_json =
-      await thread_run_await_response.json();
+    console.log('breakpoint post message send');
 
     if (
       '__error__' in thread_run_await_response_json &&
