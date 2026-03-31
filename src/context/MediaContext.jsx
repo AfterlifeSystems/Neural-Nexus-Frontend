@@ -22,7 +22,6 @@ import { useAuth } from './AuthContext';
 
 import { toast } from 'react-hot-toast';
 import { Client } from '@langchain/langgraph-sdk';
-import { query } from 'firebase/firestore';
 
 const MediaContext = createContext();
 
