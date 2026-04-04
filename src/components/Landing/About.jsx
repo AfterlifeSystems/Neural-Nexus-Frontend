@@ -14,9 +14,9 @@ export default function About() {
         <p className="text-lg text-center">
           Our mission is to empower human communication through advanced AI and
           neural technologies, creating a future where interactions are seamless
-          and meaningful. We aim towards enabling those with unmet medical needs
-          to interface with the world and to augment human capability in the
-          future.
+          and meaningful. We aim towards extending human consciousness,
+          improving health and well being through self-awareness and augmenting
+          human capability and means of interfacing with technologies in future.
         </p>
       </div>
     </section>
