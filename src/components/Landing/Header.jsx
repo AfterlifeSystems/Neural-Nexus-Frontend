@@ -57,7 +57,7 @@ export default function Header() {
                 Neural Nexus
               </span>
               <span className="text-xs sm:text-sm text-teal-300/70 font-light tracking-[0.2em] hidden sm:block uppercase">
-                Innovative Brain-Computer Interface Solutions
+                Authentic Artificial Intelligence
               </span>
             </div>
           </div>
