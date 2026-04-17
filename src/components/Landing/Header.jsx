@@ -101,7 +101,7 @@ export default function Header() {
               onClick={handleTryNow}
               className="relative px-3 py-2 bg-gradient-to-r bg-white/5 text-white font-bold rounded-lg overflow-hidden group hover:shadow-xl hover:shadow-teal-500/40 transition-all duration-300 transform hover:scale-105"
             >
-              <span className="relative z-10">Try Now</span>
+              <span className="relative z-10">Try API</span>
               <div className="absolute inset-0 bg-gradient-to-r from-teal-500 to-teal-400 opacity-0 group-hover:opacity-100 transition-opacity duration-300"></div>
               <div className="absolute inset-0 bg-white/20 translate-x-full group-hover:translate-x-0 transition-transform duration-700 skew-x-12"></div>
               <div className="absolute -inset-1 bg-gradient-to-r from-teal-500 to-teal-400 rounded-lg opacity-0 group-hover:opacity-50 blur transition-all duration-300"></div>
