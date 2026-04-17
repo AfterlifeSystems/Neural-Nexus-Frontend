@@ -52,11 +52,11 @@ export default function Hero() {
     >
       <div className="text-center z-10">
         <h2 className="text-4xl md:text-6xl font-bold mb-4">
-          AI Avatars Powered With Your Social Media To Extend Consciousness``
+          Extend Consciousness with Authentic Avatars
         </h2>
         <p className="text-lg md:text-xl mb-6">
-          Create authentic AI avatars powered by social media for seamless,
-          personalized interactions.
+          Create authentic AI avatars powered by social media and personal data
+          for seamless, personalized interactions.
         </p>
       </div>
     </section>
