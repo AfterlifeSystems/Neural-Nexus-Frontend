@@ -1,42 +1,15 @@
 import { useEffect, useState } from 'react';
-import { getNgrokHttpsUrl, getDbHttpsUrl } from '../context/NgrokAPIStore';
 
-const SecureImage = ({ mediaId, filename, accessToken }) => {
+const SecureImage = ({ mediaUrl, filename }) => {
   const [imageSrc, setImageSrc] = useState(null);
 
   useEffect(() => {
-    let isMounted = true;
-    let objectUrl = null;
-
-    const fetchImage = async () => {
-      try {
-        const res = await fetch(`${getDbHttpsUrl()}/media/${mediaId}`, {
-          method: 'GET',
-          headers: {
-            Authorization: `Bearer ${accessToken}`,
-            'ngrok-skip-browser-warning': '69420',
-          },
-        });
-
-        if (!res.ok) {
-          throw new Error(`Failed to fetch image: ${res.status}`);
-        }
-
-        const blob = await res.blob();
-        objectUrl = URL.createObjectURL(blob);
-        if (isMounted) setImageSrc(objectUrl);
-      } catch (err) {
-        console.error('Secure image load failed:', err);
-      }
-    };
-
-    fetchImage();
-
-    return () => {
-      isMounted = false;
-      if (objectUrl) URL.revokeObjectURL(objectUrl);
-    };
-  }, [mediaId, accessToken]);
+    if (mediaUrl) {
+      setImageSrc(mediaUrl);
+    } else {
+      console.warn('SecureImage: no mediaUrl provided.');
+    }
+  }, [mediaUrl]);
 
   if (!imageSrc)
     return <div className="text-xs text-gray-400 italic">Loading image...</div>;

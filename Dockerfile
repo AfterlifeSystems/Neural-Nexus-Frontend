@@ -11,7 +11,7 @@ RUN npm ci
 COPY . .
 
 # Expose port 80
-EXPOSE 5173
+EXPOSE 8080
 
 # Start nginx server
-CMD ["npm", "run", "dev", "--", "--host"]
+CMD ["npm", "run", "prod", "--", "--host"]

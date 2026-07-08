@@ -1,3 +1,4 @@
+# Dockerfile.dev
 # Stage 1: Build the app
 FROM node:20
 
@@ -5,6 +6,8 @@ WORKDIR /app
 
 # Copy package files first for caching
 COPY package.json package-lock.json ./
+
+RUN apt-get update && apt-get install -y netcat-openbsd
 
 # Install dependencies initially
 RUN npm ci
@@ -16,4 +19,5 @@ COPY . .
 EXPOSE 5173
 
 # Start dev script
-CMD ["./dev-boot.sh"]
+# CMD ["./dev-boot.sh"]
+

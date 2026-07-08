@@ -1,3 +1,5 @@
+**/supabase/**
+**/chroma_data/**
 .vercel/
 node_modules/**
 **/.vite/

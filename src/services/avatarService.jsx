@@ -1,113 +1,4 @@
-// services/AvatarService.jsx
-import { getDbHttpsUrl } from '../context/NgrokAPIStore';
-
-export const AvatarService = {
-  async getAll(accessToken) {
-    try {
-      const res = await fetch(`${getDbHttpsUrl()}/management/avatars/get_all`, {
-        method: 'GET',
-        headers: {
-          Authorization: `Bearer ${accessToken}`,
-          Accept: 'application/json',
-        },
-      });
-
-      if (!res.ok) throw new Error(await res.text());
-      return await res.json();
-    } catch (err) {
-      console.error('Failed to fetch avatars:', err);
-      return [];
-    }
-  },
-
-  async createAvatar(accessToken, payload) {
-    try {
-      // Create FormData instead of JSON
-      const formData = new FormData();
-
-      // Add required fields
-      formData.append('name', payload.name);
-
-      // Add optional description (only if provided)
-      if (payload.description) {
-        formData.append('description', payload.description);
-      }
-
-      // Add optional icon file
-      if (payload.iconFile) {
-        formData.append('icon', payload.iconFile);
-      }
-
-      const response = await fetch(
-        `${getDbHttpsUrl()}/management/avatars/create`,
-        {
-          method: 'POST',
-          headers: {
-            Authorization: `Bearer ${accessToken}`,
-            Accept: 'application/json',
-          },
-          body: formData,
-        }
-      );
-
-      if (!response.ok) throw new Error(await response.text());
-      return await response.json();
-    } catch (error) {
-      console.error('Error creating avatar:', error);
-      throw error;
-    }
-  },
-
-  async deleteAvatar(accessToken, avatar_id) {
-    try {
-      const response = await fetch(
-        `${getDbHttpsUrl()}/management/avatars/delete`,
-        {
-          method: 'POST',
-          headers: {
-            Authorization: `Bearer ${accessToken}`,
-            'Content-Type': 'application/x-www-form-urlencoded',
-            Accept: 'application/json',
-          },
-          body: new URLSearchParams({ avatar_id }),
-        }
-      );
-      const res = await response.json();
-      if (res.status !== 'success') throw new Error(JSON.stringify(res));
-      return res;
-    } catch (error) {
-      console.error('Avatar Service: Error deleting avatar:', error);
-      throw error;
-    }
-  },
-
-  async selectAvatar(accessToken, avatar_id) {
-    try {
-      console.log('update');
-
-      const response = await fetch(
-        `${getDbHttpsUrl()}/management/avatars/select_avatar`,
-        {
-          method: 'POST',
-          headers: {
-            Authorization: `Bearer ${accessToken}`,
-            'Content-Type': 'application/x-www-form-urlencoded',
-            Accept: 'application/json',
-          },
-          body: new URLSearchParams({ avatar_id }),
-        }
-      );
-      const res = await response.json();
-      // console.log(res);
-      if (res.status !== 'success') throw new Error(JSON.stringify(res));
-      return res;
-    } catch (error) {
-      console.error('Avatar Service: Error selecting avatar:', error);
-      throw error;
-    }
-  },
-};
-
+// services/avatarService.jsx
 import {
   collection,
   addDoc,
@@ -121,6 +12,8 @@ import {
   where,
   orderBy,
   limit,
+  arrayUnion,
+  arrayRemove,
 } from 'firebase/firestore';
 import {
   ref,
@@ -131,185 +24,403 @@ import {
 } from 'firebase/storage';
 import { db, storage } from '../firebase/config';
 import { v4 as uuidv4 } from 'uuid';
+import { createClient } from '@supabase/supabase-js';
+import { Client } from '@langchain/langgraph-sdk';
 
-export const createAvatar = async (userId, name, description, iconFile) => {
+// Add this function to your avatarService.jsx file
+
+/**
+ * Upload documents to the data-loading API
+ * @param {string} userId - User ID
+ * @param {string} avatarId - Avatar ID
+ * @param {string} targetAvatarName - Target avatar name
+ * @param {FileList|File[]} files - Files to upload
+ * @param {boolean} isReferenceImage - Whether the file is a reference image
+ * @param {boolean} isReferenceAudio - Whether the file is reference audio
+ * @returns {Promise<Object>} Upload response
+ */
+export const uploadToDataLoadingApi = async (
+  // UPLOAD MEDIA
+  userId,
+  avatarId,
+  targetAvatarName,
+  files,
+  isReferenceImage = false,
+  isReferenceAudio = false
+) => {
+  const results = [];
+
+  // Upload each file separately as the API expects single file uploads
+  for (const file of files) {
+    //   const formData = new FormData();
+    //   formData.append('file', file);
+    //   formData.append('target_avatar_name', targetAvatarName);
+    //   formData.append('user_id', userId);
+    //   formData.append('avatar_id', avatarId);
+    //   formData.append('is_reference_image', isReferenceImage);
+    //   formData.append('is_reference_audio', isReferenceAudio);
+
+    const formData = new FormData();
+    formData.append('files', file);
+    formData.append('user_id', userId);
+    formData.append('assistant_id', avatarId);
+
+    console.log(`uploadToDataLoadingApi: ${uploadToDataLoadingApi}`);
+
+    console.log(`avatarId ${avatarId}`);
+
+    try {
+      const response = await fetch(
+        `${import.meta.env.VITE_LANGGRAPH_API_SERVER_URL}` + '/upload-media',
+        {
+          method: 'POST',
+          headers: {
+            'x-api-key': `${import.meta.env.VITE_LANGGRAPH_API_SERVER_KEY}`,
+          },
+          body: formData,
+        }
+      );
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(
+          errorData.detail || `Upload failed with status ${response.status}`
+        );
+      }
+
+      // update the uploaded file list
+      // const avatarRef = doc(db, 'users', userId, 'avatars', avatarId);
+
+      // await updateDoc(avatarRef, {
+      //   files: arrayUnion(file.name),
+      // });
+
+      const result = await response.json();
+      results.push({
+        file: file.name,
+        success: true,
+        data: result,
+      });
+    } catch (error) {
+      console.error(`Failed to upload ${file.name}:`, error);
+      results.push({
+        file: file.name,
+        success: false,
+        error: error.message,
+      });
+    }
+  }
+  return results;
+};
+
+export const createAvatar = async (user, name, description, iconFile) => {
+  // CREATE ASSISTANT CREATE AVATAR
+  if (!user) throw new Error('No authenticated user');
+
+  const userId = user.id;
   const avatarId = uuidv4();
   const conversationId = uuidv4(); // Create default conversation ID
 
-  const avatarData = {
-    avatar_id: avatarId,
-    user_id: userId,
-    name: name.trim(),
-    description: (description || '').trim(),
-    created_at: new Date(),
-    icon: null,
-    files: [],
-    conversations: [conversationId], // List of conversation IDs
-    default_conversation: conversationId, // Track the default conversation
-  };
-
-  // Upload icon if provided
-  if (iconFile) {
-    if (iconFile.size > 4 * 1024 * 1024) {
-      throw new Error('Icon exceeds 4 MB limit');
-    }
-    const iconRef = ref(
-      storage,
-      `users/${userId}/avatars/${avatarId}/icon/${uuidv4()}_${iconFile.name}`
-    );
-    await uploadBytes(iconRef, iconFile);
-    avatarData.icon = iconRef.fullPath;
-  }
-
-  // Create avatar document with avatarId as document ID
-  const avatarRef = doc(db, 'avatars', avatarId);
-  await setDoc(avatarRef, avatarData);
-
-  // Create default conversation document
-  const conversationRef = doc(
-    db,
-    `avatars/${avatarId}/conversations`,
-    conversationId
+  console.log(
+    'XXXXXXXXXXXXXXXXXXXXXXXXXX USER XXXXXXXXXXXXXXXXXXXXXXXXXXX avatarService'
   );
-  await setDoc(conversationRef, {
-    conversation_id: conversationId,
-    avatar_id: avatarId,
-    user_id: userId,
-    title: 'Default Conversation',
-    created_at: new Date(),
-    updated_at: new Date(),
-    is_default: true,
-  });
 
-  // Update user's avatar list
-  const userRef = doc(db, 'users', userId);
-  const userDoc = await getDoc(userRef);
-  const avatars = userDoc.data().avatars || [];
-  await updateDoc(userRef, {
-    avatars: [...avatars, avatarId],
-    last_used_avatar: avatarId,
-  });
-
+  console.log(user);
   // Create directory structure in Storage (using .keep files)
-  const directories = [
-    `users/${userId}/vectorstore/.keep`,
-    `users/${userId}/avatars/${avatarId}/adapters/.keep`,
-    `users/${userId}/avatars/${avatarId}/adapters/training_data/.keep`,
-    `users/${userId}/avatars/${avatarId}/vectorstore_data/.keep`,
-  ];
 
-  for (const dirPath of directories) {
-    try {
-      const dirRef = ref(storage, dirPath);
-      await uploadBytes(dirRef, new Blob([''], { type: 'text/plain' }));
-    } catch (error) {
-      console.warn(`Failed to create directory ${dirPath}:`, error);
-    }
-  }
+  // const directories = [
+  //   `users/${userId}/.keep`,
+  //   `users/${userId}/avatars/${avatarId}/adapters/.keep`,
+  //   `users/${userId}/avatars/${avatarId}/adapters/training_data/.keep`,
+  // ];
+
+  // for (const dirPath of directories) {
+  //   try {
+  //     const dirRef = ref(storage, dirPath);
+  //     await uploadBytes(dirRef, new Blob([''], { type: 'text/plain' }));
+  //   } catch (error) {
+  //     console.warn(`Failed to create directory ${dirPath}:`, error);
+  //   }
+  // }
 
   // Generate download URLs
-  const iconUrl = avatarData.icon
-    ? await getDownloadURL(ref(storage, avatarData.icon))
-    : null;
-  const userVectorstoreUrl = await getDownloadURL(
-    ref(storage, `users/${userId}/vectorstore/.keep`)
+  // const qloraAdapterUrl = await getDownloadURL(
+  //   ref(storage, `users/${userId}/avatars/${avatarId}/adapters/.keep`)
+  // );
+  // const qloraTrainingUrl = await getDownloadURL(
+  //   ref(
+  //     storage,
+  //     `users/${userId}/avatars/${avatarId}/adapters/training_data/.keep`
+  //   )
+  // );
+
+  // Store as a Digital Twin document following firestore_structure.md
+  const avatarData = {
+    avatar_id: avatarId,
+    user_id: user.id,
+    name: name,
+    description: (description || '').trim(),
+    created_at: new Date().toISOString(),
+    icon: null, // will be an object {url, storagePath, name, size, type}
+    reference_audio: null,
+    active_conversation: conversationId,
+  };
+
+  // LANGGRAPH API SERVER CLIENT
+  const create_assistant_promise = await fetch(
+    `${import.meta.env.VITE_LANGGRAPH_API_SERVER_URL}/assistants`,
+    {
+      method: 'POST',
+      headers: {
+        'x-api-key': `${import.meta.env.VITE_LANGGRAPH_API_SERVER_KEY}`,
+      },
+      body: JSON.stringify({
+        assistant_id: avatarId,
+        graph_id: 'Anubis',
+        metadata: {
+          user_id: user.id,
+          assistant_id: avatarId,
+          active_conversation: conversationId,
+        },
+        if_exists: 'raise',
+        description: description,
+        name: name,
+      }),
+    }
   );
-  const avatarVectorstoreUrl = await getDownloadURL(
-    ref(storage, `users/${userId}/avatars/${avatarId}/vectorstore_data/.keep`)
+
+  const create_assistant_promise_json = await create_assistant_promise.json();
+
+  console.log(
+    `create_assistant_promise_json: ${JSON.stringify(create_assistant_promise_json)}`
   );
-  const qloraAdapterUrl = await getDownloadURL(
-    ref(storage, `users/${userId}/avatars/${avatarId}/adapters/.keep`)
+
+  // Update user's avatars list
+  console.log('XXXXXXXXXXXXXXXXXXXXXXXXXXXX I CREATED AN AVATAR');
+
+  //  create initial conversation
+  const create_thread_response = await fetch(
+    `${import.meta.env.VITE_LANGGRAPH_API_SERVER_URL}/threads`,
+    {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-key': `${import.meta.env.VITE_LANGGRAPH_API_SERVER_KEY}`,
+      },
+      body: JSON.stringify({
+        metadata: { user_id: userId, assistant_id: avatarId },
+        if_exists: 'raise',
+        graph_id: 'Anubis',
+        thread_id: conversationId,
+        // ttl: {
+        //   strategy: 'delete',
+        //   ttl: 1,
+        // },
+        // supersteps: [
+        //   {
+        //     updates: [
+        //       {
+        //         values: [{}],
+        //         command: {
+        //           update: null,
+        //           resume: null,
+        //           goto: {
+        //             node: '',
+        //             input: null,
+        //           },
+        //         },
+        //         as_node: '',
+        //       },
+        //     ],
+        //   },
+        // ],
+      }),
+    }
   );
-  const qloraTrainingUrl = await getDownloadURL(
-    ref(
-      storage,
-      `users/${userId}/avatars/${avatarId}/adapters/training_data/.keep`
-    )
+
+  const create_thread_response_json = await create_thread_response.json();
+
+  console.log(
+    `create_thread_response_json: ${JSON.stringify(create_thread_response_json)}`
   );
 
   return {
-    id: avatarId,
-    avatar_id: avatarId,
-    user_id: userId,
-    name: avatarData.name,
-    description: avatarData.description,
-    created_at: avatarData.created_at.toISOString(),
-    icon: avatarData.icon,
-    icon_url: iconUrl,
-    user_vectorstore_url: userVectorstoreUrl,
-    avatar_vectorstore_data_url: avatarVectorstoreUrl,
-    qlora_adapter_url: qloraAdapterUrl,
-    qlora_training_data_url: qloraTrainingUrl,
-    adapter_initialized: true,
-    vectorstore_initialized: true,
+    avatarData,
   };
 };
 
 export const getAvatars = async (userId, limitCount = 50, skip = 0) => {
-  const avatarsQuery = query(
-    collection(db, 'avatars'),
-    where('user_id', '==', userId),
-    orderBy('created_at', 'asc')
+  // SEARCH ASSISTANTS
+  // LANGGRAPH API SERVER CLIENT
+
+  console.log(
+    `VITE_LANGGRAPH_API_SERVER_URL: ${import.meta.env.VITE_LANGGRAPH_API_SERVER_URL}`
   );
 
-  const snapshot = await getDocs(avatarsQuery);
-  const avatars = [];
+  let apiUrl = import.meta.env.VITE_LANGGRAPH_API_SERVER_URL;
+  let apiKey = import.meta.env.VITE_LANGGRAPH_API_SERVER_KEY;
 
-  for (const docSnapshot of snapshot.docs.slice(skip, skip + limitCount)) {
-    const data = docSnapshot.data();
-    let iconUrl = null;
+  console.log(`apiUrl: ${apiUrl}`);
+  console.log(`apiKey: ${apiKey}`);
 
-    if (data.icon) {
-      try {
-        iconUrl = await getDownloadURL(ref(storage, data.icon));
-      } catch (error) {
-        console.error('Error getting icon URL:', error);
-      }
-    }
+  // const langgraph_api_client = new Client(apiUrl, apiKey);
 
-    avatars.push({
-      avatar_id: docSnapshot.id,
-      name: data.name,
-      description: data.description,
-      icon: iconUrl,
-    });
-  }
+  const langgraph_api_client = new Client({
+    apiUrl: import.meta.env.VITE_LANGGRAPH_API_SERVER_URL,
+    apiKey: import.meta.env.VITE_LANGGRAPH_API_SERVER_KEY,
+  });
 
-  return avatars;
+  console.log(`userId:${userId}`);
+
+  // let searchQuery = JSON.stringify({
+  //   graphId: 'Anubis',
+  //   metadata: { user_id: userId },
+  //   limit: 100,
+  //   offset: 0,
+  //   sortOrder: 'desc',
+  //   sortBy: 'created_at',
+  // });
+
+  const assistants_search_list = await langgraph_api_client.assistants.search({
+    graphId: 'Anubis',
+    metadata: { user_id: userId },
+    limit: 100,
+    offset: 0,
+    sortOrder: 'desc',
+    sortBy: 'created_at',
+  });
+
+  // console.log(`active_conversation: ${active_conversation}`);
+
+  // const assistants_search_promise =
+  //   await langgraph_api_client.assistants.search({
+  //     graphId: 'Anubis',
+  //     metadata: { user_id: userId },
+  //     limit: 100,
+  //     offset: 0,
+  //     sortOrder: 'desc',
+  //     sortBy: 'created_at',
+  //   });
+
+  console.log('breakpoint');
+
+  // LIST AVATARS SEARCH ASSISTANTS
+  // const assistants_search_promise = await fetch(
+  //   `${import.meta.env.VITE_LANGGRAPH_API_SERVER_URL}/assistants/search`,
+  //   {
+  //     method: 'POST',
+  //     headers: {
+  //       'Content-Type': 'application/json',
+  //       'x-api-key': `${import.meta.env.VITE_LANGGRAPH_API_SERVER_KEY}`,
+  //     },
+  //     body: JSON.stringify({
+  //       graph_id: 'Anubis',
+  //       metadata: {
+  //         user_id: userId,
+  //       },
+  //       if_exists: 'raise',
+  //       limit: 100,
+  //       offset: 0,
+  //       sort_by: 'created_at',
+  //       sort_order: 'asc',
+  //     }),
+  //   }
+  // );
+
+  // Example body call
+  // {
+  //   "graph_id": "Anubis",
+  //   "metadata": {
+  //     "user_id": "xVvtmkUhwwE6CZ6V6y8IojlYKy5C"
+  //   },
+  //   "if_exists": "raise",
+  //   "limit": 100,
+  //   "offset": 0,
+  //   "sort_by":"assistant_id",
+  //   "sort_order": "asc"
+  // }
+
+  console.log(`userId: ${userId}`);
+
+  console.log(`GET AVATARS ${JSON.stringify(assistants_search_list)}`);
+
+  // for (const docSnapshot of snapshot.docs.slice(skip, skip + limitCount)) {
+  //   const data = docSnapshot.data();
+  //   let iconUrl = null;
+
+  //   if (data.icon) {
+  //     try {
+  //       const storagePath = data.icon.storagePath || data.icon;
+  //       if (storagePath) {
+  //         iconUrl = await getDownloadURL(ref(storage, storagePath));
+  //       } else if (data.icon.url) {
+  //         iconUrl = data.icon.url;
+  //       }
+  //     } catch (error) {
+  //       console.error('Error getting icon URL:', error);
+  //     }
+  //   }
+
+  //   avatars.push({
+  //     avatar_id: docSnapshot.id,
+  //     name: data.name,
+  //     description: data.description,
+  //     icon: iconUrl,
+  //   });
+  // }
+
+  // Add the icon to the avatars
+  // for (const avatar in assistants_search_promise) {
+  //   avatars.push({
+  //     avatar_id: avatar.avatar_id,
+  //     name: avatar.name,
+  //     description: avatar.description,
+  //     icon: iconUrl,
+  //   });
+  // }
+
+  return assistants_search_list;
 };
 
 export const updateAvatar = async (userId, avatarId, updates) => {
-  const avatarRef = doc(db, 'avatars', avatarId);
+  const avatarRef = doc(db, 'users', userId, 'avatars', avatarId);
   const avatarDoc = await getDoc(avatarRef);
 
   if (!avatarDoc.exists() || avatarDoc.data().user_id !== userId) {
-    throw new Error('Avatar not found or unauthorized');
+    throw new Error('Digital twin not found or unauthorized');
   }
 
   const updateData = {
-    updated_at: new Date(),
+    updated_at: new Date().toISOString(),
     ...updates,
   };
+
+  // If updating icon path/object, normalize to object shape
+  if (updateData.icon && typeof updateData.icon === 'string') {
+    // assume it's a storage path string; try to resolve URL
+    try {
+      const url = await getDownloadURL(ref(storage, updateData.icon));
+      updateData.icon = {
+        url,
+        storagePath: updateData.icon,
+      };
+    } catch (e) {
+      // leave as-is
+    }
+  }
 
   await updateDoc(avatarRef, updateData);
 
   // If icon was updated, return the new URL
-  if (updates.icon) {
-    const iconUrl = await getDownloadURL(ref(storage, updates.icon));
-    return { icon_url: iconUrl };
+  if (updateData.icon) {
+    return { icon_url: updateData.icon.url || null };
   }
 
   return {};
 };
 
-export const updateAvatarWithIcon = async (
-  userId,
-  avatarId,
-  name,
-  description,
-  iconFile
-) => {
-  const avatarRef = doc(db, 'avatars', avatarId);
+export const updateAvatarWithIcon = async (userId, avatarId, iconFile) => {
+  const avatarRef = doc(db, 'users', userId, 'avatars', avatarId);
   const avatarDoc = await getDoc(avatarRef);
 
   if (!avatarDoc.exists() || avatarDoc.data().user_id !== userId) {
@@ -317,15 +428,8 @@ export const updateAvatarWithIcon = async (
   }
 
   const updates = {
-    updated_at: new Date(),
+    updated_at: new Date().toISOString(),
   };
-
-  if (name !== undefined) {
-    updates.name = name.trim();
-  }
-  if (description !== undefined) {
-    updates.description = (description || '').trim();
-  }
 
   let iconUrl = null;
   if (iconFile) {
@@ -333,24 +437,33 @@ export const updateAvatarWithIcon = async (
       throw new Error('Icon exceeds 4 MB limit');
     }
 
-    // Delete old icon if exists
+    // Delete old icon if exists (support object or string)
     const oldIcon = avatarDoc.data().icon;
-    if (oldIcon) {
+    const oldStoragePath =
+      oldIcon?.storagePath || (typeof oldIcon === 'string' ? oldIcon : null);
+    if (oldStoragePath) {
       try {
-        await deleteObject(ref(storage, oldIcon));
+        await deleteObject(ref(storage, oldStoragePath));
       } catch (error) {
         console.warn('Failed to delete old icon:', error);
       }
     }
 
-    // Upload new icon
+    // Upload new icon and store as object
     const iconRef = ref(
       storage,
       `users/${userId}/avatars/${avatarId}/icon/${uuidv4()}_${iconFile.name}`
     );
     await uploadBytes(iconRef, iconFile);
-    updates.icon = iconRef.fullPath;
-    iconUrl = await getDownloadURL(iconRef);
+    const url = await getDownloadURL(iconRef);
+    updates.icon = {
+      url,
+      storagePath: iconRef.fullPath,
+      name: iconFile.name,
+      size: iconFile.size,
+      type: iconFile.type,
+    };
+    iconUrl = url;
   }
 
   await updateDoc(avatarRef, updates);
@@ -364,12 +477,12 @@ export const updateAvatarWithIcon = async (
 };
 
 export const deleteAvatar = async (userId, avatarId) => {
-  const avatarRef = doc(db, 'avatars', avatarId);
-  const avatarDoc = await getDoc(avatarRef);
-
-  if (!avatarDoc.exists() || avatarDoc.data().user_id !== userId) {
-    throw new Error('Avatar not found or unauthorized');
-  }
+  // this needs to be updated to recursively delete all messages in the conversation collection,
+  // all conversations in the avatar collection,
+  // and the avatar
+  // currently deletes the avatar from the array list in the users document
+  const userRef = doc(db, 'users', userId);
+  const avatarRef = doc(db, 'users', userId, 'avatars', avatarId);
 
   // Delete all files in Storage
   const avatarStorageRef = ref(storage, `users/${userId}/avatars/${avatarId}`);
@@ -381,15 +494,38 @@ export const deleteAvatar = async (userId, avatarId) => {
   }
 
   // Delete avatar document
+  const avatarDoc = await getDoc(avatarRef);
+  if (!avatarDoc.exists()) {
+    throw new Error('Avatar not found or unauthorized');
+  }
+
   await deleteDoc(avatarRef);
 
   // Remove from user's avatar list
-  const userRef = doc(db, 'users', userId);
-  const userDoc = await getDoc(userRef);
-  const avatars = userDoc.data().avatars || [];
-  await updateDoc(userRef, {
-    avatars: avatars.filter((id) => id !== avatarId),
-  });
+  await updateDoc(userRef, { avatars: arrayRemove(avatarId) });
+
+  // LANGSMITH API SERVER
+  client = Client(`${import.meta.env.VITE_LANGGRAPH_API_SERVER_KEY}`);
+  await client.assistants.delete({ assistant_id: avatarId });
+
+  // SUPABASE POSTGRES_DB_STORE
+  const supabase = createClient(
+    `${import.meta.env.VITE_LANGGRAPH_API_SERVER_URL}`,
+    `${import.meta.env.VITE_LANGGRAPH_API_SERVER_KEY}`
+  );
+
+  // DELETE VECTORSTORE DOCUMENTS
+  const { data_vectorstore, error_vectorstore } = await supabase
+    .from('langchain_pg_embedding')
+    .delete()
+    .eq('user_id', userId)
+    .eq('assistant_id', avatarId);
+
+  // DELETE POSTGRES DB STORE ENTRIES
+  const { data_pgdb_store, error_pgdb_store } = await supabase
+    .from('store')
+    .delete()
+    .eq('prefix', `${userId}.${assistantId}`);
 
   return {
     status: 'success',
@@ -398,51 +534,69 @@ export const deleteAvatar = async (userId, avatarId) => {
   };
 };
 
-export const selectAvatar = async (userId, avatarId) => {
-  const avatarRef = doc(db, 'avatars', avatarId);
+export const deleteDocument = async (userId, avatarId, filename) => {
+  // update document file list
+  avatarRef = doc(db, 'users', userId, 'avatars', avatarId);
+  try {
+  } catch (error) {
+    console.error(`error removing file ${filename} from array: `, error);
+    throw error;
+  }
+  updateDoc(avatarRef, { files: arrayRemove(filename) });
+
+  // SUPABASE POSTGRES_DB_STORE
+  const supabase = createClient(
+    `${import.meta.env.VITE_LANGGRAPH_API_SERVER_URL}`,
+    `${import.meta.env.VITE_LANGGRAPH_API_SERVER_KEY}`
+  );
+
+  // DELETE VECTOR STORE DOCUMENT MEDIA UPLOAD
+  const { data_vectorstore, error_vectorstore } = await supabase
+    .from('langchain_pg_embedding')
+    .delete()
+    .eq('user_id', userId)
+    .eq('assistant_id', avatarId)
+    .eq('filename', filename);
+};
+
+export const selectAvatar = async (user, userId, avatarId) => {
+  const avatarRef = doc(db, 'users', userId, 'avatars', avatarId);
   const avatarDoc = await getDoc(avatarRef);
 
-  if (!avatarDoc.exists() || avatarDoc.data().user_id !== userId) {
-    throw new Error('Avatar not found or unauthorized');
-  }
+  // CREATE LANGGRAPH API CLIENT
+  client = new Client({ url: import.meta.env.VITE_LANGGRAPH_API_SERVER_URL });
+
+  // GET ASSISTANT
+  assistant = await client.assistants.get({ assistant_id: avatarId });
+
+  //   {
+  //   "assistant_id": "9aee271d-ccce-40db-874a-d70529560c77",
+  //   "graph_id": "Anubis",
+  //   "config": {},
+  //   "context": {},
+  //   "metadata": {
+  //     "user_id": "2feaa9d8-50c0-4550-81fa-9fb79bfe23f0",
+  //     "assistant_id": "9aee271d-ccce-40db-874a-d70529560c77"
+  //   },
+  //   "name": "testing_assistant",
+  //   "created_at": "2026-02-12T21:03:37.526944+00:00",
+  //   "updated_at": "2026-02-12T21:03:37.526944+00:00",
+  //   "version": 1,
+  //   "description": null
+  // }
+  // if (!avatarDoc.exists() || avatarDoc.data().user_id !== userId) {
+  //   throw new Error('Avatar not found or unauthorized');
+  // }
 
   const avatarData = avatarDoc.data();
 
-  // Ensure avatar has at least one conversation
-  let conversations = avatarData.conversations || [];
-  if (conversations.length === 0) {
-    // Create default conversation if none exists
-    const conversationId = uuidv4();
-    const conversationRef = doc(
-      db,
-      `avatars/${avatarId}/conversations`,
-      conversationId
-    );
-    await setDoc(conversationRef, {
-      conversation_id: conversationId,
-      avatar_id: avatarId,
-      user_id: userId,
-      title: 'Default Conversation',
-      created_at: new Date(),
-      updated_at: new Date(),
-      is_default: true,
-    });
-
-    await updateDoc(avatarRef, {
-      conversations: [conversationId],
-      default_conversation: conversationId,
-    });
-    conversations = [conversationId];
-  }
-
   // Update last_used_avatar
-  await updateDoc(doc(db, 'users', userId), {
-    last_used_avatar: avatarId,
-  });
+  // await updateDoc(doc(db, 'users', userId), {
+  //   last_used_avatar: avatarId,
+  // });
 
   // Get default conversation ID (or first conversation)
-  const defaultConversationId =
-    avatarData.default_conversation || conversations[0];
+  const defaultConversationId = avatarData.active_conversation;
 
   // Get messages from the default conversation
   const messagesQuery = query(
@@ -462,223 +616,5 @@ export const selectAvatar = async (userId, avatarId) => {
       doc.data().timestamp?.toDate().toISOString() || new Date().toISOString(),
   }));
 
-  // Generate URLs
-  const iconUrl = avatarData.icon
-    ? await getDownloadURL(ref(storage, avatarData.icon))
-    : null;
-  const userVectorstoreUrl = await getDownloadURL(
-    ref(storage, `users/${userId}/vectorstore/.keep`)
-  );
-  const avatarVectorstoreUrl = await getDownloadURL(
-    ref(storage, `users/${userId}/avatars/${avatarId}/vectorstore_data/.keep`)
-  );
-  const qloraAdapterUrl = await getDownloadURL(
-    ref(storage, `users/${userId}/avatars/${avatarId}/adapters/.keep`)
-  );
-  const qloraTrainingUrl = await getDownloadURL(
-    ref(
-      storage,
-      `users/${userId}/avatars/${avatarId}/adapters/training_data/.keep`
-    )
-  );
-
-  return {
-    status: 'success',
-    avatar_id: avatarId,
-    user_id: userId,
-    name: avatarData.name,
-    description: avatarData.description,
-    icon_url: iconUrl,
-    user_vectorstore_url: userVectorstoreUrl,
-    avatar_vectorstore_data_url: avatarVectorstoreUrl,
-    qlora_adapter_url: qloraAdapterUrl,
-    qlora_training_data_url: qloraTrainingUrl,
-    model_loaded: false,
-    vectorstore_loaded: false,
-    messages,
-    default_conversation: defaultConversationId,
-    conversations: conversations,
-  };
-};
-
-// Conversation management functions
-
-/**
- * Create a new conversation for an avatar
- */
-export const createConversation = async (
-  userId,
-  avatarId,
-  title = 'New Conversation'
-) => {
-  const avatarRef = doc(db, 'avatars', avatarId);
-  const avatarDoc = await getDoc(avatarRef);
-
-  if (!avatarDoc.exists() || avatarDoc.data().user_id !== userId) {
-    throw new Error('Avatar not found or unauthorized');
-  }
-
-  const conversationId = uuidv4();
-  const conversationRef = doc(
-    db,
-    `avatars/${avatarId}/conversations`,
-    conversationId
-  );
-
-  await setDoc(conversationRef, {
-    conversation_id: conversationId,
-    avatar_id: avatarId,
-    user_id: userId,
-    title: title.trim(),
-    created_at: new Date(),
-    updated_at: new Date(),
-    is_default: false,
-  });
-
-  // Update avatar's conversations list
-  const avatarData = avatarDoc.data();
-  const conversations = avatarData.conversations || [];
-  await updateDoc(avatarRef, {
-    conversations: [...conversations, conversationId],
-    updated_at: new Date(),
-  });
-
-  return {
-    conversation_id: conversationId,
-    title,
-    created_at: new Date().toISOString(),
-  };
-};
-
-/**
- * Get all conversations for an avatar
- */
-export const getConversations = async (userId, avatarId) => {
-  const avatarRef = doc(db, 'avatars', avatarId);
-  const avatarDoc = await getDoc(avatarRef);
-
-  if (!avatarDoc.exists() || avatarDoc.data().user_id !== userId) {
-    throw new Error('Avatar not found or unauthorized');
-  }
-
-  const conversationsQuery = query(
-    collection(db, `avatars/${avatarId}/conversations`),
-    orderBy('updated_at', 'desc')
-  );
-
-  const snapshot = await getDocs(conversationsQuery);
-  return snapshot.docs.map((doc) => ({
-    conversation_id: doc.id,
-    ...doc.data(),
-    created_at: doc.data().created_at?.toDate().toISOString(),
-    updated_at: doc.data().updated_at?.toDate().toISOString(),
-  }));
-};
-
-/**
- * Get a specific conversation
- */
-export const getConversation = async (userId, avatarId, conversationId) => {
-  const avatarRef = doc(db, 'avatars', avatarId);
-  const avatarDoc = await getDoc(avatarRef);
-
-  if (!avatarDoc.exists() || avatarDoc.data().user_id !== userId) {
-    throw new Error('Avatar not found or unauthorized');
-  }
-
-  const conversationRef = doc(
-    db,
-    `avatars/${avatarId}/conversations`,
-    conversationId
-  );
-  const conversationDoc = await getDoc(conversationRef);
-
-  if (!conversationDoc.exists()) {
-    throw new Error('Conversation not found');
-  }
-
-  return {
-    conversation_id: conversationId,
-    ...conversationDoc.data(),
-    created_at: conversationDoc.data().created_at?.toDate().toISOString(),
-    updated_at: conversationDoc.data().updated_at?.toDate().toISOString(),
-  };
-};
-
-/**
- * Update conversation title
- */
-export const updateConversation = async (
-  userId,
-  avatarId,
-  conversationId,
-  updates
-) => {
-  const avatarRef = doc(db, 'avatars', avatarId);
-  const avatarDoc = await getDoc(avatarRef);
-
-  if (!avatarDoc.exists() || avatarDoc.data().user_id !== userId) {
-    throw new Error('Avatar not found or unauthorized');
-  }
-
-  const conversationRef = doc(
-    db,
-    `avatars/${avatarId}/conversations`,
-    conversationId
-  );
-
-  await updateDoc(conversationRef, {
-    ...updates,
-    updated_at: new Date(),
-  });
-
-  return { status: 'success', conversation_id: conversationId };
-};
-
-/**
- * Delete a conversation (but ensure at least one remains)
- */
-export const deleteConversation = async (userId, avatarId, conversationId) => {
-  const avatarRef = doc(db, 'avatars', avatarId);
-  const avatarDoc = await getDoc(avatarRef);
-
-  if (!avatarDoc.exists() || avatarDoc.data().user_id !== userId) {
-    throw new Error('Avatar not found or unauthorized');
-  }
-
-  const avatarData = avatarDoc.data();
-  const conversations = avatarData.conversations || [];
-
-  // Ensure at least one conversation remains
-  if (conversations.length <= 1) {
-    throw new Error(
-      'Cannot delete the last conversation. Each avatar must have at least one conversation.'
-    );
-  }
-
-  // Delete conversation document (this will also delete all messages in subcollection)
-  const conversationRef = doc(
-    db,
-    `avatars/${avatarId}/conversations`,
-    conversationId
-  );
-  await deleteDoc(conversationRef);
-
-  // Update avatar's conversations list
-  const updatedConversations = conversations.filter(
-    (id) => id !== conversationId
-  );
-  const updateData = {
-    conversations: updatedConversations,
-    updated_at: new Date(),
-  };
-
-  // If deleted conversation was default, set first remaining as default
-  if (avatarData.default_conversation === conversationId) {
-    updateData.default_conversation = updatedConversations[0];
-  }
-
-  await updateDoc(avatarRef, updateData);
-
-  return { status: 'success', conversation_id: conversationId };
+  return {};
 };

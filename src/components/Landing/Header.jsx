@@ -1,11 +1,15 @@
 // src/components/Landing/Header.jsx
 import React, { useState, useEffect } from 'react';
 import NeuralNexusLogo from '../../assets/NeuralNexus.png';
+import { useNavigate } from 'react-router-dom'; // 1. Add this
+import { useAuth } from '../../context/AuthContext'; // 2. Add this
 
 export default function Header() {
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const [scrolled, setScrolled] = useState(false);
 
+  const navigate = useNavigate(); // 3. Initialize
+  const { user } = useAuth(); // 4. Initialize
   useEffect(() => {
     const handleScroll = () => {
       setScrolled(window.scrollY > 20);
@@ -16,6 +20,13 @@ export default function Header() {
 
   const toggleMenu = () => {
     setIsMenuOpen(!isMenuOpen);
+  };
+  const handleTryNow = () => {
+    if (user) {
+      navigate('/avatars'); // Go to app if logged in
+    } else {
+      navigate('/login'); // Go to login if not
+    }
   };
 
   const navItems = [
@@ -70,31 +81,30 @@ export default function Header() {
 
           {/* CTA Button - Desktop */}
           <div className="hidden lg:flex items-center">
-            <a
-              href="/app"
-              className="relative px-6 py-3 bg-gradient-to-r bg-white/5 text-white font-bold rounded-xl overflow-hidden group hover:shadow-2xl hover:shadow-teal-500/40 transition-all duration-300 transform hover:scale-105"
+            <button
+              onClick={handleTryNow}
+              className="relative px-3 py-2 bg-gradient-to-r bg-white/5 text-white font-bold rounded-lg overflow-hidden group hover:shadow-xl hover:shadow-teal-500/40 transition-all duration-300 transform hover:scale-105"
             >
-              <span className="relative z-10 tracking-wide">Try Now</span>
+              <span className="relative z-10">Try Now</span>
               <div className="absolute inset-0 bg-gradient-to-r from-teal-500 to-teal-400 opacity-0 group-hover:opacity-100 transition-opacity duration-300"></div>
               <div className="absolute inset-0 bg-white/20 translate-x-full group-hover:translate-x-0 transition-transform duration-700 skew-x-12"></div>
-              <div className="absolute -inset-1 bg-gradient-to-r from-teal-500 to-teal-400 rounded-xl opacity-0 group-hover:opacity-50 blur transition-all duration-300"></div>
-            </a>
+              <div className="absolute -inset-1 bg-gradient-to-r from-teal-500 to-teal-400 rounded-lg opacity-0 group-hover:opacity-50 blur transition-all duration-300"></div>
+            </button>
           </div>
 
           {/* Mobile Right Section - Try Now + Menu Button */}
           <div className="lg:hidden flex items-center space-x-2">
             {/* Mobile Try Now Button */}
-            <a
-              href="/app"
+
+            <button
+              onClick={handleTryNow}
               className="relative px-3 py-2 bg-gradient-to-r bg-white/5 text-white font-bold rounded-lg overflow-hidden group hover:shadow-xl hover:shadow-teal-500/40 transition-all duration-300 transform hover:scale-105"
             >
-              <span className="relative z-10 tracking-wide text-sm">
-                Try Now
-              </span>
+              <span className="relative z-10">Try Now</span>
               <div className="absolute inset-0 bg-gradient-to-r from-teal-500 to-teal-400 opacity-0 group-hover:opacity-100 transition-opacity duration-300"></div>
               <div className="absolute inset-0 bg-white/20 translate-x-full group-hover:translate-x-0 transition-transform duration-700 skew-x-12"></div>
               <div className="absolute -inset-1 bg-gradient-to-r from-teal-500 to-teal-400 rounded-lg opacity-0 group-hover:opacity-50 blur transition-all duration-300"></div>
-            </a>
+            </button>
 
             {/* Mobile menu button */}
             <button
