@@ -9,7 +9,7 @@ export default function Careers() {
     >
       <div className="container mx-auto">
         <h2 className="text-3xl font-bold text-center mb-8">
-          Join Our Waitlist
+          Join Our Waitlist asdf
         </h2>
         <p className="text-lg text-center">
           We’re seeking passionate early-adopters to pilot our cutting-edge
@@ -20,7 +20,7 @@ export default function Careers() {
           href="mailto:waitlist@neuralnexus.site"
           className="block text-center text-white hover:underline hover:text-purple-200 transition"
         >
-          waitlist@neuralnexus.site
+          waitlist@neuralnexus.site asdf
         </a>
       </div>
     </section>
