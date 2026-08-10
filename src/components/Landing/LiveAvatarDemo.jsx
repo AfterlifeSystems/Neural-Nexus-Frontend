@@ -57,19 +57,18 @@ export default function LiveAvatarDemo({ isEmbeddedInHero = false }) {
               : 'h-[min(80vh,720px)] min-h-[560px]'
           }`}
         >
-          {/* Streamlit Cloud serves the app from a wrapper page whose <body> is
-              transparent, so whatever the nested app frame does not cover falls
-              through to this iframe's own canvas. Left to default that canvas is
-              white, which is the block of whitespace that shows whenever the app
-              renders shorter than the frame. Painting the element Streamlit's own
-              dark background makes the gap invisible instead of glaring. */}
+          {/* This background only covers the gap before the frame paints. It
+              cannot cover the white band that appears when Streamlit's inner app
+              frame comes up shorter than this one: that band is the wrapper
+              document's own canvas, which is opaque and cross-origin, so neither
+              a background-color nor color-scheme here reaches it. The only lever
+              from this side is keeping the frame no taller than the viewport. */}
           <iframe
             src={embedUrl}
             title="Neural Nexus live avatar demo"
             allow="clipboard-write; microphone"
             referrerPolicy="no-referrer-when-downgrade"
             onLoad={() => setIsFrameLoaded(true)}
-            style={{ colorScheme: 'dark' }}
             className="w-full h-full border-0 bg-[#0e1117]"
           />
 
