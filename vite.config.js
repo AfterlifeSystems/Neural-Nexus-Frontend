@@ -11,7 +11,8 @@ export default defineConfig({
     },
   },
   plugins: [react(), tailwindcss()],
-  build: {
+    build: {
+    target: 'es2022',  // or 'esnext' – supports top-level await (ES2022+)
     sourcemap: true,
   }
 });
