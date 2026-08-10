@@ -7,7 +7,7 @@ export default function TermsOfService() {
         <h1 className="text-4xl font-bold text-purple-300 mb-6">
           Terms of Service
         </h1>
-        <p className="text-lg mb-4">Effective Date: July 4, 2025</p>
+        <p className="text-lg mb-4">Effective Date: July 4, 2026</p>
         <p className="mb-4">
           Welcome to Neural Nexus, operated by Afterlife Systems Inc. ("we,"
           "us," or "our") at{' '}

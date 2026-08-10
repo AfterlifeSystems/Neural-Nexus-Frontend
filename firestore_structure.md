@@ -14,7 +14,7 @@
 
 # Firestore collection hierarchy
 users/{userId}
-digital_twins/{digitalTwinId}
+avatars/{digitalTwinId}
   └── conversations/{conversationId}
       └── messages/{messageId}
 # Firestore security rules
@@ -27,19 +27,19 @@ service cloud.firestore {
     }
     
     // Digital Twins
-    match /digital_twins/{digitalTwinId} {
+    match /avatars/{digitalTwinId} {
       allow read, write: if request.auth != null && 
         request.auth.uid == resource.data.user_id;
       
       // Conversations subcollection
       match /conversations/{conversationId} {
         allow read, write: if request.auth != null && 
-          request.auth.uid == get(/databases/$(database)/documents/digital_twins/$(digitalTwinId)).data.user_id;
+          request.auth.uid == get(/databases/$(database)/documents/avatars/$(digitalTwinId)).data.user_id;
         
         // Messages subcollection
         match /messages/{messageId} {
           allow read, write: if request.auth != null && 
-            request.auth.uid == get(/databases/$(database)/documents/digital_twins/$(digitalTwinId)).data.user_id;
+            request.auth.uid == get(/databases/$(database)/documents/avatars/$(digitalTwinId)).data.user_id;
         }
       }
     }
@@ -48,7 +48,7 @@ service cloud.firestore {
 
 # Firebase Storage Hierarchy
 users/{userId}/
-  └── digital_twins/{digitalTwinId}/
+  └── avatars/{digitalTwinId}/
       ├── icon/
       │   └── {digitalTwinId}_icon.{ext}
       ├── reference_audio/
@@ -63,7 +63,7 @@ users/{userId}/
 rules_version = '2';
 service firebase.storage {
   match /b/{bucket}/o {
-    match /users/{userId}/digital_twins/{digitalTwinId}/{allPaths=**} {
+    match /users/{userId}/avatars/{digitalTwinId}/{allPaths=**} {
       allow read: if request.auth != null && request.auth.uid == userId;
       allow write: if request.auth != null && request.auth.uid == userId;
       allow delete: if request.auth != null && request.auth.uid == userId;
@@ -79,31 +79,31 @@ service firebase.storage {
   "created_at": "2025-08-23T04:43:30.342Z",
   "last_login": "2025-11-28T19:36:25.964Z",
   "currently_logged_in": false,
-  "digital_twins": [
+  "avatars": [
     "03631b03-2607-4a64-a3a6-f6ada35adf6c",
     "d838b7b2-c6db-4569-853d-309327a8ecbf"
   ],
-  "last_used_digital_twin": "03631b03-2607-4a64-a3a6-f6ada35adf6c"
+  "last_used_avatar": "03631b03-2607-4a64-a3a6-f6ada35adf6c"
 }
 
 # Digital Twin Object
-<!-- Location: digital_twins/{digitalTwinId} -->
+<!-- Location: avatars/{digitalTwinId} -->
 {
-  "digital_twin_id": "03631b03-2607-4a64-a3a6-f6ada35adf6c",
+  "avatar_id": "03631b03-2607-4a64-a3a6-f6ada35adf6c",
   "user_id": "27df12d9-9881-4369-bd75-e5c9538b0ea2",
   "name": "Shivon Zilis",
   "description": "Great Mother, Partner to Elon, Very Intelligent, Kind, Friendly, Good-Heart, Leader",
   "created_at": "2025-08-23T05:28:58.285Z",
   "icon": {
     "url": "https://firebasestorage.googleapis.com/...",
-    "storagePath": "users/27df12d9.../digital_twins/03631b03.../icon/icon.png",
+    "storagePath": "users/27df12d9.../avatars/03631b03.../icon/icon.png",
     "name": "icon.png",
     "size": 123456,
     "type": "image/png"
   },
   "reference_audio": {
     "url": "https://firebasestorage.googleapis.com/...",
-    "storagePath": "users/27df12d9.../digital_twins/03631b03.../reference_audio/audio.mp3",
+    "storagePath": "users/27df12d9.../avatars/03631b03.../reference_audio/audio.mp3",
     "name": "audio.mp3",
     "size": 234567,
     "type": "audio/mpeg"
@@ -112,7 +112,7 @@ service firebase.storage {
     {
       "id": "file-uuid-1",
       "url": "https://firebasestorage.googleapis.com/...",
-      "storagePath": "users/27df12d9.../digital_twins/03631b03.../files/document.pdf",
+      "storagePath": "users/27df12d9.../avatars/03631b03.../files/document.pdf",
       "name": "document.pdf",
       "size": 345678,
       "type": "application/pdf",
@@ -122,12 +122,12 @@ service firebase.storage {
   "system_prompt_reference_image_description": "",
   "system_prompt_reference_audio_description": "",
   "system_prompt_description": "",
-  "default_conversation": "conversationId1",
+  "active_conversation": "conversationId1",
   "conversations": ["conversationId1", "conversationId2",...]
 }
 
 # Conversation Object
-<!-- Location: digital_twins/{digitalTwinId}/conversations/{conversationId} -->
+<!-- Location: avatars/{digitalTwinId}/conversations/{conversationId} -->
 {
   "summary": "Discussion about AI and technology",
   "created_at": "2025-01-10T08:00:00.000Z",
@@ -137,16 +137,16 @@ service firebase.storage {
 
 
 # Message Document
-<!-- Location: digital_twins/{digitalTwinId}/conversations/{conversationId}/messages/{messageId} -->
+<!-- Location: avatars/{digitalTwinId}/conversations/{conversationId}/messages/{messageId} -->
 {
-  "role": "user",
+  "type": "user",
   "content": "Hello there",
   "media": [
     {
       "id": "media-uuid-1",
       "type": "image",
       "url": "https://firebasestorage.googleapis.com/...",
-      "storagePath": "users/27df12d9.../digital_twins/03631b03.../conversations/conv123/messages/msg456/image.jpg",
+      "storagePath": "users/27df12d9.../avatars/03631b03.../conversations/conv123/messages/msg456/image.jpg",
       "name": "photo.jpg",
       "size": 456789,
       "mimeType": "image/jpeg",
@@ -157,14 +157,14 @@ service firebase.storage {
 }
 <!-- message document response example -->
 {
-  "role": "assistant",
+  "type": "assistant",
   "content": "Hello there response",
   "media": [
     {
       "id": "media-uuid-1",
       "type": "image",
       "url": "https://firebasestorage.googleapis.com/...",
-      "storagePath": "users/27df12d9.../digital_twins/03631b03.../conversations/conv123/messages/msg456/image.jpg",
+      "storagePath": "users/27df12d9.../avatars/03631b03.../conversations/conv123/messages/msg456/image.jpg",
       "name": "photo.jpg",
       "size": 456789,
       "mimeType": "image/jpeg",
@@ -177,9 +177,9 @@ service firebase.storage {
 # Freemium model: you've hit your limit: upgrade to pro: $20
 
 # Digital Twin Object in Firestore
-digital_twin/{digital_twin_id}
+digital_twin/{avatar_id}
 {
-  "digital_twin_id": "03631b03-2607-4a64-a3a6-f6ada35adf6c",
+  "avatar_id": "03631b03-2607-4a64-a3a6-f6ada35adf6c",
   "user_id": "27df12d9-9881-4369-bd75-e5c9538b0ea2",
   "name": "Shivon Zilis",
   "description": "Great Mother, Partner to Elon, Very Intelligent, Kind, Friendly, Good-Heart, Leader",
@@ -190,7 +190,7 @@ digital_twin/{digital_twin_id}
   "system_prompt_reference_image_description": "",
   "system_prompt_reference_audio_description": "",
   "system_prompt_description": "",
-  "default_conversation": "conversationId1",
+  "active_conversation": "conversationId1",
   "conversations": [
     {
       "conversationId": "conversationId1",
@@ -201,7 +201,7 @@ digital_twin/{digital_twin_id}
       "messages": [
         {
           "messageId": "messageId1",
-          "role": "user",
+          "type": "user",
           "content": "Hello there",
           "media": [
             {
@@ -212,7 +212,7 @@ digital_twin/{digital_twin_id}
         },
         {
           "messageId": "messageId2",
-          "role": "assistant",
+          "type": "assistant",
           "content": "How are you?",
           "media": []
         }

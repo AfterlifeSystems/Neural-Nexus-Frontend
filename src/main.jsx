@@ -1,50 +1,62 @@
 // main.jsx
-
 import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 import './index.css';
-import App from './App.jsx';
 import { AuthProvider } from './context/AuthContext';
 import { MediaProvider } from './context/MediaContext.jsx';
-import ReactDOM from 'react-dom/client';
-import { BrowserRouter, Routes, Route } from 'react-router-dom';
+import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
+
+import 'react-toastify/dist/ReactToastify.css';
 import LandingPage from './components/Landing/LandingPage.jsx';
 import PrivacyPolicy from './components/Landing/PrivacyPolicy.jsx';
 import TermsOfService from './components/Landing/TermsOfService.jsx';
-import { ToastContainer, Zoom } from 'react-toastify';
-import 'react-toastify/dist/ReactToastify.css';
-import AuthCallback from './components/AuthCallback.jsx';
-import ResetPassword from './components/ResetPassword.jsx';
+import ProtectedRoute from './components/ProtectedRoute';
+import AvatarSelectionComponent from './components/AvatarSelectionComponent';
+import AuthComponent from './components/AuthComponent';
+import ChatArea from './components/ChatArea';
+
+import AccountSettings from './components/AccountSettings';
+import { useAuth } from './context/AuthContext';
+import VantaBackground from './components/VantaBackground.jsx';
+
+import { toast, Toaster } from 'react-hot-toast';
 
 createRoot(document.getElementById('root')).render(
-  <StrictMode>
+  <>
+    <Toaster
+      position="top-center"
+      toastOptions={{
+        duration: 5000,
+        style: {
+          background: 'rgba(30,30,40,0.95)',
+          color: 'white',
+          border: '1px solid rgba(255,255,255,0.12)',
+        },
+      }}
+    />
+    <VantaBackground />
     <AuthProvider>
       <MediaProvider>
         <BrowserRouter>
-          <ToastContainer
-            position="top-center"
-            autoClose={false}
-            closeOnClick={true}
-            transition={Zoom}
-          />
           <Routes>
-            {/* Home/Landing Page */}
-            <Route path="/" element={<LandingPage />} />
-
-            {/* Main App: All /app routes handled inside App.jsx */}
-            <Route path="/app/*" element={<App />} />
-
+            {/* Public landing pages */}
+            <Route path="/welcome" element={<LandingPage />} />
             <Route path="/privacy" element={<PrivacyPolicy />} />
             <Route path="/terms" element={<TermsOfService />} />
 
-            {/* Auth Callback - handles email verification, OAuth returns, etc. */}
-            <Route path="/auth/callback" element={<AuthCallback />} />
+            {/* Login is public */}
+            {/* <Route path="/login" element={<AuthComponent />} /> */}
+            <Route path="/*" element={<LandingPage />} />
 
-            {/* Password Reset Page */}
-            <Route path="/auth/reset-password" element={<ResetPassword />} />
+            {/* All protected routes under one layout */}
+            <Route element={<ProtectedRoute />}>
+              <Route path="/avatars" element={<AvatarSelectionComponent />} />
+              <Route path="/chat/:avatarId" element={<ChatArea />} />
+              {/* <Route path="/account" element={<AccountSettings />} /> */}
+            </Route>
           </Routes>
         </BrowserRouter>
       </MediaProvider>
     </AuthProvider>
-  </StrictMode>
+  </>
 );

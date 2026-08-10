@@ -4,7 +4,6 @@ import { AudioLines } from 'lucide-react';
 import { useMedia } from '../context/MediaContext';
 import Dock from './Dock';
 import { HiXMark } from 'react-icons/hi2';
-import thoughtToImageService from '../services/ThoughtToImageService';
 
 const InputBar = ({
   avatar_id,
@@ -12,8 +11,6 @@ const InputBar = ({
   setShowDataExchangeDropdown,
   showDataExchangeDropdown,
   dropdownRef,
-  isLiveChatView = false,
-  onActivateLiveChat,
 }) => {
   const fileInputRef = useRef(null);
   const textareaRef = useRef(null);
@@ -26,15 +23,15 @@ const InputBar = ({
   const [isHovered, setIsHovered] = useState(false);
 
   const {
-    sendMessage,
+    handleSendMessageMediaContext,
     inputMessage,
     setInputMessage,
     mediaFiles,
     setMediaFiles,
     handleFileChange,
     removeFile,
-    sender,
-    setSender,
+    type,
+    setType,
     isTranscribing,
     startTranscription,
     stopTranscription,
@@ -95,13 +92,15 @@ const InputBar = ({
   };
 
   const handleSendMessage = () => {
-    if (!inputMessage.trim() && mediaFiles.length === 0) {
-      if (isLiveChatView && onActivateLiveChat) {
-        onActivateLiveChat();
-      }
-      return;
-    }
+    // handle live chat activation
+    // if (!inputMessage.trim() && mediaFiles.length === 0) {
+    //   if (isLiveChatView && onActivateLiveChat) {
+    //     onActivateLiveChat();
+    //   }
+    //   return;
+    // }
 
+    console.log(`handle send message`);
     if (
       inputMessage.trim() &&
       (messageHistory.length === 0 ||
@@ -112,8 +111,8 @@ const InputBar = ({
 
     setHistoryIndex(-1);
     setTempMessage('');
-    setSender('user');
-    sendMessage(mediaFiles, () => {});
+    setType('user');
+    handleSendMessageMediaContext(mediaFiles, () => {});
     setMediaFiles([]);
     setInputMessage('');
     setCaptions({});
@@ -149,14 +148,14 @@ const InputBar = ({
     }
   }, [inputMessage]);
 
-  useEffect(() => {
-    thoughtToImageService.onReconstructedImage = ({ file }) => {
-      setMediaFiles((prevFiles) => [...prevFiles, file]);
-    };
-    return () => {
-      thoughtToImageService.onReconstructedImage = null;
-    };
-  }, [mediaFiles.length]);
+  // useEffect(() => {
+  //   thoughtToImageService.onReconstructedImage = ({ file }) => {
+  //     setMediaFiles((prevFiles) => [...prevFiles, file]);
+  //   };
+  //   return () => {
+  //     thoughtToImageService.onReconstructedImage = null;
+  //   };
+  // }, [mediaFiles.length]);
 
   return (
     <div
@@ -224,7 +223,7 @@ const InputBar = ({
         <button
           onClick={() => {
             if (!inputMessage.trim() && mediaFiles.length === 0) {
-              if (onActivateLiveChat) onActivateLiveChat();
+              // enable live-chat
             } else {
               handleSendMessage();
             }

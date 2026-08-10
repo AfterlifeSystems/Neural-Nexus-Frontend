@@ -1,3 +1,5 @@
+**/supabase/**
+**/chroma_data/**
 .vercel/
 node_modules/**
 **/.vite/
@@ -202,3 +204,4 @@ cython_debug/
 
 .vscode
 .vercel
+.env*

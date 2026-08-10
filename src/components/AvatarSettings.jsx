@@ -1,4 +1,3 @@
-// components/AvatarSettings.jsx
 import React, { useState, useEffect, useRef } from 'react';
 import { toast } from 'react-hot-toast';
 import Dropzone from 'react-dropzone';
@@ -23,8 +22,21 @@ import {
   Camera,
   Mic,
 } from 'lucide-react';
+import { v4 as uuidv4 } from 'uuid';
 import { useAuth } from '../context/AuthContext';
-import { AvatarService } from '../services/avatarService';
+import {
+  // uploadUrl,
+  // connectSocial,
+  // disconnectSocial,
+  deleteDocument,
+  // uploadDocuments,
+  updateAvatarWithIcon,
+  selectAvatar,
+  deleteAvatar,
+  updateAvatar,
+  uploadToDataLoadingApi,
+} from '../services/avatarService';
+import { useNavigate } from 'react-router-dom';
 
 // Social Media Platform Configuration
 const SOCIAL_PLATFORMS = [
@@ -41,23 +53,18 @@ const SOCIAL_PLATFORMS = [
   { id: 'microsoft', name: 'Microsoft', icon: Globe, color: '#00A4EF' },
   { id: 'reddit', name: 'Reddit', icon: Globe, color: '#FF4500' },
 ];
-
-const AvatarSettings = ({ avatarId, accessToken, onAvatarDeleted }) => {
+const AvatarSettings = ({ avatarId, accessToken }) => {
   const [links, setLinks] = useState([]);
   const [newLink, setNewLink] = useState('');
   const [files, setFiles] = useState([]);
   const [editingDesc, setEditingDesc] = useState(false);
   const [updatedDesc, setUpdatedDesc] = useState('');
-  const [updatedIcon, setUpdatedIcon] = useState('');
   const [updatedAvatarName, setUpdatedAvatarName] = useState('');
   const [editingName, setEditingName] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
-
   // New state for document management
   const [isDragging, setIsDragging] = useState(false);
-  const [documents, setDocuments] = useState([]);
   const [socialLogins, setSocialLogins] = useState([]);
-  const [loading, setLoading] = useState(false);
   const [showLoginModal, setShowLoginModal] = useState(false);
   const [selectedPlatform, setSelectedPlatform] = useState(null);
   const [loginCredentials, setLoginCredentials] = useState({
@@ -65,16 +72,8 @@ const AvatarSettings = ({ avatarId, accessToken, onAvatarDeleted }) => {
     password: '',
   });
   const [manualUrl, setManualUrl] = useState('');
-
-  const {
-    activeAvatar,
-    setActiveAvatar,
-    deleteAvatar,
-    getAvatars,
-    currentUser,
-    selectAvatar,
-  } = useAuth();
-  const hasRun = useRef(false);
+  const { user, profile, activeAvatar, isLoading, setIsLoading } = useAuth();
+  const navigate = useNavigate();
 
   // Global drag and drop handlers
   useEffect(() => {
@@ -87,11 +86,9 @@ const AvatarSettings = ({ avatarId, accessToken, onAvatarDeleted }) => {
         setIsDragging(true);
       }
     };
-
     const handleDragOver = (e) => {
       e.preventDefault();
     };
-
     const handleDragLeave = (e) => {
       if (
         e.target === document.body ||
@@ -100,26 +97,22 @@ const AvatarSettings = ({ avatarId, accessToken, onAvatarDeleted }) => {
         setIsDragging(false);
       }
     };
-
     const handleDrop = async (e) => {
       e.preventDefault();
       setIsDragging(false);
       await handleFileUpload(e);
     };
-
     const handlePaste = async (e) => {
       const text = e.clipboardData.getData('text/plain');
       if (text.startsWith('http://') || text.startsWith('https://')) {
         await handleUrlUpload(text);
       }
     };
-
     document.addEventListener('dragenter', handleDragEnter);
     document.addEventListener('dragover', handleDragOver);
     document.addEventListener('dragleave', handleDragLeave);
     document.addEventListener('drop', handleDrop);
     document.addEventListener('paste', handlePaste);
-
     return () => {
       document.removeEventListener('dragenter', handleDragEnter);
       document.removeEventListener('dragover', handleDragOver);
@@ -129,52 +122,6 @@ const AvatarSettings = ({ avatarId, accessToken, onAvatarDeleted }) => {
     };
   }, []);
 
-  const initialPopulationOfAvatarData = async () => {
-    if (hasRun.current) return;
-    hasRun.current = true;
-
-    if (!activeAvatar?.avatar_id || !currentUser) return;
-
-    try {
-      const avatarProfileData = await AvatarService.selectAvatar(
-        currentUser.uid,
-        activeAvatar.avatar_id
-      );
-      setUpdatedDesc(avatarProfileData.description);
-      setUpdatedIcon(avatarProfileData.icon_url);
-      setUpdatedAvatarName(avatarProfileData.name);
-
-      // Load existing documents and social logins if available
-      if (avatarProfileData.documents) {
-        setDocuments(avatarProfileData.documents);
-      }
-      if (avatarProfileData.socialLogins) {
-        setSocialLogins(avatarProfileData.socialLogins);
-      }
-    } catch (err) {
-      console.error('Failed to fetch avatar profile:', err);
-    }
-  };
-
-  const fetchAvatarData = async () => {
-    if (!activeAvatar?.avatar_id || !currentUser) return null;
-
-    try {
-      const avatarProfileData = await AvatarService.selectAvatar(
-        currentUser.uid,
-        activeAvatar.avatar_id
-      );
-      return avatarProfileData;
-    } catch (err) {
-      console.error('Failed to fetch avatar profile:', err);
-      return null;
-    }
-  };
-
-  useEffect(() => {
-    initialPopulationOfAvatarData();
-  }, []);
-
   const determineContentType = (file) => {
     const type = file.type;
     if (type.startsWith('image/')) return 'image';
@@ -182,7 +129,6 @@ const AvatarSettings = ({ avatarId, accessToken, onAvatarDeleted }) => {
     if (type.startsWith('video/')) return 'video';
     if (type === 'application/pdf') return 'pdf';
     if (type.startsWith('text/') || type === 'application/json') return 'text';
-
     const filename = file.name.toLowerCase();
     if (filename.endsWith('.pdf')) return 'pdf';
     if (
@@ -193,69 +139,83 @@ const AvatarSettings = ({ avatarId, accessToken, onAvatarDeleted }) => {
       return 'text';
     return 'file';
   };
-
   const handleFileUpload = async (e) => {
-    setLoading(true);
-    const items = e.dataTransfer?.items || [];
+    console.log('ENTRYPOINT HANDLE FILE UPLOAD');
     const filesList = e.dataTransfer?.files || e.target?.files || [];
-
-    const formData = new FormData();
-    formData.append('avatar_id', activeAvatar.avatar_id);
-
-    // Handle files
-    for (let i = 0; i < filesList.length; i++) {
-      formData.append('files', filesList[i]);
-    }
-
+    if (filesList.length === 0) return;
     try {
-      if (!currentUser) throw new Error('Not logged in');
-      const uploaded = await AvatarService.uploadDocuments(
-        currentUser.uid,
-        activeAvatar.avatar_id,
-        filesList
-      );
-      if (uploaded && uploaded.length > 0) {
-        setDocuments((prev) => [...prev, ...uploaded]);
+      if (!user) throw new Error('Not logged in');
+      if (!activeAvatar) throw new Error('No active avatar');
+
+      const newPending = Array.from(filesList).map((file) => ({
+        id: uuidv4(),
+        name: file.name,
+        type: determineContentType(file),
+        loading: true,
+        previewUrl: URL.createObjectURL(file),
+        file, // keep file ref for upload
+      }));
+
+      for (const pending of newPending) {
+        const loadingToastId = toast.loading(`Uploading ${pending.name}...`, {
+          position: 'bottom-left',
+        });
+        const file = pending.file;
+        console.log(`activeAvatar: ${activeAvatar}`);
+        try {
+          const uploadResults = await uploadToDataLoadingApi(
+            user.id,
+            activeAvatar.assistant_id,
+            activeAvatar.name,
+            [file]
+          );
+
+          console.log(`uploadResults: ${JSON.stringify(uploadResults)}`);
+
+          if (!uploadResults[0].success) {
+            throw new Error(uploadResults[0].error);
+          }
+          toast.dismiss(loadingToastId);
+          // toast.message(`${pending.name} uploaded successfully`);
+          // toast.message(`Successful Upload Results: ${uploadResults}`);
+          toast.success(`${pending.name} uploaded successfully`, {
+            position: 'bottom-left',
+          });
+        } catch (error) {
+          toast.dismiss(loadingToastId);
+          toast.error(`Failed to upload ${file.name}: ${error.message}`, {
+            position: 'bottom-left',
+          });
+        }
       }
-      toast.success('Files uploaded successfully');
     } catch (err) {
       toast.error('Upload failed: ' + err.message);
-    } finally {
-      setLoading(false);
+      console.error('Upload error:', err);
     }
   };
-
   const handleUrlUpload = async (url) => {
-    setLoading(true);
+    const tempId = uuidv4();
 
     try {
-      if (!currentUser) throw new Error('Not logged in');
-      const docObj = await AvatarService.uploadUrl(
-        currentUser.uid,
-        activeAvatar.avatar_id,
-        url
-      );
-      if (docObj) setDocuments((prev) => [...prev, docObj]);
+      if (!user) throw new Error('Not logged in');
+      if (!activeAvatar) throw new Error('No active avatar');
+      console.log('url upload logic here');
+      throw error;
       toast.success('URL added successfully');
     } catch (err) {
       toast.error('URL upload failed: ' + err.message);
-    } finally {
-      setLoading(false);
     }
   };
-
   const handleSocialLogin = (platform) => {
     setSelectedPlatform(platform);
     setShowLoginModal(true);
   };
-
   const submitSocialLogin = async () => {
     if (!loginCredentials.username || !loginCredentials.password) return;
-
     try {
-      if (!currentUser) throw new Error('Not logged in');
-      const login = await AvatarService.connectSocial(
-        currentUser.uid,
+      if (!user) throw new Error('Not logged in');
+      const login = await connectSocial(
+        user.id,
         activeAvatar.avatar_id,
         selectedPlatform,
         loginCredentials.username,
@@ -263,7 +223,9 @@ const AvatarSettings = ({ avatarId, accessToken, onAvatarDeleted }) => {
       );
       setSocialLogins((prev) => [...prev, login]);
       toast.success(
-        `Connected to ${SOCIAL_PLATFORMS.find((p) => p.id === selectedPlatform)?.name}`
+        `Connected to ${
+          SOCIAL_PLATFORMS.find((p) => p.id === selectedPlatform)?.name
+        }`
       );
       setShowLoginModal(false);
       setLoginCredentials({ username: '', password: '' });
@@ -272,18 +234,16 @@ const AvatarSettings = ({ avatarId, accessToken, onAvatarDeleted }) => {
       toast.error('Social login failed: ' + err.message);
     }
   };
-
   const removeSocialLogin = async (id) => {
     try {
-      if (!currentUser) throw new Error('Not logged in');
-      await AvatarService.disconnectSocial(currentUser.uid, activeAvatar.avatar_id, id);
+      if (!user) throw new Error('Not logged in');
+      await disconnectSocial(user.id, activeAvatar.avatar_id, id);
       setSocialLogins((prev) => prev.filter((login) => login.id !== id));
       toast.success('Social account disconnected');
     } catch (err) {
       toast.error('Failed to disconnect: ' + err.message);
     }
   };
-
   const getSocialUrl = (platform, username) => {
     const urls = {
       youtube: `https://youtube.com/@${username}`,
@@ -301,71 +261,64 @@ const AvatarSettings = ({ avatarId, accessToken, onAvatarDeleted }) => {
     };
     return urls[platform] || '#';
   };
-
   const deleteDocument = async (id) => {
     try {
-      if (!currentUser) throw new Error('Not logged in');
-      await AvatarService.deleteDocument(currentUser.uid, activeAvatar.avatar_id, id);
-      setDocuments((prev) => prev.filter((doc) => doc.id !== id));
+      if (!user) throw new Error('Not logged in');
+      await deleteDocument(user.id, activeAvatar.avatar_id, id);
       toast.success('Document deleted');
     } catch (err) {
       toast.error('Failed to delete: ' + err.message);
     }
   };
 
-  const groupedDocuments = documents.reduce((acc, doc) => {
-    if (!acc[doc.type]) acc[doc.type] = [];
-    acc[doc.type].push(doc);
-    return acc;
-  }, {});
-
   const renderDocumentPreview = (doc) => {
+    if (doc.loading) {
+      return (
+        <div className="flex items-center justify-center h-48 bg-white/5 rounded-lg">
+          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-400"></div>
+        </div>
+      );
+    }
+    const src = doc.previewUrl || doc.url;
     switch (doc.type) {
       case 'image':
         return (
           <div className="relative w-full h-48 bg-white/5 rounded-lg overflow-hidden">
             <img
-              src={doc.url}
+              src={src}
               alt={doc.name}
               className="w-full h-full object-cover"
             />
           </div>
         );
-
       case 'video':
         return (
           <div className="relative w-full h-48 bg-white/5 rounded-lg overflow-hidden">
-            <video
-              src={doc.url}
-              controls
-              className="w-full h-full object-cover"
-            />
+            <video src={src} controls className="w-full h-full object-cover" />
           </div>
         );
-
       case 'audio':
         return (
           <div className="flex items-center gap-3 p-4 bg-white/5 rounded-lg">
             <Music className="text-blue-400" size={32} />
-            <audio src={doc.url} controls className="flex-1" />
+            <audio src={src} controls className="flex-1" />
           </div>
         );
-
       case 'pdf':
+      case 'text':
         return (
           <div className="flex items-center gap-3 p-4 bg-white/5 rounded-lg">
             <FileText className="text-red-400" size={32} />
             <a
-              href={doc.url}
+              href={src}
               target="_blank"
               rel="noopener noreferrer"
               className="text-blue-400 hover:underline flex items-center gap-2"
             >
-              Open PDF <ExternalLink size={16} />
+              Open File <ExternalLink size={16} />
             </a>
           </div>
         );
-
       case 'youtube':
       case 'twitter':
       case 'web':
@@ -383,7 +336,6 @@ const AvatarSettings = ({ avatarId, accessToken, onAvatarDeleted }) => {
             </a>
           </div>
         );
-
       default:
         return (
           <div className="flex items-center gap-3 p-4 bg-white/5 rounded-lg">
@@ -393,7 +345,6 @@ const AvatarSettings = ({ avatarId, accessToken, onAvatarDeleted }) => {
         );
     }
   };
-
   const getTypeIcon = (type) => {
     switch (type) {
       case 'image':
@@ -410,7 +361,6 @@ const AvatarSettings = ({ avatarId, accessToken, onAvatarDeleted }) => {
         return <Globe className="text-cyan-400" />;
     }
   };
-
   // Camera capture handler
   const handleCameraCapture = async () => {
     try {
@@ -418,11 +368,9 @@ const AvatarSettings = ({ avatarId, accessToken, onAvatarDeleted }) => {
         video: { facingMode: 'user' },
         audio: false,
       });
-
       mediaStreamRef.current = stream;
       setCaptureMode('camera');
       setShowCaptureModal(true);
-
       setTimeout(() => {
         if (videoRef.current) {
           videoRef.current.srcObject = stream;
@@ -432,42 +380,33 @@ const AvatarSettings = ({ avatarId, accessToken, onAvatarDeleted }) => {
       toast.error('Camera access denied or unavailable');
     }
   };
-
   const capturePhoto = async () => {
     const video = videoRef.current;
     const canvas = canvasRef.current;
-
     canvas.width = video.videoWidth;
     canvas.height = video.videoHeight;
-
     const ctx = canvas.getContext('2d');
     ctx.drawImage(video, 0, 0);
-
     const blob = await new Promise((resolve) =>
       canvas.toBlob(resolve, 'image/jpeg', 0.95)
     );
-
     const file = new File([blob], 'avatar-photo.jpg', { type: 'image/jpeg' });
     try {
-      if (!currentUser) throw new Error('Not logged in');
-      const uploaded = await AvatarService.uploadDocuments(
-        currentUser.uid,
-        activeAvatar.avatar_id,
-        [file]
-      );
-      if (uploaded && uploaded.length > 0)
-        setDocuments((prev) => [...prev, ...uploaded]);
-      cleanupMedia();
+      // if (!user) throw new Error('Not logged in');
+      // const uploaded = await uploadDocuments(user.id, activeAvatar.avatar_id, [
+      //   file,
+      // ]);
+      // if (uploaded && uploaded.length > 0)
+      //   setDocuments((prev) => [...prev, ...uploaded]);
+      // cleanupMedia();
       toast.success('Photo captured successfully');
     } catch (err) {
       toast.error('Photo upload failed: ' + err.message);
       cleanupMedia();
     }
   };
-
   const VOICE_SCRIPT = `
   Please read the following naturally.
-  
   1. Today is a beautiful day, and I am speaking clearly and comfortably.
   2. The quick brown fox jumps over the lazy dog.
   3. I enjoy learning new things and explaining ideas calmly.
@@ -476,7 +415,6 @@ const AvatarSettings = ({ avatarId, accessToken, onAvatarDeleted }) => {
   6. Emotions: I am happy. I am curious. I am thoughtful. I am focused.
   7. Finally, describe something you enjoy doing in your free time.
   `;
-
   // Audio recording handler
   const handleAudioRecord = async () => {
     try {
@@ -487,20 +425,15 @@ const AvatarSettings = ({ avatarId, accessToken, onAvatarDeleted }) => {
           sampleRate: 48000,
         },
       });
-
       mediaStreamRef.current = stream;
       recordedChunksRef.current = [];
-
       const recorder = new MediaRecorder(stream, {
         mimeType: 'audio/webm',
       });
-
       recorder.ondataavailable = (e) => {
         if (e.data.size > 0) recordedChunksRef.current.push(e.data);
       };
-
       recorder.onstop = uploadAudioRecording;
-
       mediaRecorderRef.current = recorder;
       setCaptureMode('audio');
       setShowCaptureModal(true);
@@ -508,68 +441,56 @@ const AvatarSettings = ({ avatarId, accessToken, onAvatarDeleted }) => {
       toast.error('Microphone access denied or unavailable');
     }
   };
-
   const handleIconUpload = async (acceptedFiles) => {
     const formData = new FormData();
     formData.append('icon', acceptedFiles[0]);
     formData.append('avatar_id', activeAvatar.avatar_id);
-
     try {
-      if (!currentUser) throw new Error('Not logged in');
-      await AvatarService.updateAvatarWithIcon(
-        currentUser.uid,
+      if (!user) throw new Error('Not logged in');
+      await updateAvatarWithIcon(
+        user.id,
         activeAvatar.avatar_id,
-        null,
-        null,
         acceptedFiles[0]
       );
-
-      const avatarProfileData = await fetchAvatarData();
-      setUpdatedIcon(avatarProfileData.icon_url);
       toast.success('Avatar icon updated');
     } catch (err) {
       toast.error(err.message);
     }
   };
-
   const handleDescSave = async (updatedDesc) => {
-    const formData = new FormData();
-    formData.append('description', updatedDesc);
-    formData.append('avatar_id', activeAvatar.avatar_id);
-
     try {
-      if (!currentUser) throw new Error('Not logged in');
-      await AvatarService.updateAvatar(currentUser.uid, activeAvatar.avatar_id, {
+      if (!user) throw new Error('Not logged in');
+      await updateAvatar(user.id, activeAvatar.avatar_id, {
         description: updatedDesc,
       });
-
-      const avatarProfileData = await fetchAvatarData();
-      setUpdatedDesc(avatarProfileData.description);
+      const avatarProfileData = await selectAvatar(
+        user,
+        user.id,
+        activeAvatar.avatar_id
+      );
+      setUpdatedDesc(avatarProfileData.description || '');
       toast.success('Description updated');
     } catch (err) {
       toast.error(err.message);
     }
   };
-
   const handleUpdateName = async (updatedAvatarName) => {
-    const formData = new FormData();
-    formData.append('name', updatedAvatarName);
-    formData.append('avatar_id', activeAvatar.avatar_id);
-
     try {
-      if (!currentUser) throw new Error('Not logged in');
-      await AvatarService.updateAvatar(currentUser.uid, activeAvatar.avatar_id, {
+      if (!user) throw new Error('Not logged in');
+      await updateAvatar(user.id, activeAvatar.avatar_id, {
         name: updatedAvatarName,
       });
-
-      const avatarProfileData = await fetchAvatarData();
-      setUpdatedAvatarName(avatarProfileData.name);
+      const avatarProfileData = await selectAvatar(
+        user,
+        user.id,
+        activeAvatar.avatar_id
+      );
+      setUpdatedAvatarName(avatarProfileData.name || '');
       toast.success('Name updated');
     } catch (err) {
       toast.error(err.message);
     }
   };
-
   const handleDeleteAvatar = async () => {
     if (
       !window.confirm(
@@ -578,16 +499,11 @@ const AvatarSettings = ({ avatarId, accessToken, onAvatarDeleted }) => {
     ) {
       return;
     }
-
     setIsDeleting(true);
-
     try {
-      await deleteAvatar(activeAvatar.avatar_id);
+      await deleteAvatar(user.id, activeAvatar.avatar_id);
       toast.success('Avatar deleted successfully');
-
-      if (onAvatarDeleted) {
-        onAvatarDeleted();
-      }
+      navigate('/avatars');
     } catch (err) {
       console.error('Delete avatar error:', err);
       toast.error(err.message || 'Failed to delete avatar');
@@ -595,7 +511,6 @@ const AvatarSettings = ({ avatarId, accessToken, onAvatarDeleted }) => {
       setIsDeleting(false);
     }
   };
-
   return (
     <div className="flex flex-col gap-6 w-full max-w-4xl mx-auto">
       {/* Drag Overlay */}
@@ -618,7 +533,6 @@ const AvatarSettings = ({ avatarId, accessToken, onAvatarDeleted }) => {
           </div>
         </div>
       )}
-
       {/* Social Login Modal */}
       {showLoginModal && (
         <div className="fixed inset-0 z-40 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4">
@@ -635,7 +549,6 @@ const AvatarSettings = ({ avatarId, accessToken, onAvatarDeleted }) => {
                 <X size={24} />
               </button>
             </div>
-
             <div className="space-y-4">
               <input
                 type="text"
@@ -671,7 +584,6 @@ const AvatarSettings = ({ avatarId, accessToken, onAvatarDeleted }) => {
           </div>
         </div>
       )}
-
       {/* Header with Delete Button */}
       <div className="flex justify-between items-center">
         <h2 className="text-2xl font-bold text-white">Avatar Settings</h2>
@@ -684,17 +596,15 @@ const AvatarSettings = ({ avatarId, accessToken, onAvatarDeleted }) => {
           {isDeleting ? 'Deleting...' : 'Delete Avatar'}
         </button>
       </div>
-
       {/* Avatar Profile Section */}
       <div className="bg-white/5 backdrop-blur-lg rounded-2xl border border-white/20 p-6">
         <h3 className="text-lg font-semibold text-white mb-4">
           Profile Information
         </h3>
-
         <div className="flex gap-6 items-start">
           {/* Icon Upload */}
           <div className="flex flex-col gap-3">
-            {updatedIcon ? (
+            {activeAvatar?.icon ? (
               <Dropzone
                 onDrop={handleIconUpload}
                 multiple={false}
@@ -704,7 +614,7 @@ const AvatarSettings = ({ avatarId, accessToken, onAvatarDeleted }) => {
                 {({ getRootProps, getInputProps, open }) => (
                   <div className="relative w-32 h-32 rounded-2xl overflow-hidden cursor-pointer group">
                     <img
-                      src={updatedIcon}
+                      src={activeAvatar.icon.url}
                       alt="avatar"
                       className="w-full h-full object-cover"
                     />
@@ -731,25 +641,22 @@ const AvatarSettings = ({ avatarId, accessToken, onAvatarDeleted }) => {
                 )}
               </Dropzone>
             )}
-
             {/* Horizontal Button Group */}
             <div className="flex gap-2">
               <button
                 onClick={handleCameraCapture}
-                className="flex-1 px-3 py-2 bg-blue-500/20..."
+                className="flex-1 px-3 py-2 bg-blue-500/20 hover:bg-blue-500/30 text-blue-400 rounded-lg transition-all duration-300 border border-blue-500/30 flex items-center justify-center"
               >
                 <Camera size={16} />
               </button>
               <button
                 onClick={handleAudioRecord}
-                className="flex-1 px-3 py-2 bg-purple-500/20..."
+                className="flex-1 px-3 py-2 bg-purple-500/20 hover:bg-purple-500/30 text-purple-400 rounded-lg transition-all duration-300 border border-purple-500/30 flex items-center justify-center"
               >
                 <Mic size={16} />
               </button>
             </div>
           </div>
-          {/*  */}
-
           {/* Name and Description */}
           <div className="flex-grow space-y-4">
             {/* Name Field */}
@@ -785,7 +692,7 @@ const AvatarSettings = ({ avatarId, accessToken, onAvatarDeleted }) => {
               ) : (
                 <div className="flex justify-between items-center px-4 py-2 bg-white/5 border border-white/10 rounded-lg">
                   <span className="text-white font-medium">
-                    {updatedAvatarName || 'No name yet'}
+                    {activeAvatar?.name}
                   </span>
                   <button
                     onClick={() => setEditingName(true)}
@@ -796,7 +703,6 @@ const AvatarSettings = ({ avatarId, accessToken, onAvatarDeleted }) => {
                 </div>
               )}
             </div>
-
             {/* Description Field */}
             <div>
               <label className="block text-sm font-medium text-white/70 mb-2">
@@ -832,7 +738,7 @@ const AvatarSettings = ({ avatarId, accessToken, onAvatarDeleted }) => {
               ) : (
                 <div className="flex justify-between items-start px-4 py-2 bg-white/5 border border-white/10 rounded-lg min-h-[80px]">
                   <p className="text-white/80 flex-grow">
-                    {updatedDesc || 'No description yet'}
+                    {activeAvatar?.description}
                   </p>
                   <button
                     onClick={() => setEditingDesc(true)}
@@ -846,14 +752,12 @@ const AvatarSettings = ({ avatarId, accessToken, onAvatarDeleted }) => {
           </div>
         </div>
       </div>
-
       {/* Social Media Section */}
-      <div className="bg-white/5 backdrop-blur-lg rounded-2xl border border-white/20 p-6">
+      {/* <div className="bg-white/5 backdrop-blur-lg rounded-2xl border border-white/20 p-6">
         <h2 className="text-2xl font-semibold text-white mb-4 flex items-center gap-2">
           <Link size={24} />
           Social Media Accounts
         </h2>
-
         {socialLogins.length > 0 && (
           <div className="space-y-3 mb-4">
             {socialLogins.map((login) => {
@@ -901,7 +805,6 @@ const AvatarSettings = ({ avatarId, accessToken, onAvatarDeleted }) => {
             })}
           </div>
         )}
-
         <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-3">
           {SOCIAL_PLATFORMS.map((platform) => {
             const Icon = platform.icon;
@@ -928,15 +831,13 @@ const AvatarSettings = ({ avatarId, accessToken, onAvatarDeleted }) => {
             );
           })}
         </div>
-      </div>
-
+      </div> */}
       {/* Upload Section */}
       <div className="bg-white/5 backdrop-blur-lg rounded-2xl border border-white/20 p-6">
         <h2 className="text-2xl font-semibold text-white mb-4 flex items-center gap-2">
           <Upload size={24} />
           Upload
         </h2>
-
         {/* Manual URL Input */}
         <div className="mb-6">
           <label className="block text-sm font-medium text-white/70 mb-2">
@@ -963,7 +864,7 @@ const AvatarSettings = ({ avatarId, accessToken, onAvatarDeleted }) => {
                   setManualUrl('');
                 }
               }}
-              disabled={!manualUrl || loading}
+              disabled={!manualUrl || isLoading}
               className="px-6 py-3 bg-blue-500/20 hover:bg-blue-500/30 text-blue-400 font-semibold rounded-lg transition-all duration-300 flex items-center gap-2 border border-blue-500/30 disabled:opacity-50 disabled:cursor-not-allowed"
             >
               <Upload size={20} />
@@ -971,7 +872,6 @@ const AvatarSettings = ({ avatarId, accessToken, onAvatarDeleted }) => {
             </button>
           </div>
         </div>
-
         <div className="border-2 border-dashed border-white/30 rounded-xl p-8 text-center hover:border-white/50 transition-all duration-300 bg-white/5">
           <Upload className="mx-auto mb-4 text-white/60" size={48} />
           <p className="text-white text-lg mb-2">
@@ -996,63 +896,53 @@ const AvatarSettings = ({ avatarId, accessToken, onAvatarDeleted }) => {
           </p>
         </div>
       </div>
-
       {/* Documents Section */}
-      {Object.keys(groupedDocuments).length > 0 && (
-        <div className="space-y-6">
-          {Object.entries(groupedDocuments).map(([type, docs]) => (
-            <div
-              key={type}
-              className="bg-white/5 backdrop-blur-lg rounded-2xl border border-white/20 p-6"
-            >
-              <h3 className="text-xl font-semibold text-white mb-4 flex items-center gap-2 capitalize">
-                {getTypeIcon(type)}
-                {type}s ({docs.length})
-              </h3>
 
-              <div className="space-y-4">
-                {docs.map((doc) => (
-                  <div
-                    key={doc.id}
-                    className="bg-white/5 border border-white/10 rounded-xl p-4"
+      <div className="bg-white/5 backdrop-blur-lg rounded-2xl border border-white/20 p-6">
+        <h3 className="text-xl font-semibold text-white mb-4 flex items-center gap-2">
+          <File size={20} />
+          Data Uploaded for {activeAvatar?.name}
+        </h3>
+
+        <div className="space-y-2">
+          {activeAvatar?.files && activeAvatar?.files.length > 0 ? (
+            activeAvatar?.files.map((file, index) => (
+              <div
+                key={file.id || index}
+                className="flex items-center justify-between p-3 bg-white/5 border border-white/10 rounded-lg hover:bg-white/10 transition-colors"
+              >
+                <div className="flex items-center gap-3">
+                  {/* Determine icon based on file type if available */}
+                  <FileText size={18} className="text-blue-400" />
+                  <span className="text-white text-sm font-medium">
+                    {typeof file === 'string' ? file : file?.name}
+                  </span>
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <span className="text-xs text-white/40">
+                    {file.created_at
+                      ? new Date(file.created_at).toLocaleDateString()
+                      : ''}
+                  </span>
+                  {/* Add a delete or view button here if needed */}
+                  <button
+                    onClick={() => deleteDocument(doc.id)}
+                    className="text-red-400 hover:text-red-300 transition-colors"
                   >
-                    <div className="flex justify-between items-start mb-3">
-                      <div>
-                        <h4 className="text-white font-medium">{doc.name}</h4>
-                        <p className="text-white/60 text-sm">
-                          {new Date(
-                            doc.uploadedAt || doc.created_at
-                          ).toLocaleDateString()}{' '}
-                          • {doc.source}
-                        </p>
-                      </div>
-                      <button
-                        onClick={() => deleteDocument(doc.id)}
-                        className="text-red-400 hover:text-red-300 transition-colors"
-                      >
-                        <Trash2 size={20} />
-                      </button>
-                    </div>
-                    {renderDocumentPreview(doc)}
-                  </div>
-                ))}
+                    <Trash2 size={20} />
+                  </button>
+                </div>
               </div>
-            </div>
-          ))}
+            ))
+          ) : (
+            <p className="text-white/40 text-sm italic">
+              No files attached to this avatar.
+            </p>
+          )}
         </div>
-      )}
-
-      {documents.length === 0 && !loading && (
-        <div className="bg-white/5 backdrop-blur-lg rounded-2xl border border-white/20 p-12 text-center">
-          <File className="mx-auto mb-4 text-white/40" size={64} />
-          <p className="text-white/60 text-lg">No documents yet</p>
-          <p className="text-white/40">
-            Start by dragging files or pasting URLs
-          </p>
-        </div>
-      )}
+      </div>
     </div>
   );
 };
-
 export default AvatarSettings;
