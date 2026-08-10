@@ -41,25 +41,35 @@ export default function LiveAvatarDemo({ isEmbeddedInHero = false }) {
             Talk to a Live Avatar
           </h2>
         )}
-        <p className="text-center text-teal-300/80 mb-8">
-          No signup required — the conversation below is running against a real
-          Neural Nexus avatar right now.
-        </p>
+        {/* In the hero this line is carried by <ScanToStart>, which sits
+            directly above and pairs it with the QR code. */}
+        {!isEmbeddedInHero && (
+          <p className="text-center text-teal-300/80 mb-8">
+            No signup required — the conversation below is running against a
+            real Neural Nexus avatar right now.
+          </p>
+        )}
 
         <div
           className={`relative w-full rounded-2xl overflow-hidden border border-teal-500/30 shadow-2xl shadow-teal-500/20 bg-black/40 ${
             isEmbeddedInHero
-              ? 'h-[min(65vh,640px)] min-h-[460px]'
+              ? 'h-[clamp(460px,calc(100vh-22rem),680px)]'
               : 'h-[min(80vh,720px)] min-h-[560px]'
           }`}
         >
+          {/* Streamlit Cloud reserves the bottom 40px of whatever viewport it is
+              given for a light "Built with Streamlit / Fullscreen" bar, which
+              reads as a white strip across the demo. It cannot be turned off and
+              cannot be recoloured from here — the wrapper document is
+              cross-origin. Overhanging the frame by exactly that much pushes the
+              bar past the parent's overflow-hidden edge, where it is clipped. */}
           <iframe
             src={embedUrl}
             title="Neural Nexus live avatar demo"
             allow="clipboard-write; microphone"
             referrerPolicy="no-referrer-when-downgrade"
             onLoad={() => setIsFrameLoaded(true)}
-            className="w-full h-full border-0"
+            className="w-full h-[calc(100%+2.5rem)] border-0 bg-[#0e1117]"
           />
 
           {!isFrameLoaded && (

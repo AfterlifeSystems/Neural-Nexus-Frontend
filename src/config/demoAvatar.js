@@ -33,6 +33,10 @@ export function buildStreamlitEmbedUrl(assistantIdentifier = DEMO_ASSISTANT_ID) 
   embedUrl.searchParams.set('assistant_id', assistantIdentifier);
   embedUrl.searchParams.set('embed', 'true');
   embedUrl.searchParams.set('embed_options', 'dark_theme');
+  // Streamlit's own boot screen is light, so it flashes as a white panel while a
+  // sleeping app wakes — several seconds on Community Cloud. Suppressing it lets
+  // the dark overlay in LiveAvatarDemo cover that window instead.
+  embedUrl.searchParams.append('embed_options', 'hide_loading_screen');
   return embedUrl.toString();
 }
 
