@@ -2,13 +2,10 @@
 import React, { useEffect, useRef } from 'react';
 import NET from 'vanta/dist/vanta.net.min';
 import * as THREE from 'three';
-import { useNavigate } from 'react-router-dom'; // 1. Add this
-import { useAuth } from '../../context/AuthContext'; // 2. Add this
+import LiveAvatarDemo from './LiveAvatarDemo';
+
 export default function Hero() {
   const vantaRef = useRef(null);
-
-  const navigate = useNavigate(); // 3. Initialize
-  const { user } = useAuth(); // 4. Initialize
 
   useEffect(() => {
     let vantaEffect;
@@ -35,29 +32,21 @@ export default function Hero() {
     };
   }, []);
 
-  const handleTryNow = () => {
-    window.open('https://api.neuralnexus.site', '_blank');
-    // if (user) {
-    //   navigate('/avatars'); // Go to app if logged in
-    // } else {
-    //   navigate('/login'); // Go to login if not
-    // }
-  };
-
   return (
     <section
       id="home"
       ref={vantaRef}
-      className="h-screen flex items-center justify-center text-white relative"
+      className="min-h-screen flex items-center justify-center text-white relative py-24 lg:py-28"
     >
-      <div className="text-center z-10">
+      <div className="w-full max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 text-center z-10">
         <h2 className="text-4xl md:text-6xl font-bold mb-4">
-          Extend Consciousness with Authentic Avatars
+          Extend Consciousness with Authentic Artificial Intelligence
         </h2>
-        <p className="text-lg md:text-xl mb-6">
-          Create authentic AI avatars powered by social media and personal data
-          for seamless, personalized interactions.
+        <p className="text-lg md:text-xl mb-8">
+          Create custom Avatars powered by word-of-mouth stories, social media,
+          and personal data for seamless, authentic interactions.
         </p>
+        <LiveAvatarDemo isEmbeddedInHero />
       </div>
     </section>
   );
