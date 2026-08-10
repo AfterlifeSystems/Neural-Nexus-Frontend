@@ -1,4 +1,15 @@
 // src/context/MediaContext.jsx
+// Used to subscribe to the firestore message for real-time state of messages;
+// calls messageService to send new messages;
+// the messages are displayed in the MessageList Component
+// flow:
+// The Chat Area holds the input bar and the Message list
+// the input bar sends a message through the media context
+// the media context will call the message service
+// the message is displayed in the message list
+// the response is displayed in the message list
+// all messages for the current conversation are displayed in the message list as per the subscription to the messages collection for the current conversation of the active avatar
+
 import React, {
   createContext,
   useContext,
@@ -6,39 +17,32 @@ import React, {
   useEffect,
   useRef,
 } from 'react';
-import { useNgrokApiUrl } from './NgrokAPIContext';
-import { MessageService } from '../services/MessageService';
+
 import { useAuth } from './AuthContext';
+
+import { toast } from 'react-hot-toast';
+import { Client } from '@langchain/langgraph-sdk';
 
 const MediaContext = createContext();
 
 export const MediaProvider = ({ children }) => {
-  const { ngrokHttpsUrl, ngrokWsUrl, dbHttpsUrl } = useNgrokApiUrl();
-  const { accessToken, activeAvatar, user } = useAuth();
-  const [isThoughtToImageEnabled, setIsThoughtToImageEnabled] = useState(false);
-  const [isTranscribing, setIsTranscribing] = useState(false);
-  const [messages, setMessages] = useState({});
-  const [inputMessage, setInputMessage] = useState('');
-  const [sender, setSender] = useState('user');
-  const [mediaFiles, setMediaFiles] = useState([]);
+  const { activeAvatar, user, context, setContext } = useAuth();
 
+  const [messages, setMessages] = useState([]);
+  const [activeConversation, setActiveConversation] = useState(null);
+  const [conversationList, setConversationList] = useState([]);
+
+  const [inputMessage, setInputMessage] = useState('');
+
+  const [type, setType] = useState('user');
+  const [mediaFiles, setMediaFiles] = useState([]);
+  const [isTranscribing, setIsTranscribing] = useState(false);
+  const [isThoughtToImageEnabled, setIsThoughtToImageEnabled] = useState(false);
   const messagesEndRef = useRef(null);
   const fileInputRef = useRef(null);
-  const mediaRecorderRef = useRef(null);
-  const chunksRef = useRef([]);
-  const wsRef = useRef(null);
-  const audioContextRef = useRef(null);
-  const mediaStreamRef = useRef(null);
-  const sourceRef = useRef(null);
-  const processorRef = useRef(null);
-  const MAX_FILE_SIZE_MB = 1 * 1024 * 1024;
+  const unsubscribeRef = useRef(null); // Store unsubscribe function
 
-  // ==================== CACHES ====================
-  // Avatar Cache: Stores avatar metadata
-  const [avatarCache, setAvatarCache] = useState({});
-  // Message Cache: Stores messages per avatar (max 50 per avatar)
-  const [messageCache, setMessageCache] = useState({});
-  const MAX_CACHED_MESSAGES = 50;
+  const MAX_FILE_SIZE_MB = 1 * 1024 * 1024;
 
   const [dataExchangeTypes, setDataExchangeTypes] = useState({
     text: true,
@@ -52,98 +56,8 @@ export const MediaProvider = ({ children }) => {
     telepathy: true,
   });
 
-  // ==================== CACHE FUNCTIONS ====================
-
-  /**
-   * Add avatar to cache
-   */
-  const cacheAvatar = (avatar) => {
-    setAvatarCache((prev) => ({
-      ...prev,
-      [avatar.avatar_id]: {
-        ...avatar,
-        cachedAt: new Date().toISOString(),
-      },
-    }));
-  };
-
-  /**
-   * Get avatar from cache
-   */
-  const getCachedAvatar = (avatarId) => {
-    return avatarCache[avatarId] || null;
-  };
-
-  /**
-   * Add message to cache (maintains rolling window of N messages)
-   */
-  const cacheMessage = (avatarId, message) => {
-    setMessageCache((prev) => {
-      const currentMessages = prev[avatarId] || [];
-      const updatedMessages = [...currentMessages, message];
-
-      // Keep only last N messages (rolling window)
-      const trimmedMessages =
-        updatedMessages.length > MAX_CACHED_MESSAGES
-          ? updatedMessages.slice(-MAX_CACHED_MESSAGES)
-          : updatedMessages;
-
-      return {
-        ...prev,
-        [avatarId]: trimmedMessages,
-      };
-    });
-  };
-
-  /**
-   * Get cached messages for an avatar
-   */
-  const getCachedMessages = (avatarId) => {
-    return messageCache[avatarId] || [];
-  };
-
-  /**
-   * Clear cache for specific avatar
-   */
-  const clearAvatarCache = (avatarId) => {
-    setMessageCache((prev) => {
-      const newCache = { ...prev };
-      delete newCache[avatarId];
-      return newCache;
-    });
-  };
-
-  /**
-   * Populate message cache from database
-   */
-  const populateMessageCache = async (avatarId) => {
-    try {
-      const fetched = await MessageService.getAvatarMessages(
-        avatarId,
-        accessToken
-      );
-
-      // Store in cache
-      setMessageCache((prev) => ({
-        ...prev,
-        [avatarId]: fetched.map((msg) => ({
-          id: msg._id,
-          content: msg.message,
-          media: msg.media || [],
-          sender: msg.sender,
-          timestamp: msg.timestamp,
-        })),
-      }));
-
-      return fetched;
-    } catch (error) {
-      console.error('Failed to populate message cache:', error);
-      return [];
-    }
-  };
-  // claude.ai/chat/33ca6b04-fb69-486a-9a0d-0780a444f557 working on removing redis
   const startThoughtToImage = async () => {
-    if (!accessToken || !user?.enable_grok_imagine) return;
+    if (!user?.enable_grok_imagine) return;
     setIsThoughtToImageEnabled(true);
   };
 
@@ -151,55 +65,260 @@ export const MediaProvider = ({ children }) => {
     setIsThoughtToImageEnabled(false);
   };
 
-  useEffect(() => {
-    if (activeAvatar && accessToken) {
-      console.log(`Loading messages for avatar ${activeAvatar.avatar_id}`);
+  const startTranscription = () => {
+    setIsTranscribing(true);
+  };
 
-      // Check cache first
-      const cachedMessages = getCachedMessages(activeAvatar.avatar_id);
+  const stopTranscription = () => {
+    setIsTranscribing(false);
+  };
 
-      if (cachedMessages.length > 0) {
-        console.log(`Loaded ${cachedMessages.length} messages from cache`);
-        setMessages((prev) => ({
-          ...prev,
-          [activeAvatar.avatar_id]: cachedMessages,
-        }));
+  async function getConversationList(user, activeAvatar) {
+    const thread_search_response = await fetch(
+      `${import.meta.env.VITE_LANGGRAPH_API_SERVER_URL}/threads/search`,
+      {
+        method: 'POST',
+        headers: {
+          Accept: '*/*',
+          'x-api-key': `${import.meta.env.VITE_LANGGRAPH_API_SERVER_KEY}`,
+        },
+        body: JSON.stringify({
+          metadata: {
+            user_id: user.id,
+            assistant_id: activeAvatar.avatar_id,
+          },
+          limit: 10,
+          offset: 0,
+          sort_by: 'created_at',
+          sort_order: 'desc',
+        }),
+      }
+    );
+
+    const thread_search_response_json = await thread_search_response.json();
+
+    console.log(`${JSON.stringify(thread_search_response_json)}`);
+    setConversationList(thread_search_response_json);
+    return thread_search_response_json;
+  }
+
+  async function switchActiveConveration(activeAvatar, thread_id) {
+    // update the active_conversation on the activeAvatar TODO: update in database
+    activeAvatar.active_conversation = thread_id;
+    if (activeAvatar.active_conversation) {
+      let active_conversation = activeAvatar.active_conversation;
+    } else {
+      active_conversation = conversationList[0];
+      console.log(`active_conversation: ${active_conversation}`);
+    }
+
+    setActiveConversation(active_conversation);
+    return active_conversation;
+  }
+
+  async function getActiveConversationMessages(user, activeAvatar) {
+    let active_conversation = activeAvatar.metadata.active_conversation;
+    if (!active_conversation) {
+      if (conversationList) {
+        active_conversation = conversationList[0];
       } else {
-        // Fetch from database if cache is empty
-        console.log('Cache empty, fetching from database');
-        fetchMessages();
+        console.log(
+          `error no activeAvatar.metadata.active_conversation; no conversationList`
+        );
       }
     }
-  }, [activeAvatar?.avatar_id, accessToken]);
 
-  const fetchMessages = async () => {
-    if (!activeAvatar || !accessToken) return;
-    try {
-      const fetched = await MessageService.getAvatarMessages(
-        activeAvatar.avatar_id,
-        accessToken
+    console.log(
+      'XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX import.meta.env.VITE_LANGGRAPH_API_SERVER_URL: ',
+      import.meta.env.VITE_LANGGRAPH_API_SERVER_URL
+    );
+
+    const langgraph_api_client = new Client({
+      apiUrl: import.meta.env.VITE_LANGGRAPH_API_SERVER_URL,
+      apiKey: import.meta.env.VITE_LANGGRAPH_API_SERVER_KEY,
+    });
+
+    // let searchQuery = JSON.stringify({
+    //   graphId: 'Anubis',
+    //   metadata: { user_id: '6502e491-fc64-44fd-aaaf-047c70587f48' },
+    // });
+
+    // let test_assistants = await langgraph_api_client.assistants.search({
+    //   query: searchQuery,
+    // });
+
+    // console.log(`active_conversation: ${active_conversation}`);
+
+    // let body = JSON.stringify({
+    //   threadId: active_conversation,
+    // });
+
+    // console.log(activeConversation);
+
+    const thread_get_response_json =
+      await langgraph_api_client.threads.get(activeConversation);
+
+    // const thread_get_response_json = await thread_get_response.json();
+
+    // const thread_get_response = await fetch(
+    //   `${import.meta.env.VITE_LANGGRAPH_API_SERVER_URL}/threads/${active_conversation}`,
+    //   {
+    //     headers: {
+    //       Accept: '*/*',
+    //       'x-api-key': `${import.meta.env.VITE_LANGGRAPH_API_SERVER_KEY}`,
+    //     },
+    //   }
+    // );
+
+    // const thread_get_response_json = await thread_get_response.json();
+
+    console.log(`thread_get_response_json: ${thread_get_response_json}`);
+    if (thread_get_response_json['values'] != null) {
+      let response_messages = thread_get_response_json['values']['messages'];
+      console.log(response_messages);
+      setMessages(response_messages);
+    } else {
+      setMessages([]);
+    }
+
+    // return response_messages;
+  }
+
+  async function sendMessageAwaitResponseUpdateMessages(
+    user,
+    activeAvatar,
+    thread_id,
+    message_content
+  ) {
+    console.log(`message_content: ${message_content}`);
+
+    let messages = [{ role: 'user', content: message_content }];
+
+    console.log(`context: ${JSON.stringify(context)}`);
+
+    let apiKey = `${import.meta.env.VITE_LANGGRAPH_API_SERVER_KEY}`;
+
+    let apiUrl = `${import.meta.env.VITE_LANGGRAPH_API_SERVER_URL}`;
+
+    console.log(`assistant_id: ${activeAvatar.metadata.assistant_id}`);
+
+    const langgraph_api_client = new Client({
+      apiUrl: import.meta.env.VITE_LANGGRAPH_API_SERVER_URL,
+      apiKey: import.meta.env.VITE_LANGGRAPH_API_SERVER_KEY,
+    });
+
+    console.log(`messages: ${messages}`);
+    // let runQuery = JSON.stringify();
+
+    // console.log(`runQuery:${JSON.stringify(runQuery)}`);
+
+    const thread_run_await_response_json = await langgraph_api_client.runs.wait(
+      activeAvatar.metadata.active_conversation,
+      activeAvatar.metadata.assistant_id,
+      {
+        input: { messages },
+        user_id: user.id,
+        assistant_id: activeAvatar.metadata.assistant_id,
+      }
+    );
+
+    console.log(
+      `thread_run_await_response_json: ${thread_run_await_response_json}`
+    );
+
+    // let payload = JSON.stringify({
+    //   assistant_id: activeAvatar.metadata.assistant_id,
+    //   input: input,
+    //   metadata: {
+    //     user_id: user.id,
+    //     assistant_id: activeAvatar.metadata.assistant_id,
+    //     thread_id: thread_id,
+    //   },
+    // });
+    // context: context,
+
+    // console.log(`payload: ${payload}`);
+
+    // const thread_run_await_response = await fetch(
+    //   `${apiUrl}/threads/${thread_id}/runs/wait`,
+    //   {
+    //     method: 'POST',
+    //     headers: {
+    //       'x-api-key': apiKey,
+    //     },
+    //     body: payload,
+    //   }
+    // );
+
+    console.log('breakpoint post message send');
+
+    if (
+      '__error__' in thread_run_await_response_json &&
+      thread_run_await_response_json.__error__?.error
+    ) {
+      const error_thread_run_await_response_json =
+        thread_run_await_response_json.__error__?.error;
+
+      console.log(
+        `error_thread_run_await_response_json: ${error_thread_run_await_response_json}`
       );
 
-      // console.log(`Loaded ${fetched.messages.length} messages from ${fetched.source}`);
+      toast.error(error_thread_run_await_response_json);
 
-      setMessages((prev) => ({
-        ...prev,
-        [activeAvatar.avatar_id]: fetched.map((msg) => ({
-          id: msg._id,
-          content: msg.message,
-          media: msg.media || [],
-          sender: msg.sender,
-          timestamp: msg.timestamp,
-        })),
-      }));
-    } catch (error) {
-      console.error('Failed to fetch messages:', error);
+      // remove the optimistic and loading
+      setMessages((prev) =>
+        prev.filter((msg) => !msg.id.startsWith('temp-') && !msg.isLoading)
+      );
+    } else {
+      console.log(
+        `thread_run_await_response_json: ${JSON.stringify(thread_run_await_response_json)}`
+      );
+      console.log('breakpoint');
+
+      let response_message = thread_run_await_response_json.messages.at(-1);
+      if (Object.keys(response_message).length == 0) {
+        // handle response is empty
+        setMessages((prev) =>
+          prev.filter((msg) => !msg.id.startsWith('temp-') && !msg.isLoading)
+        );
+        toast.error('Error no response from the server. Please try again.', {
+          duration: 5000,
+        });
+      }
+      console.log(`response_message: ${JSON.stringify(response_message)}`);
+
+      // update the response message
+      const responseMessage = {
+        id: response_message.id,
+        type: response_message.type || 'ai',
+        isLoading: false,
+        timestamp: new Date().toISOString(),
+        content: response_message['content'],
+      };
+      // filter the loading message
+      setMessages((prev) => prev.filter((msg) => !msg.isLoading));
+
+      // insert the new message response
+      setMessages((prev) => [...prev, responseMessage]);
+
+      console.log(`response_message: ${JSON.stringify(response_message)}`);
     }
-  };
-  // sendMessage - Updated to include loading indicator for AI response
-  async function sendMessage() {
-    if (!activeAvatar || (!inputMessage.trim() && mediaFiles.length === 0))
+
+    return { success: 'TRUE' };
+  }
+
+  async function handleSendMessageMediaContext() {
+    console.log('MediaContext: handleSendMessageMediaContext called');
+
+    if (
+      !activeAvatar ||
+      !activeConversation ||
+      !user ||
+      (!inputMessage.trim() && mediaFiles.length === 0)
+    ) {
+      console.log('Missing required data for sending message');
       return;
+    }
 
     try {
       const tempId = `temp-${Date.now()}`;
@@ -209,114 +328,51 @@ export const MediaProvider = ({ children }) => {
       const tempMessage = {
         id: tempId,
         content: inputMessage,
-        sender: sender,
+        type: 'human',
         timestamp: new Date().toISOString(),
         media: mediaFiles.map((f) => ({
           filename: f.name,
           content_type: f.type,
         })),
+        content_type: mediaFiles.length > 0 && !inputMessage ? 'media' : 'text',
       };
 
-      setMessages((prev) => ({
-        ...prev,
-        [activeAvatar.avatar_id]: [
-          ...(prev[activeAvatar.avatar_id] || []),
-          tempMessage,
-        ],
-      }));
-
-      // Cache the user message
-      cacheMessage(activeAvatar.avatar_id, tempMessage);
+      setMessages((prev) => [...prev, tempMessage]);
 
       // Add loading message for AI response
       const loadingMessage = {
         id: loadingId,
-        sender: 'avatar',
+        type: 'ai',
         isLoading: true,
+        timestamp: new Date().toISOString(),
       };
 
-      setMessages((prev) => ({
-        ...prev,
-        [activeAvatar.avatar_id]: [
-          ...(prev[activeAvatar.avatar_id] || []),
-          loadingMessage,
-        ],
-      }));
+      setMessages((prev) => [...prev, loadingMessage]);
 
-      // Send to DB API and wait for AI response
-      const response = await MessageService.saveMessage(
-        activeAvatar.avatar_id,
-        inputMessage,
-        mediaFiles,
-        accessToken,
-        sender
-      );
+      console.log('breakpoint before message send');
 
-      // Remove loading message
-      setMessages((prev) => ({
-        ...prev,
-        [activeAvatar.avatar_id]: prev[activeAvatar.avatar_id].filter(
-          (msg) => msg.id !== loadingId
-        ),
-      }));
-
-      if (!response || response.status !== 'success') {
-        throw new Error(response?.detail || 'Message post failed');
-      }
-
-      console.log('Message sent successfully');
-
-      // Update temp message with real ID
-      setMessages((prev) => ({
-        ...prev,
-        [activeAvatar.avatar_id]: prev[activeAvatar.avatar_id].map((msg) =>
-          msg.id === tempId
-            ? { ...msg, id: response.user_message.message_id }
-            : msg
-        ),
-      }));
-
-      // If AI response is included, add it immediately
-      if (response.ai_response) {
-        const aiMessage = {
-          id: response.ai_response.message_id,
-          content: response.ai_response.message,
-          sender: 'assistant',
-          timestamp: response.ai_response.timestamp,
-          media: [],
-        };
-
-        setMessages((prev) => ({
-          ...prev,
-          [activeAvatar.avatar_id]: [
-            ...(prev[activeAvatar.avatar_id] || []),
-            aiMessage,
-          ],
-        }));
-
-        // Cache AI response
-        cacheMessage(activeAvatar.avatar_id, aiMessage);
-      }
-
-      // Clear input
-      setInputMessage('');
-      setMediaFiles([]);
-      if (fileInputRef.current) fileInputRef.current.value = '';
+      const { send_message_success } =
+        await sendMessageAwaitResponseUpdateMessages(
+          user,
+          activeAvatar,
+          activeAvatar.metadata.active_conversation,
+          inputMessage
+        );
+      console.log('after send message breakpoint');
     } catch (err) {
       console.error('Failed to send message:', err);
 
-      // Remove both optimistic message and loading message on error
-      setMessages((prev) => ({
-        ...prev,
-        [activeAvatar.avatar_id]: (prev[activeAvatar.avatar_id] || []).filter(
-          (msg) => msg.id !== tempId && !msg.isLoading
-        ),
-      }));
+      // Remove optimistic and loading messages on error
+      setMessages((prev) =>
+        prev.filter((msg) => !msg.id?.startsWith('temp-') && !msg.isLoading)
+      );
 
       if (err.status === 413) {
-        alert('One or more files exceed the maximum upload size of 1 MB.');
+        toast.error(
+          'One or more files exceed the maximum upload size of 1 MB.'
+        );
       } else {
-        alert(err.message || 'Failed to send message');
+        toast.error(err.message || 'Failed to send message');
       }
     }
   }
@@ -335,162 +391,6 @@ export const MediaProvider = ({ children }) => {
     event.target.value = '';
   };
 
-  const startRecording = async () => {
-    if (!dataExchangeTypes.voice) return;
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      const mediaRecorder = new MediaRecorder(stream);
-      mediaRecorderRef.current = mediaRecorder;
-      chunksRef.current = [];
-
-      mediaRecorder.ondataavailable = (event) => {
-        chunksRef.current.push(event.data);
-      };
-
-      mediaRecorder.onstop = () => {
-        const audioBlob = new Blob(chunksRef.current, { type: 'audio/wav' });
-        handleVoiceMessage(audioBlob);
-        stream.getTracks().forEach((track) => track.stop());
-      };
-
-      mediaRecorder.start();
-      setIsTranscribing(true);
-    } catch (error) {
-      console.error('Error accessing microphone:', error);
-    }
-  };
-
-  const stopRecording = () => {
-    if (mediaRecorderRef.current && isTranscribing) {
-      mediaRecorderRef.current.stop();
-      setIsTranscribing(false);
-    }
-  };
-
-  const handleVoiceMessage = (audioBlob) => {
-    if (!activeAvatar || !dataExchangeTypes.voice) return;
-    const voiceMessage = {
-      id: Date.now(),
-      content: '[Voice Message]',
-      sender: 'user',
-      timestamp: new Date().toISOString(),
-      isVoice: true,
-      audioBlob,
-    };
-    setMessages((prev) => ({
-      ...prev,
-      [activeAvatar.avatar_id]: [
-        ...(prev[activeAvatar.avatar_id] || []),
-        voiceMessage,
-      ],
-    }));
-  };
-
-  const startTranscription = async () => {
-    if (!dataExchangeTypes.voice) return;
-    const wsUrl = ngrokWsUrl + '/transcription-api/transcribe/ws';
-    const ws = new WebSocket(wsUrl);
-    ws.binaryType = 'arraybuffer';
-    wsRef.current = ws;
-
-    ws.onopen = async () => {
-      console.log('WebSocket connection opened');
-      setIsTranscribing(true);
-      audioContextRef.current = new AudioContext();
-      mediaStreamRef.current = await navigator.mediaDevices.getUserMedia({
-        audio: true,
-      });
-      sourceRef.current = audioContextRef.current.createMediaStreamSource(
-        mediaStreamRef.current
-      );
-      processorRef.current = audioContextRef.current.createScriptProcessor(
-        4096,
-        1,
-        1
-      );
-
-      processorRef.current.onaudioprocess = (e) => {
-        const input = e.inputBuffer.getChannelData(0);
-        const downsampled = downsampleBuffer(
-          input,
-          audioContextRef.current.sampleRate,
-          16000
-        );
-        if (ws.readyState === WebSocket.OPEN) {
-          ws.send(downsampled);
-        }
-      };
-
-      sourceRef.current.connect(processorRef.current);
-      processorRef.current.connect(audioContextRef.current.destination);
-    };
-
-    ws.onmessage = (event) => {
-      try {
-        const data = JSON.parse(event.data);
-        const text = data.transcript;
-        if (typeof text === 'string' && text.trim() !== '') {
-          document.dispatchEvent(
-            new CustomEvent('transcription', { detail: text })
-          );
-        }
-      } catch (error) {
-        console.error('Error parsing WebSocket message:', error);
-      }
-    };
-
-    ws.onerror = (err) => console.error('WebSocket error:', err);
-    ws.onclose = () => {
-      console.log('WebSocket closed');
-      setIsTranscribing(false);
-    };
-  };
-
-  const stopTranscription = () => {
-    setIsTranscribing(false);
-    if (processorRef.current) processorRef.current.disconnect();
-    if (sourceRef.current) sourceRef.current.disconnect();
-    if (mediaStreamRef.current) {
-      mediaStreamRef.current.getTracks().forEach((track) => track.stop());
-    }
-    if (audioContextRef.current) audioContextRef.current.close();
-    if (wsRef.current) wsRef.current.close();
-  };
-
-  function downsampleBuffer(buffer, inputSampleRate, outputSampleRate) {
-    const sampleRateRatio = inputSampleRate / outputSampleRate;
-    const newLength = Math.round(buffer.length / sampleRateRatio);
-    const result = new Int16Array(newLength);
-    for (let i = 0; i < newLength; i++) {
-      const sample = buffer[Math.floor(i * sampleRateRatio)];
-      result[i] = Math.max(-32768, Math.min(32767, sample * 0x7fff));
-    }
-    return result;
-  }
-
-  const toggleDataExchangeType = (type) => {
-    setDataExchangeTypes((prev) => ({
-      ...prev,
-      [type]: !prev[type],
-    }));
-    if (type === 'voice' && !dataExchangeTypes.voice && isTranscribing) {
-      stopTranscription();
-      stopRecording();
-    }
-    if (
-      type === 'neuralImage' &&
-      !dataExchangeTypes.neuralImage &&
-      isThoughtToImageEnabled
-    ) {
-      stopThoughtToImage();
-      startThoughtToImage();
-    }
-  };
-
-  const getMediaUrl = (media_id, accessToken) => {
-    return `${dbHttpsUrl}/media/${media_id}?token=${accessToken}`;
-  };
-
   const handleFileChange = (e) => {
     const files = Array.from(e.target.files).filter(
       (f) => f.size <= MAX_FILE_SIZE_MB
@@ -507,28 +407,31 @@ export const MediaProvider = ({ children }) => {
       value={{
         messages,
         setMessages,
-        fetchMessages,
         messagesEndRef,
         inputMessage,
         setInputMessage,
-        sendMessage,
-        isThoughtToImageEnabled,
-        startThoughtToImage,
-        stopThoughtToImage,
-        isTranscribing,
-        startTranscription,
-        stopTranscription,
+        handleSendMessageMediaContext,
         dataExchangeTypes,
-        toggleDataExchangeType,
         fileInputRef,
         handleFileUpload,
-        getMediaUrl,
         mediaFiles,
         setMediaFiles,
         handleFileChange,
         removeFile,
-        sender,
-        setSender,
+        type,
+        setType,
+        isTranscribing,
+        startTranscription,
+        stopTranscription,
+        isThoughtToImageEnabled,
+        startThoughtToImage,
+        stopThoughtToImage,
+        getConversationList,
+        getActiveConversationMessages,
+        switchActiveConveration,
+        sendMessageAwaitResponseUpdateMessages,
+        setActiveConversation,
+        activeConversation,
       }}
     >
       {children}

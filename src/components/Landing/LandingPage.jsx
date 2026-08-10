@@ -14,7 +14,6 @@ import { Toaster } from 'react-hot-toast';
 export default function LandingPage() {
   return (
     <div className="min-h-screen flex flex-col">
-      <Toaster position="top-center" reverseOrder={false} />
       <Header />
       <Hero /> {/* Use ref with the Hero component */}
       <Product />

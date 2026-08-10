@@ -1,7 +1,10 @@
+**/supabase/**
+**/chroma_data/**
 .vercel/
 node_modules/**
 **/.vite/
 **.env
+**/prompt/**
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
@@ -201,3 +204,4 @@ cython_debug/
 
 .vscode
 .vercel
+.env*

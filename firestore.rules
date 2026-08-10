@@ -1,0 +1,13 @@
+// WARNING: Temporary permissive rules for local testing only.
+// Do NOT deploy these rules to production. Revert after testing.
+
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Allow all reads/writes for local emulator testing
+    // Remove or restrict this before deploying to production
+    match /{document=**} {
+      allow read, write: if true;
+    }
+  }
+}

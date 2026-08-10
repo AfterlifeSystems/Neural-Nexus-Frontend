@@ -19,13 +19,17 @@ export default function Product() {
           </div>
           <div className="bg-gradient-to-b bg-purple-900 to-purple-400 bg-opacity-20 p-6 rounded-lg shadow-lg text-white">
             <h3 className="text-xl font-semibold mb-4 ">
-              💬 Conversation Suggestions
+              <p>💬 Future Feature:</p>
+              <p>Conversation Suggestions</p>
             </h3>
-            <p>Get real-time suggestions to enhance your interactions.</p>
+            <p>
+              Get real-time suggestions to enhance your everyday interactions.
+            </p>
           </div>
           <div className="bg-gradient-to-b bg-purple-900 to-purple-400 bg-opacity-20 p-6 rounded-lg shadow-lg text-white">
             <h3 className="text-xl font-semibold mb-4">
-              🧠 Neural Data Integration
+              <p>🧠 Future Feature:</p>
+              <p>Neural Data Integration</p>
             </h3>
             <p>
               Utilize thought-to-text and thought-to-image for innovative
