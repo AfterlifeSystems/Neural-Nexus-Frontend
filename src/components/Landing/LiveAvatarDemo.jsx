@@ -41,15 +41,19 @@ export default function LiveAvatarDemo({ isEmbeddedInHero = false }) {
             Talk to a Live Avatar
           </h2>
         )}
-        <p className="text-center text-teal-300/80 mb-8">
-          No signup required — the conversation below is running against a real
-          Neural Nexus avatar right now.
-        </p>
+        {/* In the hero this line is carried by <ScanToStart>, which sits
+            directly above and pairs it with the QR code. */}
+        {!isEmbeddedInHero && (
+          <p className="text-center text-teal-300/80 mb-8">
+            No signup required — the conversation below is running against a
+            real Neural Nexus avatar right now.
+          </p>
+        )}
 
         <div
           className={`relative w-full rounded-2xl overflow-hidden border border-teal-500/30 shadow-2xl shadow-teal-500/20 bg-black/40 ${
             isEmbeddedInHero
-              ? 'h-calc(100vh-22rem)]'
+              ? 'h-[clamp(520px,calc(100vh-30rem),760px)]'
               : 'h-[min(80vh,720px)] min-h-[560px]'
           }`}
         >
