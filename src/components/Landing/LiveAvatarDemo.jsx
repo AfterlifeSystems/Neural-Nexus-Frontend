@@ -53,23 +53,23 @@ export default function LiveAvatarDemo({ isEmbeddedInHero = false }) {
         <div
           className={`relative w-full rounded-2xl overflow-hidden border border-teal-500/30 shadow-2xl shadow-teal-500/20 bg-black/40 ${
             isEmbeddedInHero
-              ? 'h-[calc(100vh-22rem)]'
+              ? 'h-[clamp(460px,calc(100vh-22rem),680px)]'
               : 'h-[min(80vh,720px)] min-h-[560px]'
           }`}
         >
-          {/* This background only covers the gap before the frame paints. It
-              cannot cover the white band that appears when Streamlit's inner app
-              frame comes up shorter than this one: that band is the wrapper
-              document's own canvas, which is opaque and cross-origin, so neither
-              a background-color nor color-scheme here reaches it. The only lever
-              from this side is keeping the frame no taller than the viewport. */}
+          {/* Streamlit Cloud reserves the bottom 40px of whatever viewport it is
+              given for a light "Built with Streamlit / Fullscreen" bar, which
+              reads as a white strip across the demo. It cannot be turned off and
+              cannot be recoloured from here — the wrapper document is
+              cross-origin. Overhanging the frame by exactly that much pushes the
+              bar past the parent's overflow-hidden edge, where it is clipped. */}
           <iframe
             src={embedUrl}
             title="Neural Nexus live avatar demo"
             allow="clipboard-write; microphone"
             referrerPolicy="no-referrer-when-downgrade"
             onLoad={() => setIsFrameLoaded(true)}
-            className="w-full h-full border-0 bg-[#0e1117]"
+            className="w-full h-[calc(100%+2.5rem)] border-0 bg-[#0e1117]"
           />
 
           {!isFrameLoaded && (
