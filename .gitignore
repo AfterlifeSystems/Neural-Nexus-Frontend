@@ -1,3 +1,4 @@
+api-1.json
 **/supabase/**
 **/chroma_data/**
 .vercel/
@@ -205,3 +206,7 @@ cython_debug/
 .vscode
 .vercel
 .env*
+
+# Keep the template of required environment variables tracked (values stay empty)
+!.env.example
+.gstack/
