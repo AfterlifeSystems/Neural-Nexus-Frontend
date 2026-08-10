@@ -40,11 +40,11 @@ export default function Hero() {
     >
       <div className="w-full max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 text-center z-10">
         <h2 className="text-4xl md:text-6xl font-bold mb-4">
-          Revolutionize Communication with AI Avatars
+          Revolutionize Communication with Authentic Artificial Intelligence
         </h2>
         <p className="text-lg md:text-xl mb-8">
-          Create custom AI avatars powered by neural data for seamless,
-          personalized interactions.
+          Create custom Avatars powered by personal data for seamless, authentic
+          interactions.
         </p>
         <LiveAvatarDemo isEmbeddedInHero />
       </div>
