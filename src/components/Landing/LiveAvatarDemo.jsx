@@ -53,17 +53,24 @@ export default function LiveAvatarDemo({ isEmbeddedInHero = false }) {
         <div
           className={`relative w-full rounded-2xl overflow-hidden border border-teal-500/30 shadow-2xl shadow-teal-500/20 bg-black/40 ${
             isEmbeddedInHero
-              ? 'h-[clamp(520px,calc(100vh-30rem),760px)]'
+              ? 'h-[min(max(320px,calc(100vh-10rem)),720px)]'
               : 'h-[min(80vh,720px)] min-h-[560px]'
           }`}
         >
+          {/* Streamlit Cloud serves the app from a wrapper page whose <body> is
+              transparent, so whatever the nested app frame does not cover falls
+              through to this iframe's own canvas. Left to default that canvas is
+              white, which is the block of whitespace that shows whenever the app
+              renders shorter than the frame. Painting the element Streamlit's own
+              dark background makes the gap invisible instead of glaring. */}
           <iframe
             src={embedUrl}
             title="Neural Nexus live avatar demo"
             allow="clipboard-write; microphone"
             referrerPolicy="no-referrer-when-downgrade"
             onLoad={() => setIsFrameLoaded(true)}
-            className="w-full h-full border-0"
+            style={{ colorScheme: 'dark' }}
+            className="w-full h-full border-0 bg-[#0e1117]"
           />
 
           {!isFrameLoaded && (
