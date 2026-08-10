@@ -53,7 +53,7 @@ export default function LiveAvatarDemo({ isEmbeddedInHero = false }) {
         <div
           className={`relative w-full rounded-2xl overflow-hidden border border-teal-500/30 shadow-2xl shadow-teal-500/20 bg-black/40 ${
             isEmbeddedInHero
-              ? 'h-[min(max(320px,calc(100vh-10rem)),720px)]'
+              ? 'h-[min(calc(100vh-22rem),720px)]'
               : 'h-[min(80vh,720px)] min-h-[560px]'
           }`}
         >
