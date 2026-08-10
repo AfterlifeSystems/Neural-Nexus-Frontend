@@ -12,9 +12,9 @@ export default function About() {
           About Neural Nexus
         </h2>
         <p className="text-lg text-center">
-          what Our mission is to empower human communication through advanced AI
-          and neural technologies, creating a future where interactions are
-          seamless and meaningful. We aim towards extending human consciousness,
+          Our mission is to empower human communication through advanced AI and
+          neural technologies, creating a future where interactions are seamless
+          and meaningful. We aim towards extending human consciousness,
           improving health and well being through self-awareness, and augmenting
           human capability and means of interfacing with technologies in future.
         </p>
