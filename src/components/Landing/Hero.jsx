@@ -36,7 +36,7 @@ export default function Hero() {
     <section
       id="home"
       ref={vantaRef}
-      className="min-h-screen flex items-center justify-center text-white relative py-24 lg:py-28"
+      className="min-h-screen flex items-center justify-center text-white relative py-16 lg:py-28"
     >
       <div className="w-full max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 text-center z-10">
         <h2 className="text-4xl md:text-6xl font-bold mb-4">
