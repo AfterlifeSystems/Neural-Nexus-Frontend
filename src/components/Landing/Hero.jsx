@@ -2,13 +2,10 @@
 import React, { useEffect, useRef } from 'react';
 import NET from 'vanta/dist/vanta.net.min';
 import * as THREE from 'three';
-import { useNavigate } from 'react-router-dom'; // 1. Add this
-import { useAuth } from '../../context/AuthContext'; // 2. Add this
+import LiveAvatarDemo from './LiveAvatarDemo';
+
 export default function Hero() {
   const vantaRef = useRef(null);
-
-  const navigate = useNavigate(); // 3. Initialize
-  const { user } = useAuth(); // 4. Initialize
 
   useEffect(() => {
     let vantaEffect;
@@ -35,38 +32,21 @@ export default function Hero() {
     };
   }, []);
 
-  const handleTryNow = () => {
-    if (user) {
-      navigate('/avatars'); // Go to app if logged in
-    } else {
-      navigate('/login'); // Go to login if not
-    }
-  };
-
   return (
     <section
       id="home"
       ref={vantaRef}
-      className="h-screen flex items-center justify-center text-white relative"
+      className="min-h-screen flex items-center justify-center text-white relative py-24 lg:py-28"
     >
-      <div className="text-center z-10">
+      <div className="w-full max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 text-center z-10">
         <h2 className="text-4xl md:text-6xl font-bold mb-4">
-          Revolutionize Communication with AI Avatars
+          Revolutionize Communication with Authentic Artificial Intelligence
         </h2>
-        <p className="text-lg md:text-xl mb-6">
-          Create custom AI avatars powered by neural data for seamless,
-          personalized interactions.
+        <p className="text-lg md:text-xl mb-8">
+          Create custom Avatars powered by personal data for seamless, authentic
+          interactions.
         </p>
-        <div className="flex justify-center">
-          <button
-            onClick={handleTryNow}
-            className="relative px-6 py-3 bg-gradient-to-r bg-white/5 text-white font-semibold rounded-lg overflow-hidden group hover:shadow-lg hover:shadow-purple-500/25 transition-all duration-300"
-          >
-            <span className="relative z-10">Try Now</span>
-            <div className="absolute inset-0 bg-gradient-to-r from-teal-500 to-teal-500 opacity-0 group-hover:opacity-100 transition-opacity duration-300"></div>
-            <div className="absolute inset-0 bg-white/20 translate-x-full group-hover:translate-x-0 transition-transform duration-500 skew-x-12"></div>
-          </button>
-        </div>
+        <LiveAvatarDemo isEmbeddedInHero />
       </div>
     </section>
   );

@@ -2,7 +2,6 @@
 import React from 'react';
 import Header from './Header';
 import Hero from './Hero';
-import LiveAvatarDemo from './LiveAvatarDemo';
 import Product from './Product';
 import About from './About';
 import Careers from './Careers';
@@ -13,8 +12,7 @@ export default function LandingPage() {
   return (
     <div className="min-h-screen flex flex-col">
       <Header />
-      <Hero /> {/* Use ref with the Hero component */}
-      <LiveAvatarDemo />
+      <Hero /> {/* Hero now contains the embedded live avatar demo */}
       <Product />
       <About />
       <Careers />

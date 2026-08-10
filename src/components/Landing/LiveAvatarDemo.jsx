@@ -6,7 +6,10 @@ import {
   buildStreamlitStandaloneUrl,
 } from '../../config/demoAvatar';
 
-export default function LiveAvatarDemo() {
+// `isEmbeddedInHero` drops the standalone section chrome (its own gradient
+// background and vertical padding) so the demo can sit directly on top of the
+// hero's animated background instead of below it as a separate band.
+export default function LiveAvatarDemo({ isEmbeddedInHero = false }) {
   // Cleared by the iframe's onLoad handler. Streamlit Community Cloud puts
   // applications to sleep after inactivity, so a cold open can take several
   // seconds before the first frame paints.
@@ -15,21 +18,41 @@ export default function LiveAvatarDemo() {
   const embedUrl = buildStreamlitEmbedUrl();
   const standaloneUrl = buildStreamlitStandaloneUrl();
 
+  const SectionElement = isEmbeddedInHero ? 'div' : 'section';
+
   return (
-    <section
+    <SectionElement
       id="demo"
-      className="py-16 bg-gradient-to-b from-[#301934] to-purple-900 text-white scroll-mt-20 lg:scroll-mt-24"
+      className={
+        isEmbeddedInHero
+          ? 'w-full text-white scroll-mt-20 lg:scroll-mt-24'
+          : 'py-16 bg-gradient-to-b from-[#301934] to-purple-900 text-white scroll-mt-20 lg:scroll-mt-24'
+      }
     >
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-        <h2 className="text-3xl font-bold text-center mb-2">
-          Talk to a Live Avatar
-        </h2>
+      <div
+        className={
+          isEmbeddedInHero
+            ? 'w-full'
+            : 'max-w-7xl mx-auto px-4 sm:px-6 lg:px-8'
+        }
+      >
+        {!isEmbeddedInHero && (
+          <h2 className="text-3xl font-bold text-center mb-2">
+            Talk to a Live Avatar
+          </h2>
+        )}
         <p className="text-center text-teal-300/80 mb-8">
           No signup required — the conversation below is running against a real
           Neural Nexus avatar right now.
         </p>
 
-        <div className="relative w-full h-[min(80vh,720px)] min-h-[560px] rounded-2xl overflow-hidden border border-teal-500/30 shadow-2xl shadow-teal-500/20 bg-black/40">
+        <div
+          className={`relative w-full rounded-2xl overflow-hidden border border-teal-500/30 shadow-2xl shadow-teal-500/20 bg-black/40 ${
+            isEmbeddedInHero
+              ? 'h-[min(65vh,640px)] min-h-[460px]'
+              : 'h-[min(80vh,720px)] min-h-[560px]'
+          }`}
+        >
           <iframe
             src={embedUrl}
             title="Neural Nexus live avatar demo"
@@ -59,6 +82,6 @@ export default function LiveAvatarDemo() {
           </a>
         </p>
       </div>
-    </section>
+    </SectionElement>
   );
 }
