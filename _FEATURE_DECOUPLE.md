@@ -1,1 +1,4 @@
 '/home/user/gh/anubis-project/wt/f-nested-avatar-nn-frontend/api-1.json' I am no longer using firebase nor supabase in the context of this repository. I need to decouple the current architecture and integrate the current API as listed in api-1.json
+
+
+this will integration the agent inbox for message triaging and automated responses for the personal avatar

@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect } from 'react';
 import { toast } from 'react-hot-toast';
 import Dropzone from 'react-dropzone';
 import {
@@ -25,16 +25,13 @@ import {
 import { v4 as uuidv4 } from 'uuid';
 import { useAuth } from '../context/AuthContext';
 import {
-  // uploadUrl,
-  // connectSocial,
-  // disconnectSocial,
-  deleteDocument,
-  // uploadDocuments,
-  updateAvatarWithIcon,
+  deleteAvatarDocument,
   selectAvatar,
   deleteAvatar,
-  updateAvatar,
-  uploadToDataLoadingApi,
+  modifyAvatar,
+  uploadAvatarIdentityMedia,
+  listAvatarDocuments,
+  getAvatarReferenceImage,
 } from '../services/avatarService';
 import { useNavigate } from 'react-router-dom';
 
@@ -53,10 +50,7 @@ const SOCIAL_PLATFORMS = [
   { id: 'microsoft', name: 'Microsoft', icon: Globe, color: '#00A4EF' },
   { id: 'reddit', name: 'Reddit', icon: Globe, color: '#FF4500' },
 ];
-const AvatarSettings = ({ avatarId, accessToken }) => {
-  const [links, setLinks] = useState([]);
-  const [newLink, setNewLink] = useState('');
-  const [files, setFiles] = useState([]);
+const AvatarSettings = ({ avatarId }) => {
   const [editingDesc, setEditingDesc] = useState(false);
   const [updatedDesc, setUpdatedDesc] = useState('');
   const [updatedAvatarName, setUpdatedAvatarName] = useState('');
@@ -64,7 +58,9 @@ const AvatarSettings = ({ avatarId, accessToken }) => {
   const [isDeleting, setIsDeleting] = useState(false);
   // New state for document management
   const [isDragging, setIsDragging] = useState(false);
-  const [socialLogins, setSocialLogins] = useState([]);
+  // Social account linking has no API endpoint yet; the modal below is kept
+  // wired but reports the feature as unavailable.
+  const [, setSocialLogins] = useState([]);
   const [showLoginModal, setShowLoginModal] = useState(false);
   const [selectedPlatform, setSelectedPlatform] = useState(null);
   const [loginCredentials, setLoginCredentials] = useState({
@@ -72,8 +68,56 @@ const AvatarSettings = ({ avatarId, accessToken }) => {
     password: '',
   });
   const [manualUrl, setManualUrl] = useState('');
-  const { user, profile, activeAvatar, isLoading, setIsLoading } = useAuth();
+  // Source documents already uploaded to this avatar, as labels from
+  // GET /list_avatar_documents.
+  const [avatarDocuments, setAvatarDocuments] = useState([]);
+  // The avatar's portrait from GET /avatar_reference_image (data URI or URL).
+  const [avatarIcon, setAvatarIcon] = useState(null);
+  const { user, activeAvatar, isLoading } = useAuth();
   const navigate = useNavigate();
+
+  const assistantId =
+    activeAvatar?.assistant_id ??
+    activeAvatar?.avatar_id ??
+    activeAvatar?.metadata?.assistant_id ??
+    avatarId;
+
+  const refreshAvatarDocuments = async () => {
+    try {
+      setAvatarDocuments(await listAvatarDocuments());
+    } catch (listError) {
+      console.error('Loading the avatar document list failed:', listError);
+    }
+  };
+
+  // The document endpoints (/list_avatar_documents, /delete_avatar_document)
+  // operate on the avatar selected SERVER-SIDE via POST /select_avatar, and
+  // that selection is per-account global state another tab can change. So the
+  // selection is re-registered every time this screen opens, before the
+  // document list is read.
+  useEffect(() => {
+    let cancelled = false;
+    const selectAndLoad = async () => {
+      if (!assistantId) {
+        return;
+      }
+      try {
+        await selectAvatar(assistantId);
+        if (cancelled) return;
+        await refreshAvatarDocuments();
+        const iconSource = await getAvatarReferenceImage(assistantId);
+        if (!cancelled) {
+          setAvatarIcon(iconSource);
+        }
+      } catch (selectError) {
+        console.error('Selecting the avatar failed:', selectError);
+      }
+    };
+    selectAndLoad();
+    return () => {
+      cancelled = true;
+    };
+  }, [assistantId]);
 
   // Global drag and drop handlers
   useEffect(() => {
@@ -161,47 +205,35 @@ const AvatarSettings = ({ avatarId, accessToken }) => {
           position: 'bottom-left',
         });
         const file = pending.file;
-        console.log(`activeAvatar: ${activeAvatar}`);
         try {
-          const uploadResults = await uploadToDataLoadingApi(
-            user.id,
-            activeAvatar.assistant_id,
-            activeAvatar.name,
-            [file]
-          );
-
-          console.log(`uploadResults: ${JSON.stringify(uploadResults)}`);
-
-          if (!uploadResults[0].success) {
-            throw new Error(uploadResults[0].error);
-          }
+          await uploadAvatarIdentityMedia({
+            assistantId,
+            files: [file],
+          });
           toast.dismiss(loadingToastId);
-          // toast.message(`${pending.name} uploaded successfully`);
-          // toast.message(`Successful Upload Results: ${uploadResults}`);
           toast.success(`${pending.name} uploaded successfully`, {
             position: 'bottom-left',
           });
-        } catch (error) {
+        } catch (uploadError) {
           toast.dismiss(loadingToastId);
-          toast.error(`Failed to upload ${file.name}: ${error.message}`, {
+          toast.error(`Failed to upload ${file.name}: ${uploadError.message}`, {
             position: 'bottom-left',
           });
         }
       }
+      await refreshAvatarDocuments();
     } catch (err) {
       toast.error('Upload failed: ' + err.message);
       console.error('Upload error:', err);
     }
   };
   const handleUrlUpload = async (url) => {
-    const tempId = uuidv4();
-
     try {
       if (!user) throw new Error('Not logged in');
       if (!activeAvatar) throw new Error('No active avatar');
-      console.log('url upload logic here');
-      throw error;
+      await uploadAvatarIdentityMedia({ assistantId, urls: [url] });
       toast.success('URL added successfully');
+      await refreshAvatarDocuments();
     } catch (err) {
       toast.error('URL upload failed: ' + err.message);
     }
@@ -211,38 +243,14 @@ const AvatarSettings = ({ avatarId, accessToken }) => {
     setShowLoginModal(true);
   };
   const submitSocialLogin = async () => {
-    if (!loginCredentials.username || !loginCredentials.password) return;
-    try {
-      if (!user) throw new Error('Not logged in');
-      const login = await connectSocial(
-        user.id,
-        activeAvatar.avatar_id,
-        selectedPlatform,
-        loginCredentials.username,
-        loginCredentials.password
-      );
-      setSocialLogins((prev) => [...prev, login]);
-      toast.success(
-        `Connected to ${
-          SOCIAL_PLATFORMS.find((p) => p.id === selectedPlatform)?.name
-        }`
-      );
-      setShowLoginModal(false);
-      setLoginCredentials({ username: '', password: '' });
-      setSelectedPlatform(null);
-    } catch (err) {
-      toast.error('Social login failed: ' + err.message);
-    }
+    // Social account linking is a planned feature with no API endpoint yet.
+    toast.error('Connecting social accounts is not available yet.');
+    setShowLoginModal(false);
+    setLoginCredentials({ username: '', password: '' });
+    setSelectedPlatform(null);
   };
   const removeSocialLogin = async (id) => {
-    try {
-      if (!user) throw new Error('Not logged in');
-      await disconnectSocial(user.id, activeAvatar.avatar_id, id);
-      setSocialLogins((prev) => prev.filter((login) => login.id !== id));
-      toast.success('Social account disconnected');
-    } catch (err) {
-      toast.error('Failed to disconnect: ' + err.message);
-    }
+    setSocialLogins((prev) => prev.filter((login) => login.id !== id));
   };
   const getSocialUrl = (platform, username) => {
     const urls = {
@@ -261,11 +269,12 @@ const AvatarSettings = ({ avatarId, accessToken }) => {
     };
     return urls[platform] || '#';
   };
-  const deleteDocument = async (id) => {
+  const handleDeleteDocument = async (sourceDocumentName) => {
     try {
       if (!user) throw new Error('Not logged in');
-      await deleteDocument(user.id, activeAvatar.avatar_id, id);
+      await deleteAvatarDocument(sourceDocumentName);
       toast.success('Document deleted');
+      await refreshAvatarDocuments();
     } catch (err) {
       toast.error('Failed to delete: ' + err.message);
     }
@@ -361,97 +370,19 @@ const AvatarSettings = ({ avatarId, accessToken }) => {
         return <Globe className="text-cyan-400" />;
     }
   };
-  // Camera capture handler
-  const handleCameraCapture = async () => {
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: 'user' },
-        audio: false,
-      });
-      mediaStreamRef.current = stream;
-      setCaptureMode('camera');
-      setShowCaptureModal(true);
-      setTimeout(() => {
-        if (videoRef.current) {
-          videoRef.current.srcObject = stream;
-        }
-      }, 100);
-    } catch (err) {
-      toast.error('Camera access denied or unavailable');
-    }
-  };
-  const capturePhoto = async () => {
-    const video = videoRef.current;
-    const canvas = canvasRef.current;
-    canvas.width = video.videoWidth;
-    canvas.height = video.videoHeight;
-    const ctx = canvas.getContext('2d');
-    ctx.drawImage(video, 0, 0);
-    const blob = await new Promise((resolve) =>
-      canvas.toBlob(resolve, 'image/jpeg', 0.95)
-    );
-    const file = new File([blob], 'avatar-photo.jpg', { type: 'image/jpeg' });
-    try {
-      // if (!user) throw new Error('Not logged in');
-      // const uploaded = await uploadDocuments(user.id, activeAvatar.avatar_id, [
-      //   file,
-      // ]);
-      // if (uploaded && uploaded.length > 0)
-      //   setDocuments((prev) => [...prev, ...uploaded]);
-      // cleanupMedia();
-      toast.success('Photo captured successfully');
-    } catch (err) {
-      toast.error('Photo upload failed: ' + err.message);
-      cleanupMedia();
-    }
-  };
-  const VOICE_SCRIPT = `
-  Please read the following naturally.
-  1. Today is a beautiful day, and I am speaking clearly and comfortably.
-  2. The quick brown fox jumps over the lazy dog.
-  3. I enjoy learning new things and explaining ideas calmly.
-  4. Sometimes I speak softly, and sometimes I speak with confidence.
-  5. Numbers: zero, one, two, three, four, five, six, seven, eight, nine.
-  6. Emotions: I am happy. I am curious. I am thoughtful. I am focused.
-  7. Finally, describe something you enjoy doing in your free time.
-  `;
-  // Audio recording handler
-  const handleAudioRecord = async () => {
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({
-        audio: {
-          echoCancellation: true,
-          noiseSuppression: true,
-          sampleRate: 48000,
-        },
-      });
-      mediaStreamRef.current = stream;
-      recordedChunksRef.current = [];
-      const recorder = new MediaRecorder(stream, {
-        mimeType: 'audio/webm',
-      });
-      recorder.ondataavailable = (e) => {
-        if (e.data.size > 0) recordedChunksRef.current.push(e.data);
-      };
-      recorder.onstop = uploadAudioRecording;
-      mediaRecorderRef.current = recorder;
-      setCaptureMode('audio');
-      setShowCaptureModal(true);
-    } catch (err) {
-      toast.error('Microphone access denied or unavailable');
-    }
-  };
   const handleIconUpload = async (acceptedFiles) => {
-    const formData = new FormData();
-    formData.append('icon', acceptedFiles[0]);
-    formData.append('avatar_id', activeAvatar.avatar_id);
     try {
       if (!user) throw new Error('Not logged in');
-      await updateAvatarWithIcon(
-        user.id,
-        activeAvatar.avatar_id,
-        acceptedFiles[0]
-      );
+      // The portrait is the avatar's reference image; upload with the
+      // reference_image flag so the backend stores the file as the portrait
+      // rather than as identity source material.
+      await uploadAvatarIdentityMedia({
+        assistantId,
+        files: [acceptedFiles[0]],
+        isReferenceImage: true,
+      });
+      const iconSource = await getAvatarReferenceImage(assistantId);
+      setAvatarIcon(iconSource);
       toast.success('Avatar icon updated');
     } catch (err) {
       toast.error(err.message);
@@ -460,15 +391,11 @@ const AvatarSettings = ({ avatarId, accessToken }) => {
   const handleDescSave = async (updatedDesc) => {
     try {
       if (!user) throw new Error('Not logged in');
-      await updateAvatar(user.id, activeAvatar.avatar_id, {
-        description: updatedDesc,
+      await modifyAvatar({
+        assistantId,
+        newAvatarDescription: updatedDesc,
       });
-      const avatarProfileData = await selectAvatar(
-        user,
-        user.id,
-        activeAvatar.avatar_id
-      );
-      setUpdatedDesc(avatarProfileData.description || '');
+      setUpdatedDesc(updatedDesc);
       toast.success('Description updated');
     } catch (err) {
       toast.error(err.message);
@@ -477,15 +404,11 @@ const AvatarSettings = ({ avatarId, accessToken }) => {
   const handleUpdateName = async (updatedAvatarName) => {
     try {
       if (!user) throw new Error('Not logged in');
-      await updateAvatar(user.id, activeAvatar.avatar_id, {
-        name: updatedAvatarName,
+      await modifyAvatar({
+        assistantId,
+        newAvatarName: updatedAvatarName,
       });
-      const avatarProfileData = await selectAvatar(
-        user,
-        user.id,
-        activeAvatar.avatar_id
-      );
-      setUpdatedAvatarName(avatarProfileData.name || '');
+      setUpdatedAvatarName(updatedAvatarName);
       toast.success('Name updated');
     } catch (err) {
       toast.error(err.message);
@@ -501,7 +424,7 @@ const AvatarSettings = ({ avatarId, accessToken }) => {
     }
     setIsDeleting(true);
     try {
-      await deleteAvatar(user.id, activeAvatar.avatar_id);
+      await deleteAvatar(assistantId);
       toast.success('Avatar deleted successfully');
       navigate('/avatars');
     } catch (err) {
@@ -604,7 +527,7 @@ const AvatarSettings = ({ avatarId, accessToken }) => {
         <div className="flex gap-6 items-start">
           {/* Icon Upload */}
           <div className="flex flex-col gap-3">
-            {activeAvatar?.icon ? (
+            {avatarIcon ? (
               <Dropzone
                 onDrop={handleIconUpload}
                 multiple={false}
@@ -612,9 +535,12 @@ const AvatarSettings = ({ avatarId, accessToken }) => {
                 noClick
               >
                 {({ getRootProps, getInputProps, open }) => (
-                  <div className="relative w-32 h-32 rounded-2xl overflow-hidden cursor-pointer group">
+                  <div
+                    {...getRootProps()}
+                    className="relative w-32 h-32 rounded-2xl overflow-hidden cursor-pointer group"
+                  >
                     <img
-                      src={activeAvatar.icon.url}
+                      src={avatarIcon}
                       alt="avatar"
                       className="w-full h-full object-cover"
                     />
@@ -641,21 +567,6 @@ const AvatarSettings = ({ avatarId, accessToken }) => {
                 )}
               </Dropzone>
             )}
-            {/* Horizontal Button Group */}
-            <div className="flex gap-2">
-              <button
-                onClick={handleCameraCapture}
-                className="flex-1 px-3 py-2 bg-blue-500/20 hover:bg-blue-500/30 text-blue-400 rounded-lg transition-all duration-300 border border-blue-500/30 flex items-center justify-center"
-              >
-                <Camera size={16} />
-              </button>
-              <button
-                onClick={handleAudioRecord}
-                className="flex-1 px-3 py-2 bg-purple-500/20 hover:bg-purple-500/30 text-purple-400 rounded-lg transition-all duration-300 border border-purple-500/30 flex items-center justify-center"
-              >
-                <Mic size={16} />
-              </button>
-            </div>
           </div>
           {/* Name and Description */}
           <div className="flex-grow space-y-4">
@@ -905,29 +816,22 @@ const AvatarSettings = ({ avatarId, accessToken }) => {
         </h3>
 
         <div className="space-y-2">
-          {activeAvatar?.files && activeAvatar?.files.length > 0 ? (
-            activeAvatar?.files.map((file, index) => (
+          {avatarDocuments.length > 0 ? (
+            avatarDocuments.map((documentLabel) => (
               <div
-                key={file.id || index}
+                key={documentLabel}
                 className="flex items-center justify-between p-3 bg-white/5 border border-white/10 rounded-lg hover:bg-white/10 transition-colors"
               >
                 <div className="flex items-center gap-3">
-                  {/* Determine icon based on file type if available */}
                   <FileText size={18} className="text-blue-400" />
                   <span className="text-white text-sm font-medium">
-                    {typeof file === 'string' ? file : file?.name}
+                    {documentLabel}
                   </span>
                 </div>
 
                 <div className="flex items-center gap-2">
-                  <span className="text-xs text-white/40">
-                    {file.created_at
-                      ? new Date(file.created_at).toLocaleDateString()
-                      : ''}
-                  </span>
-                  {/* Add a delete or view button here if needed */}
                   <button
-                    onClick={() => deleteDocument(doc.id)}
+                    onClick={() => handleDeleteDocument(documentLabel)}
                     className="text-red-400 hover:text-red-300 transition-colors"
                   >
                     <Trash2 size={20} />

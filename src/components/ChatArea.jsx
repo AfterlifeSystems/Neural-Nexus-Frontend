@@ -17,19 +17,13 @@ const ChatArea = ({
   onEndLiveChat,
   className,
 }) => {
-  const { accessToken, activeAvatar, user, context, setContext } = useAuth();
+  const { activeAvatar, user, setContext } = useAuth();
   const {
     messages,
     messagesEndRef,
-    currentConversationList,
-    setConversationList,
     getConversationList,
-    setInitialActiveConversation,
     getActiveConversationMessages,
-    joinActiveConversation,
-    conversationList,
     setActiveConversation,
-    activeConversation,
   } = useMedia(); // messages is now a simple array
   const { avatarId } = useParams(); // from /chat/:avatarId
   const navigate = useNavigate();
@@ -73,23 +67,23 @@ const ChatArea = ({
       setContext(context);
 
       // get all the conversations for the active avatar
-      const thread_search_response_json = await getConversationList(
-        user,
-        activeAvatar
-      );
+      const threads = await getConversationList(user, activeAvatar);
 
-      // establish the initial conversation
-      let active_conversation = activeAvatar.metadata.active_conversation;
-      if (!active_conversation) {
-        if (conversationList) {
-          active_conversation = conversationList[0];
-        }
-      }
+      // establish the initial conversation: the avatar's recorded active
+      // conversation, falling back to the newest thread
+      const active_conversation =
+        activeAvatar?.metadata?.active_conversation ??
+        threads?.[0]?.thread_id ??
+        null;
 
       setActiveConversation(active_conversation);
 
       // get all the messages for the current conversation
-      await getActiveConversationMessages(user, activeAvatar);
+      await getActiveConversationMessages(
+        user,
+        activeAvatar,
+        active_conversation
+      );
     } catch (error) {
       console.error(
         'Failed during avatar Change Handler when the avatar changed: ',
@@ -158,8 +152,7 @@ const ChatArea = ({
 
             <div className="flex-shrink-0 items-center mt-2">
               <InputBar
-                avatarId={activeAvatar?.avatar_id}
-                accessToken={accessToken}
+                avatarId={activeAvatar?.assistant_id ?? avatarId}
                 dropdownRef={dropdownRef}
               />
             </div>
@@ -169,8 +162,7 @@ const ChatArea = ({
         {activeTab === 'avatar-settings' && (
           <div className="flex flex-col flex-grow p-2 sm:p-4 relative overflow-y-auto">
             <AvatarSettings
-              avatarId={activeAvatar?.avatar_id}
-              accessToken={accessToken}
+              avatarId={activeAvatar?.assistant_id ?? avatarId}
               onAvatarDeleted={() => {
                 // Switch to avatar selection tab after deletion
                 setActiveTab('avatar-selection');

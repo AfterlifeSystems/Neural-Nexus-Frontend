@@ -22,15 +22,7 @@ const DataExchangeDropdown = ({
   setShowDataExchangeDropdown,
   dropdownRef,
 }) => {
-  const {
-    isLoggedIn,
-    accessToken,
-    avatars,
-    activeAvatar,
-    setActiveAvatar,
-    deleteAvatar,
-    getAvatars,
-  } = useAuth();
+  const { activeAvatar } = useAuth();
 
   const {
     messages,

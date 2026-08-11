@@ -4262,6 +4262,9 @@
         "security": [
           {
             "APIKeyHeader": []
+          },
+          {
+            "HTTPBearer": []
           }
         ]
       }
@@ -4283,6 +4286,9 @@
         "security": [
           {
             "APIKeyHeader": []
+          },
+          {
+            "HTTPBearer": []
           }
         ]
       }
@@ -4340,6 +4346,9 @@
         "security": [
           {
             "APIKeyHeader": []
+          },
+          {
+            "HTTPBearer": []
           }
         ],
         "parameters": [
@@ -4392,6 +4401,9 @@
         "security": [
           {
             "APIKeyHeader": []
+          },
+          {
+            "HTTPBearer": []
           }
         ]
       }
@@ -4436,17 +4448,24 @@
     "/logout": {
       "post": {
         "summary": "Logout",
-        "description": "Revoke the refresh token at Auth0 so the session can no longer be renewed,\nand clear the user's `logged_in` app_metadata flag. The API-KEY is required\n(not the possibly-expired access token) so the user can always be identified\nto update the flag.",
+        "description": "Revoke the refresh token at Auth0 so the session can no longer be renewed,\nclear the user's `logged_in` app_metadata flag, and delete the\nrefresh-token cookie.\n\nThe refresh token is taken from the cookie first and from the request body\nsecond: a browser cannot read its own httpOnly cookie, so it has nothing to\nput in the body. Revocation is what makes logout real — it invalidates the\ncredential at Auth0 rather than only flipping a flag this API checks.",
         "operationId": "logout_logout_post",
         "requestBody": {
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/LogoutRequest"
+                "anyOf": [
+                  {
+                    "$ref": "#/components/schemas/LogoutRequest"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Body"
               }
             }
-          },
-          "required": true
+          }
         },
         "responses": {
           "200": {
@@ -4471,6 +4490,9 @@
         "security": [
           {
             "APIKeyHeader": []
+          },
+          {
+            "HTTPBearer": []
           }
         ]
       }
@@ -4493,6 +4515,9 @@
         "security": [
           {
             "APIKeyHeader": []
+          },
+          {
+            "HTTPBearer": []
           }
         ]
       }
@@ -4505,6 +4530,9 @@
         "security": [
           {
             "APIKeyHeader": []
+          },
+          {
+            "HTTPBearer": []
           }
         ],
         "parameters": [
@@ -4568,6 +4596,9 @@
         "security": [
           {
             "APIKeyHeader": []
+          },
+          {
+            "HTTPBearer": []
           }
         ],
         "parameters": [
@@ -4622,6 +4653,9 @@
         "security": [
           {
             "APIKeyHeader": []
+          },
+          {
+            "HTTPBearer": []
           }
         ]
       }
@@ -4661,6 +4695,9 @@
         "security": [
           {
             "APIKeyHeader": []
+          },
+          {
+            "HTTPBearer": []
           }
         ]
       }
@@ -4672,6 +4709,9 @@
         "security": [
           {
             "APIKeyHeader": []
+          },
+          {
+            "HTTPBearer": []
           }
         ],
         "parameters": [
@@ -4750,6 +4790,9 @@
         "security": [
           {
             "APIKeyHeader": []
+          },
+          {
+            "HTTPBearer": []
           }
         ],
         "parameters": [
@@ -4802,6 +4845,9 @@
         "security": [
           {
             "APIKeyHeader": []
+          },
+          {
+            "HTTPBearer": []
           }
         ],
         "parameters": [
@@ -4904,6 +4950,9 @@
         "security": [
           {
             "APIKeyHeader": []
+          },
+          {
+            "HTTPBearer": []
           }
         ]
       }
@@ -5036,6 +5085,9 @@
         "security": [
           {
             "APIKeyHeader": []
+          },
+          {
+            "HTTPBearer": []
           }
         ]
       }
@@ -5058,6 +5110,9 @@
         "security": [
           {
             "APIKeyHeader": []
+          },
+          {
+            "HTTPBearer": []
           }
         ]
       }
@@ -5080,6 +5135,9 @@
         "security": [
           {
             "APIKeyHeader": []
+          },
+          {
+            "HTTPBearer": []
           }
         ]
       }
@@ -5091,6 +5149,9 @@
         "security": [
           {
             "APIKeyHeader": []
+          },
+          {
+            "HTTPBearer": []
           }
         ],
         "parameters": [
@@ -5187,6 +5248,9 @@
         "security": [
           {
             "APIKeyHeader": []
+          },
+          {
+            "HTTPBearer": []
           }
         ]
       }
@@ -5198,6 +5262,9 @@
         "security": [
           {
             "APIKeyHeader": []
+          },
+          {
+            "HTTPBearer": []
           }
         ],
         "parameters": [
@@ -5292,6 +5359,9 @@
         "security": [
           {
             "APIKeyHeader": []
+          },
+          {
+            "HTTPBearer": []
           }
         ]
       }
@@ -5303,6 +5373,9 @@
         "security": [
           {
             "APIKeyHeader": []
+          },
+          {
+            "HTTPBearer": []
           }
         ],
         "parameters": [
@@ -5355,6 +5428,9 @@
         "security": [
           {
             "APIKeyHeader": []
+          },
+          {
+            "HTTPBearer": []
           }
         ],
         "parameters": [
@@ -5408,6 +5484,9 @@
         "security": [
           {
             "APIKeyHeader": []
+          },
+          {
+            "HTTPBearer": []
           }
         ],
         "parameters": [
@@ -5451,6 +5530,9 @@
         "security": [
           {
             "APIKeyHeader": []
+          },
+          {
+            "HTTPBearer": []
           }
         ],
         "parameters": [
@@ -5503,6 +5585,9 @@
         "security": [
           {
             "APIKeyHeader": []
+          },
+          {
+            "HTTPBearer": []
           }
         ],
         "parameters": [
@@ -5575,6 +5660,9 @@
         "security": [
           {
             "APIKeyHeader": []
+          },
+          {
+            "HTTPBearer": []
           }
         ]
       }
@@ -5587,6 +5675,9 @@
         "security": [
           {
             "APIKeyHeader": []
+          },
+          {
+            "HTTPBearer": []
           }
         ],
         "parameters": [
@@ -5647,6 +5738,9 @@
         "security": [
           {
             "APIKeyHeader": []
+          },
+          {
+            "HTTPBearer": []
           }
         ],
         "parameters": [
@@ -5690,6 +5784,9 @@
         "security": [
           {
             "APIKeyHeader": []
+          },
+          {
+            "HTTPBearer": []
           }
         ],
         "parameters": [
@@ -5733,6 +5830,9 @@
         "security": [
           {
             "APIKeyHeader": []
+          },
+          {
+            "HTTPBearer": []
           }
         ],
         "parameters": [
@@ -5785,6 +5885,9 @@
         "security": [
           {
             "APIKeyHeader": []
+          },
+          {
+            "HTTPBearer": []
           }
         ]
       }
@@ -5796,6 +5899,9 @@
         "security": [
           {
             "APIKeyHeader": []
+          },
+          {
+            "HTTPBearer": []
           }
         ],
         "parameters": [
@@ -5833,8 +5939,71 @@
     }
   },
   "components": {
-    "parameters": {},
+    "callbacks": {},
     "headers": {},
+    "parameters": {},
+    "examples": {},
+    "securitySchemes": {
+      "APIKeyHeader": {
+        "type": "apiKey",
+        "in": "header",
+        "name": "API-KEY"
+      },
+      "HTTPBearer": {
+        "type": "http",
+        "scheme": "bearer"
+      }
+    },
+    "responses": {
+      "GetItemResponse": {
+        "description": "Successful retrieval of an item.",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Item"
+            }
+          }
+        }
+      },
+      "PutItemResponse": {
+        "description": "Item successfully stored or updated.",
+        "content": {}
+      },
+      "DeleteItemResponse": {
+        "description": "Item successfully deleted.",
+        "content": {}
+      },
+      "SearchItemsResponse": {
+        "description": "Successful search operation.",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/SearchItemsResponse"
+            }
+          }
+        }
+      },
+      "ListNamespacesResponse": {
+        "description": "Successful retrieval of namespaces.",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/ListNamespaceResponse"
+            }
+          }
+        }
+      },
+      "ErrorResponse": {
+        "description": "An error occurred.",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/ErrorResponse"
+            }
+          }
+        }
+      }
+    },
     "requestBodies": {},
     "schemas": {
       "Assistant": {
@@ -9350,14 +9519,18 @@
       "LogoutRequest": {
         "properties": {
           "refresh_token": {
-            "type": "string",
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
             "title": "Refresh Token"
           }
         },
         "type": "object",
-        "required": [
-          "refresh_token"
-        ],
         "title": "LogoutRequest"
       },
       "SignupRequest": {
@@ -9438,65 +9611,6 @@
           "type"
         ],
         "title": "ValidationError"
-      }
-    },
-    "securitySchemes": {
-      "APIKeyHeader": {
-        "type": "apiKey",
-        "in": "header",
-        "name": "API-KEY"
-      }
-    },
-    "callbacks": {},
-    "examples": {},
-    "responses": {
-      "GetItemResponse": {
-        "description": "Successful retrieval of an item.",
-        "content": {
-          "application/json": {
-            "schema": {
-              "$ref": "#/components/schemas/Item"
-            }
-          }
-        }
-      },
-      "PutItemResponse": {
-        "description": "Item successfully stored or updated.",
-        "content": {}
-      },
-      "DeleteItemResponse": {
-        "description": "Item successfully deleted.",
-        "content": {}
-      },
-      "SearchItemsResponse": {
-        "description": "Successful search operation.",
-        "content": {
-          "application/json": {
-            "schema": {
-              "$ref": "#/components/schemas/SearchItemsResponse"
-            }
-          }
-        }
-      },
-      "ListNamespacesResponse": {
-        "description": "Successful retrieval of namespaces.",
-        "content": {
-          "application/json": {
-            "schema": {
-              "$ref": "#/components/schemas/ListNamespaceResponse"
-            }
-          }
-        }
-      },
-      "ErrorResponse": {
-        "description": "An error occurred.",
-        "content": {
-          "application/json": {
-            "schema": {
-              "$ref": "#/components/schemas/ErrorResponse"
-            }
-          }
-        }
       }
     },
     "links": {}

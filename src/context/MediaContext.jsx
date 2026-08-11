@@ -1,36 +1,50 @@
 // src/context/MediaContext.jsx
-// Used to subscribe to the firestore message for real-time state of messages;
-// calls messageService to send new messages;
-// the messages are displayed in the MessageList Component
-// flow:
-// The Chat Area holds the input bar and the Message list
-// the input bar sends a message through the media context
-// the media context will call the message service
-// the message is displayed in the message list
-// the response is displayed in the message list
-// all messages for the current conversation are displayed in the message list as per the subscription to the messages collection for the current conversation of the active avatar
+//
+// Conversation state and the message-sending path, over the Neural Nexus API.
+// Flow:
+//   The ChatArea holds the InputBar and the MessageList.
+//   The InputBar sends a message through this context.
+//   This context POSTs to /message/{assistant_id} with stream=true and grows
+//   the assistant message token-by-token as server-sent events arrive.
+//   The MessageList renders the messages array on every update.
 
 import React, {
   createContext,
   useContext,
   useState,
-  useEffect,
   useRef,
 } from 'react';
 
 import { useAuth } from './AuthContext';
 
 import { toast } from 'react-hot-toast';
-import { Client } from '@langchain/langgraph-sdk';
+import { requestJson, streamServerSentEvents } from '../services/neuralNexusApiClient';
 
 const MediaContext = createContext();
 
+/**
+ * The API's assistant records carry `assistant_id`, while older parts of this
+ * frontend passed around `avatar_id` or nested the id under `metadata`. This
+ * resolves whichever shape an avatar object arrives in.
+ *
+ * @param {Object} avatar An avatar/assistant record.
+ * @returns {string|undefined} The assistant identifier.
+ */
+function resolveAssistantId(avatar) {
+  return (
+    avatar?.assistant_id ?? avatar?.avatar_id ?? avatar?.metadata?.assistant_id
+  );
+}
+
 export const MediaProvider = ({ children }) => {
-  const { activeAvatar, user, context, setContext } = useAuth();
+  const { activeAvatar, user } = useAuth();
 
   const [messages, setMessages] = useState([]);
   const [activeConversation, setActiveConversation] = useState(null);
   const [conversationList, setConversationList] = useState([]);
+  // Set when the graph pauses for human approval (an `interrupt` frame). A
+  // future approval interface resumes via POST /message/{assistant_id}/resume.
+  const [pendingInterrupt, setPendingInterrupt] = useState(null);
 
   const [inputMessage, setInputMessage] = useState('');
 
@@ -40,11 +54,10 @@ export const MediaProvider = ({ children }) => {
   const [isThoughtToImageEnabled, setIsThoughtToImageEnabled] = useState(false);
   const messagesEndRef = useRef(null);
   const fileInputRef = useRef(null);
-  const unsubscribeRef = useRef(null); // Store unsubscribe function
 
-  const MAX_FILE_SIZE_MB = 1 * 1024 * 1024;
+  const MAX_FILE_SIZE_BYTES = 1 * 1024 * 1024;
 
-  const [dataExchangeTypes, setDataExchangeTypes] = useState({
+  const [dataExchangeTypes] = useState({
     text: true,
     voice: true,
     fileUpload: true,
@@ -73,306 +86,249 @@ export const MediaProvider = ({ children }) => {
     setIsTranscribing(false);
   };
 
-  async function getConversationList(user, activeAvatar) {
-    const thread_search_response = await fetch(
-      `${import.meta.env.VITE_LANGGRAPH_API_SERVER_URL}/threads/search`,
+  /**
+   * Load every conversation thread for this user + avatar, newest first.
+   * GET /conversations
+   *
+   * @param {Object} _user Unused; kept for the existing call signature.
+   * @param {Object} avatarForConversations The avatar whose threads to list.
+   * @returns {Promise<Array>} Thread records.
+   */
+  async function getConversationList(_user, avatarForConversations) {
+    const threads = await requestJson('/conversations', {
+      query: { assistant_id: resolveAssistantId(avatarForConversations) },
+    });
+    const threadList = Array.isArray(threads) ? threads : [];
+    setConversationList(threadList);
+    return threadList;
+  }
+
+  /**
+   * Make a thread the active conversation.
+   *
+   * @param {Object} _avatarForConversation Unused; kept for the existing call signature.
+   * @param {string} threadId The thread to activate.
+   * @returns {Promise<string>} The activated thread identifier.
+   */
+  async function switchActiveConveration(_avatarForConversation, threadId) {
+    setActiveConversation(threadId);
+    return threadId;
+  }
+
+  /**
+   * Load the message history of the active conversation into state.
+   * GET /conversations/{thread_id}/messages
+   *
+   * @param {Object} _user Unused; kept for the existing call signature.
+   * @param {Object} avatarForMessages The avatar the thread belongs to.
+   * @param {string} [threadId] Thread to load; defaults to the active conversation.
+   */
+  async function getActiveConversationMessages(_user, avatarForMessages, threadId) {
+    const conversationThreadId =
+      threadId ??
+      activeConversation ??
+      avatarForMessages?.metadata?.active_conversation ??
+      conversationList[0]?.thread_id;
+
+    if (!conversationThreadId) {
+      setMessages([]);
+      return;
+    }
+
+    const messagesResponse = await requestJson(
+      `/conversations/${encodeURIComponent(conversationThreadId)}/messages`,
+      { query: { assistant_id: resolveAssistantId(avatarForMessages) } }
+    );
+    setMessages(messagesResponse?.messages ?? []);
+  }
+
+  /**
+   * Send one message and stream the reply into the messages array.
+   * POST /message/{assistant_id} with stream=true.
+   *
+   * The server-sent event sequence is: an optional `usage_estimate` frame,
+   * `assistant_token` frames that each carry a text fragment, and a terminal
+   * `done` frame with the authoritative full content and the thread_id (the
+   * server creates the thread when none is passed) — or an `interrupt` frame
+   * when the graph pauses for human approval.
+   *
+   * @param {Object} _user Unused; kept for the existing call signature.
+   * @param {Object} avatarForMessage The avatar to message.
+   * @param {string} threadId Thread to continue, or null to start a new one.
+   * @param {string} messageContent The user's message text.
+   * @param {File[]} [attachedFiles] Files to attach to this turn.
+   */
+  async function sendMessageAwaitResponseUpdateMessages(
+    _user,
+    avatarForMessage,
+    threadId,
+    messageContent,
+    attachedFiles = []
+  ) {
+    const assistantId = resolveAssistantId(avatarForMessage);
+    const streamingMessageId = `streaming-${Date.now()}`;
+
+    const formData = new FormData();
+    formData.append('message', messageContent);
+    formData.append('stream', 'true');
+    if (threadId) {
+      formData.append('thread_id', threadId);
+    }
+    for (const attachedFile of attachedFiles) {
+      formData.append('files', attachedFile);
+    }
+    const userTimezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+    if (userTimezone) {
+      formData.append('user_timezone', userTimezone);
+    }
+
+    // The assistant message that the token stream grows. isLoading drives the
+    // MessageList's typing indicator until the first token lands.
+    setMessages((previousMessages) => [
+      ...previousMessages,
+      {
+        id: streamingMessageId,
+        type: 'ai',
+        content: '',
+        isLoading: true,
+        timestamp: new Date().toISOString(),
+      },
+    ]);
+
+    const appendTokenToStreamingMessage = (tokenText) => {
+      setMessages((previousMessages) =>
+        previousMessages.map((message) =>
+          message.id === streamingMessageId
+            ? {
+                ...message,
+                isLoading: false,
+                content: message.content + tokenText,
+              }
+            : message
+        )
+      );
+    };
+
+    let terminalFrame = null;
+
+    await streamServerSentEvents(
+      `/message/${encodeURIComponent(assistantId)}`,
       {
         method: 'POST',
-        headers: {
-          Accept: '*/*',
-          'x-api-key': `${import.meta.env.VITE_LANGGRAPH_API_SERVER_KEY}`,
+        formData,
+        onEvent: (streamEvent) => {
+          if (streamEvent.type === 'assistant_token') {
+            appendTokenToStreamingMessage(streamEvent.text ?? '');
+          } else if (
+            streamEvent.type === 'done' ||
+            streamEvent.type === 'interrupt'
+          ) {
+            terminalFrame = streamEvent;
+          }
+          // `usage_estimate` and `keep_alive` frames need no rendering today.
         },
-        body: JSON.stringify({
-          metadata: {
-            user_id: user.id,
-            assistant_id: activeAvatar.avatar_id,
-          },
-          limit: 10,
-          offset: 0,
-          sort_by: 'created_at',
-          sort_order: 'desc',
-        }),
       }
     );
 
-    const thread_search_response_json = await thread_search_response.json();
-
-    console.log(`${JSON.stringify(thread_search_response_json)}`);
-    setConversationList(thread_search_response_json);
-    return thread_search_response_json;
-  }
-
-  async function switchActiveConveration(activeAvatar, thread_id) {
-    // update the active_conversation on the activeAvatar TODO: update in database
-    activeAvatar.active_conversation = thread_id;
-    if (activeAvatar.active_conversation) {
-      let active_conversation = activeAvatar.active_conversation;
-    } else {
-      active_conversation = conversationList[0];
-      console.log(`active_conversation: ${active_conversation}`);
+    if (terminalFrame?.type === 'interrupt') {
+      setPendingInterrupt({
+        threadId: terminalFrame.thread_id,
+        assistantId,
+        interrupt: terminalFrame.interrupt,
+      });
     }
 
-    setActiveConversation(active_conversation);
-    return active_conversation;
-  }
-
-  async function getActiveConversationMessages(user, activeAvatar) {
-    let active_conversation = activeAvatar.metadata.active_conversation;
-    if (!active_conversation) {
-      if (conversationList) {
-        active_conversation = conversationList[0];
-      } else {
-        console.log(
-          `error no activeAvatar.metadata.active_conversation; no conversationList`
-        );
-      }
-    }
-
-    console.log(
-      'XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX import.meta.env.VITE_LANGGRAPH_API_SERVER_URL: ',
-      import.meta.env.VITE_LANGGRAPH_API_SERVER_URL
-    );
-
-    const langgraph_api_client = new Client({
-      apiUrl: import.meta.env.VITE_LANGGRAPH_API_SERVER_URL,
-      apiKey: import.meta.env.VITE_LANGGRAPH_API_SERVER_KEY,
-    });
-
-    // let searchQuery = JSON.stringify({
-    //   graphId: 'Anubis',
-    //   metadata: { user_id: '6502e491-fc64-44fd-aaaf-047c70587f48' },
-    // });
-
-    // let test_assistants = await langgraph_api_client.assistants.search({
-    //   query: searchQuery,
-    // });
-
-    // console.log(`active_conversation: ${active_conversation}`);
-
-    // let body = JSON.stringify({
-    //   threadId: active_conversation,
-    // });
-
-    // console.log(activeConversation);
-
-    const thread_get_response_json =
-      await langgraph_api_client.threads.get(activeConversation);
-
-    // const thread_get_response_json = await thread_get_response.json();
-
-    // const thread_get_response = await fetch(
-    //   `${import.meta.env.VITE_LANGGRAPH_API_SERVER_URL}/threads/${active_conversation}`,
-    //   {
-    //     headers: {
-    //       Accept: '*/*',
-    //       'x-api-key': `${import.meta.env.VITE_LANGGRAPH_API_SERVER_KEY}`,
-    //     },
-    //   }
-    // );
-
-    // const thread_get_response_json = await thread_get_response.json();
-
-    console.log(`thread_get_response_json: ${thread_get_response_json}`);
-    if (thread_get_response_json['values'] != null) {
-      let response_messages = thread_get_response_json['values']['messages'];
-      console.log(response_messages);
-      setMessages(response_messages);
-    } else {
-      setMessages([]);
-    }
-
-    // return response_messages;
-  }
-
-  async function sendMessageAwaitResponseUpdateMessages(
-    user,
-    activeAvatar,
-    thread_id,
-    message_content
-  ) {
-    console.log(`message_content: ${message_content}`);
-
-    let messages = [{ role: 'user', content: message_content }];
-
-    console.log(`context: ${JSON.stringify(context)}`);
-
-    let apiKey = `${import.meta.env.VITE_LANGGRAPH_API_SERVER_KEY}`;
-
-    let apiUrl = `${import.meta.env.VITE_LANGGRAPH_API_SERVER_URL}`;
-
-    console.log(`assistant_id: ${activeAvatar.metadata.assistant_id}`);
-
-    const langgraph_api_client = new Client({
-      apiUrl: import.meta.env.VITE_LANGGRAPH_API_SERVER_URL,
-      apiKey: import.meta.env.VITE_LANGGRAPH_API_SERVER_KEY,
-    });
-
-    console.log(`messages: ${messages}`);
-    // let runQuery = JSON.stringify();
-
-    // console.log(`runQuery:${JSON.stringify(runQuery)}`);
-
-    const thread_run_await_response_json = await langgraph_api_client.runs.wait(
-      activeAvatar.metadata.active_conversation,
-      activeAvatar.metadata.assistant_id,
-      {
-        input: { messages },
-        user_id: user.id,
-        assistant_id: activeAvatar.metadata.assistant_id,
-      }
-    );
-
-    console.log(
-      `thread_run_await_response_json: ${thread_run_await_response_json}`
-    );
-
-    // let payload = JSON.stringify({
-    //   assistant_id: activeAvatar.metadata.assistant_id,
-    //   input: input,
-    //   metadata: {
-    //     user_id: user.id,
-    //     assistant_id: activeAvatar.metadata.assistant_id,
-    //     thread_id: thread_id,
-    //   },
-    // });
-    // context: context,
-
-    // console.log(`payload: ${payload}`);
-
-    // const thread_run_await_response = await fetch(
-    //   `${apiUrl}/threads/${thread_id}/runs/wait`,
-    //   {
-    //     method: 'POST',
-    //     headers: {
-    //       'x-api-key': apiKey,
-    //     },
-    //     body: payload,
-    //   }
-    // );
-
-    console.log('breakpoint post message send');
-
-    if (
-      '__error__' in thread_run_await_response_json &&
-      thread_run_await_response_json.__error__?.error
-    ) {
-      const error_thread_run_await_response_json =
-        thread_run_await_response_json.__error__?.error;
-
-      console.log(
-        `error_thread_run_await_response_json: ${error_thread_run_await_response_json}`
+    if (terminalFrame?.type === 'done') {
+      // Adopt the authoritative content and metadata from the terminal frame;
+      // the token stream is a preview, `done.content` is the record.
+      setMessages((previousMessages) =>
+        previousMessages.map((message) =>
+          message.id === streamingMessageId
+            ? {
+                ...message,
+                isLoading: false,
+                content: terminalFrame.content ?? message.content,
+                usage: terminalFrame.usage,
+              }
+            : message
+        )
       );
-
-      toast.error(error_thread_run_await_response_json);
-
-      // remove the optimistic and loading
-      setMessages((prev) =>
-        prev.filter((msg) => !msg.id.startsWith('temp-') && !msg.isLoading)
-      );
-    } else {
-      console.log(
-        `thread_run_await_response_json: ${JSON.stringify(thread_run_await_response_json)}`
-      );
-      console.log('breakpoint');
-
-      let response_message = thread_run_await_response_json.messages.at(-1);
-      if (Object.keys(response_message).length == 0) {
-        // handle response is empty
-        setMessages((prev) =>
-          prev.filter((msg) => !msg.id.startsWith('temp-') && !msg.isLoading)
-        );
-        toast.error('Error no response from the server. Please try again.', {
-          duration: 5000,
-        });
+      if (terminalFrame.thread_id) {
+        setActiveConversation(terminalFrame.thread_id);
       }
-      console.log(`response_message: ${JSON.stringify(response_message)}`);
-
-      // update the response message
-      const responseMessage = {
-        id: response_message.id,
-        type: response_message.type || 'ai',
-        isLoading: false,
-        timestamp: new Date().toISOString(),
-        content: response_message['content'],
-      };
-      // filter the loading message
-      setMessages((prev) => prev.filter((msg) => !msg.isLoading));
-
-      // insert the new message response
-      setMessages((prev) => [...prev, responseMessage]);
-
-      console.log(`response_message: ${JSON.stringify(response_message)}`);
+    } else if (!terminalFrame) {
+      // The stream ended without a terminal frame — surface whatever tokens
+      // arrived, but warn, because the reply may be truncated.
+      setMessages((previousMessages) =>
+        previousMessages.map((message) =>
+          message.id === streamingMessageId
+            ? { ...message, isLoading: false }
+            : message
+        )
+      );
+      toast.error('The response stream ended unexpectedly.');
     }
 
-    return { success: 'TRUE' };
+    return { success: terminalFrame != null };
   }
 
   async function handleSendMessageMediaContext() {
-    console.log('MediaContext: handleSendMessageMediaContext called');
-
     if (
       !activeAvatar ||
-      !activeConversation ||
-      !user ||
       (!inputMessage.trim() && mediaFiles.length === 0)
     ) {
       console.log('Missing required data for sending message');
       return;
     }
 
+    const messageContent = inputMessage;
+    const attachedFiles = mediaFiles;
+    const temporaryUserMessageId = `temp-${Date.now()}`;
+
     try {
-      const tempId = `temp-${Date.now()}`;
-      const loadingId = `loading-${Date.now()}`;
+      // Optimistically render the user's message immediately.
+      setMessages((previousMessages) => [
+        ...previousMessages,
+        {
+          id: temporaryUserMessageId,
+          content: messageContent,
+          type: 'human',
+          timestamp: new Date().toISOString(),
+          media: attachedFiles.map((attachedFile) => ({
+            filename: attachedFile.name,
+            content_type: attachedFile.type,
+          })),
+          content_type:
+            attachedFiles.length > 0 && !messageContent ? 'media' : 'text',
+        },
+      ]);
+      setInputMessage('');
+      setMediaFiles([]);
 
-      // Optimistically add user message to UI
-      const tempMessage = {
-        id: tempId,
-        content: inputMessage,
-        type: 'human',
-        timestamp: new Date().toISOString(),
-        media: mediaFiles.map((f) => ({
-          filename: f.name,
-          content_type: f.type,
-        })),
-        content_type: mediaFiles.length > 0 && !inputMessage ? 'media' : 'text',
-      };
+      await sendMessageAwaitResponseUpdateMessages(
+        user,
+        activeAvatar,
+        activeConversation,
+        messageContent,
+        attachedFiles
+      );
+    } catch (sendError) {
+      console.error('Failed to send message:', sendError);
 
-      setMessages((prev) => [...prev, tempMessage]);
-
-      // Add loading message for AI response
-      const loadingMessage = {
-        id: loadingId,
-        type: 'ai',
-        isLoading: true,
-        timestamp: new Date().toISOString(),
-      };
-
-      setMessages((prev) => [...prev, loadingMessage]);
-
-      console.log('breakpoint before message send');
-
-      const { send_message_success } =
-        await sendMessageAwaitResponseUpdateMessages(
-          user,
-          activeAvatar,
-          activeAvatar.metadata.active_conversation,
-          inputMessage
-        );
-      console.log('after send message breakpoint');
-    } catch (err) {
-      console.error('Failed to send message:', err);
-
-      // Remove optimistic and loading messages on error
-      setMessages((prev) =>
-        prev.filter((msg) => !msg.id?.startsWith('temp-') && !msg.isLoading)
+      // Remove the optimistic user message and any unfinished assistant
+      // message so the failed turn leaves no half-rendered artifacts.
+      setMessages((previousMessages) =>
+        previousMessages.filter(
+          (message) =>
+            message.id !== temporaryUserMessageId &&
+            !message.id?.startsWith('streaming-')
+        )
       );
 
-      if (err.status === 413) {
-        toast.error(
-          'One or more files exceed the maximum upload size of 1 MB.'
-        );
+      if (sendError.status === 413) {
+        toast.error('One or more files exceed the maximum upload size of 1 MB.');
       } else {
-        toast.error(err.message || 'Failed to send message');
+        toast.error(sendError.message || 'Failed to send message');
       }
     }
   }
@@ -382,24 +338,28 @@ export const MediaProvider = ({ children }) => {
     const files = Array.from(event.target.files);
     if (files.length === 0) return;
 
-    const validFiles = files.filter((f) => f.size <= MAX_FILE_SIZE_MB);
+    const validFiles = files.filter(
+      (candidateFile) => candidateFile.size <= MAX_FILE_SIZE_BYTES
+    );
     if (validFiles.length < files.length) {
       alert('Some files exceed the 1 MB limit and were ignored.');
     }
 
-    setMediaFiles((prev) => [...prev, ...validFiles]);
+    setMediaFiles((previousFiles) => [...previousFiles, ...validFiles]);
     event.target.value = '';
   };
 
-  const handleFileChange = (e) => {
-    const files = Array.from(e.target.files).filter(
-      (f) => f.size <= MAX_FILE_SIZE_MB
+  const handleFileChange = (event) => {
+    const files = Array.from(event.target.files).filter(
+      (candidateFile) => candidateFile.size <= MAX_FILE_SIZE_BYTES
     );
-    setMediaFiles((prev) => [...prev, ...files]);
+    setMediaFiles((previousFiles) => [...previousFiles, ...files]);
   };
 
   const removeFile = (index) => {
-    setMediaFiles((prev) => prev.filter((_, i) => i !== index));
+    setMediaFiles((previousFiles) =>
+      previousFiles.filter((_, fileIndex) => fileIndex !== index)
+    );
   };
 
   return (
@@ -427,11 +387,14 @@ export const MediaProvider = ({ children }) => {
         startThoughtToImage,
         stopThoughtToImage,
         getConversationList,
+        conversationList,
         getActiveConversationMessages,
         switchActiveConveration,
         sendMessageAwaitResponseUpdateMessages,
         setActiveConversation,
         activeConversation,
+        pendingInterrupt,
+        setPendingInterrupt,
       }}
     >
       {children}

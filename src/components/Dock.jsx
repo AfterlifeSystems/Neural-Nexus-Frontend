@@ -1,17 +1,12 @@
 import { Ear, EarOff, Eye } from 'lucide-react';
 import thoughtToImageService from '../services/ThoughtToImageService';
 import { useEffect } from 'react';
-import { useMedia } from '../context/MediaContext';
 import { useAuth } from '../context/AuthContext';
 
-import {
-  incrementPendingRequests,
-  decrementPendingRequests,
-  clearPendingRequests,
-} from '../components/toastManager';
+import { incrementPendingRequests } from '../components/toastManager';
 
 const DockButton = ({
-  icon: Icon,
+  icon: ButtonIcon,
   label,
   isActive,
   onClick,
@@ -34,7 +29,7 @@ const DockButton = ({
       `}
       aria-label={label}
     >
-      <Icon className="w-5 h-5" />
+      <ButtonIcon className="w-5 h-5" />
     </button>
     {/* Tooltip */}
     <span
@@ -60,10 +55,8 @@ const Dock = ({
   stopThoughtToImage,
   dataExchangeTypes,
 }) => {
-  const { fetchMessages } = useMedia();
-  const { user, activeAvatar, accessToken } = useAuth();
-  console.log('activeAvatar.avatar_id: ', activeAvatar.avatar_id);
-  console.log('user.user_id: ', user.user_id);
+  const { user, activeAvatar } = useAuth();
+  const activeAvatarId = activeAvatar?.assistant_id ?? activeAvatar?.avatar_id;
 
   useEffect(() => {
     if (isThoughtToImageEnabled) {
@@ -71,26 +64,20 @@ const Dock = ({
 
       // Connect to the reconstruction websocket to receive
       // a reconstructed image
-      thoughtToImageService.connectReconstructedImageWebSocket(user.user_id);
+      thoughtToImageService.connectReconstructedImageWebSocket(user?.id);
 
       // Send the request for the reconstructed image
       incrementPendingRequests();
       thoughtToImageService.startPolling({
-        accessToken,
-        avatar_id: activeAvatar.avatar_id,
-        user_id: user.user_id,
+        avatar_id: activeAvatarId,
+        user_id: user?.id,
         pollingFreq,
       });
     }
     return () => {
       thoughtToImageService.cleanup();
     };
-  }, [
-    isThoughtToImageEnabled,
-    activeAvatar.avatar_id,
-    user.user_id,
-    accessToken,
-  ]);
+  }, [isThoughtToImageEnabled, activeAvatarId, user?.id]);
 
   const buttons = [
     {
