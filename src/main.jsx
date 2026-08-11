@@ -45,7 +45,7 @@ createRoot(document.getElementById('root')).render(
             <Route path="/terms" element={<TermsOfService />} />
 
             {/* Login is public */}
-            {/* <Route path="/login" element={<AuthComponent />} /> */}
+            <Route path="/login" element={<AuthComponent />} />
             <Route path="/*" element={<LandingPage />} />
 
             {/* All protected routes under one layout */}

@@ -1,133 +1,49 @@
 import React, { useState, useEffect } from 'react';
 import { UserPenIcon } from 'lucide-react';
 import { toast } from 'react-hot-toast';
-import { createAvatar, getAvatars } from '../services/avatarService';
+import { createAvatar, listUserAvatars } from '../services/avatarService';
 import { useAuth } from '../context/AuthContext';
 
 const CreateAvatarModal = ({ setShowCreateModal }) => {
   const [error, setError] = useState(null);
   const [newAvatarName, setNewAvatarName] = useState('');
   const [newAvatarDescription, setNewAvatarDescription] = useState('');
-  const { user, isLoading, setIsLoading, setUserAvatars } = useAuth();
+  const { isLoading, setIsLoading, setUserAvatars } = useAuth();
 
-  // 4331fbb8-b4a4-41a3-a0d1-ab0158a1abec
-  // 7e644e6b-f05c-47e9-a179-368517d480f8
   const handleCreate = async () => {
-    console.log('handleCreate');
     if (!newAvatarName.trim()) {
       setError('Avatar name is required');
       return;
     }
-    console.log(
-      `CHANGING THE VALUE OF SET LOADING TO TRUE: CURRENT LOADING VALUE: ${isLoading}`
-    );
     setIsLoading(true);
     setError(null);
     try {
-      const created = await createAvatar(
-        user,
-        newAvatarName,
-        newAvatarDescription,
-        null
-      );
-      if (created) {
-        // updating the current list of avatars for the current user
-        try {
-          const avatars = await getAvatars(user.id);
+      await createAvatar({
+        name: newAvatarName,
+        description: newAvatarDescription,
+      });
 
-          console.log(`response from getAvatars: avatars: ${avatars}`);
-
-          setUserAvatars(avatars);
-        } catch (error) {
-          console.log(
-            ` Handle Create avatar; getting avatars error; error.message: ${error.message}`
-          );
-          console.log(
-            'indicate error of getting avatar list after successful creation'
-          );
-          toast.error(error.message, { options: { duration: 5000 } });
-        }
-        setShowCreateModal(false);
-        setNewAvatarName('');
-        setNewAvatarDescription('');
-        // toast.success('Avatar created successfully');
-      } else {
-        setError('Failed to create avatar');
-        toast.error('Failed to create avatar');
+      // Refresh the avatar list so the new avatar appears immediately.
+      try {
+        const avatars = await listUserAvatars();
+        setUserAvatars(avatars ?? []);
+      } catch (listError) {
+        console.error(
+          'Avatar created, but refreshing the avatar list failed:',
+          listError
+        );
+        toast.error(listError.message, { duration: 5000 });
       }
-    } catch (err) {
-      const errorMessage = err.message.includes('detail')
-        ? JSON.parse(err.message).detail
-        : err.message || 'Failed to create avatar';
+      setShowCreateModal(false);
+      setNewAvatarName('');
+      setNewAvatarDescription('');
+    } catch (createError) {
+      const errorMessage = createError.message || 'Failed to create avatar';
       setError(errorMessage);
       toast.error(errorMessage);
-      console.error('Create avatar error:', err);
+      console.error('Create avatar error:', createError);
     } finally {
-      console.log(
-        `CHANGING THE VALUE OF SET LOADING TO FALSE: CURRENT LOADING VALUE: ${isLoading}`
-      );
       setIsLoading(false);
-    }
-  };
-
-  const handleClick = async (cardData) => {
-    console.log('handleClick');
-    let actualCardData = cardData;
-    if (!cardData.type) {
-      const matchingCard = authenticatedCards.find(
-        (card) =>
-          card.id === cardData.avatar_data.assistant_id ||
-          (cardData.text && card.text === cardData.text)
-      );
-      if (matchingCard) actualCardData = matchingCard;
-    }
-
-    if (actualCardData.type === 'avatar') {
-      const avatarId =
-        actualCardData.avatar_data.assistant_id ||
-        userAvatars?.find((avatar) => avatar.name === actualCardData.text)
-          ?.assistant_id;
-      if (!avatarId) {
-        toast.error('Avatar ID not found');
-        return;
-      }
-
-      const avatarIndex = userAvatars.findIndex(
-        (avatar) => avatar.assistant_id === avatarId
-      );
-
-      setCurrentCardIndex(avatarIndex);
-      if (galleryRef.current) {
-        galleryRef.current.setCurrentIndex(avatarIndex);
-      }
-      localStorage.setItem('last_used_avatar_index', avatarIndex);
-      localStorage.setItem('last_used_avatar_id', avatarId);
-
-      // Use AuthContext selectAvatar which updates Firestore
-      // await selectAvatar(avatarId);
-
-      const selectedAvatar = userAvatars.find(
-        (avatar) => avatar.assistant_id === avatarId
-      );
-
-      // when the avatar is selected, the backend is responsible for updating the identity and awareness of the avatar
-
-      cacheAvatarPosition(avatarId, avatarIndex);
-      if (selectedAvatar?.icon) {
-        cacheAvatarIcon(avatarId, selectedAvatar.icon, avatarIndex);
-      }
-      setActiveAvatar(selectedAvatar);
-      // await selectAvatar(avatarId); // Update Firestore last_used_avatar
-      // localStorage.setItem('last_used_avatar_id', avatarId);
-
-      // Load messages for this avatar
-      // await fetchMessages();
-      // toast.success(`Selected ${avatar.name || 'avatar'}`);
-      // console.log('HANDLE CLICK');
-      navigate(`/chat/${avatarId}`); // ← ROUTE TO CHAT AREA
-      // navigate(/chat:selectedAvatar)
-    } else if (actualCardData.type === 'create') {
-      setShowCreateModal(true);
     }
   };
 

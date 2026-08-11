@@ -1,1 +1,0 @@
-npx supabase start --network-id neural-nexus-local-network &

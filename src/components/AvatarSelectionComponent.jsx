@@ -17,28 +17,22 @@ import CreateAvatarComponent from './CreateAvatarComponent';
 import CreateAvatarModal from './CreateAvatarModal';
 import AvatarCardComponent from './AvatarCardComponent';
 import { useMedia } from '../context/MediaContext';
-import { selectAvatar } from '../services/avatarService';
-import { createClient } from '@supabase/supabase-js';
+import {
+  selectAvatar,
+  getAvatarReferenceImage,
+} from '../services/avatarService';
 
 const AvatarSelectionComponent = ({}) => {
   const {
-    accessToken,
     user,
     profile,
     userAvatars,
     setActiveAvatar,
-    lastUsedAvatar,
-    setUserAvatars,
-    context,
     setContext,
+    logOut,
   } = useAuth();
 
-  const {
-    setMessages,
-    fetchMessages,
-    activeConversation,
-    setActiveConversation,
-  } = useMedia();
+  const { setActiveConversation } = useMedia();
   const navigate = useNavigate();
   const [currentCardIndex, setCurrentCardIndex] = useState(0);
   const [searchQuery, setSearchQuery] = useState('');
@@ -51,14 +45,43 @@ const AvatarSelectionComponent = ({}) => {
   const dropdownRef = useRef(null);
   const hasInitialized = useRef(false);
   const [showCreateModal, setShowCreateModal] = useState(false);
+  // Avatar portraits fetched from GET /avatar_reference_image, keyed by
+  // assistant_id. The API returns a data URI or URL string per avatar.
+  const [avatarIconsById, setAvatarIconsById] = useState({});
 
-  const isValidImageObjectUrl = (urlObject) => {
-    if (!urlObject) return false;
-
-    if (urlObject.url.startsWith('data:image/'))
-      return urlObject.url.includes('base64,');
-    return /^(https?:\/\/|\/)/.test(urlObject.url);
-  };
+  // Load each avatar's portrait from the API. Fetched once per avatar list
+  // change; avatars without a stored reference image simply keep no entry.
+  useEffect(() => {
+    let cancelled = false;
+    const loadAvatarIcons = async () => {
+      if (!Array.isArray(userAvatars) || userAvatars.length === 0) {
+        return;
+      }
+      const iconEntries = await Promise.all(
+        userAvatars.map(async (avatar) => {
+          const assistantId = avatar.assistant_id ?? avatar.avatar_id;
+          if (!assistantId) {
+            return null;
+          }
+          try {
+            const iconSource = await getAvatarReferenceImage(assistantId);
+            return iconSource ? [assistantId, iconSource] : null;
+          } catch {
+            return null;
+          }
+        })
+      );
+      if (!cancelled) {
+        setAvatarIconsById(
+          Object.fromEntries(iconEntries.filter((entry) => entry !== null))
+        );
+      }
+    };
+    loadAvatarIcons();
+    return () => {
+      cancelled = true;
+    };
+  }, [userAvatars]);
 
   const isValidImageUrl = (urlLink) => {
     if (!urlLink) return false;
@@ -158,13 +181,20 @@ const AvatarSelectionComponent = ({}) => {
         (avatar) => avatar.assistant_id === avatarId
       );
 
-      // when the avatar is selected, the backend is responsible for updating the identity and awareness of the avatar
-
       cacheAvatarPosition(avatarId, avatarIndex);
-      if (selectedAvatar?.icon) {
-        cacheAvatarIcon(avatarId, selectedAvatar.icon, avatarIndex);
+      const selectedAvatarIcon = avatarIconsById[avatarId];
+      if (selectedAvatarIcon) {
+        cacheAvatarIcon(avatarId, selectedAvatarIcon, avatarIndex);
       }
       setActiveAvatar(selectedAvatar);
+
+      // Register the selection server-side: /list_avatar_documents and
+      // /delete_avatar_document operate on the avatar selected through
+      // POST /select_avatar, not on a request parameter. Not fatal on
+      // failure — chatting addresses the avatar by id in the URL path.
+      selectAvatar(avatarId).catch((selectError) => {
+        console.error('Server-side avatar selection failed:', selectError);
+      });
 
       // build context for the conversation
       const context = {
@@ -177,74 +207,21 @@ const AvatarSelectionComponent = ({}) => {
         assistant_ctx: {
           assistant_id: avatarId,
           user_id: user.id,
-          name: user.name || '',
-          description: user.description || '',
-          metadata: user.metadata || {},
+          name: selectedAvatar?.name || '',
+          description: selectedAvatar?.description || '',
+          metadata: selectedAvatar?.metadata || {},
         },
       };
 
       setContext(context);
 
-      console.log('breakpoint');
-      setActiveConversation(selectedAvatar.metadata.active_conversation);
+      setActiveConversation(
+        selectedAvatar?.metadata?.active_conversation ?? null
+      );
 
-      // await selectAvatar(avatarId); // Update Firestore last_used_avatar
-      // localStorage.setItem('last_used_avatar_id', avatarId);
-
-      // Load messages for this avatar
-      // await fetchMessages();
-      // toast.success(`Selected ${avatar.name || 'avatar'}`);
-      // console.log('HANDLE CLICK');
       navigate(`/chat/${avatarId}`); // ← ROUTE TO CHAT AREA
-      // navigate(/chat:selectedAvatar)
     } else if (actualCardData.type === 'create') {
       setShowCreateModal(true);
-    }
-  };
-
-  const handleCustomizeAvatar = async () => {
-    if (currentCardIndex === authenticatedCards.length - 1) {
-      setShowCreateModal(true);
-      return;
-    }
-
-    const selectedCard = authenticatedCards[currentCardIndex];
-    if (selectedCard.type === 'avatar') {
-      try {
-        const avatarId =
-          selectedCard.id ||
-          userAvatars?.find((avatar) => avatar.name === selectedCard.text)
-            ?.avatar_id;
-        if (!avatarId) {
-          toast.error('Avatar ID not found');
-          return;
-        }
-
-        // Use AuthContext selectAvatar which updates FirestoreF
-        await selectAvatar(avatarId);
-
-        const selectedAvatar = userAvatars.find(
-          (avatar) => avatar.avatar_id === avatarId
-        );
-        const avatarIndex = userAvatars.findIndex(
-          (avatar) => avatar.avatar_id === avatarId
-        );
-
-        cacheAvatarPosition(avatarId, avatarIndex);
-
-        if (selectedAvatar?.icon) {
-          cacheAvatarIcon(avatarId, selectedAvatar.icon, avatarIndex);
-        }
-
-        setActiveAvatar(selectedAvatar);
-        // Load messages for this avatar and set into media context if needed
-        await fetchMessages();
-        setActiveTab('documents');
-        // navigate(/settings:selectedAvatar)
-      } catch (error) {
-        console.error('Error selecting avatar for settings:', error);
-        toast.error('Failed to open avatar settings');
-      }
     }
   };
 
@@ -255,19 +232,20 @@ const AvatarSelectionComponent = ({}) => {
     );
 
     const avatarCards =
-      userAvatars?.map((avatar) => ({
-        id: avatar.avatar_id,
-        component: (
-          <AvatarCardComponent avatar={avatar} onCardClick={handleClick} />
-        ),
-        type: 'avatar',
-        text: avatar.name,
-        image:
-          avatar.icon && isValidImageObjectUrl(avatar.icon)
-            ? avatar.icon.url
-            : null,
-        avatar_data: avatar,
-      })) || [];
+      userAvatars?.map((avatar) => {
+        const assistantId = avatar.assistant_id ?? avatar.avatar_id;
+        const iconSource = avatarIconsById[assistantId];
+        return {
+          id: assistantId,
+          component: (
+            <AvatarCardComponent avatar={avatar} onCardClick={handleClick} />
+          ),
+          type: 'avatar',
+          text: avatar.name,
+          image: iconSource && isValidImageUrl(iconSource) ? iconSource : null,
+          avatar_data: avatar,
+        };
+      }) || [];
 
     avatarCards.push({
       id: 'create-avatar',
@@ -278,7 +256,7 @@ const AvatarSelectionComponent = ({}) => {
     });
 
     return avatarCards;
-  }, [userAvatars]);
+  }, [userAvatars, avatarIconsById]);
 
   const getCachedAvatarPosition = (avatarId = null) => {
     try {
@@ -346,22 +324,15 @@ const AvatarSelectionComponent = ({}) => {
 
   const handleLogout = async () => {
     try {
-      const supabase = new createClient(
-        import.meta.env.VITE_SUPABASE_URL,
-        import.meta.env.VITE_SUPABASE_PUBLISHABLE_AUTH_KEY
-      );
-
-      try {
-        const { error } = await supabase.auth.signOut(); // sign out the all sessions
-      } catch (error) {
-        console.error('Logout error:', error);
-        toast.error('Logout completed with errors');
-      }
+      await logOut();
+    } catch (logoutError) {
+      // logOut clears local session state even when the network call fails,
+      // so the user is signed out either way.
+      console.error('Logout error:', logoutError);
+      toast.error('Logout completed with errors');
+    } finally {
       setDropdownOpen(false);
       navigate('/login');
-    } catch (err) {
-      console.error('Logout failed', err);
-      // toast.error("Logout failed");
     }
   };
 
@@ -456,13 +427,10 @@ const AvatarSelectionComponent = ({}) => {
 
     const allCards = [
       ...(userAvatars?.map((avatar, idx) => ({
-        id: avatar.avatar_id,
+        id: avatar.assistant_id ?? avatar.avatar_id,
         type: 'avatar',
         text: avatar.name,
-        image:
-          avatar.icon && isValidImageObjectUrl(avatar.icon)
-            ? avatar.icon.url
-            : null,
+        image: avatarIconsById[avatar.assistant_id ?? avatar.avatar_id] ?? null,
         originalIndex: idx,
       })) || []),
       {
@@ -500,13 +468,10 @@ const AvatarSelectionComponent = ({}) => {
   const handleSearchFocus = () => {
     const allCards = [
       ...(userAvatars?.map((avatar, idx) => ({
-        id: avatar.avatar_id,
+        id: avatar.assistant_id ?? avatar.avatar_id,
         type: 'avatar',
         text: avatar.name,
-        image:
-          avatar.icon && isValidImageObjectUrl(avatar.icon)
-            ? avatar.icon.url
-            : null,
+        image: avatarIconsById[avatar.assistant_id ?? avatar.avatar_id] ?? null,
         originalIndex: idx,
       })) || []),
       {

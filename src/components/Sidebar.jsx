@@ -1,10 +1,11 @@
 //components/Sidebar.jsx
 
-import React, { useEffect } from 'react';
+import React from 'react';
 import { UserPenIcon, User, Trash2, Settings, Settings2 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import AuthComponent from './AuthComponent';
 import AnimatedList from './AnimatedList';
+import { deleteAvatar, listUserAvatars } from '../services/avatarService';
 
 const Sidebar = ({
   setShowCreateModal,
@@ -15,21 +16,13 @@ const Sidebar = ({
   onEndLiveChat,
 }) => {
   const {
-    isLoggedIn,
-    accessToken,
-    avatars,
+    user,
+    userAvatars: avatars,
+    setUserAvatars,
     activeAvatar,
     setActiveAvatar,
-    deleteAvatar,
-    getAvatars,
   } = useAuth();
-
-  // Fetch avatars when logged in
-  // useEffect(() => {
-  //   if (isLoggedIn) {
-  //     getAvatars(accessToken);
-  //   }
-  // }, [isLoggedIn, accessToken, getAvatars]);
+  const isLoggedIn = Boolean(user);
 
   // Handle avatar selection and close sidebar
   const handleAvatarSelect = (avatar) => {
@@ -55,13 +48,21 @@ const Sidebar = ({
     onClose?.();
   };
 
-  const handleDelete = (avatar, e) => {
+  const handleDelete = async (avatar, e) => {
     e.stopPropagation();
-    deleteAvatar(avatar.avatar_id);
+    const assistantId = avatar.assistant_id ?? avatar.avatar_id;
+    try {
+      await deleteAvatar(assistantId);
+      setUserAvatars(await listUserAvatars());
+    } catch (deleteError) {
+      console.error('Delete avatar error:', deleteError);
+    }
   };
 
   const renderAvatarItem = (avatar, index, isSelected) => {
-    const isActive = activeAvatar?.avatar_id === avatar.avatar_id;
+    const isActive =
+      (activeAvatar?.assistant_id ?? activeAvatar?.avatar_id) ===
+      (avatar.assistant_id ?? avatar.avatar_id);
 
     return (
       <div

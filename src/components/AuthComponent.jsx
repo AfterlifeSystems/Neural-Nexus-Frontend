@@ -1,36 +1,12 @@
-import React, { useState, useEffect, useRef } from 'react';
-import ReactDOM from 'react-dom';
-import {
-  LogIn,
-  LogOutIcon,
-  UserPlus,
-  X,
-  SendIcon,
-  Github,
-  Mail,
-  User,
-} from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { LogIn, UserPlus, SendIcon } from 'lucide-react';
 
 import { useAuth } from '../context/AuthContext';
-import { useMedia } from '../context/MediaContext';
-import VantaBackground from './VantaBackground';
-import LoadingSpinner from './LoadingSpinner';
-import { toast, Toaster } from 'react-hot-toast';
+import { toast } from 'react-hot-toast';
 
 import { useNavigate } from 'react-router-dom';
 
-import { createClient } from '@supabase/supabase-js';
-
-import { getAvatars } from '../services/avatarService.jsx';
-
-const modalRoot =
-  document.getElementById('modal-root') ||
-  (() => {
-    const el = document.createElement('div');
-    el.id = 'modal-root';
-    document.body.appendChild(el);
-    return el;
-  })();
+import { listUserAvatars } from '../services/avatarService.jsx';
 
 const AuthComponent = () => {
   const navigate = useNavigate();
@@ -38,23 +14,19 @@ const AuthComponent = () => {
   const [password, setPassword] = useState('');
   const [username, setUsername] = useState('');
   // const [showModal, setShowModal] = useState(true);
-  const [modalView, setModalView] = useState('login'); // 'login', 'signup', 'forgotPassword'
+  const [modalView, setModalView] = useState('login'); // 'login', 'signup', 'forgotPassword', 'verifyEmail'
 
   // Rotating avatar index
   const [rotatingIndex, setRotatingIndex] = useState(0);
 
   const {
-    user,
     isLoading,
     setIsLoading,
-    profile,
-    setProfile,
-    forgotPassword,
-    signInWithProvider,
-    avatars,
+    signUp,
+    logIn,
+    requestPasswordReset,
+    userAvatars: avatars,
     setUserAvatars,
-    setAccessToken,
-    setUser,
   } = useAuth();
 
   const validIcons = Array.isArray(avatars)
@@ -85,10 +57,6 @@ const AuthComponent = () => {
   //   return avatars[rotatingIndex]?.icon || null;
   // };
 
-  useEffect(() => {
-    console.log('AUTH COMPONENT ENTRYPOINT');
-  });
-
   // Rotation effect (only when there are 2+ avatars)
   useEffect(() => {
     if (!Array.isArray(avatars)) return;
@@ -106,190 +74,44 @@ const AuthComponent = () => {
   }, [avatars]);
 
   const handleAuth = async (e) => {
-    console.log(`ENTRYPOINT HANDLE AUTH: isLoading ${isLoading}`);
     e.preventDefault();
-    if (!isLoading) {
-      console.log(`is loading is false: ${isLoading}`);
-    }
 
     try {
       if (modalView === 'signup') {
-        // await signup(username, email, password);
-        try {
-          console.log(email);
-          console.log('signup breakpoint');
-          // SUPABASE POSTGRES_DB_STORE
-          const supabaseClient = createClient(
-            `${import.meta.env.VITE_SUPABASE_URL}`,
-            `${import.meta.env.VITE_SUPABASE_PUBLISHABLE_AUTH_KEY}`
-          );
-
-          const { data, error } = await supabaseClient.auth.signUp({
-            email: email,
-            password: password,
-            options: {
-              data: {
-                display_name: username,
-              },
-            },
-          });
-          if (error) {
-            // Display user-friendly error messages
-            let errorMessage = 'Signup failed. Please try again.';
-            if (error.code === 'auth/email-already-in-use') {
-              errorMessage = 'This email is already registered';
-              // toast.error(errorMessage);
-              navigate('/login');
-            } else if (error.code === 'auth/invalid-email') {
-              errorMessage = 'Please provide a valid email address';
-              toast.error(errorMessage);
-            } else if (error.code === 'auth/weak-password') {
-              errorMessage = 'Password must be at least 6 characters';
-              toast.error(errorMessage);
-            } else if (error.message) {
-              errorMessage = error.message;
-            }
-            console.error('Signup error:', error);
-            toast.error(error.message);
-            setIsLoading(false);
-          } else {
-            // This gives you everything at once
-            console.log('Signup data:', { data });
-            console.log('Signup error:', { error });
-
-            console.log(`user: ${user}`);
-
-            // Send email verification
-            // await sendEmailVerification(userCredential.user);
-
-            // set the current profile to the newly created profile
-            console.log(
-              '// set profile of user IN SIGNUP OF  AUTH COMPONENT XXXXXXXXXXXXX'
-            );
-
-            setUser(data.user);
-            setProfile(data.user);
-            setAccessToken(data.session.access_token);
-            setIsLoading(false);
-
-            localStorage.setItem('user', JSON.stringify(data.user));
-
-            navigate('/avatars');
-          }
-        } catch (error) {
-          console.error('Signup error:', error);
-          toast.error(error.message);
-          throw error;
-        }
-      } else if (modalView === 'login') {
-        console.log('signInWithPassword BREAKPOINT');
-        // try {
-        const supabase = await createClient(
-          `${import.meta.env.VITE_SUPABASE_URL}`,
-          `${import.meta.env.VITE_SUPABASE_PUBLISHABLE_AUTH_KEY}`
+        setIsLoading(true);
+        // The API sends a verification email and refuses to authenticate the
+        // account until the address is verified, so signup deliberately does
+        // NOT sign the user in or navigate to /avatars.
+        const signupResponse = await signUp(email, password, username);
+        toast.success(
+          signupResponse?.verification ??
+            'A verification email has been sent. Verify your address, then log in.',
+          { duration: 8000 }
         );
+        setModalView('verifyEmail');
+      } else if (modalView === 'login') {
+        setIsLoading(true);
+        await logIn(email, password);
 
-        const { data, error } = await supabase.auth.signInWithPassword({
-          email: email,
-          password: password,
-        });
+        const avatars = await listUserAvatars();
+        setUserAvatars(avatars ?? []);
 
-        if (error) {
-          console.log(`Login Error: ${error.message}`);
-          toast.error(`${error.message}`, {
-            options: { duration: 5000 },
-          });
-        } else {
-          console.log(
-            'XXXXXXXXXXXXXXXXXXXXXX   HANDLE AUTH SERVICE XXXXXXXXXXXXXXXXXXXXXXXXXXX'
-          );
-          console.log(JSON.stringify(data));
-          localStorage.setItem('user', JSON.stringify(data.user));
-
-          // set the current user profile
-          console.log('// set profile of user IN AUTH COMPONENT XXXXXXXXXXXXX');
-
-          console.log(`handle Auth Error handleAuthError`);
-
-          setUser(data.user);
-          setProfile(data.user);
-          console.log(`data.session.access_token: ${data}`);
-          if (data.session?.access_token) {
-            setAccessToken(data.session['access_token']);
-          } else {
-            setAccessToken('');
-          }
-
-          console.log(
-            'XXXXXXXXXXXXXXXXXXXXXXXXX userCredential: ' + JSON.stringify(data)
-          );
-
-          // GET AVATARS
-          console.log('USER HAS LOGGED IN; GETING AVATARS FOR USER');
-          console.log(`user.id: ${data.user.id}`);
-          const avatars = await getAvatars(data.user.id);
-
-          console.log('AVATARS LIST SHOULD BE RETRIEVED');
-          console.log(`avatars: ${JSON.stringify(avatars)}`);
-
-          console.log('SETTING AVATARS FOR USER');
-          if (avatars) {
-            console.log(`avatars: ${JSON.stringify(avatars)}`);
-            setUserAvatars(avatars);
-          } else {
-            setUserAvatars([]);
-          }
-
-          setIsLoading(false);
-          console.log('navigate / avatars breakpoint');
-          navigate('/avatars');
-        }
+        navigate('/avatars');
       } else if (modalView === 'forgotPassword') {
-        await forgotPassword(email);
-        // toast.success(
-        //   (t) => (
-        //     <div className="relative flex flex-col gap-2 p-4 ">
-        //       {/* Text + X button in one row */}
-        //       <div className="flex justify-between items-start">
-        //         {/* Message */}
-        //         <p className="pr-4">
-        //           Password reset email sent! Check your inbox.
-        //         </p>
-
-        //         {/* X button top-right */}
-        //         <button
-        //           onClick={() => toast.dismiss(t.id)}
-        //           className="p-1 bg-red-600 hover:bg-red-500 rounded text-sm"
-        //         >
-        //           <X size={16} />
-        //         </button>
-        //       </div>
-        //     </div>
-        //   ),
-        //   { duration: Infinity }
-        // );
+        await requestPasswordReset(email);
+        toast.success('Password reset email sent! Check your inbox.', {
+          duration: 8000,
+        });
         setModalView('login');
       }
-    } catch (error) {
-      // Handle specific error cases
-      const errorMsg = error.message || 'Authentication failed';
-      console.log(error);
+    } catch (authError) {
+      console.error('Authentication error:', authError);
+      toast.error(authError.message || 'Authentication failed', {
+        duration: 5000,
+      });
+    } finally {
+      setIsLoading(false);
     }
-  };
-
-  const handleSocialLogin = async (provider) => {
-    try {
-      await signInWithProvider(provider);
-    } catch (error) {
-      toast.error(`${provider} login failed`);
-    }
-  };
-
-  const resetForm = () => {
-    setEmail('');
-    setPassword('');
-    setUsername('');
-    setModalView('login');
   };
 
   return (
@@ -346,7 +168,7 @@ const AuthComponent = () => {
               <div className="flex justify-center items-center pb-6">
                 <div className="w-32 h-32 bg-white/20 rounded-full flex items-center justify-center">
                   <img
-                    src={avatarToRender}
+                    src={validIcons[rotatingIndex] ?? validIcons[0]}
                     alt="Avatar"
                     className="w-32 h-32 rounded-full object-cover transition-opacity duration-500"
                     onError={(e) => {
@@ -363,10 +185,30 @@ const AuthComponent = () => {
               {modalView === 'signup' && 'Create Account'}
               {modalView === 'login' && 'Login'}
               {modalView === 'forgotPassword' && 'Reset Password'}
+              {modalView === 'verifyEmail' && 'Verify Your Email'}
             </h2>
           </div>
 
+          {/* Email-verification notice shown after signup */}
+          {modalView === 'verifyEmail' && (
+            <div className="space-y-4 text-white/80">
+              <p>
+                A verification email is on the way to{' '}
+                <span className="font-semibold text-white">{email}</span>.
+                Follow the link inside, then log in.
+              </p>
+              <button
+                onClick={() => setModalView('login')}
+                className="w-full py-3 bg-teal-600 hover:bg-teal-700 rounded-lg text-white font-semibold transition flex items-center justify-center gap-2"
+              >
+                <LogIn size={20} />
+                Back to Login
+              </button>
+            </div>
+          )}
+
           {/* Form */}
+          {modalView !== 'verifyEmail' && (
           <form onSubmit={handleAuth} className="space-y-4">
             {modalView === 'signup' && (
               <div>
@@ -454,9 +296,10 @@ const AuthComponent = () => {
               )}
             </button>
           </form>
+          )}
 
           {/* Toggle between Login/Signup */}
-          {modalView !== 'forgotPassword' && (
+          {modalView !== 'forgotPassword' && modalView !== 'verifyEmail' && (
             <div className="mt-6 text-center text-white/60 text-sm">
               {modalView === 'login' ? (
                 <>

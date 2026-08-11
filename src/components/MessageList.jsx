@@ -1,11 +1,8 @@
 // src/components/MessageList.jsx
 import React, { useEffect } from 'react';
-import { useAuth } from '../context/AuthContext';
 import SecureImage from './SecureImage';
 
 const MessageList = ({ messages, messagesEndRef }) => {
-  const { accessToken } = useAuth();
-
   useEffect(() => {
     if (messagesEndRef?.current) {
       messagesEndRef.current.scrollIntoView({ behavior: 'smooth' });

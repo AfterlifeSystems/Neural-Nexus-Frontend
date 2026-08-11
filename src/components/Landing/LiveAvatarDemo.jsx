@@ -31,9 +31,7 @@ export default function LiveAvatarDemo({ isEmbeddedInHero = false }) {
     >
       <div
         className={
-          isEmbeddedInHero
-            ? 'w-full'
-            : 'max-w-7xl mx-auto px-4 sm:px-6 lg:px-8'
+          isEmbeddedInHero ? 'w-full' : 'max-w-7xl mx-auto px-4 sm:px-6 lg:px-8'
         }
       >
         {!isEmbeddedInHero && (
@@ -71,7 +69,6 @@ export default function LiveAvatarDemo({ isEmbeddedInHero = false }) {
         </div>
 
         <p className="mt-4 text-center text-sm text-gray-400">
-          Trouble loading?{' '}
           <a
             href={standaloneUrl}
             target="_blank"
