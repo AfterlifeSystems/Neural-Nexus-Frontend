@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect } from 'react';
 import { toast } from 'react-hot-toast';
 import Dropzone from 'react-dropzone';
 import {
@@ -21,21 +21,25 @@ import {
   X,
   Camera,
   Mic,
+  Lock,
+  Server,
 } from 'lucide-react';
-import { v4 as uuidv4 } from 'uuid';
 import { useAuth } from '../context/AuthContext';
 import {
-  // uploadUrl,
-  // connectSocial,
-  // disconnectSocial,
-  deleteDocument,
-  // uploadDocuments,
-  updateAvatarWithIcon,
+  deleteAvatarDocument,
   selectAvatar,
   deleteAvatar,
-  updateAvatar,
-  uploadToDataLoadingApi,
+  modifyAvatar,
+  uploadAvatarIdentityMedia,
+  streamMediaJobProgress,
+  listAvatarDocuments,
+  listUserAvatars,
+  getAvatarReferenceImage,
+  shareAvatar,
+  getPersonalAvatar,
+  disconnectDataServer,
 } from '../services/avatarService';
+import { forgetCachedAvatar, isAvatarOwnedByUser } from './utils';
 import { useNavigate } from 'react-router-dom';
 
 // Social Media Platform Configuration
@@ -53,18 +57,36 @@ const SOCIAL_PLATFORMS = [
   { id: 'microsoft', name: 'Microsoft', icon: Globe, color: '#00A4EF' },
   { id: 'reddit', name: 'Reddit', icon: Globe, color: '#FF4500' },
 ];
-const AvatarSettings = ({ avatarId, accessToken }) => {
-  const [links, setLinks] = useState([]);
-  const [newLink, setNewLink] = useState('');
-  const [files, setFiles] = useState([]);
+const AvatarSettings = ({ avatarId }) => {
+  // Context first: state below is seeded from it, and reading `activeAvatar`
+  // before this line is a temporal-dead-zone error that blanks the screen.
+  const {
+    user,
+    activeAvatar,
+    setActiveAvatar,
+    setUserAvatars,
+    refreshUserPortrait,
+    isLoading,
+  } = useAuth();
+  const navigate = useNavigate();
+
   const [editingDesc, setEditingDesc] = useState(false);
   const [updatedDesc, setUpdatedDesc] = useState('');
   const [updatedAvatarName, setUpdatedAvatarName] = useState('');
   const [editingName, setEditingName] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
+  // Sharing state is mirrored locally so the control responds immediately, then
+  // reconciled against the avatar record the server returns.
+  const [isAvatarShared, setIsAvatarShared] = useState(
+    Boolean(activeAvatar?.metadata?.is_public)
+  );
+  const [isUpdatingSharing, setIsUpdatingSharing] = useState(false);
+  const [connectedDataServers, setConnectedDataServers] = useState([]);
   // New state for document management
   const [isDragging, setIsDragging] = useState(false);
-  const [socialLogins, setSocialLogins] = useState([]);
+  // Social account linking has no API endpoint yet; the modal below is kept
+  // wired but reports the feature as unavailable.
+  const [, setSocialLogins] = useState([]);
   const [showLoginModal, setShowLoginModal] = useState(false);
   const [selectedPlatform, setSelectedPlatform] = useState(null);
   const [loginCredentials, setLoginCredentials] = useState({
@@ -72,8 +94,114 @@ const AvatarSettings = ({ avatarId, accessToken }) => {
     password: '',
   });
   const [manualUrl, setManualUrl] = useState('');
-  const { user, profile, activeAvatar, isLoading, setIsLoading } = useAuth();
-  const navigate = useNavigate();
+  // Source documents already uploaded to this avatar, as labels from
+  // GET /list_avatar_documents.
+  const [avatarDocuments, setAvatarDocuments] = useState([]);
+  // The avatar's portrait from GET /avatar_reference_image (data URI or URL).
+  const [avatarIcon, setAvatarIcon] = useState(null);
+
+  const assistantId =
+    activeAvatar?.assistant_id ??
+    activeAvatar?.avatar_id ??
+    activeAvatar?.metadata?.assistant_id ??
+    avatarId;
+
+  // Every control on this screen writes to the avatar, and the API refuses all
+  // of them for an avatar the caller did not create.
+  const canAdministerAvatar = isAvatarOwnedByUser(activeAvatar, user);
+
+  // The avatar that depicts its creator. Two things belong only to it: sharing
+  // (you may publish your own likeness, not a character you invented) and the
+  // connected data servers, which are the account's own machines reached
+  // through the personal avatar.
+  const isPersonalAvatar = Boolean(
+    activeAvatar?.metadata?.is_personal_avatar_of_creator
+  );
+
+  const refreshAvatarDocuments = async () => {
+    try {
+      setAvatarDocuments(await listAvatarDocuments());
+    } catch (listError) {
+      console.error('Loading the avatar document list failed:', listError);
+    }
+  };
+
+  // The document endpoints (/list_avatar_documents, /delete_avatar_document)
+  // operate on the avatar selected SERVER-SIDE via POST /select_avatar, and
+  // that selection is per-account global state another tab can change. So the
+  // selection is re-registered every time this screen opens, before the
+  // document list is read.
+  useEffect(() => {
+    let cancelled = false;
+    const selectAndLoad = async () => {
+      if (!assistantId || !canAdministerAvatar) {
+        // Selecting is a WRITE to per-account state: doing it for an avatar the
+        // user is merely visiting would silently repoint their account's
+        // document endpoints at someone else's avatar.
+        return;
+      }
+      try {
+        await selectAvatar(assistantId);
+        if (cancelled) return;
+        await refreshAvatarDocuments();
+        const iconSource = await getAvatarReferenceImage(assistantId);
+        if (!cancelled) {
+          setAvatarIcon(iconSource);
+        }
+      } catch (selectError) {
+        console.error('Selecting the avatar failed:', selectError);
+      }
+    };
+    selectAndLoad();
+    return () => {
+      cancelled = true;
+    };
+  }, [assistantId, canAdministerAvatar]);
+
+  // Data-server connections belong to the account, and their live status is
+  // reported alongside the personal avatar's capabilities rather than on the
+  // avatar record itself.
+  useEffect(() => {
+    if (!canAdministerAvatar) {
+      return undefined;
+    }
+    let cancelled = false;
+    (async () => {
+      try {
+        const personalAvatarResponse = await getPersonalAvatar();
+        if (cancelled) return;
+        const dataServerCapability = (
+          personalAvatarResponse?.capabilities ?? []
+        ).find((capability) => capability.status_key === 'connected_data_servers');
+        const connections =
+          personalAvatarResponse?.connected_data_servers ??
+          dataServerCapability?.status;
+        setConnectedDataServers(
+          Array.isArray(connections) ? connections : []
+        );
+      } catch (dataServerError) {
+        // An account with no personal avatar answers with an error here, and
+        // "no servers connected" is the honest reading of that.
+        console.debug('No data-server connections to show:', dataServerError);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [canAdministerAvatar]);
+
+  // Keep the sharing control in step with whichever avatar is open.
+  useEffect(() => {
+    setIsAvatarShared(Boolean(activeAvatar?.metadata?.is_public));
+  }, [activeAvatar]);
+
+  // Seed the editors with what the avatar is currently called. They started
+  // empty, so pressing Edit offered a blank field and saving without retyping
+  // would have wiped the name.
+  useEffect(() => {
+    setUpdatedAvatarName(activeAvatar?.name ?? '');
+    setUpdatedDesc(activeAvatar?.description ?? '');
+  }, [activeAvatar?.name, activeAvatar?.description]);
 
   // Global drag and drop handlers
   useEffect(() => {
@@ -122,127 +250,183 @@ const AvatarSettings = ({ avatarId, accessToken }) => {
     };
   }, []);
 
-  const determineContentType = (file) => {
-    const type = file.type;
-    if (type.startsWith('image/')) return 'image';
-    if (type.startsWith('audio/')) return 'audio';
-    if (type.startsWith('video/')) return 'video';
-    if (type === 'application/pdf') return 'pdf';
-    if (type.startsWith('text/') || type === 'application/json') return 'text';
-    const filename = file.name.toLowerCase();
-    if (filename.endsWith('.pdf')) return 'pdf';
-    if (
-      filename.endsWith('.txt') ||
-      filename.endsWith('.md') ||
-      filename.endsWith('.json')
-    )
-      return 'text';
-    return 'file';
+  /**
+   * Say what a media job is doing right now, in words rather than stage names.
+   *
+   * The progress stream reports a `stage` and, while indexing, a running count.
+   * The stage names are internal vocabulary (`labeling`, `converting`), so they
+   * are translated here; an unrecognized stage falls back to its own name,
+   * which is still better than a spinner that says nothing.
+   *
+   * @param {Object} progressEvent A `media_progress` frame.
+   * @param {string} description What is being uploaded.
+   * @returns {string} A sentence for the progress toast.
+   */
+  const describeMediaProgress = (progressEvent, description) => {
+    const stageDescriptions = {
+      labeling: 'Working out what this is',
+      converting_started: 'Converting',
+      converting: 'Converting',
+      expanding: 'Expanding the playlist',
+      indexing: 'Adding to memory',
+    };
+    const stageDescription =
+      stageDescriptions[progressEvent.stage] ?? progressEvent.stage ?? 'Processing';
+
+    const documentsIndexed =
+      progressEvent.documents_indexed ?? progressEvent.current;
+    const documentsTotal = progressEvent.documents_total ?? progressEvent.total;
+    const counted =
+      documentsIndexed != null && documentsTotal != null
+        ? ` (${documentsIndexed}/${documentsTotal})`
+        : '';
+
+    return `${stageDescription}: ${description}${counted}`;
   };
-  const handleFileUpload = async (e) => {
-    console.log('ENTRYPOINT HANDLE FILE UPLOAD');
-    const filesList = e.dataTransfer?.files || e.target?.files || [];
-    if (filesList.length === 0) return;
+
+  /**
+   * Send media to the avatar and follow the processing job to completion.
+   *
+   * The endpoint answers 202 the moment it has accepted the upload: nothing is
+   * labeled, converted or indexed yet, and the document list will not contain
+   * any of it. Announcing success there — which is what this screen used to do
+   * — is why an upload could look like it worked and change nothing. So the
+   * response is treated as the *start*: per-item rejections are reported, the
+   * job's progress stream drives the toast, and the document list is only
+   * re-read once the job says it is done.
+   *
+   * Everything goes in ONE request. Uploading file-by-file gave each file its
+   * own job and defeated the batch semantics the server is built around
+   * (a shared master job, URL manifests, playlist expansion).
+   *
+   * @param {Object} options
+   * @param {File[]} [options.files] Files to send.
+   * @param {string[]} [options.urls] URLs to ingest.
+   * @param {boolean} [options.isReferenceImage] Send as the avatar's portrait.
+   * @param {string} options.description What is being uploaded, for the toasts.
+   * @returns {Promise<boolean>} Whether the job finished successfully.
+   */
+  const uploadMediaAndFollowJob = async ({
+    files = [],
+    urls = [],
+    isReferenceImage = false,
+    description,
+  }) => {
+    if (!user) {
+      toast.error('Not logged in');
+      return false;
+    }
+    if (!assistantId) {
+      toast.error('No active avatar');
+      return false;
+    }
+
+    const progressToastId = toast.loading(`Uploading ${description}…`, {
+      position: 'bottom-left',
+    });
+
     try {
-      if (!user) throw new Error('Not logged in');
-      if (!activeAvatar) throw new Error('No active avatar');
+      const uploadResponse = await uploadAvatarIdentityMedia({
+        assistantId,
+        files,
+        urls,
+        isReferenceImage,
+      });
 
-      const newPending = Array.from(filesList).map((file) => ({
-        id: uuidv4(),
-        name: file.name,
-        type: determineContentType(file),
-        loading: true,
-        previewUrl: URL.createObjectURL(file),
-        file, // keep file ref for upload
-      }));
+      // Per-item rejections ride along with an otherwise successful response:
+      // the server skips what it cannot take and accepts the rest. Unreported,
+      // a rejected file is indistinguishable from an accepted one.
+      const rejectedItems =
+        uploadResponse?.rejected ?? uploadResponse?.items_rejected ?? [];
+      if (Array.isArray(rejectedItems) && rejectedItems.length > 0) {
+        toast.error(
+          `Not accepted: ${rejectedItems
+            .map(
+              (rejectedItem) =>
+                `${rejectedItem.filename ?? rejectedItem.url ?? 'item'}${
+                  rejectedItem.reason ? ` (${rejectedItem.reason})` : ''
+                }`
+            )
+            .join('; ')}`,
+          { duration: 9000, position: 'bottom-left' }
+        );
+      }
 
-      for (const pending of newPending) {
-        const loadingToastId = toast.loading(`Uploading ${pending.name}...`, {
+      const jobId = uploadResponse?.job_id;
+      if (!jobId) {
+        // Nothing to follow — either everything was rejected, or this build of
+        // the API answered synchronously.
+        toast.dismiss(progressToastId);
+        await refreshAvatarDocuments();
+        return Array.isArray(rejectedItems) ? rejectedItems.length === 0 : true;
+      }
+
+      let jobFailure = null;
+      await streamMediaJobProgress(jobId, (progressEvent) => {
+        if (progressEvent.type === 'media_progress') {
+          toast.loading(describeMediaProgress(progressEvent, description), {
+            id: progressToastId,
+            position: 'bottom-left',
+          });
+        } else if (progressEvent.type === 'done') {
+          jobFailure = progressEvent.error ?? null;
+        }
+      });
+
+      toast.dismiss(progressToastId);
+      if (jobFailure) {
+        toast.error(`Processing ${description} failed: ${jobFailure}`, {
+          duration: 9000,
           position: 'bottom-left',
         });
-        const file = pending.file;
-        console.log(`activeAvatar: ${activeAvatar}`);
-        try {
-          const uploadResults = await uploadToDataLoadingApi(
-            user.id,
-            activeAvatar.assistant_id,
-            activeAvatar.name,
-            [file]
-          );
-
-          console.log(`uploadResults: ${JSON.stringify(uploadResults)}`);
-
-          if (!uploadResults[0].success) {
-            throw new Error(uploadResults[0].error);
-          }
-          toast.dismiss(loadingToastId);
-          // toast.message(`${pending.name} uploaded successfully`);
-          // toast.message(`Successful Upload Results: ${uploadResults}`);
-          toast.success(`${pending.name} uploaded successfully`, {
-            position: 'bottom-left',
-          });
-        } catch (error) {
-          toast.dismiss(loadingToastId);
-          toast.error(`Failed to upload ${file.name}: ${error.message}`, {
-            position: 'bottom-left',
-          });
-        }
+        return false;
       }
-    } catch (err) {
-      toast.error('Upload failed: ' + err.message);
-      console.error('Upload error:', err);
+
+      toast.success(`${description} added`, { position: 'bottom-left' });
+      await refreshAvatarDocuments();
+      return true;
+    } catch (uploadError) {
+      toast.dismiss(progressToastId);
+      console.error('Media upload failed:', uploadError);
+      toast.error(`Upload failed: ${uploadError.message}`, {
+        position: 'bottom-left',
+      });
+      return false;
     }
   };
-  const handleUrlUpload = async (url) => {
-    const tempId = uuidv4();
 
-    try {
-      if (!user) throw new Error('Not logged in');
-      if (!activeAvatar) throw new Error('No active avatar');
-      console.log('url upload logic here');
-      throw error;
-      toast.success('URL added successfully');
-    } catch (err) {
-      toast.error('URL upload failed: ' + err.message);
+  const handleFileUpload = async (e) => {
+    const filesList = e.dataTransfer?.files || e.target?.files || [];
+    const files = Array.from(filesList);
+    if (files.length === 0) return;
+
+    await uploadMediaAndFollowJob({
+      files,
+      description:
+        files.length === 1 ? files[0].name : `${files.length} files`,
+    });
+    if (e.target) {
+      // Let the same file be chosen again after a failure.
+      e.target.value = '';
     }
+  };
+
+  const handleUrlUpload = async (url) => {
+    await uploadMediaAndFollowJob({ urls: [url], description: url });
   };
   const handleSocialLogin = (platform) => {
     setSelectedPlatform(platform);
     setShowLoginModal(true);
   };
   const submitSocialLogin = async () => {
-    if (!loginCredentials.username || !loginCredentials.password) return;
-    try {
-      if (!user) throw new Error('Not logged in');
-      const login = await connectSocial(
-        user.id,
-        activeAvatar.avatar_id,
-        selectedPlatform,
-        loginCredentials.username,
-        loginCredentials.password
-      );
-      setSocialLogins((prev) => [...prev, login]);
-      toast.success(
-        `Connected to ${
-          SOCIAL_PLATFORMS.find((p) => p.id === selectedPlatform)?.name
-        }`
-      );
-      setShowLoginModal(false);
-      setLoginCredentials({ username: '', password: '' });
-      setSelectedPlatform(null);
-    } catch (err) {
-      toast.error('Social login failed: ' + err.message);
-    }
+    // Social account linking is a planned feature with no API endpoint yet.
+    toast.error('Connecting social accounts is not available yet.');
+    setShowLoginModal(false);
+    setLoginCredentials({ username: '', password: '' });
+    setSelectedPlatform(null);
   };
   const removeSocialLogin = async (id) => {
-    try {
-      if (!user) throw new Error('Not logged in');
-      await disconnectSocial(user.id, activeAvatar.avatar_id, id);
-      setSocialLogins((prev) => prev.filter((login) => login.id !== id));
-      toast.success('Social account disconnected');
-    } catch (err) {
-      toast.error('Failed to disconnect: ' + err.message);
-    }
+    setSocialLogins((prev) => prev.filter((login) => login.id !== id));
   };
   const getSocialUrl = (platform, username) => {
     const urls = {
@@ -261,11 +445,12 @@ const AvatarSettings = ({ avatarId, accessToken }) => {
     };
     return urls[platform] || '#';
   };
-  const deleteDocument = async (id) => {
+  const handleDeleteDocument = async (sourceDocumentName) => {
     try {
       if (!user) throw new Error('Not logged in');
-      await deleteDocument(user.id, activeAvatar.avatar_id, id);
+      await deleteAvatarDocument(sourceDocumentName);
       toast.success('Document deleted');
+      await refreshAvatarDocuments();
     } catch (err) {
       toast.error('Failed to delete: ' + err.message);
     }
@@ -361,136 +546,176 @@ const AvatarSettings = ({ avatarId, accessToken }) => {
         return <Globe className="text-cyan-400" />;
     }
   };
-  // Camera capture handler
-  const handleCameraCapture = async () => {
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: 'user' },
-        audio: false,
-      });
-      mediaStreamRef.current = stream;
-      setCaptureMode('camera');
-      setShowCaptureModal(true);
-      setTimeout(() => {
-        if (videoRef.current) {
-          videoRef.current.srcObject = stream;
-        }
-      }, 100);
-    } catch (err) {
-      toast.error('Camera access denied or unavailable');
-    }
-  };
-  const capturePhoto = async () => {
-    const video = videoRef.current;
-    const canvas = canvasRef.current;
-    canvas.width = video.videoWidth;
-    canvas.height = video.videoHeight;
-    const ctx = canvas.getContext('2d');
-    ctx.drawImage(video, 0, 0);
-    const blob = await new Promise((resolve) =>
-      canvas.toBlob(resolve, 'image/jpeg', 0.95)
-    );
-    const file = new File([blob], 'avatar-photo.jpg', { type: 'image/jpeg' });
-    try {
-      // if (!user) throw new Error('Not logged in');
-      // const uploaded = await uploadDocuments(user.id, activeAvatar.avatar_id, [
-      //   file,
-      // ]);
-      // if (uploaded && uploaded.length > 0)
-      //   setDocuments((prev) => [...prev, ...uploaded]);
-      // cleanupMedia();
-      toast.success('Photo captured successfully');
-    } catch (err) {
-      toast.error('Photo upload failed: ' + err.message);
-      cleanupMedia();
-    }
-  };
-  const VOICE_SCRIPT = `
-  Please read the following naturally.
-  1. Today is a beautiful day, and I am speaking clearly and comfortably.
-  2. The quick brown fox jumps over the lazy dog.
-  3. I enjoy learning new things and explaining ideas calmly.
-  4. Sometimes I speak softly, and sometimes I speak with confidence.
-  5. Numbers: zero, one, two, three, four, five, six, seven, eight, nine.
-  6. Emotions: I am happy. I am curious. I am thoughtful. I am focused.
-  7. Finally, describe something you enjoy doing in your free time.
-  `;
-  // Audio recording handler
-  const handleAudioRecord = async () => {
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({
-        audio: {
-          echoCancellation: true,
-          noiseSuppression: true,
-          sampleRate: 48000,
-        },
-      });
-      mediaStreamRef.current = stream;
-      recordedChunksRef.current = [];
-      const recorder = new MediaRecorder(stream, {
-        mimeType: 'audio/webm',
-      });
-      recorder.ondataavailable = (e) => {
-        if (e.data.size > 0) recordedChunksRef.current.push(e.data);
-      };
-      recorder.onstop = uploadAudioRecording;
-      mediaRecorderRef.current = recorder;
-      setCaptureMode('audio');
-      setShowCaptureModal(true);
-    } catch (err) {
-      toast.error('Microphone access denied or unavailable');
-    }
-  };
+  /**
+   * Set the avatar's portrait from a chosen image.
+   *
+   * The portrait is the avatar's reference image, so this uses the same media
+   * endpoint with the reference_image flag rather than storing the file as
+   * identity source material. The re-read only happens after the job reports
+   * done: asking for the portrait the instant the 202 lands returns the OLD
+   * image (or none), which looked exactly like the upload had failed.
+   */
   const handleIconUpload = async (acceptedFiles) => {
-    const formData = new FormData();
-    formData.append('icon', acceptedFiles[0]);
-    formData.append('avatar_id', activeAvatar.avatar_id);
+    const [chosenImage] = acceptedFiles ?? [];
+    if (!chosenImage) return;
+
+    const succeeded = await uploadMediaAndFollowJob({
+      files: [chosenImage],
+      isReferenceImage: true,
+      description: 'the avatar portrait',
+    });
+    if (!succeeded) return;
+    await confirmPortraitWasStored();
+  };
+
+  /**
+   * Read the portrait back and report honestly whether it is there.
+   *
+   * A finished job is not proof of a stored portrait. Storing one requires the
+   * image to be described first, and that step can fail on its own — a bad
+   * model credential, an unreadable image — while the job around it still
+   * completes. When that happened the screen said "added" and the portrait
+   * silently stayed empty, which is worse than an error: it sends the user off
+   * believing something is set. So the portrait is fetched back, and its
+   * absence is reported as the failure it is.
+   */
+  const confirmPortraitWasStored = async () => {
     try {
-      if (!user) throw new Error('Not logged in');
-      await updateAvatarWithIcon(
-        user.id,
-        activeAvatar.avatar_id,
-        acceptedFiles[0]
-      );
-      toast.success('Avatar icon updated');
-    } catch (err) {
-      toast.error(err.message);
+      const storedPortrait = await getAvatarReferenceImage(assistantId);
+      setAvatarIcon(storedPortrait);
+      if (storedPortrait) {
+        // If this was the avatar that depicts the user, their icon changes
+        // everywhere at once — the alternative is a stale face beside their
+        // messages until the next reload.
+        refreshUserPortrait();
+      }
+      if (!storedPortrait) {
+        toast.error(
+          'The upload finished but no portrait was stored. The image could not be processed — check the server logs for the media job.',
+          { duration: 9000, position: 'bottom-left' }
+        );
+      }
+    } catch (portraitError) {
+      console.error('Re-reading the avatar portrait failed:', portraitError);
+      toast.error('Could not confirm the portrait was saved.', {
+        position: 'bottom-left',
+      });
     }
   };
-  const handleDescSave = async (updatedDesc) => {
+
+  /**
+   * Set the avatar's portrait from an image URL. The API takes a reference
+   * image as a URL just as readily as a file, on the same endpoint.
+   */
+  /**
+   * Apply a change to the avatar record everywhere it is already on screen.
+   *
+   * PATCH /modify_avatar changes the server's copy, but the name in the chat
+   * header, the sidebar heading and the avatar list all read the copy held in
+   * context. Without this the rename appeared to do nothing until a reload —
+   * the field said one thing and the rest of the application said another.
+   *
+   * @param {Object} changedFields Fields as the API now holds them.
+   */
+  const applyAvatarChangeLocally = (changedFields) => {
+    const updatedAvatar = { ...(activeAvatar ?? {}), ...changedFields };
+    setActiveAvatar(updatedAvatar);
+    setUserAvatars((previousAvatars) =>
+      (previousAvatars ?? []).map((candidate) =>
+        (candidate.assistant_id ?? candidate.avatar_id) === assistantId
+          ? { ...candidate, ...changedFields }
+          : candidate
+      )
+    );
+  };
+
+  const handleDescSave = async (updatedDescription) => {
     try {
       if (!user) throw new Error('Not logged in');
-      await updateAvatar(user.id, activeAvatar.avatar_id, {
-        description: updatedDesc,
+      await modifyAvatar({
+        assistantId,
+        newAvatarDescription: updatedDescription,
       });
-      const avatarProfileData = await selectAvatar(
-        user,
-        user.id,
-        activeAvatar.avatar_id
-      );
-      setUpdatedDesc(avatarProfileData.description || '');
+      setUpdatedDesc(updatedDescription);
+      applyAvatarChangeLocally({ description: updatedDescription });
+      setEditingDesc(false);
       toast.success('Description updated');
     } catch (err) {
       toast.error(err.message);
     }
   };
-  const handleUpdateName = async (updatedAvatarName) => {
+
+  const handleUpdateName = async (newAvatarName) => {
     try {
       if (!user) throw new Error('Not logged in');
-      await updateAvatar(user.id, activeAvatar.avatar_id, {
-        name: updatedAvatarName,
+      await modifyAvatar({
+        assistantId,
+        newAvatarName,
       });
-      const avatarProfileData = await selectAvatar(
-        user,
-        user.id,
-        activeAvatar.avatar_id
-      );
-      setUpdatedAvatarName(avatarProfileData.name || '');
+      setUpdatedAvatarName(newAvatarName);
+      applyAvatarChangeLocally({ name: newAvatarName });
+      setEditingName(false);
       toast.success('Name updated');
     } catch (err) {
       toast.error(err.message);
     }
   };
+  /**
+   * Publish this avatar, or withdraw it again.
+   *
+   * Sharing is reversible, so this needs no confirmation; what it does need is
+   * to say plainly what changed, since the effect happens somewhere the user is
+   * not looking (the public gallery).
+   */
+  const handleToggleSharing = async () => {
+    const shouldShare = !isAvatarShared;
+    setIsUpdatingSharing(true);
+    try {
+      await shareAvatar(assistantId, shouldShare);
+      setIsAvatarShared(shouldShare);
+      if (setActiveAvatar && activeAvatar) {
+        setActiveAvatar({
+          ...activeAvatar,
+          metadata: { ...(activeAvatar.metadata ?? {}), is_public: shouldShare },
+        });
+      }
+      toast.success(
+        shouldShare
+          ? 'Avatar shared. It is now listed publicly.'
+          : 'Avatar is private again. It is no longer listed publicly.'
+      );
+    } catch (sharingError) {
+      console.error('Changing sharing failed:', sharingError);
+      toast.error(sharingError.message || 'Could not change sharing.');
+    } finally {
+      setIsUpdatingSharing(false);
+    }
+  };
+
+  /**
+   * Unplug a connected machine from the account.
+   *
+   * The avatar re-adopts a reachable machine on a later turn, so this is
+   * reversible by design and the wording says as much rather than implying a
+   * permanent revocation.
+   */
+  const handleDisconnectDataServer = async (dataServer) => {
+    try {
+      await disconnectDataServer(dataServer.device_id);
+      setConnectedDataServers((previousServers) =>
+        previousServers.filter(
+          (candidate) => candidate.server_name !== dataServer.server_name
+        )
+      );
+      toast.success(
+        `${dataServer.server_name ?? 'Data server'} disconnected.`
+      );
+    } catch (disconnectError) {
+      console.error('Disconnecting the data server failed:', disconnectError);
+      toast.error(disconnectError.message || 'Could not disconnect.');
+    }
+  };
+
   const handleDeleteAvatar = async () => {
     if (
       !window.confirm(
@@ -501,7 +726,24 @@ const AvatarSettings = ({ avatarId, accessToken }) => {
     }
     setIsDeleting(true);
     try {
-      await deleteAvatar(user.id, activeAvatar.avatar_id);
+      await deleteAvatar(assistantId);
+
+      // The avatar is gone on the server, but the selection screen renders from
+      // `userAvatars` in context and never fetches on its own, so without this
+      // the deleted avatar is still on screen after navigating back — which
+      // reads as "delete did nothing". Clear the pointers to it as well: the
+      // active avatar is now a dangling reference, and the cached icon/position
+      // entries would resurrect its tile.
+      forgetCachedAvatar(assistantId);
+      setActiveAvatar(null);
+      try {
+        setUserAvatars((await listUserAvatars()) ?? []);
+      } catch (refreshError) {
+        // The delete itself succeeded; a failed refresh must not be reported as
+        // a failed delete. The selection screen refetches on mount anyway.
+        console.error('Refreshing the avatar list failed:', refreshError);
+      }
+
       toast.success('Avatar deleted successfully');
       navigate('/avatars');
     } catch (err) {
@@ -511,6 +753,17 @@ const AvatarSettings = ({ avatarId, accessToken }) => {
       setIsDeleting(false);
     }
   };
+  // A last line of defence. ChatArea does not offer the settings tab for an
+  // avatar the user does not own, so reaching here means something routed
+  // around that — and every control below would fail against the API anyway.
+  if (!canAdministerAvatar) {
+    return (
+      <div className="w-full max-w-4xl mx-auto bg-white/5 backdrop-blur-lg rounded-2xl border border-white/20 p-6 text-white/70">
+        Settings are available to the person who created this avatar.
+      </div>
+    );
+  }
+
   return (
     <div className="flex flex-col gap-6 w-full max-w-4xl mx-auto">
       {/* Drag Overlay */}
@@ -604,7 +857,7 @@ const AvatarSettings = ({ avatarId, accessToken }) => {
         <div className="flex gap-6 items-start">
           {/* Icon Upload */}
           <div className="flex flex-col gap-3">
-            {activeAvatar?.icon ? (
+            {avatarIcon ? (
               <Dropzone
                 onDrop={handleIconUpload}
                 multiple={false}
@@ -612,9 +865,12 @@ const AvatarSettings = ({ avatarId, accessToken }) => {
                 noClick
               >
                 {({ getRootProps, getInputProps, open }) => (
-                  <div className="relative w-32 h-32 rounded-2xl overflow-hidden cursor-pointer group">
+                  <div
+                    {...getRootProps()}
+                    className="relative w-32 h-32 rounded-2xl overflow-hidden cursor-pointer group"
+                  >
                     <img
-                      src={activeAvatar.icon.url}
+                      src={avatarIcon}
                       alt="avatar"
                       className="w-full h-full object-cover"
                     />
@@ -633,29 +889,18 @@ const AvatarSettings = ({ avatarId, accessToken }) => {
                 {({ getRootProps, getInputProps }) => (
                   <div
                     {...getRootProps()}
-                    className="w-32 h-32 border-2 border-dashed border-white/30 hover:border-white/50 flex items-center justify-center cursor-pointer rounded-2xl bg-white/5 transition-all duration-300"
+                    className="w-32 h-32 border-2 border-dashed border-white/30 hover:border-white/50 flex flex-col gap-2 items-center justify-center cursor-pointer rounded-2xl bg-white/5 transition-all duration-300"
                   >
                     <input {...getInputProps()} />
-                    <Upload size={32} className="text-white/50" />
+                    <Upload size={28} className="text-white/50" />
+                    <span className="text-xs text-white/50">Add a portrait</span>
                   </div>
                 )}
               </Dropzone>
             )}
-            {/* Horizontal Button Group */}
-            <div className="flex gap-2">
-              <button
-                onClick={handleCameraCapture}
-                className="flex-1 px-3 py-2 bg-blue-500/20 hover:bg-blue-500/30 text-blue-400 rounded-lg transition-all duration-300 border border-blue-500/30 flex items-center justify-center"
-              >
-                <Camera size={16} />
-              </button>
-              <button
-                onClick={handleAudioRecord}
-                className="flex-1 px-3 py-2 bg-purple-500/20 hover:bg-purple-500/30 text-purple-400 rounded-lg transition-all duration-300 border border-purple-500/30 flex items-center justify-center"
-              >
-                <Mic size={16} />
-              </button>
-            </div>
+            <p className="text-xs text-white/40 text-center w-32">
+              {avatarIcon ? 'Click to replace' : 'Drop or click'}
+            </p>
           </div>
           {/* Name and Description */}
           <div className="flex-grow space-y-4">
@@ -896,6 +1141,81 @@ const AvatarSettings = ({ avatarId, accessToken }) => {
           </p>
         </div>
       </div>
+      {/* Sharing — personal avatars only. Publishing is for your own likeness. */}
+      {isPersonalAvatar && (
+      <div className="bg-white/5 backdrop-blur-lg rounded-2xl border border-white/20 p-6">
+        <h3 className="text-xl font-semibold text-white mb-4 flex items-center gap-2">
+          {isAvatarShared ? <Globe size={20} /> : <Lock size={20} />}
+          Sharing
+        </h3>
+        <div className="flex items-start justify-between gap-6">
+          <p className="text-white/60 text-sm">
+            {isAvatarShared
+              ? 'This avatar is listed publicly. Anyone can find it and chat with it. Only you can change its settings or its data.'
+              : 'Only you can see this avatar. Share it to list it publicly, so anyone can find it and chat with it.'}
+          </p>
+          <button
+            onClick={handleToggleSharing}
+            disabled={isUpdatingSharing}
+            className={`shrink-0 px-4 py-2 rounded-lg border transition-all duration-300 disabled:opacity-50 disabled:cursor-not-allowed ${
+              isAvatarShared
+                ? 'bg-white/10 hover:bg-white/20 text-white border-white/20'
+                : 'bg-teal-500/20 hover:bg-teal-500/30 text-teal-300 border-teal-500/30'
+            }`}
+          >
+            {isUpdatingSharing
+              ? 'Saving…'
+              : isAvatarShared
+                ? 'Make private'
+                : 'Share publicly'}
+          </button>
+        </div>
+      </div>
+      )}
+
+      {/* Connected data servers — reached through the personal avatar, so they
+          are not a property of any other avatar. */}
+      {isPersonalAvatar && (
+      <div className="bg-white/5 backdrop-blur-lg rounded-2xl border border-white/20 p-6">
+        <h3 className="text-xl font-semibold text-white mb-4 flex items-center gap-2">
+          <Server size={20} />
+          Connected Data Servers
+        </h3>
+        {connectedDataServers.length > 0 ? (
+          <div className="space-y-2">
+            {connectedDataServers.map((dataServer) => (
+              <div
+                key={dataServer.server_name ?? dataServer.device_id}
+                className="flex items-center justify-between p-3 bg-white/5 border border-white/10 rounded-lg"
+              >
+                <div>
+                  <p className="text-white">
+                    {dataServer.server_name ?? 'Data server'}
+                  </p>
+                  <p className="text-white/50 text-xs">
+                    {dataServer.bound_to_this_avatar
+                      ? 'Available to this avatar'
+                      : 'Connected to your account, bound to another avatar'}
+                  </p>
+                </div>
+                <button
+                  onClick={() => handleDisconnectDataServer(dataServer)}
+                  className="px-3 py-1.5 text-sm bg-red-500/20 hover:bg-red-500/30 text-red-300 rounded-lg border border-red-500/30 transition-colors"
+                >
+                  Disconnect
+                </button>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <p className="text-white/50 text-sm">
+            No data servers connected. Connecting one lets this avatar work with
+            files and data on your own machine.
+          </p>
+        )}
+      </div>
+      )}
+
       {/* Documents Section */}
 
       <div className="bg-white/5 backdrop-blur-lg rounded-2xl border border-white/20 p-6">
@@ -905,29 +1225,22 @@ const AvatarSettings = ({ avatarId, accessToken }) => {
         </h3>
 
         <div className="space-y-2">
-          {activeAvatar?.files && activeAvatar?.files.length > 0 ? (
-            activeAvatar?.files.map((file, index) => (
+          {avatarDocuments.length > 0 ? (
+            avatarDocuments.map((documentLabel) => (
               <div
-                key={file.id || index}
+                key={documentLabel}
                 className="flex items-center justify-between p-3 bg-white/5 border border-white/10 rounded-lg hover:bg-white/10 transition-colors"
               >
                 <div className="flex items-center gap-3">
-                  {/* Determine icon based on file type if available */}
                   <FileText size={18} className="text-blue-400" />
                   <span className="text-white text-sm font-medium">
-                    {typeof file === 'string' ? file : file?.name}
+                    {documentLabel}
                   </span>
                 </div>
 
                 <div className="flex items-center gap-2">
-                  <span className="text-xs text-white/40">
-                    {file.created_at
-                      ? new Date(file.created_at).toLocaleDateString()
-                      : ''}
-                  </span>
-                  {/* Add a delete or view button here if needed */}
                   <button
-                    onClick={() => deleteDocument(doc.id)}
+                    onClick={() => handleDeleteDocument(documentLabel)}
                     className="text-red-400 hover:text-red-300 transition-colors"
                   >
                     <Trash2 size={20} />

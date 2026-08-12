@@ -1,8 +1,16 @@
 // src/components/Landing/Header.jsx
 import React, { useState, useEffect } from 'react';
+import { ExternalLink } from 'lucide-react';
 import NeuralNexusLogo from '../../assets/NeuralNexus.png';
 import { useNavigate } from 'react-router-dom'; // 1. Add this
 import { useAuth } from '../../context/AuthContext'; // 2. Add this
+
+// Where this project lives outside the site itself.
+const EXTERNAL_LINKS = {
+  api: 'https://api.neuralnexus.site',
+  kickstarter:
+    'https://www.kickstarter.com/projects/evanwoods/neural-nexus-create-authentic-ai',
+};
 
 export default function Header() {
   const [isMenuOpen, setIsMenuOpen] = useState(false);
@@ -34,6 +42,7 @@ export default function Header() {
     { name: 'Live Demo', href: '#demo' },
     { name: 'Product', href: '#product' },
     { name: 'About', href: '#about' },
+    { name: 'Founder', href: '#founder' },
     { name: 'Waitlist', href: '#careers' },
     { name: 'Contact', href: '#contact' },
   ];
@@ -81,7 +90,29 @@ export default function Header() {
           </nav>
 
           {/* CTA Button - Desktop */}
-          <div className="hidden lg:flex items-center">
+          <div className="hidden lg:flex items-center gap-2">
+            {/* Two places this project lives that are not this site: the API
+                itself, and the campaign funding it. Both open in a new tab —
+                they are somewhere else, and a visitor mid-read should not lose
+                the page they were on. */}
+            <a
+              href={EXTERNAL_LINKS.api}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="px-3 py-2 text-gray-300 hover:text-white border border-white/15 hover:border-teal-400/60 rounded-lg transition-all duration-300 flex items-center gap-1.5"
+            >
+              API
+              <ExternalLink className="w-3.5 h-3.5" />
+            </a>
+            <a
+              href={EXTERNAL_LINKS.kickstarter}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="px-3 py-2 text-gray-300 hover:text-white border border-white/15 hover:border-teal-400/60 rounded-lg transition-all duration-300 flex items-center gap-1.5"
+            >
+              Kickstarter
+              <ExternalLink className="w-3.5 h-3.5" />
+            </a>
             <button
               onClick={handleTryNow}
               className="relative px-3 py-2 bg-gradient-to-r bg-white/5 text-white font-bold rounded-lg overflow-hidden group hover:shadow-xl hover:shadow-teal-500/40 transition-all duration-300 transform hover:scale-105"
@@ -162,6 +193,25 @@ export default function Header() {
                   <span className="font-medium tracking-wide text-lg">
                     {item.name}
                   </span>
+                </a>
+              ))}
+              {/* The same two off-site links the desktop header carries. */}
+              {[
+                { name: 'API', href: EXTERNAL_LINKS.api },
+                { name: 'Kickstarter', href: EXTERNAL_LINKS.kickstarter },
+              ].map((externalItem) => (
+                <a
+                  key={externalItem.name}
+                  href={externalItem.href}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  onClick={() => setIsMenuOpen(false)}
+                  className="text-gray-300 hover:text-white py-3 px-4 rounded-xl hover:bg-teal-500/10 transition-all duration-300 transform hover:translate-x-2 border border-transparent hover:border-teal-500/20 flex items-center gap-2"
+                >
+                  <span className="font-medium tracking-wide text-lg">
+                    {externalItem.name}
+                  </span>
+                  <ExternalLink className="w-4 h-4" />
                 </a>
               ))}
             </nav>

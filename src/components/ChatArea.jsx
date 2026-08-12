@@ -1,15 +1,20 @@
 // src/components/ChatArea.jsx
 
-import React, { useEffect } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
+import { toast } from 'react-hot-toast';
 import { User } from 'lucide-react';
 import MessageList from './MessageList';
 import InputBar from './InputBar';
 import { useAuth } from '../context/AuthContext';
 import { useMedia } from '../context/MediaContext';
 import AvatarSettings from './AvatarSettings';
-import { useParams, useNavigate } from 'react-router-dom';
-import { useState } from 'react';
-import { useCallback } from 'react';
+import LiveVoiceMode from './LiveVoiceMode';
+import { isAvatarOwnedByUser, isValidImageUrl } from './utils';
+import {
+  listUserAvatars,
+  getAvatarReferenceImage,
+} from '../services/avatarService';
+import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 
 const ChatArea = ({
   dropdownRef,
@@ -17,24 +22,100 @@ const ChatArea = ({
   onEndLiveChat,
   className,
 }) => {
-  const { accessToken, activeAvatar, user, context, setContext } = useAuth();
+  const { activeAvatar, setActiveAvatar, userAvatars, user, setContext } =
+    useAuth();
   const {
     messages,
     messagesEndRef,
-    currentConversationList,
-    setConversationList,
     getConversationList,
-    setInitialActiveConversation,
     getActiveConversationMessages,
-    joinActiveConversation,
-    conversationList,
     setActiveConversation,
-    activeConversation,
+    resetConversationState,
   } = useMedia(); // messages is now a simple array
+  // The open avatar's portrait, shown beside its name. Avatar records carry no
+  // imagery, so it comes from GET /avatar_reference_image like everywhere else.
+  const [avatarPortrait, setAvatarPortrait] = useState(null);
+  // Live mode is a different way into the same conversation, so it opens over
+  // this screen rather than navigating away from it.
+  const [isLiveModeOpen, setIsLiveModeOpen] = useState(false);
   const { avatarId } = useParams(); // from /chat/:avatarId
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   // const [activeTab, setActiveTab] = useState('avatar-settings');
   const [activeTab, setActiveTab] = useState('chat');
+
+  // Settings administer the avatar — rename, portrait, documents, sharing,
+  // deletion — and every one of those is refused by the API for an avatar the
+  // caller did not create. Offering the controls anyway only produces errors,
+  // so a visitor to someone else's avatar gets the chat and nothing more.
+  const canAdministerAvatar = isAvatarOwnedByUser(activeAvatar, user);
+
+  // A visitor who was already on the settings tab when the avatar changed must
+  // not be left looking at controls that no longer belong to them.
+  useEffect(() => {
+    if (!canAdministerAvatar && activeTab === 'avatar-settings') {
+      setActiveTab('chat');
+    }
+  }, [canAdministerAvatar, activeTab]);
+
+  // `?tab=settings` opens this screen on the settings tab. The account menu
+  // uses it to send someone straight to their own avatar's settings, which
+  // otherwise takes a detour through the chat and a second click.
+  useEffect(() => {
+    if (searchParams.get('tab') === 'settings' && canAdministerAvatar) {
+      setActiveTab('avatar-settings');
+    }
+  }, [searchParams, canAdministerAvatar]);
+
+  // Make the URL sufficient to open a chat.
+  //
+  // The avatar is normally chosen on the selection screen, which puts it in
+  // context on the way here. Arriving any other way — a refresh, a bookmark, a
+  // link — leaves context empty while the URL still names the avatar perfectly
+  // well, and the screen would sit there loading nothing at all. Resolve the
+  // route parameter against the user's avatars instead.
+  useEffect(() => {
+    if (!user || !avatarId) {
+      return undefined;
+    }
+    const activeAvatarId =
+      activeAvatar?.assistant_id ?? activeAvatar?.avatar_id;
+    if (activeAvatarId === avatarId) {
+      return undefined;
+    }
+
+    let cancelled = false;
+    (async () => {
+      const findInList = (avatarList) =>
+        (avatarList ?? []).find(
+          (candidate) =>
+            (candidate.assistant_id ?? candidate.avatar_id) === avatarId
+        );
+
+      let matchingAvatar = findInList(userAvatars);
+      if (!matchingAvatar) {
+        try {
+          matchingAvatar = findInList(await listUserAvatars());
+        } catch (listError) {
+          console.error('Resolving the avatar from the URL failed:', listError);
+        }
+      }
+      if (cancelled) return;
+
+      if (matchingAvatar) {
+        setActiveAvatar(matchingAvatar);
+      } else {
+        // The URL names an avatar this account cannot open. Send the user
+        // somewhere real rather than leaving a chat window that never loads.
+        toast.error('That avatar is not available.');
+        navigate('/avatars');
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [user, avatarId, activeAvatar, userAvatars, setActiveAvatar, navigate]);
 
   // Simple tab switcher
   const handleTabChange = (tab) => {
@@ -47,72 +128,135 @@ const ChatArea = ({
     }
   };
 
-  // async handler callback
-  const avatarChangeHandler = useCallback(async () => {
-    try {
-      // Get all the conversations for the current avatar
-      // whenever the active avatar changes
-      // build context for the conversation
-      console.log(`CHAT AREA BREAKPOINT`);
-      const context = {
-        user_ctx: {
-          user_id: user.id,
-          name: user.name || '',
-          description: user.description || '',
-          metadata: user.metadata || {},
-        },
-        assistant_ctx: {
-          assistant_id: avatarId,
-          user_id: user.id,
-          name: user.name || '',
-          description: user.description || '',
-          metadata: user.metadata || {},
-        },
-      };
-
-      setContext(context);
-
-      // get all the conversations for the active avatar
-      const thread_search_response_json = await getConversationList(
-        user,
-        activeAvatar
-      );
-
-      // establish the initial conversation
-      let active_conversation = activeAvatar.metadata.active_conversation;
-      if (!active_conversation) {
-        if (conversationList) {
-          active_conversation = conversationList[0];
-        }
-      }
-
-      setActiveConversation(active_conversation);
-
-      // get all the messages for the current conversation
-      await getActiveConversationMessages(user, activeAvatar);
-    } catch (error) {
-      console.error(
-        'Failed during avatar Change Handler when the avatar changed: ',
-        error
-      );
-    }
-  });
-
-  // handle avatar selection
   useEffect(() => {
-    if (activeAvatar) {
-      avatarChangeHandler();
+    if (!avatarId) {
+      return undefined;
     }
-  }, [activeAvatar]);
+    let cancelled = false;
+    setAvatarPortrait(null);
+    (async () => {
+      try {
+        const portrait = await getAvatarReferenceImage(avatarId);
+        if (!cancelled) {
+          setAvatarPortrait(portrait);
+        }
+      } catch (portraitError) {
+        // An avatar with no portrait is normal, and the placeholder covers it.
+        console.debug('No portrait for this avatar:', portraitError);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [avatarId]);
+
+  // Load the open avatar's conversation.
+  //
+  // Ordering matters here. The screen is cleared BEFORE the first request goes
+  // out, because this effect spans two round trips and whatever is in state
+  // until they return belongs to the avatar the user just navigated away from.
+  //
+  // `loadGeneration` makes the last navigation win. Two quick avatar switches
+  // leave two loads in flight, and without this the slower one lands last and
+  // paints the wrong conversation; a stale load now finds its generation
+  // superseded and drops its result.
+  const loadGeneration = useRef(0);
+
+  useEffect(() => {
+    // Wait for context and the URL to agree on which avatar is open. In the
+    // moment between navigating and resolving the route parameter they name
+    // different avatars, and loading then would fetch the old avatar's
+    // conversations into the new avatar's window — the very bug being fixed.
+    const activeAvatarId =
+      activeAvatar?.assistant_id ?? activeAvatar?.avatar_id;
+    if (!user || !activeAvatar || (avatarId && activeAvatarId !== avatarId)) {
+      return undefined;
+    }
+
+    const thisGeneration = ++loadGeneration.current;
+    const isCurrentLoad = () => loadGeneration.current === thisGeneration;
+
+    resetConversationState();
+
+    (async () => {
+      try {
+        setContext({
+          user_ctx: {
+            user_id: user.id,
+            name: user.name || '',
+            description: user.description || '',
+            metadata: user.metadata || {},
+          },
+          assistant_ctx: {
+            assistant_id: avatarId,
+            user_id: user.id,
+            name: user.name || '',
+            description: user.description || '',
+            metadata: user.metadata || {},
+          },
+        });
+
+        const threads = await getConversationList(user, activeAvatar);
+        if (!isCurrentLoad()) return;
+
+        // Open the newest thread. A brand-new avatar has none, and that must
+        // resolve to "no conversation yet" rather than falling back to anything
+        // remembered from a previous avatar.
+        const newestThreadId = threads?.[0]?.thread_id ?? null;
+        setActiveConversation(newestThreadId);
+
+        await getActiveConversationMessages(user, activeAvatar, newestThreadId);
+        if (!isCurrentLoad()) return;
+      } catch (error) {
+        if (!isCurrentLoad()) return;
+        console.error('Loading the avatar conversation failed:', error);
+        // Say so: the alternative is an empty chat that looks like a fresh
+        // conversation, and the user then types into a void.
+        toast.error(
+          error.message || 'Could not load this conversation. Try reopening it.'
+        );
+      }
+    })();
+
+    return () => {
+      // Any load still in flight belongs to the avatar being left behind.
+      loadGeneration.current += 1;
+    };
+    // Deliberately keyed on identity only. The context functions this calls are
+    // rebuilt on every render of the provider, so listing them (as the
+    // exhaustive-deps rule asks) would reload the conversation on every render.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user, activeAvatar, avatarId]);
 
   return (
+    <>
+    {isLiveModeOpen && (
+      <LiveVoiceMode
+        avatarName={activeAvatar?.name}
+        avatarPortrait={avatarPortrait}
+        onClose={() => setIsLiveModeOpen(false)}
+      />
+    )}
     <div
       className={`flex flex-row flex-grow w-full h-full bg-white/5 backdrop-blur-lg rounded-2xl border border-white/20 overflow-hidden relative ${className}`}
     >
       {/* Main Chat Section */}
       <div className="flex flex-col flex-grow p-2 sm:p-4 relative z-10">
         {/* Tabs */}
-        <div className="flex justify-center mb-2 border-b border-white/20 gap-4">
+        <div className="flex justify-center items-center mb-2 border-b border-white/20 gap-4">
+          {/* The avatar's face, or a placeholder standing in for one. */}
+          <div className="w-9 h-9 shrink-0 rounded-full bg-white/10 border border-white/20 flex items-center justify-center overflow-hidden">
+            {avatarPortrait && isValidImageUrl(avatarPortrait) ? (
+              <img
+                src={avatarPortrait}
+                alt={activeAvatar?.name ?? 'Avatar'}
+                className="w-full h-full object-cover"
+                onError={() => setAvatarPortrait(null)}
+              />
+            ) : (
+              <User className="w-5 h-5 text-white/40" />
+            )}
+          </div>
           <button
             className={`px-4 py-2 ${
               activeTab === 'chat'
@@ -125,16 +269,18 @@ const ChatArea = ({
               ? `A.I. ${activeAvatar.name} Chat`
               : 'A.I. Chat'}
           </button>
-          <button
-            className={`px-4 py-2 ${
-              activeTab === 'avatar-settings'
-                ? 'border-b-2 border-white font-semibold'
-                : ''
-            } text-white`}
-            onClick={() => handleTabChange('avatar-settings')}
-          >
-            Avatar Settings
-          </button>
+          {canAdministerAvatar && (
+            <button
+              className={`px-4 py-2 ${
+                activeTab === 'avatar-settings'
+                  ? 'border-b-2 border-white font-semibold'
+                  : ''
+              } text-white`}
+              onClick={() => handleTabChange('avatar-settings')}
+            >
+              Avatar Settings
+            </button>
+          )}
           <button
             className={`px-4 py-2 ${
               activeTab === 'avatar-selection'
@@ -150,27 +296,33 @@ const ChatArea = ({
         {activeTab === 'chat' && (
           <div className="flex flex-col flex-grow overflow-hidden">
             <div className="flex-grow overflow-y-auto p-2 sm:p-4 relative">
-              <MessageList
-                messages={messages} // Pass messages array directly
-                messagesEndRef={messagesEndRef}
-              />
+              {/* Same width as the composer below (InputBar is max-w-3xl
+                  mx-auto). Without it the transcript ran the full width of the
+                  window while the input sat centred beneath it. */}
+              <div className="w-full max-w-3xl mx-auto">
+                <MessageList
+                  messages={messages} // Pass messages array directly
+                  messagesEndRef={messagesEndRef}
+                  avatarPortrait={avatarPortrait}
+                  avatarName={activeAvatar?.name}
+                />
+              </div>
             </div>
 
             <div className="flex-shrink-0 items-center mt-2">
               <InputBar
-                avatarId={activeAvatar?.avatar_id}
-                accessToken={accessToken}
+                avatarId={activeAvatar?.assistant_id ?? avatarId}
                 dropdownRef={dropdownRef}
+                onActivateLiveChat={() => setIsLiveModeOpen(true)}
               />
             </div>
           </div>
         )}
 
-        {activeTab === 'avatar-settings' && (
+        {activeTab === 'avatar-settings' && canAdministerAvatar && (
           <div className="flex flex-col flex-grow p-2 sm:p-4 relative overflow-y-auto">
             <AvatarSettings
-              avatarId={activeAvatar?.avatar_id}
-              accessToken={accessToken}
+              avatarId={activeAvatar?.assistant_id ?? avatarId}
               onAvatarDeleted={() => {
                 // Switch to avatar selection tab after deletion
                 setActiveTab('avatar-selection');
@@ -180,6 +332,7 @@ const ChatArea = ({
         )}
       </div>
     </div>
+    </>
   );
 };
 

@@ -11,6 +11,7 @@ const InputBar = ({
   setShowDataExchangeDropdown,
   showDataExchangeDropdown,
   dropdownRef,
+  onActivateLiveChat,
 }) => {
   const fileInputRef = useRef(null);
   const textareaRef = useRef(null);
@@ -209,25 +210,34 @@ const InputBar = ({
           )}
         </div>
 
-        {/* Hidden File Input */}
+        {/* Hidden File Input. No `accept` filter: the message endpoint takes
+            documents, audio and video as readily as images, and restricting the
+            picker to image/* made everything else unattachable. */}
         <input
           ref={fileInputRef}
           type="file"
-          accept="image/*"
           multiple
           hidden
           onChange={handleFileSelect}
         />
 
-        {/* Send Button */}
+        {/* One button, two jobs: send what has been typed, or — when there is
+            nothing to send — switch to talking. The waveform icon is what the
+            button already showed in that state; now it does something. */}
         <button
           onClick={() => {
             if (!inputMessage.trim() && mediaFiles.length === 0) {
-              // enable live-chat
+              onActivateLiveChat?.();
             } else {
               handleSendMessage();
             }
           }}
+          title={
+            inputMessage.trim().length > 0 ? 'Send message' : 'Talk out loud'
+          }
+          aria-label={
+            inputMessage.trim().length > 0 ? 'Send message' : 'Enter live mode'
+          }
           className="transition-transform duration-300 hover:scale-105 px-6 rounded-xl text-white bg-black/35 border border-gray-700 hover:border-teal-400 flex items-center justify-center gap-2 whitespace-nowrap self-stretch"
         >
           {inputMessage.trim().length > 0 ? (

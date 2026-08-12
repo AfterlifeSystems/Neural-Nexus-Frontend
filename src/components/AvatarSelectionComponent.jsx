@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { toast } from 'react-hot-toast';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import CircularGallery from './CircularGallery';
 import {
@@ -16,30 +16,28 @@ import { FiCircle } from 'react-icons/fi';
 import CreateAvatarComponent from './CreateAvatarComponent';
 import CreateAvatarModal from './CreateAvatarModal';
 import AvatarCardComponent from './AvatarCardComponent';
+import LoadingSpinner from './LoadingSpinner';
+import AccountMenu from './AccountMenu';
 import { useMedia } from '../context/MediaContext';
-import { selectAvatar } from '../services/avatarService';
-import { createClient } from '@supabase/supabase-js';
+import {
+  selectAvatar,
+  getAvatarReferenceImage,
+  listUserAvatars,
+} from '../services/avatarService';
 
 const AvatarSelectionComponent = ({}) => {
   const {
-    accessToken,
     user,
     profile,
     userAvatars,
-    setActiveAvatar,
-    lastUsedAvatar,
     setUserAvatars,
-    context,
+    setActiveAvatar,
     setContext,
   } = useAuth();
 
-  const {
-    setMessages,
-    fetchMessages,
-    activeConversation,
-    setActiveConversation,
-  } = useMedia();
+  const { setActiveConversation } = useMedia();
   const navigate = useNavigate();
+  const location = useLocation();
   const [currentCardIndex, setCurrentCardIndex] = useState(0);
   const [searchQuery, setSearchQuery] = useState('');
   const [suggestions, setSuggestions] = useState([]);
@@ -51,14 +49,47 @@ const AvatarSelectionComponent = ({}) => {
   const dropdownRef = useRef(null);
   const hasInitialized = useRef(false);
   const [showCreateModal, setShowCreateModal] = useState(false);
+  // Avatar portraits fetched from GET /avatar_reference_image, keyed by
+  // assistant_id. The API returns a data URI or URL string per avatar.
+  const [avatarIconsById, setAvatarIconsById] = useState({});
+  // True only while the first load of the list is in flight — the gallery is
+  // a WebGL canvas that renders an empty ring until avatars arrive, which is
+  // indistinguishable from an account that has none.
+  const [isLoadingAvatars, setIsLoadingAvatars] = useState(false);
 
-  const isValidImageObjectUrl = (urlObject) => {
-    if (!urlObject) return false;
-
-    if (urlObject.url.startsWith('data:image/'))
-      return urlObject.url.includes('base64,');
-    return /^(https?:\/\/|\/)/.test(urlObject.url);
-  };
+  // Load each avatar's portrait from the API. Fetched once per avatar list
+  // change; avatars without a stored reference image simply keep no entry.
+  useEffect(() => {
+    let cancelled = false;
+    const loadAvatarIcons = async () => {
+      if (!Array.isArray(userAvatars) || userAvatars.length === 0) {
+        return;
+      }
+      const iconEntries = await Promise.all(
+        userAvatars.map(async (avatar) => {
+          const assistantId = avatar.assistant_id ?? avatar.avatar_id;
+          if (!assistantId) {
+            return null;
+          }
+          try {
+            const iconSource = await getAvatarReferenceImage(assistantId);
+            return iconSource ? [assistantId, iconSource] : null;
+          } catch {
+            return null;
+          }
+        })
+      );
+      if (!cancelled) {
+        setAvatarIconsById(
+          Object.fromEntries(iconEntries.filter((entry) => entry !== null))
+        );
+      }
+    };
+    loadAvatarIcons();
+    return () => {
+      cancelled = true;
+    };
+  }, [userAvatars]);
 
   const isValidImageUrl = (urlLink) => {
     if (!urlLink) return false;
@@ -158,13 +189,20 @@ const AvatarSelectionComponent = ({}) => {
         (avatar) => avatar.assistant_id === avatarId
       );
 
-      // when the avatar is selected, the backend is responsible for updating the identity and awareness of the avatar
-
       cacheAvatarPosition(avatarId, avatarIndex);
-      if (selectedAvatar?.icon) {
-        cacheAvatarIcon(avatarId, selectedAvatar.icon, avatarIndex);
+      const selectedAvatarIcon = avatarIconsById[avatarId];
+      if (selectedAvatarIcon) {
+        cacheAvatarIcon(avatarId, selectedAvatarIcon, avatarIndex);
       }
       setActiveAvatar(selectedAvatar);
+
+      // Register the selection server-side: /list_avatar_documents and
+      // /delete_avatar_document operate on the avatar selected through
+      // POST /select_avatar, not on a request parameter. Not fatal on
+      // failure — chatting addresses the avatar by id in the URL path.
+      selectAvatar(avatarId).catch((selectError) => {
+        console.error('Server-side avatar selection failed:', selectError);
+      });
 
       // build context for the conversation
       const context = {
@@ -177,74 +215,22 @@ const AvatarSelectionComponent = ({}) => {
         assistant_ctx: {
           assistant_id: avatarId,
           user_id: user.id,
-          name: user.name || '',
-          description: user.description || '',
-          metadata: user.metadata || {},
+          name: selectedAvatar?.name || '',
+          description: selectedAvatar?.description || '',
+          metadata: selectedAvatar?.metadata || {},
         },
       };
 
       setContext(context);
 
-      console.log('breakpoint');
-      setActiveConversation(selectedAvatar.metadata.active_conversation);
+      // Start with no conversation: the chat screen picks the newest thread for
+      // this avatar once it has listed them. (There is no recorded "active
+      // conversation" on an avatar — nothing server-side ever writes one.)
+      setActiveConversation(null);
 
-      // await selectAvatar(avatarId); // Update Firestore last_used_avatar
-      // localStorage.setItem('last_used_avatar_id', avatarId);
-
-      // Load messages for this avatar
-      // await fetchMessages();
-      // toast.success(`Selected ${avatar.name || 'avatar'}`);
-      // console.log('HANDLE CLICK');
       navigate(`/chat/${avatarId}`); // ← ROUTE TO CHAT AREA
-      // navigate(/chat:selectedAvatar)
     } else if (actualCardData.type === 'create') {
       setShowCreateModal(true);
-    }
-  };
-
-  const handleCustomizeAvatar = async () => {
-    if (currentCardIndex === authenticatedCards.length - 1) {
-      setShowCreateModal(true);
-      return;
-    }
-
-    const selectedCard = authenticatedCards[currentCardIndex];
-    if (selectedCard.type === 'avatar') {
-      try {
-        const avatarId =
-          selectedCard.id ||
-          userAvatars?.find((avatar) => avatar.name === selectedCard.text)
-            ?.avatar_id;
-        if (!avatarId) {
-          toast.error('Avatar ID not found');
-          return;
-        }
-
-        // Use AuthContext selectAvatar which updates FirestoreF
-        await selectAvatar(avatarId);
-
-        const selectedAvatar = userAvatars.find(
-          (avatar) => avatar.avatar_id === avatarId
-        );
-        const avatarIndex = userAvatars.findIndex(
-          (avatar) => avatar.avatar_id === avatarId
-        );
-
-        cacheAvatarPosition(avatarId, avatarIndex);
-
-        if (selectedAvatar?.icon) {
-          cacheAvatarIcon(avatarId, selectedAvatar.icon, avatarIndex);
-        }
-
-        setActiveAvatar(selectedAvatar);
-        // Load messages for this avatar and set into media context if needed
-        await fetchMessages();
-        setActiveTab('documents');
-        // navigate(/settings:selectedAvatar)
-      } catch (error) {
-        console.error('Error selecting avatar for settings:', error);
-        toast.error('Failed to open avatar settings');
-      }
     }
   };
 
@@ -255,19 +241,24 @@ const AvatarSelectionComponent = ({}) => {
     );
 
     const avatarCards =
-      userAvatars?.map((avatar) => ({
-        id: avatar.avatar_id,
-        component: (
-          <AvatarCardComponent avatar={avatar} onCardClick={handleClick} />
-        ),
-        type: 'avatar',
-        text: avatar.name,
-        image:
-          avatar.icon && isValidImageObjectUrl(avatar.icon)
-            ? avatar.icon.url
-            : null,
-        avatar_data: avatar,
-      })) || [];
+      userAvatars?.map((avatar) => {
+        const assistantId = avatar.assistant_id ?? avatar.avatar_id;
+        const iconSource = avatarIconsById[assistantId];
+        return {
+          id: assistantId,
+          component: (
+            <AvatarCardComponent
+              avatar={avatar}
+              iconSource={iconSource}
+              onCardClick={handleClick}
+            />
+          ),
+          type: 'avatar',
+          text: avatar.name,
+          image: iconSource && isValidImageUrl(iconSource) ? iconSource : null,
+          avatar_data: avatar,
+        };
+      }) || [];
 
     avatarCards.push({
       id: 'create-avatar',
@@ -278,7 +269,7 @@ const AvatarSelectionComponent = ({}) => {
     });
 
     return avatarCards;
-  }, [userAvatars]);
+  }, [userAvatars, avatarIconsById]);
 
   const getCachedAvatarPosition = (avatarId = null) => {
     try {
@@ -300,6 +291,45 @@ const AvatarSelectionComponent = ({}) => {
   useEffect(() => {
     console.log(`AVATAR SELECTION COMPONENT ENTRYPOINT`);
   });
+
+  // Re-read the avatar list from the API every time this screen opens.
+  //
+  // The list in context is written at sign-in and after a create, so anything
+  // that changes it elsewhere — deleting an avatar, a change made in another
+  // tab — used to leave this screen showing avatars the server no longer has.
+  // This screen is the one place the whole list is displayed, so it is the
+  // right place to insist on server truth rather than trusting what an earlier
+  // screen happened to leave in memory.
+  useEffect(() => {
+    if (!user) {
+      return;
+    }
+    let isCurrentRequest = true;
+    // Only show the loading state when there is nothing to look at yet.
+    // Re-entering the screen with avatars already in hand should not throw a
+    // panel over a gallery the user can already see and use.
+    setIsLoadingAvatars((userAvatars ?? []).length === 0);
+    (async () => {
+      try {
+        const freshAvatars = await listUserAvatars();
+        if (isCurrentRequest) {
+          setUserAvatars(freshAvatars ?? []);
+        }
+      } catch (listError) {
+        // Keep whatever is already on screen; a transient list failure should
+        // not empty the gallery of a user who is simply offline for a moment.
+        console.error('Refreshing the avatar list failed:', listError);
+      } finally {
+        if (isCurrentRequest) {
+          setIsLoadingAvatars(false);
+        }
+      }
+    })();
+    return () => {
+      isCurrentRequest = false;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user, setUserAvatars]);
 
   useEffect(() => {
     // SET AVATAR CARD INDEX TO LAST USED AVATAR
@@ -344,26 +374,6 @@ const AvatarSelectionComponent = ({}) => {
     // }
   }, [user, userAvatars]);
 
-  const handleLogout = async () => {
-    try {
-      const supabase = new createClient(
-        import.meta.env.VITE_SUPABASE_URL,
-        import.meta.env.VITE_SUPABASE_PUBLISHABLE_AUTH_KEY
-      );
-
-      try {
-        const { error } = await supabase.auth.signOut(); // sign out the all sessions
-      } catch (error) {
-        console.error('Logout error:', error);
-        toast.error('Logout completed with errors');
-      }
-      setDropdownOpen(false);
-      navigate('/login');
-    } catch (err) {
-      console.error('Logout failed', err);
-      // toast.error("Logout failed");
-    }
-  };
 
   useEffect(() => {
     const handleClickOutside = (e) => {
@@ -456,13 +466,10 @@ const AvatarSelectionComponent = ({}) => {
 
     const allCards = [
       ...(userAvatars?.map((avatar, idx) => ({
-        id: avatar.avatar_id,
+        id: avatar.assistant_id ?? avatar.avatar_id,
         type: 'avatar',
         text: avatar.name,
-        image:
-          avatar.icon && isValidImageObjectUrl(avatar.icon)
-            ? avatar.icon.url
-            : null,
+        image: avatarIconsById[avatar.assistant_id ?? avatar.avatar_id] ?? null,
         originalIndex: idx,
       })) || []),
       {
@@ -500,13 +507,10 @@ const AvatarSelectionComponent = ({}) => {
   const handleSearchFocus = () => {
     const allCards = [
       ...(userAvatars?.map((avatar, idx) => ({
-        id: avatar.avatar_id,
+        id: avatar.assistant_id ?? avatar.avatar_id,
         type: 'avatar',
         text: avatar.name,
-        image:
-          avatar.icon && isValidImageObjectUrl(avatar.icon)
-            ? avatar.icon.url
-            : null,
+        image: avatarIconsById[avatar.assistant_id ?? avatar.avatar_id] ?? null,
         originalIndex: idx,
       })) || []),
       {
@@ -625,6 +629,14 @@ const AvatarSelectionComponent = ({}) => {
 
   return (
     <div className="flex flex-col items-center justify-start p-4 relative mx-auto min-h-screen w-full">
+      {isLoadingAvatars && (
+        <div className="fixed inset-0 z-[60] bg-black/60 backdrop-blur-sm flex items-center justify-center">
+          <div className="bg-white/5 backdrop-blur-lg rounded-2xl border border-white/20 px-8 py-6 flex flex-col items-center gap-4">
+            <LoadingSpinner />
+            <p className="text-white/80">Loading your avatars…</p>
+          </div>
+        </div>
+      )}
       <div className="w-full h-screen overflow-hidden flex flex-col items-center gap-2">
         <div className="relative w-full max-w-md mt-8 mb-2" ref={searchRef}>
           <input
@@ -860,34 +872,17 @@ const AvatarSelectionComponent = ({}) => {
                       <X className="w-4 h-4" />
                     </button>
                   </div>
-                  {/* <button
-                    onClick={() => {
-                      // navigate(settings:user)
-                      setDropdownOpen(false);
-                      1;
-                    }}
-                    className="block w-full text-left px-4 py-2 text-sm text-white hover:bg-teal-600 transition"
-                    type="menuitem"
-                  >
-                    Account Settings
-                  </button>
-                  <button
-                    onClick={() => {
-                      // navigate(/billing)
-                      setDropdownOpen(false);
-                    }}
-                    className="block w-full text-left px-4 py-2 text-sm text-white hover:bg-teal-600 transition"
-                    type="menuitem"
-                  >
-                    Billing
-                  </button> */}
-                  <button
-                    onClick={handleLogout}
-                    className="block w-full text-left flex flex-row items-center px-4 py-2 text-sm text-red-500 hover:bg-red-900 hover:text-white transition"
-                    type="menuitem"
-                  >
-                    Logout <LogOut className="ml-2 w-4 h-4" />
-                  </button>
+                  {/* The same actions the sidebar offers, from the same
+                      component, so the two can never drift apart. The gallery
+                      is already on screen here, so the leading entry goes to
+                      the settings of the avatar that depicts the user instead. */}
+                  <div className="p-2 space-y-1">
+                    <AccountMenu
+                      leadingAction="personalAvatar"
+                      onNavigate={() => setDropdownOpen(false)}
+                      currentPath={location.pathname}
+                    />
+                  </div>
                 </div>
               )}
             </div>
