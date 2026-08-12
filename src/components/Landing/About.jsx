@@ -16,7 +16,8 @@ export default function About() {
           neural technologies, creating a future where interactions are seamless
           and meaningful. We aim towards extending human consciousness,
           improving health and well being through self-awareness, and augmenting
-          human capability and means of interfacing with technologies in future.
+          human capability and means of interfacing with technologies in the
+          future.
         </p>
       </div>
     </section>

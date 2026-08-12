@@ -30,12 +30,11 @@ export default function Header() {
     setIsMenuOpen(!isMenuOpen);
   };
   const handleTryNow = () => {
-    window.open('https://api.neuralnexus.site', '_blank');
-    // if (user) {
-    //   navigate('/avatars'); // Go to app if logged in
-    // } else {
-    //   navigate('/login'); // Go to login if not
-    // }
+    if (user) {
+      navigate('/avatars'); // Go to app if logged in
+    } else {
+      navigate('/login'); // Go to login if not
+    }
   };
 
   const navItems = [

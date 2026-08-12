@@ -3,8 +3,8 @@
 // Who is behind this. A product that asks people to hand over their own words
 // and likeness should say plainly whose hands those go into.
 
-import React from 'react';
-import { Github, Linkedin, Mail } from 'lucide-react';
+import React, { useState } from 'react';
+import { Github, Linkedin, Mail, User } from 'lucide-react';
 
 // GitHub serves every account's picture at this address, so the portrait stays
 // current if it is ever changed there — no copy of it lives in this repository.
@@ -18,6 +18,10 @@ const FOUNDER = {
 };
 
 export default function Founder() {
+  // A portrait served from another origin can be blocked or simply fail; a
+  // placeholder is better than a broken frame.
+  const [hasPortraitFailed, setHasPortraitFailed] = useState(false);
+
   return (
     <section
       id="founder"
@@ -27,12 +31,25 @@ export default function Founder() {
         <h2 className="text-3xl font-bold text-center mb-8">The Founder</h2>
 
         <div className="max-w-3xl mx-auto flex flex-col sm:flex-row items-center gap-8 bg-white/5 border border-white/15 rounded-2xl p-8">
-          <img
-            src={FOUNDER.portraitUrl}
-            alt={FOUNDER.name}
-            className="w-40 h-40 rounded-2xl object-cover border border-white/20 shrink-0"
-            loading="lazy"
-          />
+          {/* Loaded eagerly on purpose. Deferring it (`loading="lazy"`) left the
+              portrait blank until the page was reloaded: arriving here through
+              client-side navigation, the section is built off-screen and the
+              deferred fetch does not reliably fire, so the frame stayed empty
+              for anyone who did not hard-refresh. It is one small avatar — the
+              saving was never worth the failure. */}
+          {hasPortraitFailed ? (
+            <div className="w-40 h-40 rounded-2xl border border-white/20 shrink-0 bg-white/10 flex items-center justify-center">
+              <User className="w-16 h-16 text-white/40" />
+            </div>
+          ) : (
+            <img
+              src={FOUNDER.portraitUrl}
+              alt={FOUNDER.name}
+              className="w-40 h-40 rounded-2xl object-cover border border-white/20 shrink-0"
+              decoding="async"
+              onError={() => setHasPortraitFailed(true)}
+            />
+          )}
 
           <div className="flex flex-col gap-3 text-center sm:text-left">
             <div>
