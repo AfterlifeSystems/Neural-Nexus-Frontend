@@ -33,8 +33,9 @@ export const listPublicAvatars = async (assistantId) => {
 };
 
 /**
- * Create an avatar. The server mints the assistant_id and the initial
- * conversation thread; nothing is generated client-side.
+ * Create an avatar. The server mints the assistant_id; nothing is generated
+ * client-side. No conversation thread is created here — a new avatar has none
+ * until its first message, and the server mints the thread on that send.
  * POST /create_avatar
  *
  * @param {Object} options
@@ -158,9 +159,17 @@ export const getAvatarReferenceImage = async (assistantId) => {
   if (typeof referenceImageResponse === 'string') {
     return referenceImageResponse;
   }
-  // Tolerate an object wrapper ({image: ...} or {url: ...}) so a backend
-  // response-shape tweak degrades to "no icon" rather than a broken <img>.
-  return referenceImageResponse.image ?? referenceImageResponse.url ?? null;
+  // The API names this field `reference_image_data`, and its value is either a
+  // `data:image/…;base64,…` URI or an https URL. The `image` / `url` keys read
+  // here previously do not exist on the response, so every portrait in the
+  // application resolved to null and every avatar fell back to a placeholder.
+  // The alternatives are kept only as tolerance for a future rename.
+  return (
+    referenceImageResponse.reference_image_data ??
+    referenceImageResponse.image ??
+    referenceImageResponse.url ??
+    null
+  );
 };
 
 /**
@@ -258,5 +267,37 @@ export const streamMediaJobProgress = async (jobId, onEvent, signal) => {
 export const cancelMediaJob = async (jobId) => {
   return requestJson(`/media_job/${encodeURIComponent(jobId)}/cancel`, {
     method: 'POST',
+  });
+};
+
+/**
+ * Read the account's personal avatar and the live status of its capabilities.
+ *
+ * The capability statuses are where connected data servers (Model Context
+ * Protocol machines) are reported: `connected_data_servers` holds one entry per
+ * connection, each naming the server and whether it is bound to that avatar.
+ * GET /personal_avatar
+ *
+ * @returns {Promise<Object>} `{personal_avatar, capabilities}`.
+ */
+export const getPersonalAvatar = async () => {
+  return requestJson('/personal_avatar');
+};
+
+/**
+ * Forget saved data-server connections — the disconnect.
+ *
+ * Omitting `deviceId` disconnects every machine on the account; passing one
+ * disconnects only that machine. The avatar re-adopts a reachable machine on a
+ * later turn, so this is unplugging rather than a permanent opt-out.
+ * POST /disconnect_mcp
+ *
+ * @param {string} [deviceId] The machine to disconnect.
+ * @returns {Promise<Object>} The disconnect result.
+ */
+export const disconnectDataServer = async (deviceId) => {
+  return requestJson('/disconnect_mcp', {
+    method: 'POST',
+    query: { device_id: deviceId },
   });
 };

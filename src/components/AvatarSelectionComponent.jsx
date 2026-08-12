@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { toast } from 'react-hot-toast';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import CircularGallery from './CircularGallery';
 import {
@@ -16,10 +16,13 @@ import { FiCircle } from 'react-icons/fi';
 import CreateAvatarComponent from './CreateAvatarComponent';
 import CreateAvatarModal from './CreateAvatarModal';
 import AvatarCardComponent from './AvatarCardComponent';
+import LoadingSpinner from './LoadingSpinner';
+import AccountMenu from './AccountMenu';
 import { useMedia } from '../context/MediaContext';
 import {
   selectAvatar,
   getAvatarReferenceImage,
+  listUserAvatars,
 } from '../services/avatarService';
 
 const AvatarSelectionComponent = ({}) => {
@@ -27,13 +30,14 @@ const AvatarSelectionComponent = ({}) => {
     user,
     profile,
     userAvatars,
+    setUserAvatars,
     setActiveAvatar,
     setContext,
-    logOut,
   } = useAuth();
 
   const { setActiveConversation } = useMedia();
   const navigate = useNavigate();
+  const location = useLocation();
   const [currentCardIndex, setCurrentCardIndex] = useState(0);
   const [searchQuery, setSearchQuery] = useState('');
   const [suggestions, setSuggestions] = useState([]);
@@ -48,6 +52,10 @@ const AvatarSelectionComponent = ({}) => {
   // Avatar portraits fetched from GET /avatar_reference_image, keyed by
   // assistant_id. The API returns a data URI or URL string per avatar.
   const [avatarIconsById, setAvatarIconsById] = useState({});
+  // True only while the first load of the list is in flight — the gallery is
+  // a WebGL canvas that renders an empty ring until avatars arrive, which is
+  // indistinguishable from an account that has none.
+  const [isLoadingAvatars, setIsLoadingAvatars] = useState(false);
 
   // Load each avatar's portrait from the API. Fetched once per avatar list
   // change; avatars without a stored reference image simply keep no entry.
@@ -215,9 +223,10 @@ const AvatarSelectionComponent = ({}) => {
 
       setContext(context);
 
-      setActiveConversation(
-        selectedAvatar?.metadata?.active_conversation ?? null
-      );
+      // Start with no conversation: the chat screen picks the newest thread for
+      // this avatar once it has listed them. (There is no recorded "active
+      // conversation" on an avatar — nothing server-side ever writes one.)
+      setActiveConversation(null);
 
       navigate(`/chat/${avatarId}`); // ← ROUTE TO CHAT AREA
     } else if (actualCardData.type === 'create') {
@@ -238,7 +247,11 @@ const AvatarSelectionComponent = ({}) => {
         return {
           id: assistantId,
           component: (
-            <AvatarCardComponent avatar={avatar} onCardClick={handleClick} />
+            <AvatarCardComponent
+              avatar={avatar}
+              iconSource={iconSource}
+              onCardClick={handleClick}
+            />
           ),
           type: 'avatar',
           text: avatar.name,
@@ -278,6 +291,45 @@ const AvatarSelectionComponent = ({}) => {
   useEffect(() => {
     console.log(`AVATAR SELECTION COMPONENT ENTRYPOINT`);
   });
+
+  // Re-read the avatar list from the API every time this screen opens.
+  //
+  // The list in context is written at sign-in and after a create, so anything
+  // that changes it elsewhere — deleting an avatar, a change made in another
+  // tab — used to leave this screen showing avatars the server no longer has.
+  // This screen is the one place the whole list is displayed, so it is the
+  // right place to insist on server truth rather than trusting what an earlier
+  // screen happened to leave in memory.
+  useEffect(() => {
+    if (!user) {
+      return;
+    }
+    let isCurrentRequest = true;
+    // Only show the loading state when there is nothing to look at yet.
+    // Re-entering the screen with avatars already in hand should not throw a
+    // panel over a gallery the user can already see and use.
+    setIsLoadingAvatars((userAvatars ?? []).length === 0);
+    (async () => {
+      try {
+        const freshAvatars = await listUserAvatars();
+        if (isCurrentRequest) {
+          setUserAvatars(freshAvatars ?? []);
+        }
+      } catch (listError) {
+        // Keep whatever is already on screen; a transient list failure should
+        // not empty the gallery of a user who is simply offline for a moment.
+        console.error('Refreshing the avatar list failed:', listError);
+      } finally {
+        if (isCurrentRequest) {
+          setIsLoadingAvatars(false);
+        }
+      }
+    })();
+    return () => {
+      isCurrentRequest = false;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user, setUserAvatars]);
 
   useEffect(() => {
     // SET AVATAR CARD INDEX TO LAST USED AVATAR
@@ -322,19 +374,6 @@ const AvatarSelectionComponent = ({}) => {
     // }
   }, [user, userAvatars]);
 
-  const handleLogout = async () => {
-    try {
-      await logOut();
-    } catch (logoutError) {
-      // logOut clears local session state even when the network call fails,
-      // so the user is signed out either way.
-      console.error('Logout error:', logoutError);
-      toast.error('Logout completed with errors');
-    } finally {
-      setDropdownOpen(false);
-      navigate('/login');
-    }
-  };
 
   useEffect(() => {
     const handleClickOutside = (e) => {
@@ -590,6 +629,14 @@ const AvatarSelectionComponent = ({}) => {
 
   return (
     <div className="flex flex-col items-center justify-start p-4 relative mx-auto min-h-screen w-full">
+      {isLoadingAvatars && (
+        <div className="fixed inset-0 z-[60] bg-black/60 backdrop-blur-sm flex items-center justify-center">
+          <div className="bg-white/5 backdrop-blur-lg rounded-2xl border border-white/20 px-8 py-6 flex flex-col items-center gap-4">
+            <LoadingSpinner />
+            <p className="text-white/80">Loading your avatars…</p>
+          </div>
+        </div>
+      )}
       <div className="w-full h-screen overflow-hidden flex flex-col items-center gap-2">
         <div className="relative w-full max-w-md mt-8 mb-2" ref={searchRef}>
           <input
@@ -825,34 +872,17 @@ const AvatarSelectionComponent = ({}) => {
                       <X className="w-4 h-4" />
                     </button>
                   </div>
-                  {/* <button
-                    onClick={() => {
-                      // navigate(settings:user)
-                      setDropdownOpen(false);
-                      1;
-                    }}
-                    className="block w-full text-left px-4 py-2 text-sm text-white hover:bg-teal-600 transition"
-                    type="menuitem"
-                  >
-                    Account Settings
-                  </button>
-                  <button
-                    onClick={() => {
-                      // navigate(/billing)
-                      setDropdownOpen(false);
-                    }}
-                    className="block w-full text-left px-4 py-2 text-sm text-white hover:bg-teal-600 transition"
-                    type="menuitem"
-                  >
-                    Billing
-                  </button> */}
-                  <button
-                    onClick={handleLogout}
-                    className="block w-full text-left flex flex-row items-center px-4 py-2 text-sm text-red-500 hover:bg-red-900 hover:text-white transition"
-                    type="menuitem"
-                  >
-                    Logout <LogOut className="ml-2 w-4 h-4" />
-                  </button>
+                  {/* The same actions the sidebar offers, from the same
+                      component, so the two can never drift apart. The gallery
+                      is already on screen here, so the leading entry goes to
+                      the settings of the avatar that depicts the user instead. */}
+                  <div className="p-2 space-y-1">
+                    <AccountMenu
+                      leadingAction="personalAvatar"
+                      onNavigate={() => setDropdownOpen(false)}
+                      currentPath={location.pathname}
+                    />
+                  </div>
                 </div>
               )}
             </div>

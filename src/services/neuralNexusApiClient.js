@@ -6,10 +6,13 @@
 //
 // Authentication: every authenticated endpoint accepts either an `API-KEY`
 // header or `Authorization: Bearer <token>`. This application uses the bearer
-// form with the `refresh_token` returned by POST /login. The bearer value is
-// treated as opaque everywhere except `extractSessionCredentialFromLoginResponse`,
-// so if the API ever expects a different token from the login response, only
-// that one function changes.
+// form with the `refresh_token` returned by POST /login, because the API shows an
+// account's API key exactly once — at signup — and a browser is not where that
+// key should live. The key is shown to the user to save for their integrations;
+// the session here runs on the refresh token. The bearer value is treated as
+// opaque everywhere except `extractSessionCredentialFromLoginResponse`, so if the
+// API ever expects a different token from the login response, only that one
+// function changes.
 
 export const NEURAL_NEXUS_API_BASE_URL =
   import.meta.env.VITE_NEURAL_NEXUS_API_BASE_URL ?? 'http://localhost:8080';
@@ -138,18 +141,10 @@ function appendQueryParameters(path, query) {
  * Handle a response the API rejected: throw an ApiError carrying the API's
  * own description of the failure.
  *
- * A 401 while holding a credential means the session is gone — revoked by a
- * logout in another tab, or expired. The credential is dropped so the next
- * render falls through to the login screen instead of retrying forever with a
- * token the API will keep refusing.
- *
  * @param {Response} response The non-ok fetch response.
  * @param {boolean} sessionCredentialWasSent Whether this request carried the bearer header.
  */
 async function raiseApiError(response, sessionCredentialWasSent) {
-  if (response.status === 401 && sessionCredentialWasSent) {
-    clearSessionCredential();
-  }
   let errorBody = null;
   try {
     errorBody = await response.json();
@@ -158,10 +153,39 @@ async function raiseApiError(response, sessionCredentialWasSent) {
     // needs to produce an ApiError; describeErrorBody falls back to the
     // status code.
   }
-  throw new ApiError(
-    response.status,
-    describeErrorBody(errorBody, response.status)
-  );
+  const description = describeErrorBody(errorBody, response.status);
+
+  // An account that has not verified its email yet is rejected with 401 by every
+  // endpoint that requires verification, even though its session is perfectly
+  // good. That is the expected state for the whole stretch between signing up
+  // and following the link in the email — the sign-up screen polls through it —
+  // so the session must survive it. Every OTHER 401 while holding a credential
+  // means the session itself is gone (revoked by a logout elsewhere, or
+  // expired), and dropping it lets the next render fall through to the login
+  // screen instead of retrying forever with a credential the API keeps refusing.
+  if (
+    response.status === 401 &&
+    sessionCredentialWasSent &&
+    !isEmailNotVerifiedDescription(description)
+  ) {
+    clearSessionCredential();
+  }
+
+  throw new ApiError(response.status, description);
+}
+
+/**
+ * Recognize the API's "verify your email first" rejection.
+ *
+ * The API expresses this as a 401 carrying the sentence
+ * "Email is not yet verified. Please verify email to continue.", with no
+ * machine-readable error code to key on, so the text is matched instead.
+ *
+ * @param {string} description The flattened error description.
+ * @returns {boolean} True when the rejection is about email verification.
+ */
+export function isEmailNotVerifiedDescription(description) {
+  return /email is not.*verified/i.test(description ?? '');
 }
 
 /**
@@ -310,8 +334,15 @@ export async function streamServerSentEvents(path, options = {}) {
 function dispatchServerSentEventFrame(frame, onEvent) {
   for (const line of frame.split('\n')) {
     if (!line.startsWith('data:')) {
-      // Comment lines (': keepalive') and server-sent-event fields this API
-      // does not use (event:, id:, retry:).
+      // A comment line is the server saying "still here" during a stretch that
+      // produces no tokens — the API emits ": keepalive" every few seconds
+      // while it runs post-reply analysis. That is the only evidence a client
+      // has that a silent turn is alive rather than stalled, so it is reported
+      // as a synthetic event rather than dropped. Other server-sent-event
+      // fields this API does not use (event:, id:, retry:) are ignored.
+      if (line.startsWith(':')) {
+        onEvent?.({ type: 'keepalive_comment', text: line.slice(1).trim() });
+      }
       continue;
     }
     const payloadText = line.slice('data:'.length).trim();

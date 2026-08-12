@@ -4,6 +4,7 @@ import Header from './Header';
 import Hero from './Hero';
 import Product from './Product';
 import About from './About';
+import Founder from './Founder';
 import Careers from './Careers';
 import Contact from './Contact';
 import Footer from './Footer';
@@ -15,6 +16,7 @@ export default function LandingPage() {
       <Hero /> {/* Hero now contains the embedded live avatar demo */}
       <Product />
       <About />
+      <Founder />
       <Careers />
       <Contact />
       <Footer />

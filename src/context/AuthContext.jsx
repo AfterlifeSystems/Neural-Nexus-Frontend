@@ -26,6 +26,10 @@ export const AuthProvider = ({ children }) => {
   const [proprietaryAvatars, setProprietaryAvatars] = useState([]); // avatars created by Afterlife Systems Inc. (businesses, bibles, restaurants, etc.)
 
   const [activeAvatar, setActiveAvatar] = useState(null);
+  // The signed-in person's own portrait, used wherever the user is depicted.
+  // It is the reference image of their personal avatar — the avatar that
+  // depicts them — so there is one picture of a person, not two.
+  const [userPortrait, setUserPortrait] = useState(null);
   const [context, setContext] = useState(null);
 
   const [isLoading, setIsLoading] = useState(false);
@@ -36,9 +40,13 @@ export const AuthProvider = ({ children }) => {
   const [isRestoringSession, setIsRestoringSession] = useState(true);
 
   /**
-   * Create an account. The API sends a verification email and will not
-   * authenticate the account until the email is verified, so this does NOT
-   * sign the user in — the caller should route to a "check your email" state.
+   * Create an account. The API sends a verification email and will not authorize
+   * the account until the email is verified, so this does NOT complete a sign-in
+   * — the caller should route to a "check your email" state.
+   *
+   * The response carries the account's API key, generated during this call. The
+   * API stores only its hash, so this response is the one and only time that key
+   * can ever be read: the caller MUST show it to the user.
    *
    * @returns {Promise<Object>} The /signup response ({api_key, message, verification}).
    */
@@ -50,12 +58,32 @@ export const AuthProvider = ({ children }) => {
   };
 
   /**
-   * Authenticate with email + password, store the session credential, and
-   * populate the user state.
+   * Report whether this session's account has verified its email yet.
    *
-   * @returns {Promise<Object>} The user object now held in context.
+   * GET /verify_login_status is the only endpoint an unverified account can
+   * reach, which makes it the one way to watch for the verification to land. The
+   * API never serves a cached answer to an unverified caller, so the flag flips
+   * on the first poll after the user follows the link in the email.
+   *
+   * @returns {Promise<boolean>}
    */
-  const logIn = async (email, password) => {
+  const checkEmailVerified = async () => {
+    const loginStatus = await requestJson('/verify_login_status');
+    return loginStatus?.email_verified === true;
+  };
+
+  /**
+   * Exchange email + password for a session credential and store it.
+   *
+   * Split out from `logIn` because it is the only half an unverified account can
+   * complete: Auth0 issues tokens to an account that has not verified its email,
+   * but the API refuses to identify one. Signing up therefore establishes a
+   * session here and finishes it with `completeSignIn` once the user has
+   * verified, without ever asking for the password a second time.
+   *
+   * @returns {Promise<Object>} The Auth0 token set from POST /login.
+   */
+  const startSession = async (email, password) => {
     const loginResponse = await requestJson('/login', {
       method: 'POST',
       body: { email, password },
@@ -63,7 +91,18 @@ export const AuthProvider = ({ children }) => {
     setSessionCredential(
       extractSessionCredentialFromLoginResponse(loginResponse)
     );
+    return loginResponse;
+  };
 
+  /**
+   * Resolve who the current session belongs to and populate the user state.
+   *
+   * Requires a verified account: GET /get_current_user_id is one of the
+   * endpoints the API closes to an unverified caller.
+   *
+   * @returns {Promise<Object>} The user object now held in context.
+   */
+  const completeSignIn = async (email) => {
     // The login response is an Auth0 token set, not a user record; fetch the
     // user identity the rest of the application keys on.
     const currentUserIdResponse = await requestJson('/get_current_user_id');
@@ -78,10 +117,21 @@ export const AuthProvider = ({ children }) => {
   };
 
   /**
-   * Revoke the session at the API and clear all local session state. The
-   * request body is empty on purpose: the API reads the refresh token from
-   * its httpOnly cookie first, and the bearer header identifies the user for
-   * the app_metadata update either way.
+   * Authenticate with email + password, store the session credential, and
+   * populate the user state.
+   *
+   * @returns {Promise<Object>} The user object now held in context.
+   */
+  const logIn = async (email, password) => {
+    await startSession(email, password);
+    return completeSignIn(email);
+  };
+
+  /**
+   * Revoke the session at the API and clear all local session state. The request
+   * body is empty on purpose: this session's credential IS the refresh token, so
+   * the API reads it from the bearer header and revokes it there — repeating it
+   * in the body would say nothing new.
    */
   const logOut = async () => {
     try {
@@ -96,6 +146,41 @@ export const AuthProvider = ({ children }) => {
       setUserAvatars([]);
       setActiveAvatar(null);
     }
+  };
+
+  /**
+   * Mint a replacement API key.
+   *
+   * The new key is shown once and the old one stops working immediately, so
+   * anything else holding it — an integration, another browser, a script —
+   * must be given the new one. Email and password are required because this is
+   * the one credential operation that cannot be authorized by the credential it
+   * is replacing.
+   *
+   * @returns {Promise<string>} The new key, to be shown to the user once.
+   */
+  const rotateApiKey = async (email, password) => {
+    const rotationResponse = await requestJson('/rotate_api_key', {
+      method: 'POST',
+      query: { email, password },
+    });
+    return rotationResponse?.api_key ?? '';
+  };
+
+  /**
+   * Delete the signed-in account and everything it created.
+   *
+   * Irreversible. The local session is cleared afterwards because the account
+   * it referred to no longer exists.
+   */
+  const deleteAccount = async () => {
+    await requestJson('/delete_user', { method: 'DELETE' });
+    clearSessionCredential();
+    localStorage.removeItem('user');
+    setUser(null);
+    setProfile(null);
+    setUserAvatars([]);
+    setActiveAvatar(null);
   };
 
   const requestPasswordReset = async (email) => {
@@ -128,10 +213,12 @@ export const AuthProvider = ({ children }) => {
           setUser(storedUser);
           setProfile(storedUser);
         } else {
-          // The credential still parses but the session was ended elsewhere
-          // (logout in another tab revokes it server-side), or the stored
-          // user record is gone. Treat both as signed out.
-          clearSessionCredential();
+          // The credential authenticates, but this browser has no signed-in
+          // session: the account signed up and has not verified yet, a logout
+          // elsewhere cleared the flag, or the stored user record is gone. Sign
+          // out locally and KEEP the credential — a user who signed up moments
+          // ago and reloaded the page is still mid-verification, and discarding
+          // their session here would strand them on the login screen.
           localStorage.removeItem('user');
         }
       } catch (restoreError) {
@@ -145,6 +232,44 @@ export const AuthProvider = ({ children }) => {
     };
     restoreSession();
   }, []);
+
+  /**
+   * Read the signed-in person's own portrait.
+   *
+   * The account's personal avatar is the avatar that depicts them, so its
+   * reference image is their picture — the one shown beside everything they
+   * say, in every conversation with any avatar. Held here rather than in a
+   * screen because several screens depict the user and none of them should
+   * each fetch it. Someone with no personal avatar, or one without a portrait,
+   * simply has no picture and falls back to the placeholder everywhere.
+   */
+  const refreshUserPortrait = async () => {
+    try {
+      const { getPersonalAvatar, getAvatarReferenceImage } = await import(
+        '../services/avatarService'
+      );
+      const personalAvatarResponse = await getPersonalAvatar();
+      const personalAvatarId =
+        personalAvatarResponse?.personal_avatar?.assistant_id;
+      if (!personalAvatarId) {
+        return null;
+      }
+      const portrait = await getAvatarReferenceImage(personalAvatarId);
+      setUserPortrait(portrait);
+      return portrait;
+    } catch (portraitError) {
+      console.debug('No personal portrait available:', portraitError);
+      return null;
+    }
+  };
+
+  useEffect(() => {
+    if (!user) {
+      setUserPortrait(null);
+      return;
+    }
+    refreshUserPortrait();
+  }, [user]);
 
   return (
     <AuthContext.Provider
@@ -161,6 +286,8 @@ export const AuthProvider = ({ children }) => {
         setProfile,
         activeAvatar,
         setActiveAvatar,
+        userPortrait,
+        refreshUserPortrait,
         isLoading,
         setIsLoading,
         isRestoringSession,
@@ -168,8 +295,13 @@ export const AuthProvider = ({ children }) => {
         setContext,
         signUp,
         logIn,
+        startSession,
+        completeSignIn,
         logOut,
+        checkEmailVerified,
         requestPasswordReset,
+        rotateApiKey,
+        deleteAccount,
       }}
     >
       {children}
