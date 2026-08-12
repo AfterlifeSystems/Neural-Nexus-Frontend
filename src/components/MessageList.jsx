@@ -1,36 +1,42 @@
 // src/components/MessageList.jsx
 import React, { useEffect } from 'react';
-import { useAuth } from '../context/AuthContext';
+import { User } from 'lucide-react';
 import SecureImage from './SecureImage';
+import { useMedia } from '../context/MediaContext';
+import { useAuth } from '../context/AuthContext';
+import { isValidImageUrl } from './utils';
 
-const MessageList = ({ messages, messagesEndRef }) => {
-  const { accessToken } = useAuth();
+/**
+ * The face beside a message: whoever said it.
+ *
+ * Both sides get one so a long conversation stays readable at a glance without
+ * relying on which edge a bubble is stuck to. A portrait is often absent — a
+ * new avatar has none until one is uploaded — so the placeholder is the normal
+ * case rather than an error state.
+ */
+const MessageAuthorIcon = ({ portrait, name }) => (
+  <div className="w-8 h-8 shrink-0 rounded-full bg-white/10 border border-white/20 overflow-hidden flex items-center justify-center">
+    {portrait && isValidImageUrl(portrait) ? (
+      <img
+        src={portrait}
+        alt={name}
+        className="w-full h-full object-cover"
+      />
+    ) : (
+      <User className="w-4 h-4 text-white/40" />
+    )}
+  </div>
+);
+
+const MessageList = ({ messages, messagesEndRef, avatarPortrait, avatarName }) => {
+  const { assistantActivity } = useMedia();
+  const { userPortrait } = useAuth();
 
   useEffect(() => {
     if (messagesEndRef?.current) {
       messagesEndRef.current.scrollIntoView({ behavior: 'smooth' });
     }
   }, [messages, messagesEndRef]);
-
-  // Debug log – shows what actually reaches the component
-  useEffect(() => {
-    // Get all the conversations for the current avatarconsole.log(`messages list breakpoint`);
-
-    messages.map((m) => ({
-      id: m.id,
-      type: m.type,
-      contentPreview: m.content?.slice(0, 50) || '(no content)',
-      isLoading: m.isLoading,
-    }));
-
-    console.log('MessageList received messages:', messages);
-
-    const valid = messages.filter((msg) => msg?.type);
-
-    console.log(
-      `Rendering ${valid.length} / ${messages.length} messages (after type filter)`
-    );
-  }, [messages]);
 
   return (
     <div className="flex-grow mb-4 space-y-2 px-2 flex flex-col">
@@ -44,18 +50,32 @@ const MessageList = ({ messages, messagesEndRef }) => {
           const type = msg.type || 'user';
 
           const messageKey = msg.id || `temp-${msg.timestamp || Date.now()}`;
+          const isFromUser = type === 'user' || type === 'human';
+          const isFromAvatar =
+            type === 'ai' || type === 'assistant' || type === 'avatar';
 
           return (
             <div
               key={messageKey}
-              className={`max-w-[70%] p-2 rounded-lg break-words transition-all duration-150 ${
-                type === 'user' || type === 'human'
-                  ? 'bg-teal-600 self-end text-white'
-                  : type === 'ai' || type === 'assistant' || type === 'avatar'
-                    ? 'bg-indigo-700 self-start text-white'
-                    : 'bg-indigo-700 self-center italic text-gray-300'
+              className={`flex items-end gap-2 max-w-[85%] ${
+                isFromUser ? 'self-end flex-row-reverse' : 'self-start'
               }`}
             >
+              {(isFromUser || isFromAvatar) && (
+                <MessageAuthorIcon
+                  portrait={isFromUser ? userPortrait : avatarPortrait}
+                  name={isFromUser ? 'You' : (avatarName ?? 'Avatar')}
+                />
+              )}
+              <div
+                className={`p-2 rounded-lg break-words transition-all duration-150 ${
+                  isFromUser
+                    ? 'bg-teal-600 text-white'
+                    : isFromAvatar
+                      ? 'bg-indigo-700 text-white'
+                      : 'bg-indigo-700 italic text-gray-300'
+                }`}
+              >
               {isLoading ? (
                 <div className="flex items-center space-x-2">
                   <div className="flex space-x-1">
@@ -123,9 +143,24 @@ const MessageList = ({ messages, messagesEndRef }) => {
                   </div>
                 </>
               )}
+              </div>
             </div>
           );
         })}
+
+      {/* What the avatar is doing, for as long as it is doing it.
+          This sits outside the message bubbles on purpose. The bouncing-dots
+          indicator lives inside the pending message and vanishes the moment the
+          first token lands — but the longest silence of a turn comes AFTER the
+          text, while the reply is analysed. Tying the status to the dots would
+          hide it during exactly the pause that makes a working avatar look
+          stuck. */}
+      {assistantActivity && (
+        <div className="self-start flex items-center gap-2 px-2 py-1 text-xs text-white/70 italic">
+          <span className="w-1.5 h-1.5 bg-teal-300 rounded-full animate-pulse" />
+          {assistantActivity}…
+        </div>
+      )}
 
       <div ref={messagesEndRef} />
     </div>

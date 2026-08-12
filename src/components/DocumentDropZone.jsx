@@ -1,100 +1,116 @@
 // DocumentDropZone.jsx
+//
+// Drag-and-drop (or paste-a-URL) intake for avatar identity media. Uploads go
+// to POST /update_avatar_identity_with_media, which answers immediately with a
+// job identifier; real progress then streams from the job's progress endpoint
+// until the terminal `done` event.
 
-'use client';
 import React, { useCallback, useState } from 'react';
-import useAuth from '../context/AuthContext';
+import { useAuth } from '../context/AuthContext';
+import {
+  uploadAvatarIdentityMedia,
+  streamMediaJobProgress,
+} from '../services/avatarService';
 
 export default function DocumentDropZone() {
   const [isDragging, setIsDragging] = useState(false);
   const [documents, setDocuments] = useState([]);
   const [error, setError] = useState(null);
+  const [progressMessage, setProgressMessage] = useState(null);
 
-  const { isLoading, setIsLoading } = useAuth();
+  const { isLoading, setIsLoading, activeAvatar } = useAuth();
 
-  const determineContentType = (file) => {
-    const type = file.type;
-    if (type.startsWith('text/') || type === 'application/json') return 'text';
-    if (type.startsWith('audio/')) return 'audio';
-    if (type.startsWith('image/')) return 'image';
-    if (type.startsWith('video/')) return 'video';
-    if (type === 'application/pdf') return 'file';
-
-    const filename = file.name.toLowerCase();
-    if (filename.endsWith('.pdf')) return 'file';
-    if (filename.endsWith('.txt') || filename.endsWith('.md')) return 'text';
-    return 'file';
-  };
-
-  const handleDrop = useCallback(async (e) => {
-    e.preventDefault();
-    setIsDragging(false);
-    setError(null);
-
-    const items = e.dataTransfer.items;
-    const formData = new FormData();
-    let hasFiles = false;
-    let hasUrls = false;
-
-    for (let i = 0; i < items.length; i++) {
-      const item = items[i];
-      if (item.kind === 'file') {
-        const file = item.getAsFile();
-        if (file) {
-          formData.append('files', file);
-          hasFiles = true;
-        }
-      } else if (item.kind === 'string') {
-        item.getAsString((url) => {
-          if (url.startsWith('http://') || url.startsWith('https://')) {
-            formData.append('urls', url);
-            hasUrls = true;
-          }
+  /**
+   * Upload the gathered files/URLs and follow the processing job to
+   * completion, surfacing progress along the way.
+   *
+   * @param {File[]} files Files dropped onto the zone.
+   * @param {string[]} urls URLs dropped or pasted onto the zone.
+   */
+  const uploadAndTrack = useCallback(
+    async (files, urls) => {
+      setIsLoading(true);
+      setError(null);
+      setProgressMessage('Uploading…');
+      try {
+        const uploadResponse = await uploadAvatarIdentityMedia({
+          assistantId:
+            activeAvatar?.assistant_id ??
+            activeAvatar?.avatar_id ??
+            activeAvatar?.metadata?.assistant_id,
+          files,
+          urls,
         });
+
+        const jobId = uploadResponse?.job_id;
+        if (jobId) {
+          await streamMediaJobProgress(jobId, (progressEvent) => {
+            if (progressEvent.type === 'media_progress') {
+              setProgressMessage(
+                progressEvent.message ??
+                  progressEvent.stage ??
+                  'Processing media…'
+              );
+            } else if (progressEvent.type === 'done') {
+              if (progressEvent.error) {
+                setError(String(progressEvent.error));
+              }
+            }
+          });
+        }
+
+        setDocuments((previousDocuments) => [
+          ...previousDocuments,
+          ...files.map((uploadedFile) => ({
+            type: uploadedFile.type || 'file',
+            filename: uploadedFile.name,
+            source: 'upload',
+          })),
+          ...urls.map((uploadedUrl) => ({
+            type: 'url',
+            url: uploadedUrl,
+            source: 'url',
+          })),
+        ]);
+        setProgressMessage(null);
+      } catch (uploadError) {
+        setError(
+          uploadError instanceof Error ? uploadError.message : 'Upload failed'
+        );
+        setProgressMessage(null);
+      } finally {
+        setIsLoading(false);
       }
-    }
+    },
+    [activeAvatar, setIsLoading]
+  );
 
-    const text = e.dataTransfer.getData('text/plain');
-    if (text && (text.startsWith('http://') || text.startsWith('https://'))) {
-      formData.append('urls', text);
-      hasUrls = true;
-    }
+  const handleDrop = useCallback(
+    async (dropEvent) => {
+      dropEvent.preventDefault();
+      setIsDragging(false);
+      setError(null);
 
-    if (!hasFiles && !hasUrls) {
-      setError('No valid files or URLs dropped');
-      return;
-    }
-    console.log(
-      `CHANGING THE VALUE OF SET LOADING TO TRUE: CURRENT LOADING VALUE: ${isLoading}`
-    );
-    setIsLoading(true);
-    try {
-      const response = await fetch('/api/documents/upload', {
-        method: 'POST',
-        body: formData,
-      });
+      const files = Array.from(dropEvent.dataTransfer.files ?? []);
+      const urls = [];
 
-      if (!response.ok) {
-        throw new Error(`Upload failed: ${response.statusText}`);
+      const text = dropEvent.dataTransfer.getData('text/plain');
+      if (text && (text.startsWith('http://') || text.startsWith('https://'))) {
+        urls.push(text);
       }
 
-      const data = await response.json();
-      if (!data.success) {
-        throw new Error(data.error || 'Upload failed');
+      if (files.length === 0 && urls.length === 0) {
+        setError('No valid files or URLs dropped');
+        return;
       }
 
-      setDocuments((prev) => [...prev, ...(data.documents || [])]);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Upload failed');
-    } finally {
-      console.log(
-        `CHANGING THE VALUE OF SET LOADING TO FALSE: CURRENT LOADING VALUE: ${isLoading}`
-      );
-      setIsLoading(false);
-    }
-  }, []);
+      await uploadAndTrack(files, urls);
+    },
+    [uploadAndTrack]
+  );
 
-  const handleDragOver = (e) => {
-    e.preventDefault();
+  const handleDragOver = (dragEvent) => {
+    dragEvent.preventDefault();
     setIsDragging(true);
   };
 
@@ -102,40 +118,11 @@ export default function DocumentDropZone() {
     setIsDragging(false);
   };
 
-  const handlePaste = async (e) => {
-    const text = e.clipboardData.getData('text/plain');
+  const handlePaste = async (pasteEvent) => {
+    const text = pasteEvent.clipboardData.getData('text/plain');
     if (text.startsWith('http://') || text.startsWith('https://')) {
-      e.preventDefault();
-      console.log(
-        `CHANGING THE VALUE OF SET LOADING TO TRUE: CURRENT LOADING VALUE: ${isLoading}`
-      );
-      setIsLoading(true);
-      setError(null);
-
-      try {
-        const formData = new FormData();
-        formData.append('urls', text);
-
-        const response = await fetch('/api/documents/upload', {
-          method: 'POST',
-          body: formData,
-        });
-
-        if (!response.ok) {
-          throw new Error(`Upload failed: ${response.statusText}`);
-        }
-
-        const data = await response.json();
-        if (!data.success) {
-          throw new Error(data.error || 'Upload failed');
-        }
-
-        setDocuments((prev) => [...prev, ...(data.documents || [])]);
-      } catch (err) {
-        setError(err instanceof Error ? err.message : 'Paste failed');
-      } finally {
-        setIsLoading(false);
-      }
+      pasteEvent.preventDefault();
+      await uploadAndTrack([], [text]);
     }
   };
 
@@ -161,7 +148,7 @@ export default function DocumentDropZone() {
             Or paste a URL (Ctrl+V / Cmd+V)
           </p>
           {isLoading && (
-            <p className="text-blue-600 animate-spin">Loading...</p>
+            <p className="text-blue-600">{progressMessage ?? 'Loading…'}</p>
           )}
         </div>
       </div>
@@ -176,24 +163,21 @@ export default function DocumentDropZone() {
         <div className="mt-6">
           <h3 className="text-lg font-semibold mb-4">Loaded Documents</h3>
           <div className="space-y-2">
-            {documents.map((doc, idx) => (
+            {documents.map((documentEntry, documentIndex) => (
               <div
-                key={idx}
+                key={documentIndex}
                 className="p-3 bg-gray-50 border border-gray-200 rounded flex items-start space-x-3"
               >
                 <span className="inline-block px-2 py-1 text-xs font-semibold text-white rounded bg-blue-600">
-                  {doc.type.toUpperCase()}
+                  {documentEntry.type.toUpperCase()}
                 </span>
                 <div className="flex-1 min-w-0">
                   <p className="font-medium truncate">
-                    {doc.filename || doc.url || 'Document'}
+                    {documentEntry.filename || documentEntry.url || 'Document'}
                   </p>
-                  <p className="text-sm text-gray-600">Source: {doc.source}</p>
-                  {doc.content && (
-                    <p className="text-sm text-gray-700 mt-1 line-clamp-2">
-                      {doc.content.substring(0, 100)}...
-                    </p>
-                  )}
+                  <p className="text-sm text-gray-600">
+                    Source: {documentEntry.source}
+                  </p>
                 </div>
               </div>
             ))}

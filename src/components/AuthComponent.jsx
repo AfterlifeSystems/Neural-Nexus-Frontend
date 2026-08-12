@@ -1,60 +1,115 @@
-import React, { useState, useEffect, useRef } from 'react';
-import ReactDOM from 'react-dom';
+import React, { useState, useEffect } from 'react';
 import {
   LogIn,
-  LogOutIcon,
   UserPlus,
-  X,
   SendIcon,
-  Github,
-  Mail,
-  User,
+  Loader2,
+  Eye,
+  EyeOff,
+  Copy,
+  Check,
+  KeyRound,
 } from 'lucide-react';
 
 import { useAuth } from '../context/AuthContext';
-import { useMedia } from '../context/MediaContext';
-import VantaBackground from './VantaBackground';
-import LoadingSpinner from './LoadingSpinner';
-import { toast, Toaster } from 'react-hot-toast';
+import { toast } from 'react-hot-toast';
 
 import { useNavigate } from 'react-router-dom';
 
-import { createClient } from '@supabase/supabase-js';
+import { listUserAvatars } from '../services/avatarService.jsx';
 
-import { getAvatars } from '../services/avatarService.jsx';
+// How often the sign-up screen asks the API whether the verification email has
+// been acted on. Each poll costs the API two upstream calls (it may not cache an
+// unverified account), so this is a compromise between that cost and how long a
+// user stares at the screen after clicking the link.
+const EMAIL_VERIFICATION_POLL_INTERVAL_MILLISECONDS = 5000;
 
-const modalRoot =
-  document.getElementById('modal-root') ||
-  (() => {
-    const el = document.createElement('div');
-    el.id = 'modal-root';
-    document.body.appendChild(el);
-    return el;
-  })();
+/**
+ * Present an API key for the user to save.
+ *
+ * The API generates a key once and stores only its hash, so a key that leaves
+ * this screen unsaved cannot be recovered — it can only be replaced, which stops
+ * the old one working everywhere else. Hence the key is shown in full (never
+ * masked), with a one-press copy, and the warning is stated plainly.
+ */
+const ApiKeyPresentation = ({ apiKey }) => {
+  const [wasCopied, setWasCopied] = useState(false);
 
-const AuthComponent = () => {
+  const copyApiKeyToClipboard = async () => {
+    try {
+      await navigator.clipboard.writeText(apiKey);
+      setWasCopied(true);
+      toast.success('API key copied to clipboard.');
+      setTimeout(() => setWasCopied(false), 3000);
+    } catch (copyError) {
+      // Clipboard access can be refused (permissions, a non-secure origin). The
+      // key is on screen and selectable, so this is a nuisance, not a loss.
+      console.error('Clipboard write failed:', copyError);
+      toast.error('Could not copy automatically — select the key and copy it.');
+    }
+  };
+
+  return (
+    <div className="rounded-lg border border-amber-400/40 bg-amber-400/10 p-4 space-y-3">
+      <div className="flex items-center gap-2 text-amber-200">
+        <KeyRound size={18} />
+        <span className="font-semibold">Your API key</span>
+      </div>
+      <p className="text-sm text-amber-100/90">
+        Save this key now. It is shown only once and cannot be shown again. You
+        do not need it to use this site — it is what connects your account to
+        integrations like the Discord bot or your own scripts.
+      </p>
+      <div className="flex items-stretch gap-2">
+        <code className="flex-1 select-all break-all rounded-md bg-black/40 px-3 py-2 font-mono text-sm text-white">
+          {apiKey}
+        </code>
+        <button
+          type="button"
+          onClick={copyApiKeyToClipboard}
+          className="shrink-0 px-3 rounded-md bg-white/10 hover:bg-white/20 text-white transition flex items-center gap-1"
+          aria-label="Copy API key"
+        >
+          {wasCopied ? <Check size={18} /> : <Copy size={18} />}
+        </button>
+      </div>
+    </div>
+  );
+};
+
+const AuthComponent = ({ initialView = 'login' }) => {
   const navigate = useNavigate();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [username, setUsername] = useState('');
+  const [isPasswordVisible, setIsPasswordVisible] = useState(false);
+  // The key from the signup response, held only for as long as this screen is
+  // showing it. It is never persisted: the user saves it, this application does
+  // not need it, and the session runs on the refresh token instead.
+  const [apiKeyToPresent, setApiKeyToPresent] = useState('');
   // const [showModal, setShowModal] = useState(true);
-  const [modalView, setModalView] = useState('login'); // 'login', 'signup', 'forgotPassword'
+  // 'login', 'signup', 'forgotPassword', 'verifyEmail'
+  const [modalView, setModalView] = useState(initialView);
 
   // Rotating avatar index
   const [rotatingIndex, setRotatingIndex] = useState(0);
+  // What the application is doing between pressing the button and the screen
+  // changing. Signing in is several round trips — authenticate, identify the
+  // user, load their avatars — and any of them can take a moment. A button that
+  // merely greys out gives no reason to keep waiting rather than press again.
+  const [authProgressMessage, setAuthProgressMessage] = useState(null);
 
   const {
-    user,
     isLoading,
     setIsLoading,
-    profile,
-    setProfile,
-    forgotPassword,
-    signInWithProvider,
-    avatars,
+    signUp,
+    logIn,
+    startSession,
+    completeSignIn,
+    checkEmailVerified,
+    requestPasswordReset,
+    userAvatars: avatars,
     setUserAvatars,
-    setAccessToken,
-    setUser,
   } = useAuth();
 
   const validIcons = Array.isArray(avatars)
@@ -85,10 +140,6 @@ const AuthComponent = () => {
   //   return avatars[rotatingIndex]?.icon || null;
   // };
 
-  useEffect(() => {
-    console.log('AUTH COMPONENT ENTRYPOINT');
-  });
-
   // Rotation effect (only when there are 2+ avatars)
   useEffect(() => {
     if (!Array.isArray(avatars)) return;
@@ -105,191 +156,131 @@ const AuthComponent = () => {
     return () => clearInterval(interval);
   }, [avatars]);
 
-  const handleAuth = async (e) => {
-    console.log(`ENTRYPOINT HANDLE AUTH: isLoading ${isLoading}`);
-    e.preventDefault();
-    if (!isLoading) {
-      console.log(`is loading is false: ${isLoading}`);
+  /**
+   * Load what a signed-in user needs and land them on their avatars.
+   */
+  const enterTheApplication = async () => {
+    setAuthProgressMessage('Loading your avatars…');
+    const userAvatars = await listUserAvatars();
+    setUserAvatars(userAvatars ?? []);
+    navigate('/avatars');
+  };
+
+  /**
+   * Finish the sign-in that signup started, once the email has been verified.
+   *
+   * @returns {Promise<boolean>} Whether the account was verified yet.
+   */
+  const enterIfEmailIsVerified = async () => {
+    if (!(await checkEmailVerified())) {
+      return false;
     }
+    await completeSignIn(email);
+    toast.success('Email verified. Welcome to Neural Nexus.');
+    await enterTheApplication();
+    return true;
+  };
+
+  // Watch for the verification while the user is away in their email client.
+  //
+  // The verification link opens the identity provider in another tab, so this
+  // application is never told directly. Three things can notice instead: a poll,
+  // the tab regaining focus (the common case — the user comes straight back),
+  // and the button on the screen. Whichever notices first signs the user in.
+  useEffect(() => {
+    if (modalView !== 'verifyEmail') {
+      return undefined;
+    }
+
+    let hasEntered = false;
+    const checkOnce = async () => {
+      if (hasEntered) {
+        return;
+      }
+      try {
+        hasEntered = await enterIfEmailIsVerified();
+      } catch (verificationError) {
+        // Still unverified is the expected answer here, not a fault worth
+        // interrupting the user over; anything else is equally not actionable
+        // by them mid-wait. The next tick tries again.
+        console.debug('Waiting on email verification:', verificationError);
+      }
+    };
+
+    const pollTimer = setInterval(
+      checkOnce,
+      EMAIL_VERIFICATION_POLL_INTERVAL_MILLISECONDS
+    );
+    const checkOnReturningToTab = () => {
+      if (document.visibilityState === 'visible') {
+        checkOnce();
+      }
+    };
+    document.addEventListener('visibilitychange', checkOnReturningToTab);
+
+    return () => {
+      clearInterval(pollTimer);
+      document.removeEventListener('visibilitychange', checkOnReturningToTab);
+    };
+  }, [modalView, email]);
+
+  const handleAuth = async (e) => {
+    e.preventDefault();
 
     try {
       if (modalView === 'signup') {
-        // await signup(username, email, password);
-        try {
-          console.log(email);
-          console.log('signup breakpoint');
-          // SUPABASE POSTGRES_DB_STORE
-          const supabaseClient = createClient(
-            `${import.meta.env.VITE_SUPABASE_URL}`,
-            `${import.meta.env.VITE_SUPABASE_PUBLISHABLE_AUTH_KEY}`
-          );
-
-          const { data, error } = await supabaseClient.auth.signUp({
-            email: email,
-            password: password,
-            options: {
-              data: {
-                display_name: username,
-              },
-            },
-          });
-          if (error) {
-            // Display user-friendly error messages
-            let errorMessage = 'Signup failed. Please try again.';
-            if (error.code === 'auth/email-already-in-use') {
-              errorMessage = 'This email is already registered';
-              // toast.error(errorMessage);
-              navigate('/login');
-            } else if (error.code === 'auth/invalid-email') {
-              errorMessage = 'Please provide a valid email address';
-              toast.error(errorMessage);
-            } else if (error.code === 'auth/weak-password') {
-              errorMessage = 'Password must be at least 6 characters';
-              toast.error(errorMessage);
-            } else if (error.message) {
-              errorMessage = error.message;
-            }
-            console.error('Signup error:', error);
-            toast.error(error.message);
-            setIsLoading(false);
-          } else {
-            // This gives you everything at once
-            console.log('Signup data:', { data });
-            console.log('Signup error:', { error });
-
-            console.log(`user: ${user}`);
-
-            // Send email verification
-            // await sendEmailVerification(userCredential.user);
-
-            // set the current profile to the newly created profile
-            console.log(
-              '// set profile of user IN SIGNUP OF  AUTH COMPONENT XXXXXXXXXXXXX'
-            );
-
-            setUser(data.user);
-            setProfile(data.user);
-            setAccessToken(data.session.access_token);
-            setIsLoading(false);
-
-            localStorage.setItem('user', JSON.stringify(data.user));
-
-            navigate('/avatars');
-          }
-        } catch (error) {
-          console.error('Signup error:', error);
-          toast.error(error.message);
-          throw error;
-        }
-      } else if (modalView === 'login') {
-        console.log('signInWithPassword BREAKPOINT');
-        // try {
-        const supabase = await createClient(
-          `${import.meta.env.VITE_SUPABASE_URL}`,
-          `${import.meta.env.VITE_SUPABASE_PUBLISHABLE_AUTH_KEY}`
+        setIsLoading(true);
+        setAuthProgressMessage('Creating your account…');
+        // The API refuses every endpoint that needs a verified email until the
+        // address is verified, so signup cannot land the user in the
+        // application. What it CAN do is show the API key — this response is the
+        // only time it exists in readable form — and open a session so the next
+        // screen can watch for the verification without asking for the password
+        // again. Auth0 issues tokens to an unverified account, which is what
+        // makes that possible.
+        const signupResponse = await signUp(email, password, username);
+        setApiKeyToPresent(signupResponse?.api_key ?? '');
+        setModalView('verifyEmail');
+        toast.success(
+          signupResponse?.verification ??
+            'A verification email has been sent. Verify your address to continue.',
+          { duration: 8000 }
         );
 
-        const { data, error } = await supabase.auth.signInWithPassword({
-          email: email,
-          password: password,
-        });
-
-        if (error) {
-          console.log(`Login Error: ${error.message}`);
-          toast.error(`${error.message}`, {
-            options: { duration: 5000 },
-          });
-        } else {
-          console.log(
-            'XXXXXXXXXXXXXXXXXXXXXX   HANDLE AUTH SERVICE XXXXXXXXXXXXXXXXXXXXXXXXXXX'
+        // A failure here must not read as a failed signup: the account exists,
+        // the key is on screen, and the only thing lost is the automatic entry
+        // once the email is verified. Say exactly that and leave the user on
+        // this screen rather than throwing to the shared handler below.
+        try {
+          await startSession(email, password);
+        } catch (sessionError) {
+          console.error('Post-signup session failed:', sessionError);
+          toast(
+            'Account created. Verify your email, then log in with your password.',
+            { duration: 8000 }
           );
-          console.log(JSON.stringify(data));
-          localStorage.setItem('user', JSON.stringify(data.user));
-
-          // set the current user profile
-          console.log('// set profile of user IN AUTH COMPONENT XXXXXXXXXXXXX');
-
-          console.log(`handle Auth Error handleAuthError`);
-
-          setUser(data.user);
-          setProfile(data.user);
-          console.log(`data.session.access_token: ${data}`);
-          if (data.session?.access_token) {
-            setAccessToken(data.session['access_token']);
-          } else {
-            setAccessToken('');
-          }
-
-          console.log(
-            'XXXXXXXXXXXXXXXXXXXXXXXXX userCredential: ' + JSON.stringify(data)
-          );
-
-          // GET AVATARS
-          console.log('USER HAS LOGGED IN; GETING AVATARS FOR USER');
-          console.log(`user.id: ${data.user.id}`);
-          const avatars = await getAvatars(data.user.id);
-
-          console.log('AVATARS LIST SHOULD BE RETRIEVED');
-          console.log(`avatars: ${JSON.stringify(avatars)}`);
-
-          console.log('SETTING AVATARS FOR USER');
-          if (avatars) {
-            console.log(`avatars: ${JSON.stringify(avatars)}`);
-            setUserAvatars(avatars);
-          } else {
-            setUserAvatars([]);
-          }
-
-          setIsLoading(false);
-          console.log('navigate / avatars breakpoint');
-          navigate('/avatars');
         }
+      } else if (modalView === 'login') {
+        setIsLoading(true);
+        setAuthProgressMessage('Signing in…');
+        await logIn(email, password);
+        await enterTheApplication();
       } else if (modalView === 'forgotPassword') {
-        await forgotPassword(email);
-        // toast.success(
-        //   (t) => (
-        //     <div className="relative flex flex-col gap-2 p-4 ">
-        //       {/* Text + X button in one row */}
-        //       <div className="flex justify-between items-start">
-        //         {/* Message */}
-        //         <p className="pr-4">
-        //           Password reset email sent! Check your inbox.
-        //         </p>
-
-        //         {/* X button top-right */}
-        //         <button
-        //           onClick={() => toast.dismiss(t.id)}
-        //           className="p-1 bg-red-600 hover:bg-red-500 rounded text-sm"
-        //         >
-        //           <X size={16} />
-        //         </button>
-        //       </div>
-        //     </div>
-        //   ),
-        //   { duration: Infinity }
-        // );
+        await requestPasswordReset(email);
+        toast.success('Password reset email sent! Check your inbox.', {
+          duration: 8000,
+        });
         setModalView('login');
       }
-    } catch (error) {
-      // Handle specific error cases
-      const errorMsg = error.message || 'Authentication failed';
-      console.log(error);
+    } catch (authError) {
+      console.error('Authentication error:', authError);
+      toast.error(authError.message || 'Authentication failed', {
+        duration: 5000,
+      });
+    } finally {
+      setIsLoading(false);
+      setAuthProgressMessage(null);
     }
-  };
-
-  const handleSocialLogin = async (provider) => {
-    try {
-      await signInWithProvider(provider);
-    } catch (error) {
-      toast.error(`${provider} login failed`);
-    }
-  };
-
-  const resetForm = () => {
-    setEmail('');
-    setPassword('');
-    setUsername('');
-    setModalView('login');
   };
 
   return (
@@ -346,7 +337,7 @@ const AuthComponent = () => {
               <div className="flex justify-center items-center pb-6">
                 <div className="w-32 h-32 bg-white/20 rounded-full flex items-center justify-center">
                   <img
-                    src={avatarToRender}
+                    src={validIcons[rotatingIndex] ?? validIcons[0]}
                     alt="Avatar"
                     className="w-32 h-32 rounded-full object-cover transition-opacity duration-500"
                     onError={(e) => {
@@ -363,10 +354,60 @@ const AuthComponent = () => {
               {modalView === 'signup' && 'Create Account'}
               {modalView === 'login' && 'Login'}
               {modalView === 'forgotPassword' && 'Reset Password'}
+              {modalView === 'verifyEmail' && 'Save Your API Key'}
             </h2>
           </div>
 
+          {/* Post-signup: the one and only presentation of the API key, plus the
+              wait for the verification email to be acted on. */}
+          {modalView === 'verifyEmail' && (
+            <div className="space-y-4 text-white/80">
+              {apiKeyToPresent && (
+                <ApiKeyPresentation apiKey={apiKeyToPresent} />
+              )}
+              <p>
+                A verification email is on the way to{' '}
+                <span className="font-semibold text-white">{email}</span>.
+                Follow the link inside and this page will take you straight in —
+                no need to log in again.
+              </p>
+              <button
+                onClick={async () => {
+                  try {
+                    setIsLoading(true);
+                    if (!(await enterIfEmailIsVerified())) {
+                      toast(
+                        'Not verified yet. Follow the link in the email, then try again.',
+                        { duration: 6000 }
+                      );
+                    }
+                  } catch (verificationError) {
+                    console.error('Verification check failed:', verificationError);
+                    toast.error(
+                      verificationError.message || 'Could not check verification.'
+                    );
+                  } finally {
+                    setIsLoading(false);
+                  }
+                }}
+                disabled={isLoading}
+                className="w-full py-3 bg-teal-600 hover:bg-teal-700 disabled:bg-teal-600/50 rounded-lg text-white font-semibold transition flex items-center justify-center gap-2"
+              >
+                <Check size={20} />
+                I've verified — continue
+              </button>
+              <button
+                onClick={() => setModalView('login')}
+                className="w-full py-3 bg-white/10 hover:bg-white/20 rounded-lg text-white font-semibold transition flex items-center justify-center gap-2"
+              >
+                <LogIn size={20} />
+                Back to Login
+              </button>
+            </div>
+          )}
+
           {/* Form */}
+          {modalView !== 'verifyEmail' && (
           <form onSubmit={handleAuth} className="space-y-4">
             {modalView === 'signup' && (
               <div>
@@ -403,15 +444,36 @@ const AuthComponent = () => {
                 <label className="block text-white/80 mb-2 text-sm font-medium">
                   Password
                 </label>
-                <input
-                  type="password"
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  className="w-full px-4 py-3 rounded-lg bg-white/10 text-white border border-white/20 focus:outline-none focus:ring-2 focus:ring-teal-500 focus:border-transparent placeholder-white/40"
-                  placeholder="Enter your password"
-                  required
-                  minLength={6}
-                />
+                {/* The eye control switches the input between `password` and
+                    `text` so a typed password can be read back before it is
+                    submitted — a mistyped password is the most common reason a
+                    sign-in or a signup fails. */}
+                <div className="relative">
+                  <input
+                    type={isPasswordVisible ? 'text' : 'password'}
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    className="w-full px-4 py-3 pr-12 rounded-lg bg-white/10 text-white border border-white/20 focus:outline-none focus:ring-2 focus:ring-teal-500 focus:border-transparent placeholder-white/40"
+                    placeholder="Enter your password"
+                    required
+                    minLength={6}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setIsPasswordVisible(!isPasswordVisible)}
+                    className="absolute inset-y-0 right-0 px-4 flex items-center text-white/60 hover:text-white transition"
+                    aria-label={
+                      isPasswordVisible ? 'Hide password' : 'Show password'
+                    }
+                    title={isPasswordVisible ? 'Hide password' : 'Show password'}
+                  >
+                    {isPasswordVisible ? (
+                      <EyeOff size={20} />
+                    ) : (
+                      <Eye size={20} />
+                    )}
+                  </button>
+                </div>
               </div>
             )}
 
@@ -434,19 +496,25 @@ const AuthComponent = () => {
               disabled={isLoading}
               className="w-full py-3 bg-teal-600 hover:bg-teal-700 disabled:bg-teal-600/50 rounded-lg text-white font-semibold transition flex items-center justify-center gap-2"
             >
-              {modalView === 'signup' && (
+              {authProgressMessage ? (
+                <>
+                  <Loader2 size={20} className="animate-spin" />
+                  {authProgressMessage}
+                </>
+              ) : null}
+              {!authProgressMessage && modalView === 'signup' && (
                 <>
                   <UserPlus size={20} />
                   Sign Up
                 </>
               )}
-              {modalView === 'login' && (
+              {!authProgressMessage && modalView === 'login' && (
                 <>
                   <LogIn size={20} />
                   Log In
                 </>
               )}
-              {modalView === 'forgotPassword' && (
+              {!authProgressMessage && modalView === 'forgotPassword' && (
                 <>
                   <SendIcon size={20} />
                   Send Reset Link
@@ -454,9 +522,10 @@ const AuthComponent = () => {
               )}
             </button>
           </form>
+          )}
 
           {/* Toggle between Login/Signup */}
-          {modalView !== 'forgotPassword' && (
+          {modalView !== 'forgotPassword' && modalView !== 'verifyEmail' && (
             <div className="mt-6 text-center text-white/60 text-sm">
               {modalView === 'login' ? (
                 <>

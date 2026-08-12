@@ -1,620 +1,303 @@
-// services/avatarService.jsx
-import {
-  collection,
-  addDoc,
-  getDocs,
-  getDoc,
-  updateDoc,
-  deleteDoc,
-  doc,
-  setDoc,
-  query,
-  where,
-  orderBy,
-  limit,
-  arrayUnion,
-  arrayRemove,
-} from 'firebase/firestore';
-import {
-  ref,
-  uploadBytes,
-  getDownloadURL,
-  deleteObject,
-  listAll,
-} from 'firebase/storage';
-import { db, storage } from '../firebase/config';
-import { v4 as uuidv4 } from 'uuid';
-import { createClient } from '@supabase/supabase-js';
-import { Client } from '@langchain/langgraph-sdk';
+// src/services/avatarService.jsx
+//
+// Avatar lifecycle, document management, and media ingestion, all through the
+// Neural Nexus API. Every function here is a thin, named wrapper over one
+// endpoint so components never build paths or headers themselves.
 
-// Add this function to your avatarService.jsx file
+import {
+  requestJson,
+  streamServerSentEvents,
+} from './neuralNexusApiClient';
 
 /**
- * Upload documents to the data-loading API
- * @param {string} userId - User ID
- * @param {string} avatarId - Avatar ID
- * @param {string} targetAvatarName - Target avatar name
- * @param {FileList|File[]} files - Files to upload
- * @param {boolean} isReferenceImage - Whether the file is a reference image
- * @param {boolean} isReferenceAudio - Whether the file is reference audio
- * @returns {Promise<Object>} Upload response
+ * List the caller's own avatars plus any public avatars.
+ * GET /list_user_avatars — anonymous callers receive only the public set.
+ *
+ * @returns {Promise<Array>} Assistant records ({assistant_id, name, description, ...}).
  */
-export const uploadToDataLoadingApi = async (
-  // UPLOAD MEDIA
-  userId,
-  avatarId,
-  targetAvatarName,
-  files,
+export const listUserAvatars = async () => {
+  return requestJson('/list_user_avatars');
+};
+
+/**
+ * List publicly shared avatars without authenticating.
+ * GET /list_public_avatars
+ *
+ * @param {string} [assistantId] Narrow the listing to one avatar.
+ * @returns {Promise<Array>} Assistant records with metadata stripped.
+ */
+export const listPublicAvatars = async (assistantId) => {
+  return requestJson('/list_public_avatars', {
+    query: { assistant_id: assistantId },
+  });
+};
+
+/**
+ * Create an avatar. The server mints the assistant_id; nothing is generated
+ * client-side. No conversation thread is created here — a new avatar has none
+ * until its first message, and the server mints the thread on that send.
+ * POST /create_avatar
+ *
+ * @param {Object} options
+ * @param {string} options.name Avatar name (required).
+ * @param {string} [options.description] Avatar description.
+ * @param {boolean} [options.isPublic] Share the avatar publicly at creation.
+ * @param {boolean} [options.isPersonalAvatarOfCreator] The avatar depicts the creator.
+ * @returns {Promise<Object>} The created assistant record.
+ */
+export const createAvatar = async ({
+  name,
+  description,
+  isPublic = false,
+  isPersonalAvatarOfCreator = false,
+}) => {
+  return requestJson('/create_avatar', {
+    method: 'POST',
+    query: {
+      name,
+      description,
+      is_public: isPublic,
+      is_personal_avatar_of_creator: isPersonalAvatarOfCreator,
+    },
+  });
+};
+
+/**
+ * Rename or re-describe an avatar.
+ * PATCH /modify_avatar
+ *
+ * @param {Object} options
+ * @param {string} options.assistantId The avatar to modify.
+ * @param {string} [options.newAvatarName] Replacement name.
+ * @param {string} [options.newAvatarDescription] Replacement description.
+ * @param {boolean} [options.isPersonalAvatarOfCreator] Update the personal-avatar flag.
+ * @returns {Promise<Object>} The modified assistant record.
+ */
+export const modifyAvatar = async ({
+  assistantId,
+  newAvatarName,
+  newAvatarDescription,
+  isPersonalAvatarOfCreator,
+}) => {
+  return requestJson('/modify_avatar', {
+    method: 'PATCH',
+    query: {
+      assistant_id: assistantId,
+      new_avatar_name: newAvatarName,
+      new_avatar_description: newAvatarDescription,
+      is_personal_avatar_of_creator: isPersonalAvatarOfCreator,
+    },
+  });
+};
+
+/**
+ * Publish or unpublish an avatar to the public gallery.
+ * POST /share_avatar
+ *
+ * @param {string} assistantId The avatar to share.
+ * @param {boolean} [isPublic] Target visibility, defaults to true.
+ * @returns {Promise<Object>} The share result.
+ */
+export const shareAvatar = async (assistantId, isPublic = true) => {
+  return requestJson('/share_avatar', {
+    method: 'POST',
+    query: { assistant_id: assistantId, is_public: isPublic },
+  });
+};
+
+/**
+ * Delete an avatar and all of the avatar's server-side data (assistant,
+ * threads, store namespaces, vector documents).
+ * DELETE /delete_avatar
+ *
+ * @param {string} assistantId The avatar to delete.
+ * @returns {Promise<Object>} The deletion result.
+ */
+export const deleteAvatar = async (assistantId) => {
+  return requestJson('/delete_avatar', {
+    method: 'DELETE',
+    query: { assistant_id: assistantId },
+  });
+};
+
+/**
+ * Select an avatar as the account's active avatar.
+ *
+ * This is not a cosmetic preference: /list_avatar_documents and
+ * /delete_avatar_document take no assistant_id and operate on the avatar
+ * selected HERE, server-side. Any screen that touches an avatar's documents
+ * must run this first and must not assume an earlier selection survived —
+ * the selection is per-account global state another tab can change.
+ * POST /select_avatar
+ *
+ * @param {string} assistantId The avatar to select.
+ * @returns {Promise<Object>} The assistant configuration now active.
+ */
+export const selectAvatar = async (assistantId) => {
+  return requestJson('/select_avatar', {
+    method: 'POST',
+    query: { assistant_id: assistantId },
+  });
+};
+
+/**
+ * Fetch the stored reference image for an avatar, for use as the avatar's
+ * icon. The response is a data URI or an image URL string, directly usable as
+ * an <img src>.
+ * GET /avatar_reference_image
+ *
+ * @param {string} assistantId The avatar whose portrait to fetch.
+ * @returns {Promise<string|null>} A data URI / URL, or null when none is stored.
+ */
+export const getAvatarReferenceImage = async (assistantId) => {
+  const referenceImageResponse = await requestJson('/avatar_reference_image', {
+    query: { assistant_id: assistantId },
+  });
+  if (!referenceImageResponse) {
+    return null;
+  }
+  if (typeof referenceImageResponse === 'string') {
+    return referenceImageResponse;
+  }
+  // The API names this field `reference_image_data`, and its value is either a
+  // `data:image/…;base64,…` URI or an https URL. The `image` / `url` keys read
+  // here previously do not exist on the response, so every portrait in the
+  // application resolved to null and every avatar fell back to a placeholder.
+  // The alternatives are kept only as tolerance for a future rename.
+  return (
+    referenceImageResponse.reference_image_data ??
+    referenceImageResponse.image ??
+    referenceImageResponse.url ??
+    null
+  );
+};
+
+/**
+ * List the source documents uploaded to the currently SELECTED avatar (see
+ * selectAvatar for the sequencing requirement).
+ * GET /list_avatar_documents
+ *
+ * @returns {Promise<string[]>} Document labels, one per uploaded source.
+ */
+export const listAvatarDocuments = async () => {
+  const documentsResponse = await requestJson('/list_avatar_documents');
+  return documentsResponse?.uploaded_documents ?? [];
+};
+
+/**
+ * Delete one uploaded source document from the currently SELECTED avatar.
+ * The name is a label exactly as returned by listAvatarDocuments.
+ * DELETE /delete_avatar_document
+ *
+ * @param {string} sourceDocumentName The label of the document to delete.
+ * @returns {Promise<Object>} The deletion result.
+ */
+export const deleteAvatarDocument = async (sourceDocumentName) => {
+  return requestJson('/delete_avatar_document', {
+    method: 'DELETE',
+    query: { source_document_name: sourceDocumentName },
+  });
+};
+
+/**
+ * Upload media (files and/or URLs) to build an avatar's identity. Returns
+ * immediately with a job identifier; the processing itself runs in the
+ * background — follow progress with streamMediaJobProgress.
+ * POST /update_avatar_identity_with_media (responds 202 {job_id})
+ *
+ * @param {Object} options
+ * @param {string} options.assistantId The avatar receiving the media.
+ * @param {File[]} [options.files] Files to upload.
+ * @param {string[]} [options.urls] URLs to ingest (YouTube videos, playlists, articles).
+ * @param {boolean} [options.isReferenceAudio] Treat the upload as the voice reference.
+ * @param {boolean} [options.isReferenceImage] Treat the upload as the portrait reference.
+ * @returns {Promise<Object>} `{job_id}` for the background processing job.
+ */
+export const uploadAvatarIdentityMedia = async ({
+  assistantId,
+  files = [],
+  urls = [],
+  isReferenceAudio = false,
   isReferenceImage = false,
-  isReferenceAudio = false
-) => {
-  const results = [];
-
-  // Upload each file separately as the API expects single file uploads
+}) => {
+  const formData = new FormData();
   for (const file of files) {
-    //   const formData = new FormData();
-    //   formData.append('file', file);
-    //   formData.append('target_avatar_name', targetAvatarName);
-    //   formData.append('user_id', userId);
-    //   formData.append('avatar_id', avatarId);
-    //   formData.append('is_reference_image', isReferenceImage);
-    //   formData.append('is_reference_audio', isReferenceAudio);
-
-    const formData = new FormData();
     formData.append('files', file);
-    formData.append('user_id', userId);
-    formData.append('assistant_id', avatarId);
-
-    console.log(`uploadToDataLoadingApi: ${uploadToDataLoadingApi}`);
-
-    console.log(`avatarId ${avatarId}`);
-
-    try {
-      const response = await fetch(
-        `${import.meta.env.VITE_LANGGRAPH_API_SERVER_URL}` + '/upload-media',
-        {
-          method: 'POST',
-          headers: {
-            'x-api-key': `${import.meta.env.VITE_LANGGRAPH_API_SERVER_KEY}`,
-          },
-          body: formData,
-        }
-      );
-
-      if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(
-          errorData.detail || `Upload failed with status ${response.status}`
-        );
-      }
-
-      // update the uploaded file list
-      // const avatarRef = doc(db, 'users', userId, 'avatars', avatarId);
-
-      // await updateDoc(avatarRef, {
-      //   files: arrayUnion(file.name),
-      // });
-
-      const result = await response.json();
-      results.push({
-        file: file.name,
-        success: true,
-        data: result,
-      });
-    } catch (error) {
-      console.error(`Failed to upload ${file.name}:`, error);
-      results.push({
-        file: file.name,
-        success: false,
-        error: error.message,
-      });
-    }
   }
-  return results;
-};
+  for (const mediaUrl of urls) {
+    formData.append('url', mediaUrl);
+  }
+  if (assistantId) {
+    formData.append('assistant_id', assistantId);
+  }
+  formData.append('reference_audio', isReferenceAudio);
+  formData.append('reference_image', isReferenceImage);
 
-export const createAvatar = async (user, name, description, iconFile) => {
-  // CREATE ASSISTANT CREATE AVATAR
-  if (!user) throw new Error('No authenticated user');
-
-  const userId = user.id;
-  const avatarId = uuidv4();
-  const conversationId = uuidv4(); // Create default conversation ID
-
-  console.log(
-    'XXXXXXXXXXXXXXXXXXXXXXXXXX USER XXXXXXXXXXXXXXXXXXXXXXXXXXX avatarService'
-  );
-
-  console.log(user);
-  // Create directory structure in Storage (using .keep files)
-
-  // const directories = [
-  //   `users/${userId}/.keep`,
-  //   `users/${userId}/avatars/${avatarId}/adapters/.keep`,
-  //   `users/${userId}/avatars/${avatarId}/adapters/training_data/.keep`,
-  // ];
-
-  // for (const dirPath of directories) {
-  //   try {
-  //     const dirRef = ref(storage, dirPath);
-  //     await uploadBytes(dirRef, new Blob([''], { type: 'text/plain' }));
-  //   } catch (error) {
-  //     console.warn(`Failed to create directory ${dirPath}:`, error);
-  //   }
-  // }
-
-  // Generate download URLs
-  // const qloraAdapterUrl = await getDownloadURL(
-  //   ref(storage, `users/${userId}/avatars/${avatarId}/adapters/.keep`)
-  // );
-  // const qloraTrainingUrl = await getDownloadURL(
-  //   ref(
-  //     storage,
-  //     `users/${userId}/avatars/${avatarId}/adapters/training_data/.keep`
-  //   )
-  // );
-
-  // Store as a Digital Twin document following firestore_structure.md
-  const avatarData = {
-    avatar_id: avatarId,
-    user_id: user.id,
-    name: name,
-    description: (description || '').trim(),
-    created_at: new Date().toISOString(),
-    icon: null, // will be an object {url, storagePath, name, size, type}
-    reference_audio: null,
-    active_conversation: conversationId,
-  };
-
-  // LANGGRAPH API SERVER CLIENT
-  const create_assistant_promise = await fetch(
-    `${import.meta.env.VITE_LANGGRAPH_API_SERVER_URL}/assistants`,
-    {
-      method: 'POST',
-      headers: {
-        'x-api-key': `${import.meta.env.VITE_LANGGRAPH_API_SERVER_KEY}`,
-      },
-      body: JSON.stringify({
-        assistant_id: avatarId,
-        graph_id: 'Anubis',
-        metadata: {
-          user_id: user.id,
-          assistant_id: avatarId,
-          active_conversation: conversationId,
-        },
-        if_exists: 'raise',
-        description: description,
-        name: name,
-      }),
-    }
-  );
-
-  const create_assistant_promise_json = await create_assistant_promise.json();
-
-  console.log(
-    `create_assistant_promise_json: ${JSON.stringify(create_assistant_promise_json)}`
-  );
-
-  // Update user's avatars list
-  console.log('XXXXXXXXXXXXXXXXXXXXXXXXXXXX I CREATED AN AVATAR');
-
-  //  create initial conversation
-  const create_thread_response = await fetch(
-    `${import.meta.env.VITE_LANGGRAPH_API_SERVER_URL}/threads`,
-    {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'x-api-key': `${import.meta.env.VITE_LANGGRAPH_API_SERVER_KEY}`,
-      },
-      body: JSON.stringify({
-        metadata: { user_id: userId, assistant_id: avatarId },
-        if_exists: 'raise',
-        graph_id: 'Anubis',
-        thread_id: conversationId,
-        // ttl: {
-        //   strategy: 'delete',
-        //   ttl: 1,
-        // },
-        // supersteps: [
-        //   {
-        //     updates: [
-        //       {
-        //         values: [{}],
-        //         command: {
-        //           update: null,
-        //           resume: null,
-        //           goto: {
-        //             node: '',
-        //             input: null,
-        //           },
-        //         },
-        //         as_node: '',
-        //       },
-        //     ],
-        //   },
-        // ],
-      }),
-    }
-  );
-
-  const create_thread_response_json = await create_thread_response.json();
-
-  console.log(
-    `create_thread_response_json: ${JSON.stringify(create_thread_response_json)}`
-  );
-
-  return {
-    avatarData,
-  };
-};
-
-export const getAvatars = async (userId, limitCount = 50, skip = 0) => {
-  // SEARCH ASSISTANTS
-  // LANGGRAPH API SERVER CLIENT
-
-  console.log(
-    `VITE_LANGGRAPH_API_SERVER_URL: ${import.meta.env.VITE_LANGGRAPH_API_SERVER_URL}`
-  );
-
-  let apiUrl = import.meta.env.VITE_LANGGRAPH_API_SERVER_URL;
-  let apiKey = import.meta.env.VITE_LANGGRAPH_API_SERVER_KEY;
-
-  console.log(`apiUrl: ${apiUrl}`);
-  console.log(`apiKey: ${apiKey}`);
-
-  // const langgraph_api_client = new Client(apiUrl, apiKey);
-
-  const langgraph_api_client = new Client({
-    apiUrl: import.meta.env.VITE_LANGGRAPH_API_SERVER_URL,
-    apiKey: import.meta.env.VITE_LANGGRAPH_API_SERVER_KEY,
+  return requestJson('/update_avatar_identity_with_media', {
+    method: 'POST',
+    formData,
   });
+};
 
-  console.log(`userId:${userId}`);
-
-  // let searchQuery = JSON.stringify({
-  //   graphId: 'Anubis',
-  //   metadata: { user_id: userId },
-  //   limit: 100,
-  //   offset: 0,
-  //   sortOrder: 'desc',
-  //   sortBy: 'created_at',
-  // });
-
-  const assistants_search_list = await langgraph_api_client.assistants.search({
-    graphId: 'Anubis',
-    metadata: { user_id: userId },
-    limit: 100,
-    offset: 0,
-    sortOrder: 'desc',
-    sortBy: 'created_at',
+/**
+ * Follow a media-processing job's progress stream until the job finishes.
+ * Replays buffered events, then live ones; the final frame has
+ * `type: 'done'` carrying the job status and result (or error).
+ * GET /media_job/{job_id}/progress (server-sent events)
+ *
+ * @param {string} jobId The job to follow.
+ * @param {Function} onEvent Called with each progress event object.
+ * @param {AbortSignal} [signal] Cancellation signal.
+ */
+export const streamMediaJobProgress = async (jobId, onEvent, signal) => {
+  return streamServerSentEvents(`/media_job/${encodeURIComponent(jobId)}/progress`, {
+    method: 'GET',
+    onEvent,
+    signal,
   });
-
-  // console.log(`active_conversation: ${active_conversation}`);
-
-  // const assistants_search_promise =
-  //   await langgraph_api_client.assistants.search({
-  //     graphId: 'Anubis',
-  //     metadata: { user_id: userId },
-  //     limit: 100,
-  //     offset: 0,
-  //     sortOrder: 'desc',
-  //     sortBy: 'created_at',
-  //   });
-
-  console.log('breakpoint');
-
-  // LIST AVATARS SEARCH ASSISTANTS
-  // const assistants_search_promise = await fetch(
-  //   `${import.meta.env.VITE_LANGGRAPH_API_SERVER_URL}/assistants/search`,
-  //   {
-  //     method: 'POST',
-  //     headers: {
-  //       'Content-Type': 'application/json',
-  //       'x-api-key': `${import.meta.env.VITE_LANGGRAPH_API_SERVER_KEY}`,
-  //     },
-  //     body: JSON.stringify({
-  //       graph_id: 'Anubis',
-  //       metadata: {
-  //         user_id: userId,
-  //       },
-  //       if_exists: 'raise',
-  //       limit: 100,
-  //       offset: 0,
-  //       sort_by: 'created_at',
-  //       sort_order: 'asc',
-  //     }),
-  //   }
-  // );
-
-  // Example body call
-  // {
-  //   "graph_id": "Anubis",
-  //   "metadata": {
-  //     "user_id": "xVvtmkUhwwE6CZ6V6y8IojlYKy5C"
-  //   },
-  //   "if_exists": "raise",
-  //   "limit": 100,
-  //   "offset": 0,
-  //   "sort_by":"assistant_id",
-  //   "sort_order": "asc"
-  // }
-
-  console.log(`userId: ${userId}`);
-
-  console.log(`GET AVATARS ${JSON.stringify(assistants_search_list)}`);
-
-  // for (const docSnapshot of snapshot.docs.slice(skip, skip + limitCount)) {
-  //   const data = docSnapshot.data();
-  //   let iconUrl = null;
-
-  //   if (data.icon) {
-  //     try {
-  //       const storagePath = data.icon.storagePath || data.icon;
-  //       if (storagePath) {
-  //         iconUrl = await getDownloadURL(ref(storage, storagePath));
-  //       } else if (data.icon.url) {
-  //         iconUrl = data.icon.url;
-  //       }
-  //     } catch (error) {
-  //       console.error('Error getting icon URL:', error);
-  //     }
-  //   }
-
-  //   avatars.push({
-  //     avatar_id: docSnapshot.id,
-  //     name: data.name,
-  //     description: data.description,
-  //     icon: iconUrl,
-  //   });
-  // }
-
-  // Add the icon to the avatars
-  // for (const avatar in assistants_search_promise) {
-  //   avatars.push({
-  //     avatar_id: avatar.avatar_id,
-  //     name: avatar.name,
-  //     description: avatar.description,
-  //     icon: iconUrl,
-  //   });
-  // }
-
-  return assistants_search_list;
 };
 
-export const updateAvatar = async (userId, avatarId, updates) => {
-  const avatarRef = doc(db, 'users', userId, 'avatars', avatarId);
-  const avatarDoc = await getDoc(avatarRef);
-
-  if (!avatarDoc.exists() || avatarDoc.data().user_id !== userId) {
-    throw new Error('Digital twin not found or unauthorized');
-  }
-
-  const updateData = {
-    updated_at: new Date().toISOString(),
-    ...updates,
-  };
-
-  // If updating icon path/object, normalize to object shape
-  if (updateData.icon && typeof updateData.icon === 'string') {
-    // assume it's a storage path string; try to resolve URL
-    try {
-      const url = await getDownloadURL(ref(storage, updateData.icon));
-      updateData.icon = {
-        url,
-        storagePath: updateData.icon,
-      };
-    } catch (e) {
-      // leave as-is
-    }
-  }
-
-  await updateDoc(avatarRef, updateData);
-
-  // If icon was updated, return the new URL
-  if (updateData.icon) {
-    return { icon_url: updateData.icon.url || null };
-  }
-
-  return {};
+/**
+ * Cancel a running media-processing job.
+ * POST /media_job/{job_id}/cancel
+ *
+ * @param {string} jobId The job to cancel.
+ * @returns {Promise<Object>} The cancellation result.
+ */
+export const cancelMediaJob = async (jobId) => {
+  return requestJson(`/media_job/${encodeURIComponent(jobId)}/cancel`, {
+    method: 'POST',
+  });
 };
 
-export const updateAvatarWithIcon = async (userId, avatarId, iconFile) => {
-  const avatarRef = doc(db, 'users', userId, 'avatars', avatarId);
-  const avatarDoc = await getDoc(avatarRef);
-
-  if (!avatarDoc.exists() || avatarDoc.data().user_id !== userId) {
-    throw new Error('Avatar not found or unauthorized');
-  }
-
-  const updates = {
-    updated_at: new Date().toISOString(),
-  };
-
-  let iconUrl = null;
-  if (iconFile) {
-    if (iconFile.size > 4 * 1024 * 1024) {
-      throw new Error('Icon exceeds 4 MB limit');
-    }
-
-    // Delete old icon if exists (support object or string)
-    const oldIcon = avatarDoc.data().icon;
-    const oldStoragePath =
-      oldIcon?.storagePath || (typeof oldIcon === 'string' ? oldIcon : null);
-    if (oldStoragePath) {
-      try {
-        await deleteObject(ref(storage, oldStoragePath));
-      } catch (error) {
-        console.warn('Failed to delete old icon:', error);
-      }
-    }
-
-    // Upload new icon and store as object
-    const iconRef = ref(
-      storage,
-      `users/${userId}/avatars/${avatarId}/icon/${uuidv4()}_${iconFile.name}`
-    );
-    await uploadBytes(iconRef, iconFile);
-    const url = await getDownloadURL(iconRef);
-    updates.icon = {
-      url,
-      storagePath: iconRef.fullPath,
-      name: iconFile.name,
-      size: iconFile.size,
-      type: iconFile.type,
-    };
-    iconUrl = url;
-  }
-
-  await updateDoc(avatarRef, updates);
-
-  return {
-    status: 'success',
-    avatar_id: avatarId,
-    updated_fields: Object.keys(updates),
-    icon_url: iconUrl,
-  };
+/**
+ * Read the account's personal avatar and the live status of its capabilities.
+ *
+ * The capability statuses are where connected data servers (Model Context
+ * Protocol machines) are reported: `connected_data_servers` holds one entry per
+ * connection, each naming the server and whether it is bound to that avatar.
+ * GET /personal_avatar
+ *
+ * @returns {Promise<Object>} `{personal_avatar, capabilities}`.
+ */
+export const getPersonalAvatar = async () => {
+  return requestJson('/personal_avatar');
 };
 
-export const deleteAvatar = async (userId, avatarId) => {
-  // this needs to be updated to recursively delete all messages in the conversation collection,
-  // all conversations in the avatar collection,
-  // and the avatar
-  // currently deletes the avatar from the array list in the users document
-  const userRef = doc(db, 'users', userId);
-  const avatarRef = doc(db, 'users', userId, 'avatars', avatarId);
-
-  // Delete all files in Storage
-  const avatarStorageRef = ref(storage, `users/${userId}/avatars/${avatarId}`);
-  try {
-    const files = await listAll(avatarStorageRef);
-    await Promise.all(files.items.map((file) => deleteObject(file)));
-  } catch (error) {
-    console.warn('Error deleting avatar files:', error);
-  }
-
-  // Delete avatar document
-  const avatarDoc = await getDoc(avatarRef);
-  if (!avatarDoc.exists()) {
-    throw new Error('Avatar not found or unauthorized');
-  }
-
-  await deleteDoc(avatarRef);
-
-  // Remove from user's avatar list
-  await updateDoc(userRef, { avatars: arrayRemove(avatarId) });
-
-  // LANGSMITH API SERVER
-  client = Client(`${import.meta.env.VITE_LANGGRAPH_API_SERVER_KEY}`);
-  await client.assistants.delete({ assistant_id: avatarId });
-
-  // SUPABASE POSTGRES_DB_STORE
-  const supabase = createClient(
-    `${import.meta.env.VITE_LANGGRAPH_API_SERVER_URL}`,
-    `${import.meta.env.VITE_LANGGRAPH_API_SERVER_KEY}`
-  );
-
-  // DELETE VECTORSTORE DOCUMENTS
-  const { data_vectorstore, error_vectorstore } = await supabase
-    .from('langchain_pg_embedding')
-    .delete()
-    .eq('user_id', userId)
-    .eq('assistant_id', avatarId);
-
-  // DELETE POSTGRES DB STORE ENTRIES
-  const { data_pgdb_store, error_pgdb_store } = await supabase
-    .from('store')
-    .delete()
-    .eq('prefix', `${userId}.${assistantId}`);
-
-  return {
-    status: 'success',
-    avatar_id: avatarId,
-    deleted: true,
-  };
-};
-
-export const deleteDocument = async (userId, avatarId, filename) => {
-  // update document file list
-  avatarRef = doc(db, 'users', userId, 'avatars', avatarId);
-  try {
-  } catch (error) {
-    console.error(`error removing file ${filename} from array: `, error);
-    throw error;
-  }
-  updateDoc(avatarRef, { files: arrayRemove(filename) });
-
-  // SUPABASE POSTGRES_DB_STORE
-  const supabase = createClient(
-    `${import.meta.env.VITE_LANGGRAPH_API_SERVER_URL}`,
-    `${import.meta.env.VITE_LANGGRAPH_API_SERVER_KEY}`
-  );
-
-  // DELETE VECTOR STORE DOCUMENT MEDIA UPLOAD
-  const { data_vectorstore, error_vectorstore } = await supabase
-    .from('langchain_pg_embedding')
-    .delete()
-    .eq('user_id', userId)
-    .eq('assistant_id', avatarId)
-    .eq('filename', filename);
-};
-
-export const selectAvatar = async (user, userId, avatarId) => {
-  const avatarRef = doc(db, 'users', userId, 'avatars', avatarId);
-  const avatarDoc = await getDoc(avatarRef);
-
-  // CREATE LANGGRAPH API CLIENT
-  client = new Client({ url: import.meta.env.VITE_LANGGRAPH_API_SERVER_URL });
-
-  // GET ASSISTANT
-  assistant = await client.assistants.get({ assistant_id: avatarId });
-
-  //   {
-  //   "assistant_id": "9aee271d-ccce-40db-874a-d70529560c77",
-  //   "graph_id": "Anubis",
-  //   "config": {},
-  //   "context": {},
-  //   "metadata": {
-  //     "user_id": "2feaa9d8-50c0-4550-81fa-9fb79bfe23f0",
-  //     "assistant_id": "9aee271d-ccce-40db-874a-d70529560c77"
-  //   },
-  //   "name": "testing_assistant",
-  //   "created_at": "2026-02-12T21:03:37.526944+00:00",
-  //   "updated_at": "2026-02-12T21:03:37.526944+00:00",
-  //   "version": 1,
-  //   "description": null
-  // }
-  // if (!avatarDoc.exists() || avatarDoc.data().user_id !== userId) {
-  //   throw new Error('Avatar not found or unauthorized');
-  // }
-
-  const avatarData = avatarDoc.data();
-
-  // Update last_used_avatar
-  // await updateDoc(doc(db, 'users', userId), {
-  //   last_used_avatar: avatarId,
-  // });
-
-  // Get default conversation ID (or first conversation)
-  const defaultConversationId = avatarData.active_conversation;
-
-  // Get messages from the default conversation
-  const messagesQuery = query(
-    collection(
-      db,
-      `avatars/${avatarId}/conversations/${defaultConversationId}/messages`
-    ),
-    orderBy('timestamp', 'asc'),
-    limit(50)
-  );
-
-  const messagesSnapshot = await getDocs(messagesQuery);
-  const messages = messagesSnapshot.docs.map((doc) => ({
-    _id: doc.id,
-    ...doc.data(),
-    timestamp:
-      doc.data().timestamp?.toDate().toISOString() || new Date().toISOString(),
-  }));
-
-  return {};
+/**
+ * Forget saved data-server connections — the disconnect.
+ *
+ * Omitting `deviceId` disconnects every machine on the account; passing one
+ * disconnects only that machine. The avatar re-adopts a reachable machine on a
+ * later turn, so this is unplugging rather than a permanent opt-out.
+ * POST /disconnect_mcp
+ *
+ * @param {string} [deviceId] The machine to disconnect.
+ * @returns {Promise<Object>} The disconnect result.
+ */
+export const disconnectDataServer = async (deviceId) => {
+  return requestJson('/disconnect_mcp', {
+    method: 'POST',
+    query: { device_id: deviceId },
+  });
 };
