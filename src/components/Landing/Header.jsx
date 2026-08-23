@@ -8,8 +8,6 @@ import { useAuth } from '../../context/AuthContext'; // 2. Add this
 // Where this project lives outside the site itself.
 const EXTERNAL_LINKS = {
   api: 'https://api.neuralnexus.site',
-  kickstarter:
-    'https://www.kickstarter.com/projects/evanwoods/neural-nexus-create-authentic-ai',
 };
 
 export default function Header() {
@@ -91,10 +89,9 @@ export default function Header() {
 
           {/* CTA Button - Desktop */}
           <div className="hidden lg:flex items-center gap-2">
-            {/* Two places this project lives that are not this site: the API
-                itself, and the campaign funding it. Both open in a new tab —
-                they are somewhere else, and a visitor mid-read should not lose
-                the page they were on. */}
+            {/* The one place this project lives that is not this site: the API
+                itself. Opens in a new tab — the API is somewhere else, and a
+                visitor mid-read should not lose the page they were on. */}
             <a
               href={EXTERNAL_LINKS.api}
               target="_blank"
@@ -102,15 +99,6 @@ export default function Header() {
               className="px-3 py-2 text-gray-300 hover:text-white border border-white/15 hover:border-teal-400/60 rounded-lg transition-all duration-300 flex items-center gap-1.5"
             >
               API
-              <ExternalLink className="w-3.5 h-3.5" />
-            </a>
-            <a
-              href={EXTERNAL_LINKS.kickstarter}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="px-3 py-2 text-gray-300 hover:text-white border border-white/15 hover:border-teal-400/60 rounded-lg transition-all duration-300 flex items-center gap-1.5"
-            >
-              Kickstarter
               <ExternalLink className="w-3.5 h-3.5" />
             </a>
             <button
@@ -195,11 +183,8 @@ export default function Header() {
                   </span>
                 </a>
               ))}
-              {/* The same two off-site links the desktop header carries. */}
-              {[
-                { name: 'API', href: EXTERNAL_LINKS.api },
-                { name: 'Kickstarter', href: EXTERNAL_LINKS.kickstarter },
-              ].map((externalItem) => (
+              {/* The same off-site link the desktop header carries. */}
+              {[{ name: 'API', href: EXTERNAL_LINKS.api }].map((externalItem) => (
                 <a
                   key={externalItem.name}
                   href={externalItem.href}
