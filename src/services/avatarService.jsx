@@ -121,26 +121,6 @@ export const deleteAvatar = async (assistantId) => {
 };
 
 /**
- * Select an avatar as the account's active avatar.
- *
- * This is not a cosmetic preference: /list_avatar_documents and
- * /delete_avatar_document take no assistant_id and operate on the avatar
- * selected HERE, server-side. Any screen that touches an avatar's documents
- * must run this first and must not assume an earlier selection survived —
- * the selection is per-account global state another tab can change.
- * POST /select_avatar
- *
- * @param {string} assistantId The avatar to select.
- * @returns {Promise<Object>} The assistant configuration now active.
- */
-export const selectAvatar = async (assistantId) => {
-  return requestJson('/select_avatar', {
-    method: 'POST',
-    query: { assistant_id: assistantId },
-  });
-};
-
-/**
  * Fetch the stored reference image for an avatar, for use as the avatar's
  * icon. The response is a data URI or an image URL string, directly usable as
  * an <img src>.
@@ -173,29 +153,41 @@ export const getAvatarReferenceImage = async (assistantId) => {
 };
 
 /**
- * List the source documents uploaded to the currently SELECTED avatar (see
- * selectAvatar for the sequencing requirement).
+ * List the source documents uploaded to one avatar.
+ *
+ * The avatar is named in the request. It used to be implied by a separate
+ * POST /select_avatar call that wrote a per-account "currently selected avatar"
+ * server-side; that endpoint is gone, and with it the sequencing hazard where a
+ * second tab could repoint this listing at a different avatar between the
+ * selection and the read.
  * GET /list_avatar_documents
  *
+ * @param {string} assistantId The avatar whose documents to list.
  * @returns {Promise<string[]>} Document labels, one per uploaded source.
  */
-export const listAvatarDocuments = async () => {
-  const documentsResponse = await requestJson('/list_avatar_documents');
+export const listAvatarDocuments = async (assistantId) => {
+  const documentsResponse = await requestJson('/list_avatar_documents', {
+    query: { assistant_id: assistantId },
+  });
   return documentsResponse?.uploaded_documents ?? [];
 };
 
 /**
- * Delete one uploaded source document from the currently SELECTED avatar.
- * The name is a label exactly as returned by listAvatarDocuments.
+ * Delete one uploaded source document from an avatar. The name is a label
+ * exactly as returned by listAvatarDocuments.
  * DELETE /delete_avatar_document
  *
+ * @param {string} assistantId The avatar holding the document.
  * @param {string} sourceDocumentName The label of the document to delete.
  * @returns {Promise<Object>} The deletion result.
  */
-export const deleteAvatarDocument = async (sourceDocumentName) => {
+export const deleteAvatarDocument = async (assistantId, sourceDocumentName) => {
   return requestJson('/delete_avatar_document', {
     method: 'DELETE',
-    query: { source_document_name: sourceDocumentName },
+    query: {
+      assistant_id: assistantId,
+      source_document_name: sourceDocumentName,
+    },
   });
 };
 

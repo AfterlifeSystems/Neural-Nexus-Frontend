@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { toast } from 'react-hot-toast';
 import Dropzone from 'react-dropzone';
 import {
@@ -27,7 +27,6 @@ import {
 import { useAuth } from '../context/AuthContext';
 import {
   deleteAvatarDocument,
-  selectAvatar,
   deleteAvatar,
   modifyAvatar,
   uploadAvatarIdentityMedia,
@@ -97,6 +96,14 @@ const AvatarSettings = ({ avatarId }) => {
   // Source documents already uploaded to this avatar, as labels from
   // GET /list_avatar_documents.
   const [avatarDocuments, setAvatarDocuments] = useState([]);
+  // Why the file list is empty, when it is empty because something FAILED
+  // rather than because the avatar genuinely has no files. Without this the two
+  // states render identically, and "No files attached to this avatar" is shown
+  // over an avatar whose files the API is perfectly willing to list.
+  const [avatarDocumentsError, setAvatarDocumentsError] = useState(null);
+  // Bumped by the retry control to re-run the loading effect below.
+  const [avatarDocumentsReloadCount, setAvatarDocumentsReloadCount] =
+    useState(0);
   // The avatar's portrait from GET /avatar_reference_image (data URI or URL).
   const [avatarIcon, setAvatarIcon] = useState(null);
 
@@ -118,45 +125,55 @@ const AvatarSettings = ({ avatarId }) => {
     activeAvatar?.metadata?.is_personal_avatar_of_creator
   );
 
-  const refreshAvatarDocuments = async () => {
+  // Memoized on the avatar it reads, so the loading effect below can depend on
+  // it honestly instead of closing over a stale assistantId.
+  const refreshAvatarDocuments = useCallback(async () => {
     try {
-      setAvatarDocuments(await listAvatarDocuments());
+      setAvatarDocuments(await listAvatarDocuments(assistantId));
+      setAvatarDocumentsError(null);
     } catch (listError) {
       console.error('Loading the avatar document list failed:', listError);
+      setAvatarDocuments([]);
+      setAvatarDocumentsError(
+        listError.message ?? 'This avatar’s files could not be listed.'
+      );
     }
-  };
+  }, [assistantId]);
 
-  // The document endpoints (/list_avatar_documents, /delete_avatar_document)
-  // operate on the avatar selected SERVER-SIDE via POST /select_avatar, and
-  // that selection is per-account global state another tab can change. So the
-  // selection is re-registered every time this screen opens, before the
-  // document list is read.
+  // The document endpoints name their avatar in the request, so opening this
+  // screen is a plain read: there is no per-account "selected avatar" to
+  // register first, and nothing another tab can repoint between the two calls.
   useEffect(() => {
     let cancelled = false;
-    const selectAndLoad = async () => {
+    const loadAvatarFilesAndPortrait = async () => {
       if (!assistantId || !canAdministerAvatar) {
-        // Selecting is a WRITE to per-account state: doing it for an avatar the
-        // user is merely visiting would silently repoint their account's
-        // document endpoints at someone else's avatar.
+        // These endpoints are refused for an avatar the caller did not create,
+        // so an avatar the user is merely visiting is not read at all.
         return;
       }
+      await refreshAvatarDocuments();
+      if (cancelled) return;
       try {
-        await selectAvatar(assistantId);
-        if (cancelled) return;
-        await refreshAvatarDocuments();
         const iconSource = await getAvatarReferenceImage(assistantId);
         if (!cancelled) {
           setAvatarIcon(iconSource);
         }
-      } catch (selectError) {
-        console.error('Selecting the avatar failed:', selectError);
+      } catch (iconError) {
+        // The portrait is a separate request from the file list; losing one
+        // must not blank the other.
+        console.error('Loading the avatar portrait failed:', iconError);
       }
     };
-    selectAndLoad();
+    loadAvatarFilesAndPortrait();
     return () => {
       cancelled = true;
     };
-  }, [assistantId, canAdministerAvatar]);
+  }, [
+    assistantId,
+    canAdministerAvatar,
+    avatarDocumentsReloadCount,
+    refreshAvatarDocuments,
+  ]);
 
   // Data-server connections belong to the account, and their live status is
   // reported alongside the personal avatar's capabilities rather than on the
@@ -448,7 +465,7 @@ const AvatarSettings = ({ avatarId }) => {
   const handleDeleteDocument = async (sourceDocumentName) => {
     try {
       if (!user) throw new Error('Not logged in');
-      await deleteAvatarDocument(sourceDocumentName);
+      await deleteAvatarDocument(assistantId, sourceDocumentName);
       toast.success('Document deleted');
       await refreshAvatarDocuments();
     } catch (err) {
@@ -1248,6 +1265,20 @@ const AvatarSettings = ({ avatarId }) => {
                 </div>
               </div>
             ))
+          ) : avatarDocumentsError ? (
+            <div className="p-3 bg-red-500/10 border border-red-500/30 rounded-lg">
+              <p className="text-red-300 text-sm">{avatarDocumentsError}</p>
+              <button
+                onClick={() =>
+                  setAvatarDocumentsReloadCount(
+                    (reloadCount) => reloadCount + 1
+                  )
+                }
+                className="mt-2 px-3 py-1.5 text-sm bg-white/10 hover:bg-white/20 text-white rounded-lg border border-white/20 transition-colors"
+              >
+                Try again
+              </button>
+            </div>
           ) : (
             <p className="text-white/40 text-sm italic">
               No files attached to this avatar.
