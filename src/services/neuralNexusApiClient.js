@@ -191,12 +191,12 @@ export function isEmailNotVerifiedDescription(description) {
 /**
  * Issue a request to the Neural Nexus API and parse the response.
  *
- * `credentials: 'include'` is set on every request because POST /login also
- * sets the refresh token as an httpOnly cookie, and POST /logout reads that
- * cookie before the request body. The cookie only travels when the API's
- * cross-origin configuration permits credentialed requests from this origin;
- * the bearer header works either way, and logout carries an explicit body as
- * the documented fallback.
+ * `credentials: 'include'` is set on every request. The API no longer sets or
+ * reads a refresh-token cookie — POST /logout now takes the token from the
+ * request body first and the bearer credential second, and this application
+ * uses the bearer path — so nothing depends on the flag today. It is kept so
+ * that a future cookie-bearing endpoint works without revisiting every call
+ * site; the bearer header authenticates either way.
  *
  * @param {string} path Endpoint path, e.g. '/list_user_avatars'.
  * @param {Object} [options]

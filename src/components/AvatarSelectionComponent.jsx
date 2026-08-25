@@ -20,7 +20,6 @@ import LoadingSpinner from './LoadingSpinner';
 import AccountMenu from './AccountMenu';
 import { useMedia } from '../context/MediaContext';
 import {
-  selectAvatar,
   getAvatarReferenceImage,
   listUserAvatars,
 } from '../services/avatarService';
@@ -194,15 +193,10 @@ const AvatarSelectionComponent = ({}) => {
       if (selectedAvatarIcon) {
         cacheAvatarIcon(avatarId, selectedAvatarIcon, avatarIndex);
       }
+      // Choosing an avatar is now purely a client-side decision: every endpoint
+      // that acts on an avatar takes its assistant_id in the request, so there
+      // is nothing to register server-side before navigating.
       setActiveAvatar(selectedAvatar);
-
-      // Register the selection server-side: /list_avatar_documents and
-      // /delete_avatar_document operate on the avatar selected through
-      // POST /select_avatar, not on a request parameter. Not fatal on
-      // failure — chatting addresses the avatar by id in the URL path.
-      selectAvatar(avatarId).catch((selectError) => {
-        console.error('Server-side avatar selection failed:', selectError);
-      });
 
       // build context for the conversation
       const context = {
