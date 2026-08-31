@@ -23,6 +23,7 @@ import {
   Mic,
   Lock,
   Server,
+  Mail,
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import {
@@ -37,7 +38,11 @@ import {
   shareAvatar,
   getPersonalAvatar,
   disconnectDataServer,
+  listConnectedAccounts,
+  listConnectableProviders,
+  disconnectAccount,
 } from '../services/avatarService';
+import ConnectAccountCard from './ConnectAccountCard';
 import { forgetCachedAvatar, isAvatarOwnedByUser } from './utils';
 import { useNavigate } from 'react-router-dom';
 
@@ -175,6 +180,34 @@ const AvatarSettings = ({ avatarId }) => {
     refreshAvatarDocuments,
   ]);
 
+  // Mailboxes connected to this account. Read from the same personal-avatar
+  // capability report as the data servers, so one request answers both.
+  const [connectedMailboxes, setConnectedMailboxes] = useState([]);
+  // The provider whose sign-in card is open, or null. The card itself is the
+  // same component the avatar raises mid-conversation.
+  const [providerBeingConnected, setProviderBeingConnected] = useState(null);
+  const [connectableProviders, setConnectableProviders] = useState([]);
+
+  /**
+   * Re-read the connected accounts after connecting or disconnecting one.
+   *
+   * Reads the accounts endpoint rather than trusting what was just submitted:
+   * the stored record is the only thing that decides whether the avatar can
+   * actually reach a mailbox, and a list built from an optimistic update would
+   * claim a connection the server may have refused.
+   */
+  const refreshConnectedMailboxes = useCallback(async () => {
+    try {
+      const accountsResponse = await listConnectedAccounts();
+      const accounts = accountsResponse?.accounts ?? [];
+      setConnectedMailboxes(
+        accounts.filter((account) => account.kind === 'mailbox')
+      );
+    } catch (accountsError) {
+      console.debug('No connected accounts to show:', accountsError);
+    }
+  }, []);
+
   // Data-server connections belong to the account, and their live status is
   // reported alongside the personal avatar's capabilities rather than on the
   // avatar record itself.
@@ -196,6 +229,15 @@ const AvatarSettings = ({ avatarId }) => {
         setConnectedDataServers(
           Array.isArray(connections) ? connections : []
         );
+
+        const mailboxCapability = (
+          personalAvatarResponse?.capabilities ?? []
+        ).find((capability) => capability.status_key === 'connected_mailboxes');
+        const mailboxes = mailboxCapability?.status;
+        // Every mailbox is listed, including one whose credential has stopped
+        // working. Hiding a broken connection would leave the owner wondering
+        // why the avatar cannot read mail it was told about.
+        setConnectedMailboxes(Array.isArray(mailboxes) ? mailboxes : []);
       } catch (dataServerError) {
         // An account with no personal avatar answers with an error here, and
         // "no servers connected" is the honest reading of that.
@@ -733,6 +775,58 @@ const AvatarSettings = ({ avatarId }) => {
     }
   };
 
+  const handleDisconnectMailbox = async (mailbox) => {
+    if (
+      !window.confirm(
+        `Disconnect ${mailbox.account_address}? The saved password is deleted ` +
+          'and this avatar will no longer be able to read that mailbox.'
+      )
+    ) {
+      return;
+    }
+    try {
+      await disconnectAccount(mailbox.account_key);
+      setConnectedMailboxes((previousMailboxes) =>
+        previousMailboxes.filter(
+          (candidate) => candidate.account_key !== mailbox.account_key
+        )
+      );
+      toast.success(`${mailbox.account_address} disconnected.`);
+    } catch (disconnectError) {
+      console.error('Disconnecting the mailbox failed:', disconnectError);
+      toast.error(disconnectError.message || 'Could not disconnect.');
+    }
+  };
+
+  /**
+   * Open the sign-in card for a provider, fetching its description first.
+   *
+   * The description — labels, fields, the app-password explanation — comes from
+   * the API so this screen and the in-chat card show the same thing.
+   */
+  const handleOpenConnectCard = async () => {
+    try {
+      const providers =
+        connectableProviders.length > 0
+          ? connectableProviders
+          : (await listConnectableProviders())?.providers ?? [];
+      setConnectableProviders(providers);
+      const gmailProvider =
+        providers.find((entry) => entry.provider === 'gmail') ?? providers[0];
+      if (!gmailProvider) {
+        toast.error('No mailbox providers are available to connect.');
+        return;
+      }
+      setProviderBeingConnected({
+        ...gmailProvider,
+        already_connected: connectedMailboxes,
+      });
+    } catch (providersError) {
+      console.error('Reading the connectable providers failed:', providersError);
+      toast.error(providersError.message || 'Could not open the sign-in form.');
+    }
+  };
+
   const handleDeleteAvatar = async () => {
     if (
       !window.confirm(
@@ -1231,6 +1325,95 @@ const AvatarSettings = ({ avatarId }) => {
           </p>
         )}
       </div>
+      )}
+
+      {/* Connected Mailboxes — personal-avatar only, for the same reason the
+          data servers are: these carry the owner's own mail credentials, and a
+          shared or demoted avatar must reach none of them. */}
+      {isPersonalAvatar && (
+      <div className="bg-white/5 backdrop-blur-lg rounded-2xl border border-white/20 p-6">
+        <div className="flex items-center justify-between mb-4">
+          <h3 className="text-xl font-semibold text-white flex items-center gap-2">
+            <Mail size={20} />
+            Connected Mailboxes
+          </h3>
+          <button
+            onClick={handleOpenConnectCard}
+            className="px-3 py-1.5 text-sm bg-teal-500/20 hover:bg-teal-500/30 text-teal-300 rounded-lg border border-teal-500/30 transition-colors"
+          >
+            Connect Gmail
+          </button>
+        </div>
+        {connectedMailboxes.length > 0 ? (
+          <div className="space-y-2">
+            {connectedMailboxes.map((mailbox) => (
+              <div
+                key={mailbox.account_key}
+                className="flex items-center justify-between p-3 bg-white/5 border border-white/10 rounded-lg"
+              >
+                <div className="min-w-0">
+                  <p className="text-white truncate">
+                    {mailbox.account_address}
+                  </p>
+                  <p
+                    className={`text-xs ${
+                      mailbox.status === 'connected'
+                        ? 'text-white/50'
+                        : 'text-amber-300'
+                    }`}
+                  >
+                    {mailbox.status === 'connected'
+                      ? `Available to this avatar as "${mailbox.display_label}"`
+                      : 'The saved password has stopped working — reconnect this mailbox.'}
+                  </p>
+                </div>
+                <div className="flex items-center gap-2 shrink-0">
+                  {mailbox.status !== 'connected' && (
+                    <button
+                      onClick={handleOpenConnectCard}
+                      className="px-3 py-1.5 text-sm bg-teal-500/20 hover:bg-teal-500/30 text-teal-300 rounded-lg border border-teal-500/30 transition-colors"
+                    >
+                      Reconnect
+                    </button>
+                  )}
+                  <button
+                    onClick={() => handleDisconnectMailbox(mailbox)}
+                    className="px-3 py-1.5 text-sm bg-red-500/20 hover:bg-red-500/30 text-red-300 rounded-lg border border-red-500/30 transition-colors"
+                  >
+                    Disconnect
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <p className="text-white/50 text-sm">
+            No mailboxes connected. Connecting one lets this avatar search and
+            read your email and write draft replies. It can never send.
+          </p>
+        )}
+      </div>
+      )}
+
+      {/* The sign-in card, in a modal. Deliberately the same component the
+          avatar raises mid-conversation, so there is one implementation of the
+          form and one place the app-password guidance is worded. */}
+      {providerBeingConnected && (
+        <div className="fixed inset-0 z-40 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="w-full max-w-md">
+            <ConnectAccountCard
+              interrupt={providerBeingConnected}
+              startOpen
+              className="w-full"
+              onDecision={(decision) => {
+                setProviderBeingConnected(null);
+                if (decision === 'apply') {
+                  refreshConnectedMailboxes();
+                }
+              }}
+            />
+          </div>
+        </div>
       )}
 
       {/* Documents Section */}

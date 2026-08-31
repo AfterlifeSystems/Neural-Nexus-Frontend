@@ -280,23 +280,6 @@ export const MediaProvider = ({ children }) => {
     messageContent,
     attachedFiles = []
   ) {
-    const assistantId = resolveAssistantId(avatarForMessage);
-    const streamingMessageId = `streaming-${Date.now()}`;
-    // The turn keeps running wherever the user goes; only its rendering is
-    // conditional on that conversation still being the one on screen.
-    const isStillOnScreen = () =>
-      onScreenAssistantIdRef.current === assistantId;
-    const updateMessagesIfStillOnScreen = (updater) => {
-      if (isStillOnScreen()) {
-        setMessages(updater);
-      }
-    };
-    const setActivityIfStillOnScreen = (activity) => {
-      if (isStillOnScreen()) {
-        setAssistantActivity(activity);
-      }
-    };
-
     const formData = new FormData();
     formData.append('message', messageContent);
     formData.append('stream', 'true');
@@ -313,6 +296,95 @@ export const MediaProvider = ({ children }) => {
     if (userTimezone) {
       formData.append('user_timezone', userTimezone);
     }
+
+    return runAssistantTurnStream({
+      _user,
+      avatarForMessage,
+      threadId,
+      path: `/message/${encodeURIComponent(resolveAssistantId(avatarForMessage))}`,
+      formData,
+    });
+  }
+
+  /**
+   * Resume a turn the graph paused, and stream the continuation.
+   * POST /message/{assistant_id}/resume.
+   *
+   * A paused turn is a real turn waiting on an answer, so resuming reuses the
+   * same reader as a fresh message: the continuation arrives as the identical
+   * `assistant_token` → `done` sequence and may pause again, and a second copy
+   * of that logic would drift from the first.
+   *
+   * The resume body carries a decision and nothing else. Anything the user
+   * typed into an interrupt's card — a password above all — must reach its own
+   * endpoint instead, because a resume value is written into the graph's
+   * checkpointer and would come to rest in the conversation's stored state.
+   *
+   * @param {Object} parameters
+   * @param {Object} parameters.avatarForMessage The avatar whose turn paused.
+   * @param {string} parameters.threadId The paused thread.
+   * @param {string} [parameters.decision] `apply` or `cancel`.
+   */
+  async function resumeTurn({
+    avatarForMessage,
+    threadId,
+    decision = 'apply',
+  }) {
+    const formData = new FormData();
+    formData.append('thread_id', threadId);
+    formData.append('decision', decision);
+    const userTimezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+    if (userTimezone) {
+      formData.append('user_timezone', userTimezone);
+    }
+
+    // The pause is over the moment the continuation is requested; leaving this
+    // set would keep the composer disabled for the rest of the conversation.
+    setPendingInterrupt(null);
+
+    return runAssistantTurnStream({
+      _user: user,
+      avatarForMessage,
+      threadId,
+      path: `/message/${encodeURIComponent(resolveAssistantId(avatarForMessage))}/resume`,
+      formData,
+    });
+  }
+
+  /**
+   * Stream one assistant turn — a new message or a resumed one — into the
+   * messages array.
+   *
+   * @param {Object} parameters
+   * @param {Object} parameters._user Unused; kept for the existing signature.
+   * @param {Object} parameters.avatarForMessage The avatar being streamed.
+   * @param {string} parameters.threadId Thread being continued, or null.
+   * @param {string} parameters.path The endpoint to stream from.
+   * @param {FormData} parameters.formData The request body.
+   */
+  async function runAssistantTurnStream({
+    _user,
+    avatarForMessage,
+    threadId,
+    path,
+    formData,
+  }) {
+    const assistantId = resolveAssistantId(avatarForMessage);
+    const streamingMessageId = `streaming-${Date.now()}`;
+    // The turn keeps running wherever the user goes; only its rendering is
+    // conditional on that conversation still being the one on screen.
+    const isStillOnScreen = () =>
+      onScreenAssistantIdRef.current === assistantId;
+    const updateMessagesIfStillOnScreen = (updater) => {
+      if (isStillOnScreen()) {
+        setMessages(updater);
+      }
+    };
+    const setActivityIfStillOnScreen = (activity) => {
+      if (isStillOnScreen()) {
+        setAssistantActivity(activity);
+      }
+    };
 
     // The assistant message that the token stream grows. isLoading drives the
     // MessageList's typing indicator until the first token lands.
@@ -343,9 +415,7 @@ export const MediaProvider = ({ children }) => {
 
     let terminalFrame = null;
 
-    await streamServerSentEvents(
-      `/message/${encodeURIComponent(assistantId)}`,
-      {
+    await streamServerSentEvents(path, {
         method: 'POST',
         formData,
         onEvent: (streamEvent) => {
@@ -373,10 +443,38 @@ export const MediaProvider = ({ children }) => {
             );
           }
         },
-      }
-    );
+    });
 
     if (terminalFrame?.type === 'interrupt') {
+      // Finalize the bubble the tokens were streaming into, exactly as the
+      // `done` branch does. Without this the placeholder keeps `isLoading`
+      // forever and a paused turn leaves a typing indicator bouncing with no
+      // content and no way to answer.
+      //
+      // The interrupt rides on that message rather than living only in
+      // `pendingInterrupt` state, because the card it renders belongs to the
+      // moment in the conversation that raised it: attaching it to the message
+      // keeps it in place once the turn resumes and later messages arrive.
+      updateMessagesIfStillOnScreen((previousMessages) =>
+        previousMessages.map((message) =>
+          message.id === streamingMessageId
+            ? {
+                ...message,
+                isLoading: false,
+                interrupt: terminalFrame.interrupt ?? null,
+                interruptThreadId: terminalFrame.thread_id ?? threadId ?? null,
+                interruptAssistantId: assistantId,
+              }
+            : message
+        )
+      );
+      if (terminalFrame.thread_id) {
+        // A turn can pause before the thread has ever been seen here — a first
+        // message that immediately asks a question. Adopting the id now is what
+        // lets the resume address the right thread.
+        setActiveConversation(terminalFrame.thread_id);
+      }
+      // Still set, because this is what tells the composer a turn is waiting.
       setPendingInterrupt({
         threadId: terminalFrame.thread_id,
         assistantId,
@@ -670,6 +768,7 @@ export const MediaProvider = ({ children }) => {
         activeConversation,
         pendingInterrupt,
         setPendingInterrupt,
+        resumeTurn,
         assistantActivity,
         sendVoiceTurn,
         pendingSendCount,

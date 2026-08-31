@@ -31,7 +31,30 @@ const ChatArea = ({
     getActiveConversationMessages,
     setActiveConversation,
     resetConversationState,
+    resumeTurn,
   } = useMedia(); // messages is now a simple array
+  /**
+   * Answer a paused turn and stream the continuation.
+   *
+   * The card that raised the interrupt has already done whatever it needed to
+   * do — connecting an account, for one — so all that travels here is the
+   * decision. A resume value is persisted by the graph, which is exactly why
+   * nothing the owner typed may be carried in it.
+   */
+  const handleInterruptDecision = async ({ decision, threadId }) => {
+    if (!threadId || !activeAvatar) return;
+    try {
+      await resumeTurn({
+        avatarForMessage: activeAvatar,
+        threadId,
+        decision,
+      });
+    } catch (resumeError) {
+      console.error('Resuming the paused turn failed:', resumeError);
+      toast.error(resumeError?.message ?? 'Could not continue the conversation.');
+    }
+  };
+
   // The open avatar's portrait, shown beside its name. Avatar records carry no
   // imagery, so it comes from GET /avatar_reference_image like everywhere else.
   const [avatarPortrait, setAvatarPortrait] = useState(null);
@@ -305,6 +328,7 @@ const ChatArea = ({
                   messagesEndRef={messagesEndRef}
                   avatarPortrait={avatarPortrait}
                   avatarName={activeAvatar?.name}
+                  onInterruptDecision={handleInterruptDecision}
                 />
               </div>
             </div>

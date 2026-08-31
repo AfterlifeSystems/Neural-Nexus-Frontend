@@ -293,3 +293,86 @@ export const disconnectDataServer = async (deviceId) => {
     query: { device_id: deviceId },
   });
 };
+
+/**
+ * Connect one of the owner's email accounts to their personal avatar.
+ *
+ * The credential is proved against the real mail server before anything is
+ * stored, so a rejected password comes back as a 400 whose message names what
+ * went wrong while the connect card is still on screen. Surface that message as
+ * written rather than replacing it with a generic failure: for Gmail it is the
+ * only place the owner is told that an app password is required and that their
+ * account password will never work.
+ *
+ * Unlike most write endpoints in this file, this one reads a JSON body rather
+ * than query parameters — a password does not belong in a URL, where it would
+ * be recorded by proxies, browser history, and server access logs.
+ * POST /connect_mailbox
+ *
+ * @param {Object} parameters
+ * @param {string} [parameters.provider] Provider name. Defaults to `gmail`.
+ * @param {string} parameters.emailAddress The mailbox address to connect.
+ * @param {string} parameters.appPassword The provider-issued app password.
+ * @returns {Promise<Object>} `{connected, account}` — no secret in either.
+ */
+export const connectMailbox = async ({
+  provider = 'gmail',
+  emailAddress,
+  appPassword,
+}) => {
+  return requestJson('/connect_mailbox', {
+    method: 'POST',
+    body: {
+      provider,
+      email_address: emailAddress,
+      app_password: appPassword,
+    },
+  });
+};
+
+/**
+ * List the external accounts connected to the account's personal avatar.
+ *
+ * Each entry carries the provider, address, display label, kind, and status —
+ * never the password and never the stored ciphertext. An entry whose status is
+ * `needs_reconnect` has a credential the mail server has stopped accepting.
+ * GET /list_connected_accounts
+ *
+ * @returns {Promise<Object>} `{accounts}`.
+ */
+export const listConnectedAccounts = async () => {
+  return requestJson('/list_connected_accounts');
+};
+
+/**
+ * Disconnect one connected account and forget its stored credential.
+ *
+ * The account key is required. The endpoint has no "disconnect everything"
+ * mode on purpose, so a call that loses its argument cannot quietly wipe every
+ * account the owner has connected.
+ * DELETE /disconnect_account
+ *
+ * @param {string} accountKey The `provider:address` key to disconnect.
+ * @returns {Promise<Object>} The disconnect result.
+ */
+export const disconnectAccount = async (accountKey) => {
+  return requestJson('/disconnect_account', {
+    method: 'DELETE',
+    query: { account_key: accountKey },
+  });
+};
+
+/**
+ * Describe the accounts that can be connected, and the form each one needs.
+ *
+ * The same description the avatar raises as a card mid-conversation. Reading it
+ * from the API rather than hardcoding provider names, field labels, and help
+ * text here is what keeps the settings screen and the in-chat card from drifting
+ * into two different accounts of how to connect the same provider.
+ * GET /connectable_providers
+ *
+ * @returns {Promise<Object>} `{providers}`, each a connect-card description.
+ */
+export const listConnectableProviders = async () => {
+  return requestJson('/connectable_providers');
+};

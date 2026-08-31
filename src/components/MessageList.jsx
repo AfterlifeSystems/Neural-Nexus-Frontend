@@ -2,6 +2,7 @@
 import React, { useEffect } from 'react';
 import { User } from 'lucide-react';
 import SecureImage from './SecureImage';
+import ConnectAccountCard from './ConnectAccountCard';
 import { useMedia } from '../context/MediaContext';
 import { useAuth } from '../context/AuthContext';
 import { isValidImageUrl } from './utils';
@@ -28,7 +29,13 @@ const MessageAuthorIcon = ({ portrait, name }) => (
   </div>
 );
 
-const MessageList = ({ messages, messagesEndRef, avatarPortrait, avatarName }) => {
+const MessageList = ({
+  messages,
+  messagesEndRef,
+  avatarPortrait,
+  avatarName,
+  onInterruptDecision,
+}) => {
   const { assistantActivity } = useMedia();
   const { userPortrait } = useAuth();
 
@@ -55,8 +62,8 @@ const MessageList = ({ messages, messagesEndRef, avatarPortrait, avatarName }) =
             type === 'ai' || type === 'assistant' || type === 'avatar';
 
           return (
+            <React.Fragment key={messageKey}>
             <div
-              key={messageKey}
               className={`flex items-end gap-2 max-w-[85%] ${
                 isFromUser ? 'self-end flex-row-reverse' : 'self-start'
               }`}
@@ -145,6 +152,26 @@ const MessageList = ({ messages, messagesEndRef, avatarPortrait, avatarName }) =
               )}
               </div>
             </div>
+
+            {/* A paused turn renders its card beneath the message that raised
+                it, rather than in a modal: the question belongs to this point
+                in the conversation, and it stays readable once the turn
+                resumes and later messages arrive. Dispatching on `kind` is
+                what lets other interrupt types render here later without
+                touching this component. */}
+            {msg.interrupt?.kind === 'connect_account' && (
+              <ConnectAccountCard
+                interrupt={msg.interrupt}
+                onDecision={(decision) =>
+                  onInterruptDecision?.({
+                    decision,
+                    threadId: msg.interruptThreadId,
+                    assistantId: msg.interruptAssistantId,
+                  })
+                }
+              />
+            )}
+            </React.Fragment>
           );
         })}
 
