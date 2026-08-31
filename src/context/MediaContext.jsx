@@ -20,17 +20,10 @@ import { useAuth } from './AuthContext';
 
 import { toast } from 'react-hot-toast';
 import { requestJson, streamServerSentEvents } from '../services/neuralNexusApiClient';
+import { resolveAssistantId } from '../components/utils';
 
 const MediaContext = createContext();
 
-/**
- * The API's assistant records carry `assistant_id`, while older parts of this
- * frontend passed around `avatar_id` or nested the id under `metadata`. This
- * resolves whichever shape an avatar object arrives in.
- *
- * @param {Object} avatar An avatar/assistant record.
- * @returns {string|undefined} The assistant identifier.
- */
 /**
  * The conversation the user has started but not yet sent anything to.
  *
@@ -54,7 +47,40 @@ const ASSISTANT_ACTIVITY = {
   thinking: 'Thinking',
   responding: 'Responding',
   analyzing: 'Reflecting on the reply',
+  suggestingEdits: 'Suggesting edits',
 };
+
+/**
+ * Field names that only ever appear in the fact-correction tool's structured
+ * output (`ProposedFactEdit` on the server), never in something the avatar says.
+ */
+const INTERNAL_JSON_MARKERS = [
+  '"asserts_inaccurate_fact"',
+  '"corrected_text"',
+  '"corrected_context"',
+];
+
+/**
+ * Recognize model output that was never meant for the reader.
+ *
+ * While the graph works out how to correct a fact it emits its structured
+ * proposal through the SAME `assistant_token` channel the spoken reply uses, so
+ * a correction turn would otherwise paint raw JSON into the conversation before
+ * pausing. There is no separate channel and no flag on the frame to key on, so
+ * the text itself is the only available signal: a reply the avatar speaks does
+ * not open with a JSON delimiter, and never contains these field names.
+ *
+ * @param {string} textSoFar Everything streamed for this turn so far.
+ * @returns {boolean} True when the stream is carrying internal JSON.
+ */
+function streamedTextIsInternalJson(textSoFar) {
+  const text = textSoFar ?? '';
+  const firstCharacter = text.trimStart().slice(0, 1);
+  if (firstCharacter === '{' || firstCharacter === '[') {
+    return true;
+  }
+  return INTERNAL_JSON_MARKERS.some((marker) => text.includes(marker));
+}
 
 /**
  * Describe a paused turn awaiting the user's decision.
@@ -67,12 +93,6 @@ function describeInterrupt(interrupt) {
     return 'Waiting for your decision on connecting a data server';
   }
   return 'Waiting for your confirmation on a correction';
-}
-
-function resolveAssistantId(avatar) {
-  return (
-    avatar?.assistant_id ?? avatar?.avatar_id ?? avatar?.metadata?.assistant_id
-  );
 }
 
 /**
@@ -207,6 +227,10 @@ export const MediaProvider = ({ children }) => {
    */
   async function switchActiveConveration(_avatarForConversation, threadId) {
     setActiveConversation(threadId);
+    // A paused turn belongs to the thread it paused on. Carrying its panel into
+    // a different conversation would offer the user decisions about documents
+    // they are no longer looking at, and resume the wrong thread if acted on.
+    setPendingInterrupt(null);
     return threadId;
   }
 
@@ -258,29 +282,34 @@ export const MediaProvider = ({ children }) => {
   }
 
   /**
-   * Send one message and stream the reply into the messages array.
-   * POST /message/{assistant_id} with stream=true.
+   * Stream one assistant turn into the messages array.
    *
-   * The server-sent event sequence is: an optional `usage_estimate` frame,
-   * `assistant_token` frames that each carry a text fragment, and a terminal
-   * `done` frame with the authoritative full content and the thread_id (the
-   * server creates the thread when none is passed) — or an `interrupt` frame
-   * when the graph pauses for human approval.
+   * Both ways a turn can start — a fresh message, or resuming a turn that
+   * paused for the user's approval — produce the SAME server-sent event
+   * sequence and need the same handling of it, so the lifecycle lives here once
+   * and each entry point supplies only its own path and body.
    *
-   * @param {Object} _user Unused; kept for the existing call signature.
-   * @param {Object} avatarForMessage The avatar to message.
-   * @param {string} threadId Thread to continue, or null to start a new one.
-   * @param {string} messageContent The user's message text.
-   * @param {File[]} [attachedFiles] Files to attach to this turn.
+   * The sequence is: an optional `usage_estimate` frame, `assistant_token`
+   * frames that each carry a text fragment, and a terminal `done` frame with
+   * the authoritative full content and the thread_id (the server creates the
+   * thread when none is passed) — or an `interrupt` frame when the graph pauses
+   * for human approval.
+   *
+   * @param {Object} turn
+   * @param {string} turn.assistantId The avatar this turn belongs to.
+   * @param {string} turn.path Endpoint to stream from.
+   * @param {FormData} turn.formData The request body.
+   * @param {Object} turn.avatarForTurn The avatar record, for re-listing threads.
+   * @param {string|null} turn.previousThreadId Thread before this turn, or null.
+   * @returns {Promise<{success: boolean, reply: string, threadId: string|null}>}
    */
-  async function sendMessageAwaitResponseUpdateMessages(
-    _user,
-    avatarForMessage,
-    threadId,
-    messageContent,
-    attachedFiles = []
-  ) {
-    const assistantId = resolveAssistantId(avatarForMessage);
+  async function streamAssistantTurn({
+    assistantId,
+    path,
+    formData,
+    avatarForTurn,
+    previousThreadId,
+  }) {
     const streamingMessageId = `streaming-${Date.now()}`;
     // The turn keeps running wherever the user goes; only its rendering is
     // conditional on that conversation still being the one on screen.
@@ -297,23 +326,6 @@ export const MediaProvider = ({ children }) => {
       }
     };
 
-    const formData = new FormData();
-    formData.append('message', messageContent);
-    formData.append('stream', 'true');
-    // The sentinel names a conversation the server has never heard of; sending
-    // it would ask the API to continue a thread that does not exist. Omitting
-    // thread_id is exactly how a new conversation is requested.
-    if (threadId && threadId !== NEW_CONVERSATION_ID) {
-      formData.append('thread_id', threadId);
-    }
-    for (const attachedFile of attachedFiles) {
-      formData.append('files', attachedFile);
-    }
-    const userTimezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
-    if (userTimezone) {
-      formData.append('user_timezone', userTimezone);
-    }
-
     // The assistant message that the token stream grows. isLoading drives the
     // MessageList's typing indicator until the first token lands.
     updateMessagesIfStillOnScreen((previousMessages) => [
@@ -327,7 +339,26 @@ export const MediaProvider = ({ children }) => {
       },
     ]);
 
+    // Everything streamed so far, whether or not it was shown. The suppression
+    // test reads the accumulated text rather than each fragment: the structured
+    // output arrives in pieces, and a piece from the middle of it looks like
+    // ordinary prose on its own.
+    let streamedText = '';
+    let turnStreamedInternalJson = false;
+
     const appendTokenToStreamingMessage = (tokenText) => {
+      streamedText += tokenText;
+      if (
+        turnStreamedInternalJson ||
+        streamedTextIsInternalJson(streamedText)
+      ) {
+        // Latched for the rest of the turn: once the stream is known to be
+        // carrying the correction tool's proposal, no later fragment of it
+        // should reach the transcript either.
+        turnStreamedInternalJson = true;
+        setActivityIfStillOnScreen(ASSISTANT_ACTIVITY.suggestingEdits);
+        return;
+      }
       updateMessagesIfStillOnScreen((previousMessages) =>
         previousMessages.map((message) =>
           message.id === streamingMessageId
@@ -339,52 +370,70 @@ export const MediaProvider = ({ children }) => {
             : message
         )
       );
+      setActivityIfStillOnScreen(ASSISTANT_ACTIVITY.responding);
     };
 
     let terminalFrame = null;
 
-    await streamServerSentEvents(
-      `/message/${encodeURIComponent(assistantId)}`,
-      {
-        method: 'POST',
-        formData,
-        onEvent: (streamEvent) => {
-          if (streamEvent.type === 'assistant_token') {
-            appendTokenToStreamingMessage(streamEvent.text ?? '');
-            setActivityIfStillOnScreen(ASSISTANT_ACTIVITY.responding);
-          } else if (streamEvent.type === 'usage_estimate') {
-            // The first frame of a turn: the request has been costed and the
-            // model has not started speaking yet.
-            setActivityIfStillOnScreen(ASSISTANT_ACTIVITY.thinking);
-          } else if (streamEvent.type === 'keepalive_comment') {
-            // Tokens have stopped but the turn has not: the server keeps this
-            // line open while it runs its post-reply analysis.
-            setActivityIfStillOnScreen(ASSISTANT_ACTIVITY.analyzing);
-          } else if (
-            streamEvent.type === 'done' ||
+    await streamServerSentEvents(path, {
+      method: 'POST',
+      formData,
+      onEvent: (streamEvent) => {
+        if (streamEvent.type === 'assistant_token') {
+          appendTokenToStreamingMessage(streamEvent.text ?? '');
+        } else if (streamEvent.type === 'usage_estimate') {
+          // The first frame of a turn: the request has been costed and the
+          // model has not started speaking yet.
+          setActivityIfStillOnScreen(ASSISTANT_ACTIVITY.thinking);
+        } else if (streamEvent.type === 'keepalive_comment') {
+          // Tokens have stopped but the turn has not: the server keeps this
+          // line open while it runs its post-reply analysis.
+          setActivityIfStillOnScreen(ASSISTANT_ACTIVITY.analyzing);
+        } else if (
+          streamEvent.type === 'done' ||
+          streamEvent.type === 'interrupt'
+        ) {
+          terminalFrame = streamEvent;
+          turnPausedForUserRef.current = streamEvent.type === 'interrupt';
+          setActivityIfStillOnScreen(
             streamEvent.type === 'interrupt'
-          ) {
-            terminalFrame = streamEvent;
-            turnPausedForUserRef.current = streamEvent.type === 'interrupt';
-            setActivityIfStillOnScreen(
-              streamEvent.type === 'interrupt'
-                ? describeInterrupt(streamEvent.interrupt)
-                : null
-            );
-          }
-        },
-      }
-    );
+              ? describeInterrupt(streamEvent.interrupt)
+              : null
+          );
+        }
+      },
+    });
 
     if (terminalFrame?.type === 'interrupt') {
+      // A paused turn has no assistant message: the approval panel IS its
+      // output. Whatever the avatar managed to say before pausing is kept, but
+      // a placeholder holding nothing readable — the usual case, because the
+      // only thing streamed was the suppressed proposal — is dropped rather
+      // than left showing a typing indicator that can never resolve.
+      updateMessagesIfStillOnScreen((previousMessages) =>
+        previousMessages
+          .map((message) =>
+            message.id === streamingMessageId
+              ? { ...message, isLoading: false }
+              : message
+          )
+          .filter(
+            (message) =>
+              message.id !== streamingMessageId ||
+              (message.content ?? '').trim() !== ''
+          )
+      );
+      // The correction may have been raised on a thread the server minted for
+      // this very turn. Adopting it is what makes the resume addressable.
+      if (terminalFrame.thread_id) {
+        setActiveConversation(terminalFrame.thread_id);
+      }
       setPendingInterrupt({
         threadId: terminalFrame.thread_id,
         assistantId,
         interrupt: terminalFrame.interrupt,
       });
-    }
-
-    if (terminalFrame?.type === 'done') {
+    } else if (terminalFrame?.type === 'done') {
       // Adopt the authoritative content and metadata from the terminal frame;
       // the token stream is a preview, `done.content` is the record.
       updateMessagesIfStillOnScreen((previousMessages) =>
@@ -400,18 +449,18 @@ export const MediaProvider = ({ children }) => {
         )
       );
       if (terminalFrame.thread_id) {
-        const wasNewConversation = threadId !== terminalFrame.thread_id;
+        const wasNewConversation = previousThreadId !== terminalFrame.thread_id;
         setActiveConversation(terminalFrame.thread_id);
         if (wasNewConversation) {
           // The server just minted this conversation. Re-listing is what moves
           // it from the placeholder in the sidebar to a real entry the user can
           // return to; without it the conversation exists but cannot be found.
-          getConversationList(_user, avatarForMessage).catch((listError) => {
+          getConversationList(null, avatarForTurn).catch((listError) => {
             console.error('Refreshing the conversation list failed:', listError);
           });
         }
       }
-    } else if (!terminalFrame) {
+    } else {
       // The stream ended without a terminal frame — surface whatever tokens
       // arrived, but warn, because the reply may be truncated.
       updateMessagesIfStillOnScreen((previousMessages) =>
@@ -432,6 +481,130 @@ export const MediaProvider = ({ children }) => {
       reply: terminalFrame?.content ?? '',
       threadId: terminalFrame?.thread_id ?? null,
     };
+  }
+
+  /**
+   * Send one message and stream the reply into the messages array.
+   * POST /message/{assistant_id} with stream=true.
+   *
+   * @param {Object} _user Unused; kept for the existing call signature.
+   * @param {Object} avatarForMessage The avatar to message.
+   * @param {string} threadId Thread to continue, or null to start a new one.
+   * @param {string} messageContent The user's message text.
+   * @param {File[]} [attachedFiles] Files to attach to this turn.
+   */
+  async function sendMessageAwaitResponseUpdateMessages(
+    _user,
+    avatarForMessage,
+    threadId,
+    messageContent,
+    attachedFiles = []
+  ) {
+    const assistantId = resolveAssistantId(avatarForMessage);
+
+    const formData = new FormData();
+    formData.append('message', messageContent);
+    formData.append('stream', 'true');
+    // The sentinel names a conversation the server has never heard of; sending
+    // it would ask the API to continue a thread that does not exist. Omitting
+    // thread_id is exactly how a new conversation is requested.
+    if (threadId && threadId !== NEW_CONVERSATION_ID) {
+      formData.append('thread_id', threadId);
+    }
+    for (const attachedFile of attachedFiles) {
+      formData.append('files', attachedFile);
+    }
+    const userTimezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+    if (userTimezone) {
+      formData.append('user_timezone', userTimezone);
+    }
+
+    return streamAssistantTurn({
+      assistantId,
+      path: `/message/${encodeURIComponent(assistantId)}`,
+      formData,
+      avatarForTurn: avatarForMessage,
+      previousThreadId: threadId,
+    });
+  }
+
+  /**
+   * Answer the question a paused turn asked, and stream the continuation.
+   * POST /message/{assistant_id}/resume
+   *
+   * The graph pauses whenever it wants the owner's decision — which documents a
+   * fact correction should rewrite or remove, or whether to connect a data
+   * server. Until this is called the run stays parked on the server and the
+   * conversation cannot move on, so every path that opens the panel must end
+   * here.
+   *
+   * @param {string} decision `'apply'` to carry the decisions out, `'cancel'`
+   *   to abandon the whole thing and change nothing.
+   * @param {Array} [items] Per-document decisions, for a fact correction. Each
+   *   entry is `{index, action, corrected_text, correction_context}` where
+   *   `action` is `'accept'`, `'remove'`, or `'skip'`. Any matched document not
+   *   named here is skipped by the server, so omitting this changes nothing.
+   * @returns {Promise<{success: boolean, reply: string, threadId: string|null}>}
+   */
+  async function resumePendingInterrupt(decision, items) {
+    const interruptToResume = pendingInterrupt;
+    if (!interruptToResume) {
+      return { success: false, reply: '', threadId: null };
+    }
+
+    const formData = new FormData();
+    formData.append('thread_id', interruptToResume.threadId);
+    formData.append('decision', decision);
+    if (items) {
+      // The API takes the per-document decisions as ONE form field holding a
+      // JSON list, not as repeated fields.
+      formData.append('items', JSON.stringify(items));
+    }
+    const userTimezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+    if (userTimezone) {
+      formData.append('user_timezone', userTimezone);
+    }
+
+    // Close the panel before streaming rather than after. The decision has been
+    // made, and the continuation may pause again on a second correction — which
+    // re-arms this with the NEW interrupt, so clearing it afterwards would
+    // discard the follow-up question instead of the one just answered.
+    setPendingInterrupt(null);
+
+    try {
+      turnPausedForUserRef.current = false;
+      setPendingSendCount((count) => count + 1);
+      setAssistantActivity(ASSISTANT_ACTIVITY.thinking);
+
+      return await streamAssistantTurn({
+        assistantId: interruptToResume.assistantId,
+        path: `/message/${encodeURIComponent(
+          interruptToResume.assistantId
+        )}/resume`,
+        formData,
+        avatarForTurn: activeAvatar,
+        previousThreadId: interruptToResume.threadId,
+      });
+    } catch (resumeError) {
+      console.error('Failed to resume the paused turn:', resumeError);
+      setMessages((previousMessages) =>
+        previousMessages.filter(
+          (message) => !message.id?.startsWith('streaming-')
+        )
+      );
+      // The server still has the run parked, so putting the panel back is what
+      // lets the user try again instead of stranding the correction.
+      setPendingInterrupt(interruptToResume);
+      toast.error(
+        resumeError.message || 'Failed to send your decision. Please try again.'
+      );
+      return { success: false, reply: '', threadId: null };
+    } finally {
+      setPendingSendCount((count) => Math.max(0, count - 1));
+      if (!turnPausedForUserRef.current) {
+        setAssistantActivity(null);
+      }
+    }
   }
 
   async function handleSendMessageMediaContext() {
@@ -670,6 +843,7 @@ export const MediaProvider = ({ children }) => {
         activeConversation,
         pendingInterrupt,
         setPendingInterrupt,
+        resumePendingInterrupt,
         assistantActivity,
         sendVoiceTurn,
         pendingSendCount,

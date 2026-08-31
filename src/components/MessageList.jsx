@@ -2,6 +2,7 @@
 import React, { useEffect } from 'react';
 import { User } from 'lucide-react';
 import SecureImage from './SecureImage';
+import InterruptPanel from './InterruptPanel';
 import { useMedia } from '../context/MediaContext';
 import { useAuth } from '../context/AuthContext';
 import { isValidImageUrl } from './utils';
@@ -147,6 +148,12 @@ const MessageList = ({ messages, messagesEndRef, avatarPortrait, avatarName }) =
             </div>
           );
         })}
+
+      {/* The question a paused turn is asking, if one is. This sits where the
+          assistant's next message would have gone, because that is what it
+          stands in for: the turn produced this instead of a reply, and cannot
+          continue until it is answered. */}
+      <InterruptPanel />
 
       {/* What the avatar is doing, for as long as it is doing it.
           This sits outside the message bubbles on purpose. The bouncing-dots
