@@ -61,3 +61,14 @@ export const forgetCachedAvatar = (avatarId) => {
     console.error('Failed to clear cached avatar state:', cacheError);
   }
 };
+
+/**
+ * The API's assistant records carry `assistant_id`, while older parts of this
+ * frontend passed around `avatar_id` or nested the id under `metadata`. This
+ * resolves whichever shape an avatar object arrives in.
+ *
+ * @param {Object} avatar An avatar/assistant record.
+ * @returns {string|undefined} The assistant identifier.
+ */
+export const resolveAssistantId = (avatar) =>
+  avatar?.assistant_id ?? avatar?.avatar_id ?? avatar?.metadata?.assistant_id;
