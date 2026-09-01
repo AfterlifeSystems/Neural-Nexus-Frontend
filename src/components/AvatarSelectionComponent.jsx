@@ -1,14 +1,12 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { toast } from 'react-hot-toast';
-import { useNavigate, useLocation } from 'react-router-dom';
+import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import CircularGallery from './CircularGallery';
 import {
   Search,
-  Settings,
   CirclePlus,
   LogOut,
-  X,
   Edit,
   User,
 } from 'lucide-react';
@@ -17,18 +15,45 @@ import CreateAvatarComponent from './CreateAvatarComponent';
 import CreateAvatarModal from './CreateAvatarModal';
 import AvatarCardComponent from './AvatarCardComponent';
 import LoadingSpinner from './LoadingSpinner';
-import AccountMenu from './AccountMenu';
+import UserSettingsMenu from './UserSettingsMenu';
+import {
+  readCachedAvatarIcons,
+  writeCachedAvatarIcon,
+  forgetCachedAvatarIcon,
+  resolveAssistantId,
+} from './utils';
 import { useMedia } from '../context/MediaContext';
 import {
-  selectAvatar,
   getAvatarReferenceImage,
   listUserAvatars,
 } from '../services/avatarService';
 
+/**
+ * Whether two avatar lists say the same thing.
+ *
+ * The gallery is a WebGL scene that CircularGallery rebuilds from scratch
+ * whenever the identity of its `items` array changes, and a rebuild shows as a
+ * black frame before the cards are drawn again. Handing it a freshly parsed
+ * copy of a list it is already displaying therefore costs a visible flash and
+ * buys nothing, so the refresh below replaces the list only when the server
+ * actually disagrees with what is on screen.
+ *
+ * Serialising is sound here because both lists come from the same endpoint and
+ * are parsed by the same JSON parser, so equal content serialises identically.
+ *
+ * @param {Array} freshAvatars The list just read from the API.
+ * @param {Array} displayedAvatars The list the gallery is currently showing.
+ * @returns {boolean} True when replacing one with the other would change nothing.
+ */
+function describesTheSameAvatars(freshAvatars, displayedAvatars) {
+  return (
+    JSON.stringify(freshAvatars ?? []) === JSON.stringify(displayedAvatars ?? [])
+  );
+}
+
 const AvatarSelectionComponent = ({}) => {
   const {
     user,
-    profile,
     userAvatars,
     setUserAvatars,
     setActiveAvatar,
@@ -37,55 +62,80 @@ const AvatarSelectionComponent = ({}) => {
 
   const { setActiveConversation } = useMedia();
   const navigate = useNavigate();
-  const location = useLocation();
   const [currentCardIndex, setCurrentCardIndex] = useState(0);
   const [searchQuery, setSearchQuery] = useState('');
   const [suggestions, setSuggestions] = useState([]);
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
   const [highlightedIndex, setHighlightedIndex] = useState(-1);
-  const [dropdownOpen, setDropdownOpen] = useState(false);
   const galleryRef = useRef(null);
   const searchRef = useRef(null);
-  const dropdownRef = useRef(null);
   const hasInitialized = useRef(false);
   const [showCreateModal, setShowCreateModal] = useState(false);
   // Avatar portraits fetched from GET /avatar_reference_image, keyed by
   // assistant_id. The API returns a data URI or URL string per avatar.
-  const [avatarIconsById, setAvatarIconsById] = useState({});
+  //
+  // Seeded from what this browser already has, so a returning visitor sees the
+  // gallery filled on the first frame rather than a ring of placeholders that
+  // fills in a second later. The seed is whatever was true last visit; the
+  // effect below re-asks the API and corrects anything that changed.
+  const [avatarIconsById, setAvatarIconsById] = useState(readCachedAvatarIcons);
   // True only while the first load of the list is in flight — the gallery is
   // a WebGL canvas that renders an empty ring until avatars arrive, which is
   // indistinguishable from an account that has none.
   const [isLoadingAvatars, setIsLoadingAvatars] = useState(false);
 
-  // Load each avatar's portrait from the API. Fetched once per avatar list
-  // change; avatars without a stored reference image simply keep no entry.
+  // Revalidate each avatar's portrait against the API.
+  //
+  // Each request lands on its own rather than behind a Promise.all: the old
+  // barrier meant one slow portrait held back every other, so a gallery of ten
+  // showed nothing until the last one arrived. State is replaced only when a
+  // portrait actually differs from what is already on screen, so revalidating a
+  // cache that is still correct causes no re-render and no flicker.
   useEffect(() => {
+    if (!Array.isArray(userAvatars) || userAvatars.length === 0) {
+      return undefined;
+    }
     let cancelled = false;
-    const loadAvatarIcons = async () => {
-      if (!Array.isArray(userAvatars) || userAvatars.length === 0) {
-        return;
-      }
-      const iconEntries = await Promise.all(
-        userAvatars.map(async (avatar) => {
-          const assistantId = avatar.assistant_id ?? avatar.avatar_id;
-          if (!assistantId) {
-            return null;
-          }
-          try {
-            const iconSource = await getAvatarReferenceImage(assistantId);
-            return iconSource ? [assistantId, iconSource] : null;
-          } catch {
-            return null;
-          }
-        })
-      );
-      if (!cancelled) {
-        setAvatarIconsById(
-          Object.fromEntries(iconEntries.filter((entry) => entry !== null))
-        );
-      }
-    };
-    loadAvatarIcons();
+
+    for (const avatar of userAvatars) {
+      const assistantId = resolveAssistantId(avatar);
+      if (!assistantId) continue;
+
+      (async () => {
+        let iconSource;
+        try {
+          iconSource = await getAvatarReferenceImage(assistantId);
+        } catch {
+          // The API could not be reached. Whatever is cached is the best thing
+          // available, so it stays: blanking a portrait over a dropped request
+          // looks like the avatar lost its likeness.
+          return;
+        }
+        if (cancelled) return;
+
+        if (iconSource) {
+          writeCachedAvatarIcon(assistantId, iconSource);
+          setAvatarIconsById((previousIcons) =>
+            previousIcons[assistantId] === iconSource
+              ? previousIcons
+              : { ...previousIcons, [assistantId]: iconSource }
+          );
+          return;
+        }
+
+        // The API answered, and the answer is that this avatar has no portrait.
+        // That is not a stale cache entry, it is a wrong one — the portrait was
+        // removed — so it goes rather than lingering until the next deletion.
+        forgetCachedAvatarIcon(assistantId);
+        setAvatarIconsById((previousIcons) => {
+          if (!(assistantId in previousIcons)) return previousIcons;
+          const remainingIcons = { ...previousIcons };
+          delete remainingIcons[assistantId];
+          return remainingIcons;
+        });
+      })();
+    }
+
     return () => {
       cancelled = true;
     };
@@ -98,15 +148,21 @@ const AvatarSelectionComponent = ({}) => {
     return /^(https?:\/\/|\/)/.test(urlLink);
   };
 
-  const clearOtherAvatarCache = (currentAvatarId) => {
+  // Forget where every OTHER avatar sat in the gallery.
+  //
+  // Only positions. This used to clear the cached portraits too, which made the
+  // portrait cache useless for the screen that needs it most: opening one avatar
+  // evicted the other nine, so returning to the gallery re-fetched almost every
+  // portrait and showed placeholders while it did. A position is about the one
+  // avatar being resumed and is right to narrow to it; a portrait is worth
+  // keeping for every avatar the user owns.
+  const clearOtherAvatarPositions = (currentAvatarId) => {
     try {
       const keysToRemove = [];
       for (let i = 0; i < localStorage.length; i++) {
         const key = localStorage.key(i);
         if (
-          (key.startsWith('avatar_icon_') ||
-            key.startsWith('avatar_position_')) &&
-          key !== `avatar_icon_${currentAvatarId}` &&
+          key.startsWith('avatar_position_') &&
           key !== `avatar_position_${currentAvatarId}`
         ) {
           keysToRemove.push(key);
@@ -114,7 +170,7 @@ const AvatarSelectionComponent = ({}) => {
       }
       keysToRemove.forEach((key) => localStorage.removeItem(key));
     } catch (error) {
-      console.error('Failed to clear other avatar cache:', error);
+      console.error('Failed to clear other avatar positions:', error);
     }
   };
 
@@ -141,12 +197,14 @@ const AvatarSelectionComponent = ({}) => {
 
   const cacheAvatarIcon = (avatarId, iconUrl, avatarIndex = null) => {
     if (iconUrl) {
+      clearOtherAvatarPositions(avatarId);
+      // One writer for the portrait cache, shared with the gallery's
+      // revalidation, so the key shape is defined in exactly one place.
+      writeCachedAvatarIcon(avatarId, iconUrl);
       try {
-        clearOtherAvatarCache(avatarId);
-        localStorage.setItem(`avatar_icon_${avatarId}`, iconUrl);
         localStorage.setItem('last_avatar_icon', iconUrl);
       } catch (error) {
-        console.error('Failed to cache avatar icon:', error);
+        console.error('Failed to record the last avatar icon:', error);
       }
     }
     cacheAvatarPosition(avatarId, avatarIndex);
@@ -194,15 +252,10 @@ const AvatarSelectionComponent = ({}) => {
       if (selectedAvatarIcon) {
         cacheAvatarIcon(avatarId, selectedAvatarIcon, avatarIndex);
       }
+      // Choosing an avatar is now purely a client-side decision: every endpoint
+      // that acts on an avatar takes its assistant_id in the request, so there
+      // is nothing to register server-side before navigating.
       setActiveAvatar(selectedAvatar);
-
-      // Register the selection server-side: /list_avatar_documents and
-      // /delete_avatar_document operate on the avatar selected through
-      // POST /select_avatar, not on a request parameter. Not fatal on
-      // failure — chatting addresses the avatar by id in the URL path.
-      selectAvatar(avatarId).catch((selectError) => {
-        console.error('Server-side avatar selection failed:', selectError);
-      });
 
       // build context for the conversation
       const context = {
@@ -312,7 +365,7 @@ const AvatarSelectionComponent = ({}) => {
     (async () => {
       try {
         const freshAvatars = await listUserAvatars();
-        if (isCurrentRequest) {
+        if (isCurrentRequest && !describesTheSameAvatars(freshAvatars, userAvatars)) {
           setUserAvatars(freshAvatars ?? []);
         }
       } catch (listError) {
@@ -377,9 +430,6 @@ const AvatarSelectionComponent = ({}) => {
 
   useEffect(() => {
     const handleClickOutside = (e) => {
-      if (dropdownRef.current && !dropdownRef.current.contains(e.target)) {
-        setDropdownOpen(false);
-      }
       if (searchRef.current && !searchRef.current.contains(e.target)) {
         setIsDropdownOpen(false);
         setHighlightedIndex(-1);
@@ -541,14 +591,36 @@ const AvatarSelectionComponent = ({}) => {
     setIsDropdownOpen(true);
   };
 
+  /**
+   * Act on a suggestion picked out of the search dropdown.
+   *
+   * Picking an avatar by name IS choosing it: the search box exists to reach an
+   * avatar without scrolling the gallery to it, and stopping at "the gallery is
+   * now pointed at it" made the search the slower of the two ways in — the user
+   * still had to find and press the card the search had just located. So the
+   * card's own action is run, exactly as if it had been clicked in the gallery:
+   * an avatar opens its chat, and the Create Avatar entry opens the create
+   * dialog.
+   *
+   * The gallery is still moved first. Navigation unmounts this screen, but
+   * coming back to it should find the gallery where the user left it, on the
+   * avatar they chose, rather than back where it was before they searched.
+   *
+   * @param {number} index Position in `authenticatedCards`, carried on the
+   *   suggestion as `originalIndex`.
+   */
   const handleSuggestionSelect = (index) => {
+    const selectedCard = authenticatedCards[index];
     setCurrentCardIndex(index);
     if (galleryRef.current) {
       galleryRef.current.setCurrentIndex(index);
     }
-    setSearchQuery(authenticatedCards[index]?.text || '');
+    setSearchQuery(selectedCard?.text || '');
     setIsDropdownOpen(false);
     setHighlightedIndex(-1);
+    if (selectedCard) {
+      handleClick(selectedCard);
+    }
   };
 
   const handleKeyDown = (e) => {
@@ -571,9 +643,6 @@ const AvatarSelectionComponent = ({}) => {
 
   useEffect(() => {
     const handleClickOutside = (e) => {
-      if (dropdownRef.current && !dropdownRef.current.contains(e.target)) {
-        setDropdownOpen(false);
-      }
       if (searchRef.current && !searchRef.current.contains(e.target)) {
         setIsDropdownOpen(false);
         setHighlightedIndex(-1);
@@ -684,10 +753,7 @@ const AvatarSelectionComponent = ({}) => {
             onIndexChange={setCurrentCardIndex}
           />
         </div>
-        <div
-          className="flex flex-col items-center w-full gap-2 z-10"
-          ref={dropdownRef}
-        >
+        <div className="flex flex-col items-center w-full gap-2 z-10">
           {/* <button
               onClick={handleCustomizeAvatar}
               className="bg-white/10 rounded-lg border border-white/20 py-2 px-4 text-white hover:bg-white/15 transition-all duration-300 flex items-center gap-2"
@@ -812,18 +878,11 @@ const AvatarSelectionComponent = ({}) => {
               </svg>
             </button>
           </div>
-          <div className="min-h-[40px] w-full flex justify-center items-center gap-2 mb-8">
+          <div className="mb-8 w-full flex flex-col items-center gap-2">
+            {/* The gallery is already on screen here, so the leading entry goes
+                to the settings of the avatar that depicts the user instead. */}
+            <UserSettingsMenu leadingAction="personalAvatar" />
             <div className="relative w-48">
-              <button
-                onClick={() => setDropdownOpen((open) => !open)}
-                className="bg-white/10 rounded-lg border border-white/20 py-2 px-4 text-white hover:bg-white/15 transition-all duration-300 flex items-center gap-2 w-full"
-                aria-haspopup="true"
-                aria-expanded={dropdownOpen}
-                aria-controls="user-menu"
-              >
-                <Settings className="w-6 h-6" />
-                User Settings
-              </button>
               {/* // Add this button temporarily to your AvatarSettings component */}
               {import.meta.env.VITE_TESTING === 'true' && (
                 <button
@@ -853,37 +912,6 @@ const AvatarSelectionComponent = ({}) => {
                 >
                   Test Promise Toast
                 </button>
-              )}
-              {dropdownOpen && (
-                <div
-                  id="user-menu"
-                  type="menu"
-                  className="absolute bottom-[50px] w-full mt-2 right-0 backdrop-blur-lg bg-white/10 rounded-md shadow-lg ring-1 ring-black ring-opacity-5 focus:outline-none z-50"
-                >
-                  <div className="flex justify-between items-center px-4 py-2 border-b border-white/20">
-                    <span className="text-white text-sm font-semibold">
-                      {profile?.username}
-                    </span>
-                    <button
-                      onClick={() => setDropdownOpen(false)}
-                      className="text-white hover:text-red-500"
-                      aria-label="Close menu"
-                    >
-                      <X className="w-4 h-4" />
-                    </button>
-                  </div>
-                  {/* The same actions the sidebar offers, from the same
-                      component, so the two can never drift apart. The gallery
-                      is already on screen here, so the leading entry goes to
-                      the settings of the avatar that depicts the user instead. */}
-                  <div className="p-2 space-y-1">
-                    <AccountMenu
-                      leadingAction="personalAvatar"
-                      onNavigate={() => setDropdownOpen(false)}
-                      currentPath={location.pathname}
-                    />
-                  </div>
-                </div>
               )}
             </div>
           </div>

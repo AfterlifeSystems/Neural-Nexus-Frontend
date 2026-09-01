@@ -9,12 +9,13 @@
 
 import React from 'react';
 import { MessageSquarePlus, X, PanelLeftOpen, User } from 'lucide-react';
-import { useLocation } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
 
 import { NEW_CONVERSATION_ID } from '../context/MediaContext';
 import { useAuth } from '../context/AuthContext';
 import { isValidImageUrl } from './utils';
 import AccountMenu from './AccountMenu';
+import qrCode from '../assets/qr-neuralnexus.png';
 
 /**
  * Name a conversation the way the user would recognize it.
@@ -69,7 +70,13 @@ const ConversationSidebar = ({
   showConversations = true,
 }) => {
   const location = useLocation();
+  const navigate = useNavigate();
   const { user, userPortrait } = useAuth();
+
+  const openWelcomePage = () => {
+    onClose?.();
+    navigate('/welcome');
+  };
 
   // The unsent conversation is not in the server's list, so it is prepended
   // here — otherwise starting one would empty the panel's selection.
@@ -104,6 +111,27 @@ const ConversationSidebar = ({
             title="Open the sidebar"
           >
             <PanelLeftOpen className="w-5 h-5" />
+          </button>
+
+          {/* The code stays reachable while the sidebar is collapsed: `mt-auto`
+              seats it at the foot of the rail, which is the one part of the
+              edge nothing else occupies. It used to float over the page here,
+              where on a narrow window it covered the composer's send button. */}
+          <button
+            onClick={openWelcomePage}
+            className="mt-auto shrink-0 p-1 rounded-lg opacity-70 hover:opacity-100 hover:bg-white/10 transition-all duration-300 focus:outline-none focus:ring-2 focus:ring-teal-400 focus:opacity-100"
+            aria-label="Neural Nexus — scan or open the welcome page"
+            title="Scan to share Neural Nexus, or press to open the welcome page"
+          >
+            <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-md bg-white p-1">
+              <img
+                src={qrCode}
+                alt="QR code linking to Neural Nexus"
+                width={36}
+                height={36}
+                className="block h-9 w-9 max-w-none shrink-0"
+              />
+            </span>
           </button>
         </div>
       )}
@@ -207,6 +235,31 @@ const ConversationSidebar = ({
             </>
           )}
 
+          {/* Opened, the code is shown at a size worth pointing a phone at.
+              `mt-auto` holds it at the foot of the panel on the screens that
+              list no conversations — account settings, billing, the gallery —
+              where nothing above it grows to fill the space. */}
+          <div className="mt-auto shrink-0 pt-4 border-t border-white/10 flex flex-col items-center gap-2">
+            <button
+              onClick={openWelcomePage}
+              className="rounded-xl p-2 bg-white/5 border border-white/10 hover:border-teal-400/40 hover:bg-white/10 transition-colors focus:outline-none focus:ring-2 focus:ring-teal-400"
+              aria-label="Neural Nexus — scan or open the welcome page"
+              title="Scan to share Neural Nexus, or press to open the welcome page"
+            >
+              <span className="flex h-32 w-32 shrink-0 items-center justify-center rounded-lg bg-white p-2">
+                <img
+                  src={qrCode}
+                  alt="QR code linking to Neural Nexus"
+                  width={112}
+                  height={112}
+                  className="block h-28 w-28 max-w-none shrink-0"
+                />
+              </span>
+            </button>
+            <span className="text-xs text-white/40">
+              Scan to share Neural Nexus
+            </span>
+          </div>
         </div>
       </div>
     </>

@@ -121,37 +121,28 @@ export const deleteAvatar = async (assistantId) => {
 };
 
 /**
- * Select an avatar as the account's active avatar.
- *
- * This is not a cosmetic preference: /list_avatar_documents and
- * /delete_avatar_document take no assistant_id and operate on the avatar
- * selected HERE, server-side. Any screen that touches an avatar's documents
- * must run this first and must not assume an earlier selection survived —
- * the selection is per-account global state another tab can change.
- * POST /select_avatar
- *
- * @param {string} assistantId The avatar to select.
- * @returns {Promise<Object>} The assistant configuration now active.
- */
-export const selectAvatar = async (assistantId) => {
-  return requestJson('/select_avatar', {
-    method: 'POST',
-    query: { assistant_id: assistantId },
-  });
-};
-
-/**
  * Fetch the stored reference image for an avatar, for use as the avatar's
  * icon. The response is a data URI or an image URL string, directly usable as
  * an <img src>.
  * GET /avatar_reference_image
  *
  * @param {string} assistantId The avatar whose portrait to fetch.
+ * @param {Object} [options]
+ * @param {boolean} [options.asAnonymousIdentity] Ask as the anonymous visitor,
+ *   withholding any credential this browser holds. The portrait itself is the
+ *   same either way — the endpoint reads the avatar owner's namespace, not the
+ *   caller's — but a shared avatar's public chat must reach the API as the
+ *   visitor on every request it makes, not only on the ones whose answer would
+ *   otherwise differ.
  * @returns {Promise<string|null>} A data URI / URL, or null when none is stored.
  */
-export const getAvatarReferenceImage = async (assistantId) => {
+export const getAvatarReferenceImage = async (
+  assistantId,
+  { asAnonymousIdentity = false } = {}
+) => {
   const referenceImageResponse = await requestJson('/avatar_reference_image', {
     query: { assistant_id: assistantId },
+    asAnonymousIdentity,
   });
   if (!referenceImageResponse) {
     return null;
@@ -173,29 +164,79 @@ export const getAvatarReferenceImage = async (assistantId) => {
 };
 
 /**
- * List the source documents uploaded to the currently SELECTED avatar (see
- * selectAvatar for the sequencing requirement).
+ * List the source documents uploaded to one avatar.
+ *
+ * The avatar is named in the request. It used to be implied by a separate
+ * POST /select_avatar call that wrote a per-account "currently selected avatar"
+ * server-side; that endpoint is gone, and with it the sequencing hazard where a
+ * second tab could repoint this listing at a different avatar between the
+ * selection and the read.
  * GET /list_avatar_documents
  *
- * @returns {Promise<string[]>} Document labels, one per uploaded source.
+ * Each entry names the uploaded source and says whether that source is one of
+ * the avatar's two reference assets: the portrait the avatar is depicted by
+ * (`referenceRole === 'reference_image'`) or the voice sample the diarizer
+ * labels the target speaker with (`referenceRole === 'reference_audio'`). Every
+ * other upload has a `referenceRole` of null.
+ *
+ * The API reports the roles on a `documents` array; the older `uploaded_documents`
+ * array of plain label strings is still returned alongside it and is read here as
+ * a fallback, so this screen keeps listing files (without role marks) against an
+ * API that predates the roles.
+ *
+ * @param {string} assistantId The avatar whose documents to list.
+ * @returns {Promise<Array<{label: string, referenceRole: string|null, isReferenceImage: boolean, isReferenceAudio: boolean}>>}
+ *   One entry per uploaded source. `label` is the exact string
+ *   deleteAvatarDocument accepts back.
  */
-export const listAvatarDocuments = async () => {
-  const documentsResponse = await requestJson('/list_avatar_documents');
-  return documentsResponse?.uploaded_documents ?? [];
+export const listAvatarDocuments = async (assistantId) => {
+  const documentsResponse = await requestJson('/list_avatar_documents', {
+    query: { assistant_id: assistantId },
+  });
+
+  const documentEntries = documentsResponse?.documents;
+  if (Array.isArray(documentEntries)) {
+    return documentEntries
+      .filter((documentEntry) => Boolean(documentEntry?.label))
+      .map((documentEntry) => ({
+        label: documentEntry.label,
+        referenceRole: documentEntry.reference_role ?? null,
+        // Read the booleans the API sends when present, and otherwise derive
+        // them from the role, so one renamed field cannot silently turn every
+        // reference mark off.
+        isReferenceImage:
+          documentEntry.is_reference_image ??
+          documentEntry.reference_role === 'reference_image',
+        isReferenceAudio:
+          documentEntry.is_reference_audio ??
+          documentEntry.reference_role === 'reference_audio',
+      }));
+  }
+
+  return (documentsResponse?.uploaded_documents ?? []).map((documentLabel) => ({
+    label: documentLabel,
+    referenceRole: null,
+    isReferenceImage: false,
+    isReferenceAudio: false,
+  }));
 };
 
 /**
- * Delete one uploaded source document from the currently SELECTED avatar.
- * The name is a label exactly as returned by listAvatarDocuments.
+ * Delete one uploaded source document from an avatar. The name is a label
+ * exactly as returned by listAvatarDocuments.
  * DELETE /delete_avatar_document
  *
+ * @param {string} assistantId The avatar holding the document.
  * @param {string} sourceDocumentName The label of the document to delete.
  * @returns {Promise<Object>} The deletion result.
  */
-export const deleteAvatarDocument = async (sourceDocumentName) => {
+export const deleteAvatarDocument = async (assistantId, sourceDocumentName) => {
   return requestJson('/delete_avatar_document', {
     method: 'DELETE',
-    query: { source_document_name: sourceDocumentName },
+    query: {
+      assistant_id: assistantId,
+      source_document_name: sourceDocumentName,
+    },
   });
 };
 
@@ -300,4 +341,87 @@ export const disconnectDataServer = async (deviceId) => {
     method: 'POST',
     query: { device_id: deviceId },
   });
+};
+
+/**
+ * Connect one of the owner's email accounts to their personal avatar.
+ *
+ * The credential is proved against the real mail server before anything is
+ * stored, so a rejected password comes back as a 400 whose message names what
+ * went wrong while the connect card is still on screen. Surface that message as
+ * written rather than replacing it with a generic failure: for Gmail it is the
+ * only place the owner is told that an app password is required and that their
+ * account password will never work.
+ *
+ * Unlike most write endpoints in this file, this one reads a JSON body rather
+ * than query parameters — a password does not belong in a URL, where it would
+ * be recorded by proxies, browser history, and server access logs.
+ * POST /connect_mailbox
+ *
+ * @param {Object} parameters
+ * @param {string} [parameters.provider] Provider name. Defaults to `gmail`.
+ * @param {string} parameters.emailAddress The mailbox address to connect.
+ * @param {string} parameters.appPassword The provider-issued app password.
+ * @returns {Promise<Object>} `{connected, account}` — no secret in either.
+ */
+export const connectMailbox = async ({
+  provider = 'gmail',
+  emailAddress,
+  appPassword,
+}) => {
+  return requestJson('/connect_mailbox', {
+    method: 'POST',
+    body: {
+      provider,
+      email_address: emailAddress,
+      app_password: appPassword,
+    },
+  });
+};
+
+/**
+ * List the external accounts connected to the account's personal avatar.
+ *
+ * Each entry carries the provider, address, display label, kind, and status —
+ * never the password and never the stored ciphertext. An entry whose status is
+ * `needs_reconnect` has a credential the mail server has stopped accepting.
+ * GET /list_connected_accounts
+ *
+ * @returns {Promise<Object>} `{accounts}`.
+ */
+export const listConnectedAccounts = async () => {
+  return requestJson('/list_connected_accounts');
+};
+
+/**
+ * Disconnect one connected account and forget its stored credential.
+ *
+ * The account key is required. The endpoint has no "disconnect everything"
+ * mode on purpose, so a call that loses its argument cannot quietly wipe every
+ * account the owner has connected.
+ * DELETE /disconnect_account
+ *
+ * @param {string} accountKey The `provider:address` key to disconnect.
+ * @returns {Promise<Object>} The disconnect result.
+ */
+export const disconnectAccount = async (accountKey) => {
+  return requestJson('/disconnect_account', {
+    method: 'DELETE',
+    query: { account_key: accountKey },
+  });
+};
+
+/**
+ * Describe the accounts that can be connected, and the form each one needs.
+ *
+ * The same description the avatar raises as a card mid-conversation. Reading it
+ * from the API rather than hardcoding provider names, field labels, and help
+ * text here is what keeps the settings screen and the in-chat card from drifting
+ * into two different accounts of how to connect the same provider.
+ * GET /connectable_providers
+ *
+ * @returns {Promise<Object>} `{providers}`, each a connect-card description.
+ */
+export const listConnectableProviders = async () => {
+  return requestJson('/connectable_providers');
 };

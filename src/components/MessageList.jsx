@@ -2,9 +2,14 @@
 import React, { useEffect } from 'react';
 import { User } from 'lucide-react';
 import SecureImage from './SecureImage';
+import InterruptPanel from './InterruptPanel';
+import { useLocation } from 'react-router-dom';
 import { useMedia } from '../context/MediaContext';
 import { useAuth } from '../context/AuthContext';
-import { isValidImageUrl } from './utils';
+import { isValidImageUrl, isSharedAvatarChatPath } from './utils';
+import BillingRefusalNotice, {
+  BILLING_REFUSAL_MESSAGE_TYPE,
+} from './BillingRefusalNotice';
 
 /**
  * The face beside a message: whoever said it.
@@ -17,20 +22,31 @@ import { isValidImageUrl } from './utils';
 const MessageAuthorIcon = ({ portrait, name }) => (
   <div className="w-8 h-8 shrink-0 rounded-full bg-white/10 border border-white/20 overflow-hidden flex items-center justify-center">
     {portrait && isValidImageUrl(portrait) ? (
-      <img
-        src={portrait}
-        alt={name}
-        className="w-full h-full object-cover"
-      />
+      <img src={portrait} alt={name} className="w-full h-full object-cover" />
     ) : (
       <User className="w-4 h-4 text-white/40" />
     )}
   </div>
 );
 
-const MessageList = ({ messages, messagesEndRef, avatarPortrait, avatarName }) => {
+const MessageList = ({
+  messages,
+  messagesEndRef,
+  avatarPortrait,
+  avatarName,
+}) => {
   const { assistantActivity } = useMedia();
   const { userPortrait } = useAuth();
+  const location = useLocation();
+
+  // Who the reader is on THIS screen, which is not always who this browser has
+  // a session for. Every turn on a shared avatar's public chat is sent as the
+  // anonymous visitor whatever credential is stored here, so showing the
+  // signed-in account's face beside those messages claims the conversation for
+  // an account that is not party to it — and is contradicted by the transcript
+  // the server actually holds, which is the guest's.
+  const readerIsTheAnonymousVisitor = isSharedAvatarChatPath(location.pathname);
+  const readerPortrait = readerIsTheAnonymousVisitor ? null : userPortrait;
 
   useEffect(() => {
     if (messagesEndRef?.current) {
@@ -50,6 +66,14 @@ const MessageList = ({ messages, messagesEndRef, avatarPortrait, avatarName }) =
           const type = msg.type || 'user';
 
           const messageKey = msg.id || `temp-${msg.timestamp || Date.now()}`;
+
+          // Not something anybody said: the API refusing to carry the
+          // conversation any further until billing is dealt with. It is a card
+          // across the column rather than a bubble on one side.
+          if (type === BILLING_REFUSAL_MESSAGE_TYPE) {
+            return <BillingRefusalNotice key={messageKey} message={msg} />;
+          }
+
           const isFromUser = type === 'user' || type === 'human';
           const isFromAvatar =
             type === 'ai' || type === 'assistant' || type === 'avatar';
@@ -58,95 +82,106 @@ const MessageList = ({ messages, messagesEndRef, avatarPortrait, avatarName }) =
             <div
               key={messageKey}
               className={`flex items-end gap-2 max-w-[85%] ${
-                isFromUser ? 'self-end flex-row-reverse' : 'self-start'
-              }`}
-            >
-              {(isFromUser || isFromAvatar) && (
-                <MessageAuthorIcon
-                  portrait={isFromUser ? userPortrait : avatarPortrait}
-                  name={isFromUser ? 'You' : (avatarName ?? 'Avatar')}
-                />
-              )}
-              <div
-                className={`p-2 rounded-lg break-words transition-all duration-150 ${
-                  isFromUser
-                    ? 'bg-teal-600 text-white'
-                    : isFromAvatar
-                      ? 'bg-indigo-700 text-white'
-                      : 'bg-indigo-700 italic text-gray-300'
+                  isFromUser ? 'self-end flex-row-reverse' : 'self-start'
                 }`}
               >
-              {isLoading ? (
-                <div className="flex items-center space-x-2">
-                  <div className="flex space-x-1">
-                    <div
-                      className="w-2 h-2 bg-white rounded-full animate-bounce"
-                      style={{ animationDelay: '0ms' }}
-                    />
-                    <div
-                      className="w-2 h-2 bg-white rounded-full animate-bounce"
-                      style={{ animationDelay: '150ms' }}
-                    />
-                    <div
-                      className="w-2 h-2 bg-white rounded-full animate-bounce"
-                      style={{ animationDelay: '300ms' }}
-                    />
-                  </div>
-                </div>
-              ) : (
-                <>
-                  {msg.content && (
-                    <div className="whitespace-pre-wrap">{msg.content}</div>
-                  )}
-
-                  {msg.media?.length > 0 &&
-                    msg.media.map((media, index) => (
-                      <div
-                        key={media.id || media.filename || index}
-                        className="mt-2"
-                      >
-                        {media.type === 'image' ||
-                        media.content_type?.startsWith('image/') ? (
-                          <SecureImage
-                            mediaUrl={media.url}
-                            filename={media.filename || media.name}
-                          />
-                        ) : media.type === 'audio' ||
-                          media.content_type?.startsWith('audio/') ? (
-                          <audio controls src={media.url} />
-                        ) : media.type === 'video' ||
-                          media.content_type?.startsWith('video/') ? (
-                          <video
-                            controls
-                            className="max-w-full max-h-64"
-                            src={media.url}
-                          />
-                        ) : (
-                          <a
-                            href={media.url}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="underline text-blue-300"
-                          >
-                            {media.filename || media.name || 'Download file'}
-                          </a>
-                        )}
+                {(isFromUser || isFromAvatar) && (
+                  <MessageAuthorIcon
+                    portrait={isFromUser ? readerPortrait : avatarPortrait}
+                    name={isFromUser ? 'You' : (avatarName ?? 'Avatar')}
+                  />
+                )}
+                <div
+                  className={`p-2 rounded-lg break-words transition-all duration-150 ${
+                    isFromUser
+                      ? 'bg-teal-600 text-white'
+                      : isFromAvatar
+                        ? 'bg-indigo-700 text-white'
+                        : 'bg-indigo-700 italic text-gray-300'
+                  }`}
+                >
+                  {isLoading ? (
+                    <div className="flex items-center space-x-2">
+                      <div className="flex space-x-1">
+                        <div
+                          className="w-2 h-2 bg-white rounded-full animate-bounce"
+                          style={{ animationDelay: '0ms' }}
+                        />
+                        <div
+                          className="w-2 h-2 bg-white rounded-full animate-bounce"
+                          style={{ animationDelay: '150ms' }}
+                        />
+                        <div
+                          className="w-2 h-2 bg-white rounded-full animate-bounce"
+                          style={{ animationDelay: '300ms' }}
+                        />
                       </div>
-                    ))}
+                    </div>
+                  ) : (
+                    <>
+                      {msg.content && (
+                        <div className="whitespace-pre-wrap">{msg.content}</div>
+                      )}
 
-                  <div className="text-xs text-gray-400 mt-1 text-right select-none">
-                    {msg.timestamp &&
-                      new Date(msg.timestamp).toLocaleTimeString(undefined, {
-                        hour: '2-digit',
-                        minute: '2-digit',
-                      })}
-                  </div>
-                </>
-              )}
+                      {msg.media?.length > 0 &&
+                        msg.media.map((media, index) => (
+                          <div
+                            key={media.id || media.filename || index}
+                            className="mt-2"
+                          >
+                            {media.type === 'image' ||
+                            media.content_type?.startsWith('image/') ? (
+                              <SecureImage
+                                mediaUrl={media.url}
+                                filename={media.filename || media.name}
+                              />
+                            ) : media.type === 'audio' ||
+                              media.content_type?.startsWith('audio/') ? (
+                              <audio controls src={media.url} />
+                            ) : media.type === 'video' ||
+                              media.content_type?.startsWith('video/') ? (
+                              <video
+                                controls
+                                className="max-w-full max-h-64"
+                                src={media.url}
+                              />
+                            ) : (
+                              <a
+                                href={media.url}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="underline text-blue-300"
+                              >
+                                {media.filename ||
+                                  media.name ||
+                                  'Download file'}
+                              </a>
+                            )}
+                          </div>
+                        ))}
+
+                      <div className="text-xs text-gray-400 mt-1 text-right select-none">
+                        {msg.timestamp &&
+                          new Date(msg.timestamp).toLocaleTimeString(
+                            undefined,
+                            {
+                              hour: '2-digit',
+                              minute: '2-digit',
+                            }
+                          )}
+                      </div>
+                    </>
+                  )}
+                </div>
               </div>
-            </div>
           );
         })}
+
+      {/* The question a paused turn is asking, if one is. This sits where the
+          assistant's next message would have gone, because that is what it
+          stands in for: the turn produced this instead of a reply, and cannot
+          continue until it is answered. */}
+      <InterruptPanel />
 
       {/* What the avatar is doing, for as long as it is doing it.
           This sits outside the message bubbles on purpose. The bouncing-dots
