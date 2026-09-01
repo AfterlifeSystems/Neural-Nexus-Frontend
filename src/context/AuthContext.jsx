@@ -132,20 +132,48 @@ export const AuthProvider = ({ children }) => {
    * body is empty on purpose: this session's credential IS the refresh token, so
    * the API reads it from the bearer header and revokes it there — repeating it
    * in the body would say nothing new.
+   *
+   * Local sign-out does not wait for the revoke to answer. POST /logout makes
+   * two calls to Auth0 before replying — revoking the refresh token, then
+   * clearing the `logged_in` flag through the Management API — and while an
+   * earlier version of this function awaited that, pressing "Log out" closed
+   * the menu and then left the person signed in on screen for as long as those
+   * two calls took. With no sign that the press had registered, the press was
+   * made a second time, which is the only reason logging out ever appeared to
+   * need two presses.
+   *
+   * The revoke is started before the credential is cleared, and that ordering
+   * is what lets the request still authenticate: an async function runs
+   * synchronously until its first await, so `requestJson` has already read the
+   * stored credential into an Authorization header and handed the request to
+   * `fetch` by the time it returns the promise below.
+   *
+   * @returns {Promise<void>} Settles when the revoke does. Callers signing the
+   *   user out of the interface have no reason to await this; the local session
+   *   is already gone by the time this function returns.
    */
   const logOut = async () => {
-    try {
-      await requestJson('/logout', { method: 'POST', body: {} });
-    } finally {
-      // Local sign-out must succeed even when the network call does not —
-      // otherwise a user with a dead connection could never leave.
-      clearSessionCredential();
-      localStorage.removeItem('user');
-      setUser(null);
-      setProfile(null);
-      setUserAvatars([]);
-      setActiveAvatar(null);
-    }
+    const revokeSessionAtApi = requestJson('/logout', {
+      method: 'POST',
+      body: {},
+    }).catch((revokeError) => {
+      // Nothing to report and nothing to retry. This browser is signed out
+      // either way, and the refresh token expires on its own; surfacing a
+      // failure here would only tell somebody who has already left that their
+      // departure was untidy.
+      console.error('Revoking the session at the API failed:', revokeError);
+    });
+
+    // Local sign-out must succeed even when the network call does not —
+    // otherwise a user with a dead connection could never leave.
+    clearSessionCredential();
+    localStorage.removeItem('user');
+    setUser(null);
+    setProfile(null);
+    setUserAvatars([]);
+    setActiveAvatar(null);
+
+    await revokeSessionAtApi;
   };
 
   /**

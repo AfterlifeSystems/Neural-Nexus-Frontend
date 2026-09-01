@@ -12,7 +12,7 @@
 // with the sidebar, so the two can never drift into offering different things.
 
 import React, { useEffect, useRef, useState } from 'react';
-import { Settings, X } from 'lucide-react';
+import { ChevronUp, Settings } from 'lucide-react';
 import { useLocation } from 'react-router-dom';
 
 import { useAuth } from '../context/AuthContext';
@@ -62,27 +62,44 @@ const UserSettingsMenu = ({
         >
           <Settings className="w-6 h-6" />
           User Settings
+          {/* The chevron is the affordance that says this control opens a
+              menu; it points up because the menu opens upward, and turns
+              over while the menu is open to point back at the way to close
+              it. */}
+          <ChevronUp
+            className={`w-4 h-4 ml-auto transition-transform duration-300 ${
+              isOpen ? 'rotate-180' : ''
+            }`}
+            aria-hidden="true"
+          />
         </button>
 
         {/* Opens upward: the control sits at the foot of the page, so a menu
-            dropping down would open off the bottom of the window. */}
+            dropping down would open off the bottom of the window.
+
+            `bottom-full` puts the menu's lower edge on the button's upper edge,
+            whatever the button's height, with `mb-2` for the gap. The offset
+            used to be a fixed `bottom-[50px]`, which assumed a button 50px
+            tall: "User Settings" wraps to two lines inside `w-48` on plenty of
+            systems, making the button ~69px, and the menu then opened over its
+            top ~19px. */}
         {isOpen && (
           <div
             id="user-menu"
-            className="absolute bottom-[50px] w-full mt-2 right-0 backdrop-blur-lg bg-white/10 rounded-md shadow-lg ring-1 ring-black ring-opacity-5 focus:outline-none z-50"
+            className="absolute bottom-full mb-2 w-full right-0 backdrop-blur-lg bg-white/10 rounded-md shadow-lg ring-1 ring-black ring-opacity-5 focus:outline-none z-50"
           >
-            <div className="flex justify-between items-center px-4 py-2 border-b border-white/20">
-              <span className="text-white text-sm font-semibold truncate">
-                {profile?.username}
-              </span>
-              <button
-                onClick={() => setIsOpen(false)}
-                className="text-white hover:text-red-500 shrink-0"
-                aria-label="Close menu"
-              >
-                <X className="w-4 h-4" />
-              </button>
-            </div>
+            {/* The name heads the menu only when there is one to show. An
+                empty heading is a bar of blank space that reads as something
+                having failed to load. Closing is the control that opened the
+                menu, or a press outside it, so the menu carries no close
+                button of its own. */}
+            {profile?.username && (
+              <div className="flex items-center px-4 py-2 border-b border-white/20">
+                <span className="text-white text-sm font-semibold truncate">
+                  {profile.username}
+                </span>
+              </div>
+            )}
             <div className="p-2 space-y-1">
               <AccountMenu
                 leadingAction={leadingAction}

@@ -56,9 +56,19 @@ export function extractSessionCredentialFromLoginResponse(loginResponse) {
  * GET /list_public_avatars and POST /message/{assistant_id} serve visitors who
  * have not signed in.
  *
+ * @param {boolean} [asAnonymousIdentity] Send no credential even when one is
+ *   stored. The API's `get_current_user_or_anonymous_user` dependency resolves
+ *   the anonymous identity for exactly one caller: the one that presents
+ *   neither an `API-KEY` header nor a bearer token. Any credential at all makes
+ *   the request that account's — so a request that MUST be anonymous, such as a
+ *   turn on a shared avatar's public chat, has to withhold the credential
+ *   rather than merely not rely on it.
  * @returns {Object} Either `{Authorization}` or an empty object.
  */
-export function buildAuthenticationHeaders() {
+export function buildAuthenticationHeaders(asAnonymousIdentity = false) {
+  if (asAnonymousIdentity) {
+    return {};
+  }
   const sessionCredential = getSessionCredential();
   return sessionCredential
     ? { Authorization: `Bearer ${sessionCredential}` }
@@ -191,12 +201,12 @@ export function isEmailNotVerifiedDescription(description) {
 /**
  * Issue a request to the Neural Nexus API and parse the response.
  *
- * `credentials: 'include'` is set on every request because POST /login also
- * sets the refresh token as an httpOnly cookie, and POST /logout reads that
- * cookie before the request body. The cookie only travels when the API's
- * cross-origin configuration permits credentialed requests from this origin;
- * the bearer header works either way, and logout carries an explicit body as
- * the documented fallback.
+ * `credentials: 'include'` is set on every request. The API no longer sets or
+ * reads a refresh-token cookie — POST /logout now takes the token from the
+ * request body first and the bearer credential second, and this application
+ * uses the bearer path — so nothing depends on the flag today. It is kept so
+ * that a future cookie-bearing endpoint works without revisiting every call
+ * site; the bearer header authenticates either way.
  *
  * @param {string} path Endpoint path, e.g. '/list_user_avatars'.
  * @param {Object} [options]
@@ -205,12 +215,21 @@ export function isEmailNotVerifiedDescription(description) {
  * @param {Object} [options.body] A value to send as a JSON body.
  * @param {FormData} [options.formData] A multipart body; mutually exclusive with `body`.
  * @param {AbortSignal} [options.signal] Cancellation signal.
+ * @param {boolean} [options.asAnonymousIdentity] Deliberately send no
+ *   credential, so the API resolves the anonymous identity for this request.
  * @returns {Promise<*>} The parsed response body, or undefined for an empty one.
  */
 export async function requestJson(path, options = {}) {
-  const { method = 'GET', query, body, formData, signal } = options;
+  const {
+    method = 'GET',
+    query,
+    body,
+    formData,
+    signal,
+    asAnonymousIdentity = false,
+  } = options;
 
-  const headers = buildAuthenticationHeaders();
+  const headers = buildAuthenticationHeaders(asAnonymousIdentity);
   const sessionCredentialWasSent = 'Authorization' in headers;
 
   // FormData must set its own Content-Type so the browser can generate the
@@ -272,11 +291,21 @@ export async function requestJson(path, options = {}) {
  * @param {FormData} [options.formData] Request body, when the method takes one.
  * @param {Function} [options.onEvent] Called with every parsed frame object.
  * @param {AbortSignal} [options.signal] Cancellation signal.
+ * @param {boolean} [options.asAnonymousIdentity] Deliberately send no
+ *   credential, so the API meters and answers this stream as the anonymous
+ *   visitor rather than as whatever account is signed in in this browser.
  */
 export async function streamServerSentEvents(path, options = {}) {
-  const { method = 'POST', query, formData, onEvent, signal } = options;
+  const {
+    method = 'POST',
+    query,
+    formData,
+    onEvent,
+    signal,
+    asAnonymousIdentity = false,
+  } = options;
 
-  const headers = buildAuthenticationHeaders();
+  const headers = buildAuthenticationHeaders(asAnonymousIdentity);
   const sessionCredentialWasSent = 'Authorization' in headers;
   headers.Accept = 'text/event-stream';
 
