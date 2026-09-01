@@ -3,9 +3,13 @@ import React, { useEffect } from 'react';
 import { User } from 'lucide-react';
 import SecureImage from './SecureImage';
 import InterruptPanel from './InterruptPanel';
+import { useLocation } from 'react-router-dom';
 import { useMedia } from '../context/MediaContext';
 import { useAuth } from '../context/AuthContext';
-import { isValidImageUrl } from './utils';
+import { isValidImageUrl, isSharedAvatarChatPath } from './utils';
+import BillingRefusalNotice, {
+  BILLING_REFUSAL_MESSAGE_TYPE,
+} from './BillingRefusalNotice';
 
 /**
  * The face beside a message: whoever said it.
@@ -30,10 +34,19 @@ const MessageList = ({
   messagesEndRef,
   avatarPortrait,
   avatarName,
-  onInterruptDecision,
 }) => {
   const { assistantActivity } = useMedia();
   const { userPortrait } = useAuth();
+  const location = useLocation();
+
+  // Who the reader is on THIS screen, which is not always who this browser has
+  // a session for. Every turn on a shared avatar's public chat is sent as the
+  // anonymous visitor whatever credential is stored here, so showing the
+  // signed-in account's face beside those messages claims the conversation for
+  // an account that is not party to it — and is contradicted by the transcript
+  // the server actually holds, which is the guest's.
+  const readerIsTheAnonymousVisitor = isSharedAvatarChatPath(location.pathname);
+  const readerPortrait = readerIsTheAnonymousVisitor ? null : userPortrait;
 
   useEffect(() => {
     if (messagesEndRef?.current) {
@@ -53,20 +66,28 @@ const MessageList = ({
           const type = msg.type || 'user';
 
           const messageKey = msg.id || `temp-${msg.timestamp || Date.now()}`;
+
+          // Not something anybody said: the API refusing to carry the
+          // conversation any further until billing is dealt with. It is a card
+          // across the column rather than a bubble on one side.
+          if (type === BILLING_REFUSAL_MESSAGE_TYPE) {
+            return <BillingRefusalNotice key={messageKey} message={msg} />;
+          }
+
           const isFromUser = type === 'user' || type === 'human';
           const isFromAvatar =
             type === 'ai' || type === 'assistant' || type === 'avatar';
 
           return (
-            <React.Fragment key={messageKey}>
-              <div
-                className={`flex items-end gap-2 max-w-[85%] ${
+            <div
+              key={messageKey}
+              className={`flex items-end gap-2 max-w-[85%] ${
                   isFromUser ? 'self-end flex-row-reverse' : 'self-start'
                 }`}
               >
                 {(isFromUser || isFromAvatar) && (
                   <MessageAuthorIcon
-                    portrait={isFromUser ? userPortrait : avatarPortrait}
+                    portrait={isFromUser ? readerPortrait : avatarPortrait}
                     name={isFromUser ? 'You' : (avatarName ?? 'Avatar')}
                   />
                 )}
@@ -153,26 +174,6 @@ const MessageList = ({
                   )}
                 </div>
               </div>
-
-              {/* A paused turn renders its card beneath the message that raised
-                it, rather than in a modal: the question belongs to this point
-                in the conversation, and it stays readable once the turn
-                resumes and later messages arrive. Dispatching on `kind` is
-                what lets other interrupt types render here later without
-                touching this component. */}
-              {msg.interrupt?.kind === 'connect_account' && (
-                <ConnectAccountCard
-                  interrupt={msg.interrupt}
-                  onDecision={(decision) =>
-                    onInterruptDecision?.({
-                      decision,
-                      threadId: msg.interruptThreadId,
-                      assistantId: msg.interruptAssistantId,
-                    })
-                  }
-                />
-              )}
-            </React.Fragment>
           );
         })}
 

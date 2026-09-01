@@ -5,6 +5,8 @@ import { useNavigate } from 'react-router-dom';
 
 import { useAuth } from '../context/AuthContext';
 
+import UserSettingsMenu from './UserSettingsMenu';
+
 const AccountSettings = ({ activeTab }) => {
   const { user, requestPasswordReset, rotateApiKey, deleteAccount } = useAuth();
   const navigate = useNavigate();
@@ -262,6 +264,10 @@ const AccountSettings = ({ activeTab }) => {
           </button>
         </div>
       </div>
+
+      {/* The control this page is usually reached from. Without it the menu
+          vanished on arrival, leaving no way back except the sidebar. */}
+      <UserSettingsMenu className="mt-2" />
     </div>
   );
 };

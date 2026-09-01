@@ -9,7 +9,11 @@ import { useAuth } from '../context/AuthContext';
 import { useMedia } from '../context/MediaContext';
 import AvatarSettings from './AvatarSettings';
 import LiveVoiceMode from './LiveVoiceMode';
-import { isAvatarOwnedByUser, isValidImageUrl } from './utils';
+import {
+  isAvatarOwnedByUser,
+  canShareAvatar,
+  isValidImageUrl,
+} from './utils';
 import {
   listUserAvatars,
   getAvatarReferenceImage,
@@ -31,29 +35,7 @@ const ChatArea = ({
     getActiveConversationMessages,
     setActiveConversation,
     resetConversationState,
-    resumeTurn,
   } = useMedia(); // messages is now a simple array
-  /**
-   * Answer a paused turn and stream the continuation.
-   *
-   * The card that raised the interrupt has already done whatever it needed to
-   * do — connecting an account, for one — so all that travels here is the
-   * decision. A resume value is persisted by the graph, which is exactly why
-   * nothing the owner typed may be carried in it.
-   */
-  const handleInterruptDecision = async ({ decision, threadId }) => {
-    if (!threadId || !activeAvatar) return;
-    try {
-      await resumeTurn({
-        avatarForMessage: activeAvatar,
-        threadId,
-        decision,
-      });
-    } catch (resumeError) {
-      console.error('Resuming the paused turn failed:', resumeError);
-      toast.error(resumeError?.message ?? 'Could not continue the conversation.');
-    }
-  };
 
   // The open avatar's portrait, shown beside its name. Avatar records carry no
   // imagery, so it comes from GET /avatar_reference_image like everywhere else.
@@ -73,22 +55,28 @@ const ChatArea = ({
   // so a visitor to someone else's avatar gets the chat and nothing more.
   const canAdministerAvatar = isAvatarOwnedByUser(activeAvatar, user);
 
+  // The administrator is the exception: that account may publish or withdraw an
+  // avatar it did not create, so the settings tab opens for it as well and
+  // shows the sharing control alone.
+  const canOpenAvatarSettings =
+    canAdministerAvatar || canShareAvatar(activeAvatar, user);
+
   // A visitor who was already on the settings tab when the avatar changed must
   // not be left looking at controls that no longer belong to them.
   useEffect(() => {
-    if (!canAdministerAvatar && activeTab === 'avatar-settings') {
+    if (!canOpenAvatarSettings && activeTab === 'avatar-settings') {
       setActiveTab('chat');
     }
-  }, [canAdministerAvatar, activeTab]);
+  }, [canOpenAvatarSettings, activeTab]);
 
   // `?tab=settings` opens this screen on the settings tab. The account menu
   // uses it to send someone straight to their own avatar's settings, which
   // otherwise takes a detour through the chat and a second click.
   useEffect(() => {
-    if (searchParams.get('tab') === 'settings' && canAdministerAvatar) {
+    if (searchParams.get('tab') === 'settings' && canOpenAvatarSettings) {
       setActiveTab('avatar-settings');
     }
-  }, [searchParams, canAdministerAvatar]);
+  }, [searchParams, canOpenAvatarSettings]);
 
   // Make the URL sufficient to open a chat.
   //
@@ -292,7 +280,7 @@ const ChatArea = ({
               ? `A.I. ${activeAvatar.name} Chat`
               : 'A.I. Chat'}
           </button>
-          {canAdministerAvatar && (
+          {canOpenAvatarSettings && (
             <button
               className={`px-4 py-2 ${
                 activeTab === 'avatar-settings'
@@ -328,7 +316,6 @@ const ChatArea = ({
                   messagesEndRef={messagesEndRef}
                   avatarPortrait={avatarPortrait}
                   avatarName={activeAvatar?.name}
-                  onInterruptDecision={handleInterruptDecision}
                 />
               </div>
             </div>
@@ -343,10 +330,15 @@ const ChatArea = ({
           </div>
         )}
 
-        {activeTab === 'avatar-settings' && canAdministerAvatar && (
+        {activeTab === 'avatar-settings' && canOpenAvatarSettings && (
           <div className="flex flex-col flex-grow p-2 sm:p-4 relative overflow-y-auto">
             <AvatarSettings
               avatarId={activeAvatar?.assistant_id ?? avatarId}
+              // The portrait above this tab, and the one beside every message,
+              // are painted from state fetched when this screen opened. A
+              // portrait replaced in the settings has to arrive here too, or the
+              // old face survives on screen until the page is reloaded.
+              onPortraitChanged={setAvatarPortrait}
               onAvatarDeleted={() => {
                 // Switch to avatar selection tab after deletion
                 setActiveTab('avatar-selection');

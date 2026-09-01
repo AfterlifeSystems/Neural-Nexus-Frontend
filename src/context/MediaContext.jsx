@@ -19,8 +19,24 @@ import React, {
 import { useAuth } from './AuthContext';
 
 import { toast } from 'react-hot-toast';
-import { requestJson, streamServerSentEvents } from '../services/neuralNexusApiClient';
-import { resolveAssistantId } from '../components/utils';
+import {
+  requestJson,
+  streamServerSentEvents,
+} from '../services/neuralNexusApiClient';
+import {
+  isSharedAvatarChatPath,
+  resolveAssistantId,
+} from '../components/utils';
+import {
+  isBillingRefusal,
+  showRequestFailureToast,
+} from '../components/requestFailureToast';
+import { buildBillingRefusalMessage } from '../components/BillingRefusalNotice';
+import {
+  loadThreadAttachments,
+  pruneExpiredAttachments,
+  saveMessageAttachments,
+} from '../services/attachmentArchive';
 
 const MediaContext = createContext();
 
@@ -95,6 +111,110 @@ function describeInterrupt(interrupt) {
   return 'Waiting for your confirmation on a correction';
 }
 
+// Everything the API adds to a person's own words so that the avatar can read
+// what they attached. A turn carrying files is stored as the typed message,
+// then a marker naming each attachment (and, for a text file or a PDF, the text
+// read out of it), then — once the graph has looked at the pictures — a written
+// description of each image. All of it is written for the model, all of it is
+// appended after the typed message, and each piece opens its own line:
+//
+//   please describe this image
+//
+//   [Image: mom_facebook_contextual_image.jpg]
+//
+//   ---
+//   Image descriptions:
+//   [mom_facebook_contextual_image.jpg]
+//   - Woman with curly light brown hair …
+//
+// Built by `process_files_for_message` and `resolve_human_message_images` in the
+// API. The first of these openers to appear on a line of its own is where the
+// person's message ends and the machinery begins.
+const MODEL_FACING_ATTACHMENT_OPENERS = [
+  '[Image: ',
+  '[File: ',
+  '[Error processing file: ',
+  '---\nImage descriptions:\n',
+];
+
+/**
+ * Return what the person actually sent, without the account of their
+ * attachments that the API appended for the avatar to read.
+ *
+ * Reopening a thread that carried an image showed the typed message run
+ * together with a filename in brackets and a bulleted paragraph nobody wrote,
+ * because the transcript the API stores IS all of those joined: the graph
+ * replaces an attachment with a written description before the avatar reads the
+ * turn, and the thread keeps the replacement from then on. Those additions
+ * belong to the avatar's reading of the turn rather than to the turn, and the
+ * attachments themselves come back from this browser's own archive a few lines
+ * below — so the transcript shows the words and the files exactly as they were
+ * sent, which is what was on screen before the page was reloaded.
+ *
+ * An opener only counts where it begins a line, so a message that happens to
+ * mention one mid-sentence is left alone.
+ *
+ * @param {string} messageText The stored text of one message.
+ * @returns {string} The text with the appended attachment account removed.
+ */
+function withoutModelFacingAttachmentText(messageText) {
+  if (typeof messageText !== 'string') {
+    return messageText;
+  }
+  let attachmentTextIndex = -1;
+  for (const opener of MODEL_FACING_ATTACHMENT_OPENERS) {
+    let openerIndex = messageText.indexOf(opener);
+    while (openerIndex > 0 && messageText[openerIndex - 1] !== '\n') {
+      openerIndex = messageText.indexOf(opener, openerIndex + 1);
+    }
+    if (
+      openerIndex !== -1 &&
+      (attachmentTextIndex === -1 || openerIndex < attachmentTextIndex)
+    ) {
+      attachmentTextIndex = openerIndex;
+    }
+  }
+  if (attachmentTextIndex === -1) {
+    return messageText;
+  }
+  return messageText.slice(0, attachmentTextIndex).trimEnd();
+}
+
+/**
+ * Flatten one stored message's content to the text the transcript shows.
+ *
+ * Content is usually a plain string, but a turn the graph never rewrote keeps
+ * the block list it was sent as — text blocks beside image blocks. Rendering
+ * that list as-is is what printed a turn's blocks butted against one another
+ * with nothing between them, because an array handed to React is drawn by
+ * drawing each entry in turn. The text blocks are joined the way the API joins
+ * them, and the image blocks are dropped: the attachments are restored
+ * separately, from this browser's archive.
+ *
+ * @param {string|Array|null} storedContent Content as the API returned it.
+ * @returns {string} The text to render.
+ */
+function messageContentAsText(storedContent) {
+  if (typeof storedContent === 'string') {
+    return storedContent;
+  }
+  if (!Array.isArray(storedContent)) {
+    return storedContent ?? '';
+  }
+  return storedContent
+    .map((contentBlock) => {
+      if (typeof contentBlock === 'string') {
+        return contentBlock;
+      }
+      if (contentBlock?.type === 'text') {
+        return contentBlock.text ?? '';
+      }
+      return '';
+    })
+    .filter(Boolean)
+    .join('\n\n');
+}
+
 /**
  * Turn stored thread history into the shape the message list renders.
  *
@@ -114,12 +234,21 @@ function normalizeThreadMessages(storedMessages) {
   }
   return storedMessages
     .filter((storedMessage) => ['human', 'ai'].includes(storedMessage?.type))
-    .map((storedMessage) => ({
-      id: storedMessage.id,
-      type: storedMessage.type,
-      content: storedMessage.content ?? '',
-      response_metadata: storedMessage.response_metadata ?? {},
-    }));
+    .map((storedMessage) => {
+      const messageText = messageContentAsText(storedMessage.content);
+      return {
+        id: storedMessage.id,
+        type: storedMessage.type,
+        // Only a person's own turn is trimmed. The account of the attachments
+        // is appended to what the person sent, so an avatar that writes those
+        // same words is quoting, and its reply is shown whole.
+        content:
+          storedMessage.type === 'human'
+            ? withoutModelFacingAttachmentText(messageText)
+            : messageText,
+        response_metadata: storedMessage.response_metadata ?? {},
+      };
+    });
 }
 
 export const MediaProvider = ({ children }) => {
@@ -138,6 +267,12 @@ export const MediaProvider = ({ children }) => {
   // ref rather than state because the cleanup that reads it runs in the same
   // tick the stream ends, before any state update would be visible.
   const turnPausedForUserRef = useRef(false);
+  // Counts the pauses raised in this session, so each one is distinguishable
+  // from the last. A second correction can arrive on the same thread and the
+  // same avatar as the first, so thread and avatar together do not identify a
+  // pause — and the panel resets the choices it holds by remounting on a
+  // changed key.
+  const interruptSequenceRef = useRef(0);
   // Which avatar's conversation is on screen right now.
   //
   // A send is deliberately not tied to the screen that started it: this
@@ -151,6 +286,19 @@ export const MediaProvider = ({ children }) => {
   // How many turns are in flight, so the interface can say that something is
   // still being sent after the user has moved on.
   const [pendingSendCount, setPendingSendCount] = useState(0);
+  // Attachments belonging to a turn that is still in flight. Clearing
+  // `mediaFiles` the moment a message is sent took the only sign that a file
+  // was involved off the screen, leaving the user watching an empty composer
+  // with no idea their upload was still being read. These outlive the send and
+  // are shown, dimmed, until the whole turn finishes. Appended and filtered by
+  // identity rather than replaced, so a second send while the first is still
+  // running neither hides the first turn's files nor clears the second's.
+  const [attachmentsInFlight, setAttachmentsInFlight] = useState([]);
+  // Object URLs minted while restoring a thread's archived attachments. They
+  // stay valid for as long as that transcript is on screen and are released
+  // when another thread replaces it, so reopening conversations in a long
+  // session does not accumulate them.
+  const restoredAttachmentUrlsRef = useRef([]);
 
   useEffect(() => {
     onScreenAssistantIdRef.current = resolveAssistantId(activeAvatar);
@@ -205,6 +353,13 @@ export const MediaProvider = ({ children }) => {
    * Load every conversation thread for this user + avatar, newest first.
    * GET /conversations
    *
+   * The identity this asks under must be the identity the turns were sent
+   * under. On a shared avatar's public chat those turns are anonymous, so the
+   * threads belong to the anonymous visitor; listing them with the credential
+   * of whatever account this browser is signed into searches THAT account's
+   * threads instead — which is why an owner opening their own shared link was
+   * shown their private chats with the avatar rather than the guest's.
+   *
    * @param {Object} _user Unused; kept for the existing call signature.
    * @param {Object} avatarForConversations The avatar whose threads to list.
    * @returns {Promise<Array>} Thread records.
@@ -212,6 +367,7 @@ export const MediaProvider = ({ children }) => {
   async function getConversationList(_user, avatarForConversations) {
     const threads = await requestJson('/conversations', {
       query: { assistant_id: resolveAssistantId(avatarForConversations) },
+      asAnonymousIdentity: isSharedAvatarChatPath(),
     });
     const threadList = Array.isArray(threads) ? threads : [];
     setConversationList(threadList);
@@ -274,36 +430,57 @@ export const MediaProvider = ({ children }) => {
       return;
     }
 
+    // Anonymous for the same reason the listing above is: the API refuses a
+    // thread whose stamped user is not the caller, so asking for a guest's
+    // thread while holding a session credential is not merely inaccurate — it
+    // is a 404, and the transcript the visitor picked never opens.
     const messagesResponse = await requestJson(
       `/conversations/${encodeURIComponent(threadId)}/messages`,
-      { query: { assistant_id: resolveAssistantId(avatarForMessages) } }
+      {
+        query: { assistant_id: resolveAssistantId(avatarForMessages) },
+        asAnonymousIdentity: isSharedAvatarChatPath(),
+      }
     );
-    setMessages(normalizeThreadMessages(messagesResponse?.messages));
+    const storedMessages = normalizeThreadMessages(messagesResponse?.messages);
+
+    // Put the attachments back. The server returns none — an upload is read
+    // into text and the bytes dropped — so anything shown here comes from this
+    // browser's own archive, matched to messages by their order in the thread.
+    releaseRestoredAttachmentUrls();
+    const archivedAttachments = await loadThreadAttachments(threadId);
+    let humanMessageOrdinal = -1;
+    const restoredMessages = storedMessages.map((storedMessage) => {
+      if (storedMessage.type !== 'human') return storedMessage;
+      humanMessageOrdinal += 1;
+      const archivedForMessage = archivedAttachments.get(humanMessageOrdinal);
+      if (!archivedForMessage?.length) return storedMessage;
+      return {
+        ...storedMessage,
+        media: archivedForMessage.map((archivedAttachment) => {
+          const objectUrl = URL.createObjectURL(archivedAttachment.blob);
+          restoredAttachmentUrlsRef.current.push(objectUrl);
+          return {
+            filename: archivedAttachment.filename,
+            content_type: archivedAttachment.contentType,
+            url: objectUrl,
+          };
+        }),
+      };
+    });
+    setMessages(restoredMessages);
   }
 
   /**
-   * Stream one assistant turn into the messages array.
+   * Send one message and stream the reply into the messages array.
+   * POST /message/{assistant_id} with stream=true.
    *
-   * Both ways a turn can start — a fresh message, or resuming a turn that
-   * paused for the user's approval — produce the SAME server-sent event
-   * sequence and need the same handling of it, so the lifecycle lives here once
-   * and each entry point supplies only its own path and body.
-   *
-   * The sequence is: an optional `usage_estimate` frame, `assistant_token`
-   * frames that each carry a text fragment, and a terminal `done` frame with
-   * the authoritative full content and the thread_id (the server creates the
-   * thread when none is passed) — or an `interrupt` frame when the graph pauses
-   * for human approval.
-   *
-   * @param {Object} turn
-   * @param {string} turn.assistantId The avatar this turn belongs to.
-   * @param {string} turn.path Endpoint to stream from.
-   * @param {FormData} turn.formData The request body.
-   * @param {Object} turn.avatarForTurn The avatar record, for re-listing threads.
-   * @param {string|null} turn.previousThreadId Thread before this turn, or null.
+   * @param {Object} _user Unused; kept for the existing call signature.
+   * @param {Object} avatarForMessage The avatar to message.
+   * @param {string} threadId Thread to continue, or null to start a new one.
+   * @param {string} messageContent The user's message text.
+   * @param {File[]} [attachedFiles] Files to attach to this turn.
    * @returns {Promise<{success: boolean, reply: string, threadId: string|null}>}
    */
-<<<<<<< HEAD
   async function sendMessageAwaitResponseUpdateMessages(
     _user,
     avatarForMessage,
@@ -386,6 +563,17 @@ export const MediaProvider = ({ children }) => {
    * Stream one assistant turn — a new message or a resumed one — into the
    * messages array.
    *
+   * Both ways a turn can start — a fresh message, or resuming a turn that
+   * paused for the user's approval — produce the SAME server-sent event
+   * sequence and need the same handling of it, so the lifecycle lives here once
+   * and each entry point supplies only its own path and body.
+   *
+   * The sequence is: an optional `usage_estimate` frame, `assistant_token`
+   * frames that each carry a text fragment, and a terminal `done` frame with
+   * the authoritative full content and the thread_id (the server creates the
+   * thread when none is passed) — or an `interrupt` frame when the graph pauses
+   * for human approval.
+   *
    * @param {Object} parameters
    * @param {Object} parameters._user Unused; kept for the existing signature.
    * @param {Object} parameters.avatarForMessage The avatar being streamed.
@@ -401,15 +589,6 @@ export const MediaProvider = ({ children }) => {
     formData,
   }) {
     const assistantId = resolveAssistantId(avatarForMessage);
-=======
-  async function streamAssistantTurn({
-    assistantId,
-    path,
-    formData,
-    avatarForTurn,
-    previousThreadId,
-  }) {
->>>>>>> 8fc03f6fe8cd11d3fd1bc477c46848c373d22c58
     const streamingMessageId = `streaming-${Date.now()}`;
     // The turn keeps running wherever the user goes; only its rendering is
     // conditional on that conversation still being the one on screen.
@@ -476,72 +655,20 @@ export const MediaProvider = ({ children }) => {
     let terminalFrame = null;
 
     await streamServerSentEvents(path, {
-<<<<<<< HEAD
-        method: 'POST',
-        formData,
-        onEvent: (streamEvent) => {
-          if (streamEvent.type === 'assistant_token') {
-            appendTokenToStreamingMessage(streamEvent.text ?? '');
-            setActivityIfStillOnScreen(ASSISTANT_ACTIVITY.responding);
-          } else if (streamEvent.type === 'usage_estimate') {
-            // The first frame of a turn: the request has been costed and the
-            // model has not started speaking yet.
-            setActivityIfStillOnScreen(ASSISTANT_ACTIVITY.thinking);
-          } else if (streamEvent.type === 'keepalive_comment') {
-            // Tokens have stopped but the turn has not: the server keeps this
-            // line open while it runs its post-reply analysis.
-            setActivityIfStillOnScreen(ASSISTANT_ACTIVITY.analyzing);
-          } else if (
-            streamEvent.type === 'done' ||
-            streamEvent.type === 'interrupt'
-          ) {
-            terminalFrame = streamEvent;
-            turnPausedForUserRef.current = streamEvent.type === 'interrupt';
-            setActivityIfStillOnScreen(
-              streamEvent.type === 'interrupt'
-                ? describeInterrupt(streamEvent.interrupt)
-                : null
-            );
-          }
-        },
-    });
-
-    if (terminalFrame?.type === 'interrupt') {
-      // Finalize the bubble the tokens were streaming into, exactly as the
-      // `done` branch does. Without this the placeholder keeps `isLoading`
-      // forever and a paused turn leaves a typing indicator bouncing with no
-      // content and no way to answer.
-      //
-      // The interrupt rides on that message rather than living only in
-      // `pendingInterrupt` state, because the card it renders belongs to the
-      // moment in the conversation that raised it: attaching it to the message
-      // keeps it in place once the turn resumes and later messages arrive.
-      updateMessagesIfStillOnScreen((previousMessages) =>
-        previousMessages.map((message) =>
-          message.id === streamingMessageId
-            ? {
-                ...message,
-                isLoading: false,
-                interrupt: terminalFrame.interrupt ?? null,
-                interruptThreadId: terminalFrame.thread_id ?? threadId ?? null,
-                interruptAssistantId: assistantId,
-              }
-            : message
-        )
-      );
-      if (terminalFrame.thread_id) {
-        // A turn can pause before the thread has ever been seen here — a first
-        // message that immediately asks a question. Adopting the id now is what
-        // lets the resume address the right thread.
-        setActiveConversation(terminalFrame.thread_id);
-      }
-      // Still set, because this is what tells the composer a turn is waiting.
-=======
       method: 'POST',
       formData,
+      // A turn on a shared avatar's public chat belongs to the anonymous
+      // visitor, never to whatever account this browser is signed into. The
+      // API resolves the anonymous identity only for a caller that presents no
+      // credential at all, so the credential is withheld here rather than
+      // merely unused: sending it would attribute the guest's conversation —
+      // and meter its tokens against the allotment — of the signed-in account,
+      // which during testing is the administrator's.
+      asAnonymousIdentity: isSharedAvatarChatPath(),
       onEvent: (streamEvent) => {
         if (streamEvent.type === 'assistant_token') {
           appendTokenToStreamingMessage(streamEvent.text ?? '');
+          setActivityIfStillOnScreen(ASSISTANT_ACTIVITY.responding);
         } else if (streamEvent.type === 'usage_estimate') {
           // The first frame of a turn: the request has been costed and the
           // model has not started speaking yet.
@@ -566,16 +693,33 @@ export const MediaProvider = ({ children }) => {
     });
 
     if (terminalFrame?.type === 'interrupt') {
-      // A paused turn has no assistant message: the approval panel IS its
-      // output. Whatever the avatar managed to say before pausing is kept, but
-      // a placeholder holding nothing readable — the usual case, because the
-      // only thing streamed was the suppressed proposal — is dropped rather
-      // than left showing a typing indicator that can never resolve.
+      // Finalize the bubble the tokens were streaming into, exactly as the
+      // `done` branch does. Without this the placeholder keeps `isLoading`
+      // forever and a paused turn leaves a typing indicator bouncing with no
+      // content and no way to answer.
+      //
+      // A copy of the interrupt is recorded on the message that raised it, so
+      // the transcript keeps which thread and avatar the pause belonged to.
+      // What the user answers is the single InterruptPanel, which renders from
+      // `pendingInterrupt` below; nothing renders from these fields.
+      //
+      // Whatever the avatar managed to say before pausing is kept, but a
+      // placeholder holding nothing readable is dropped rather than left as an
+      // empty bubble. That is the usual case for a correction: the only thing
+      // streamed was the proposal, and `appendTokenToStreamingMessage`
+      // suppresses that from the transcript, so the message it was growing
+      // never receives any text.
       updateMessagesIfStillOnScreen((previousMessages) =>
         previousMessages
           .map((message) =>
             message.id === streamingMessageId
-              ? { ...message, isLoading: false }
+              ? {
+                  ...message,
+                  isLoading: false,
+                  interrupt: terminalFrame.interrupt ?? null,
+                  interruptThreadId: terminalFrame.thread_id ?? threadId ?? null,
+                  interruptAssistantId: assistantId,
+                }
               : message
           )
           .filter(
@@ -584,13 +728,16 @@ export const MediaProvider = ({ children }) => {
               (message.content ?? '').trim() !== ''
           )
       );
-      // The correction may have been raised on a thread the server minted for
-      // this very turn. Adopting it is what makes the resume addressable.
       if (terminalFrame.thread_id) {
+        // A turn can pause before the thread has ever been seen here — a first
+        // message that immediately asks a question. Adopting the id now is what
+        // lets the resume address the right thread.
         setActiveConversation(terminalFrame.thread_id);
       }
->>>>>>> 8fc03f6fe8cd11d3fd1bc477c46848c373d22c58
+      // This is what raises the panel and tells the composer a turn is waiting.
+      interruptSequenceRef.current += 1;
       setPendingInterrupt({
+        sequence: interruptSequenceRef.current,
         threadId: terminalFrame.thread_id,
         assistantId,
         interrupt: terminalFrame.interrupt,
@@ -611,14 +758,17 @@ export const MediaProvider = ({ children }) => {
         )
       );
       if (terminalFrame.thread_id) {
-        const wasNewConversation = previousThreadId !== terminalFrame.thread_id;
+        const wasNewConversation = threadId !== terminalFrame.thread_id;
         setActiveConversation(terminalFrame.thread_id);
         if (wasNewConversation) {
           // The server just minted this conversation. Re-listing is what moves
           // it from the placeholder in the sidebar to a real entry the user can
           // return to; without it the conversation exists but cannot be found.
-          getConversationList(null, avatarForTurn).catch((listError) => {
-            console.error('Refreshing the conversation list failed:', listError);
+          getConversationList(null, avatarForMessage).catch((listError) => {
+            console.error(
+              'Refreshing the conversation list failed:',
+              listError
+            );
           });
         }
       }
@@ -643,51 +793,6 @@ export const MediaProvider = ({ children }) => {
       reply: terminalFrame?.content ?? '',
       threadId: terminalFrame?.thread_id ?? null,
     };
-  }
-
-  /**
-   * Send one message and stream the reply into the messages array.
-   * POST /message/{assistant_id} with stream=true.
-   *
-   * @param {Object} _user Unused; kept for the existing call signature.
-   * @param {Object} avatarForMessage The avatar to message.
-   * @param {string} threadId Thread to continue, or null to start a new one.
-   * @param {string} messageContent The user's message text.
-   * @param {File[]} [attachedFiles] Files to attach to this turn.
-   */
-  async function sendMessageAwaitResponseUpdateMessages(
-    _user,
-    avatarForMessage,
-    threadId,
-    messageContent,
-    attachedFiles = []
-  ) {
-    const assistantId = resolveAssistantId(avatarForMessage);
-
-    const formData = new FormData();
-    formData.append('message', messageContent);
-    formData.append('stream', 'true');
-    // The sentinel names a conversation the server has never heard of; sending
-    // it would ask the API to continue a thread that does not exist. Omitting
-    // thread_id is exactly how a new conversation is requested.
-    if (threadId && threadId !== NEW_CONVERSATION_ID) {
-      formData.append('thread_id', threadId);
-    }
-    for (const attachedFile of attachedFiles) {
-      formData.append('files', attachedFile);
-    }
-    const userTimezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
-    if (userTimezone) {
-      formData.append('user_timezone', userTimezone);
-    }
-
-    return streamAssistantTurn({
-      assistantId,
-      path: `/message/${encodeURIComponent(assistantId)}`,
-      formData,
-      avatarForTurn: avatarForMessage,
-      previousThreadId: threadId,
-    });
   }
 
   /**
@@ -738,14 +843,14 @@ export const MediaProvider = ({ children }) => {
       setPendingSendCount((count) => count + 1);
       setAssistantActivity(ASSISTANT_ACTIVITY.thinking);
 
-      return await streamAssistantTurn({
-        assistantId: interruptToResume.assistantId,
+      return await runAssistantTurnStream({
+        _user: user,
+        avatarForMessage: activeAvatar,
+        threadId: interruptToResume.threadId,
         path: `/message/${encodeURIComponent(
           interruptToResume.assistantId
         )}/resume`,
         formData,
-        avatarForTurn: activeAvatar,
-        previousThreadId: interruptToResume.threadId,
       });
     } catch (resumeError) {
       console.error('Failed to resume the paused turn:', resumeError);
@@ -757,8 +862,9 @@ export const MediaProvider = ({ children }) => {
       // The server still has the run parked, so putting the panel back is what
       // lets the user try again instead of stranding the correction.
       setPendingInterrupt(interruptToResume);
-      toast.error(
-        resumeError.message || 'Failed to send your decision. Please try again.'
+      reportTurnFailure(
+        resumeError,
+        'Failed to send your decision. Please try again.'
       );
       return { success: false, reply: '', threadId: null };
     } finally {
@@ -769,11 +875,57 @@ export const MediaProvider = ({ children }) => {
     }
   }
 
+  /**
+   * Report a turn that could not be carried out.
+   *
+   * Where the report goes depends on which failure it is, and the two are
+   * reported in one place each rather than both.
+   *
+   * A spent allotment is reported in the TRANSCRIPT alone. It belongs there:
+   * every later message is refused the same way, so the refusal has to outlive
+   * a toast, and the notice in the transcript already carries the same sentence
+   * and the same way through to billing (see BillingRefusalNotice). Toasting it
+   * as well said the same thing twice, and said it over the conversation the
+   * reader was trying to read.
+   *
+   * Every other failure is reported by TOAST alone. Those are one-off — a
+   * dropped connection, a rejected attachment — with nothing to come back to,
+   * and a transcript entry for each would be a log the reader cannot clear.
+   *
+   * @param {Error} turnError The error the turn failed with.
+   * @param {string} fallbackMessage What to say when the error carries no
+   *   sentence of its own.
+   */
+  function reportTurnFailure(turnError, fallbackMessage) {
+    if (isBillingRefusal(turnError)) {
+      setMessages((previousMessages) => [
+        ...previousMessages,
+        buildBillingRefusalMessage(turnError),
+      ]);
+      return;
+    }
+    showRequestFailureToast(turnError, { fallbackMessage });
+  }
+
+  /**
+   * Release the object URLs held for the transcript currently on screen.
+   */
+  function releaseRestoredAttachmentUrls() {
+    for (const objectUrl of restoredAttachmentUrlsRef.current) {
+      URL.revokeObjectURL(objectUrl);
+    }
+    restoredAttachmentUrlsRef.current = [];
+  }
+
+  // Old cached attachments are dropped once per session rather than on a timer:
+  // the archive is a convenience, and pruning it is not worth a scheduled task.
+  useEffect(() => {
+    pruneExpiredAttachments();
+    return releaseRestoredAttachmentUrls;
+  }, []);
+
   async function handleSendMessageMediaContext() {
-    if (
-      !activeAvatar ||
-      (!inputMessage.trim() && mediaFiles.length === 0)
-    ) {
+    if (!activeAvatar || (!inputMessage.trim() && mediaFiles.length === 0)) {
       console.log('Missing required data for sending message');
       return;
     }
@@ -781,6 +933,13 @@ export const MediaProvider = ({ children }) => {
     const messageContent = inputMessage;
     const attachedFiles = mediaFiles;
     const temporaryUserMessageId = `temp-${Date.now()}`;
+    // Which of the user's messages this turn will be, counted before the
+    // optimistic one is added. The archive keys attachments by this ordinal
+    // because the server assigns the message its own id, which the browser
+    // never learns.
+    const humanMessageOrdinal = messages.filter(
+      (existingMessage) => existingMessage.type === 'human'
+    ).length;
 
     try {
       // Optimistically render the user's message immediately.
@@ -807,6 +966,7 @@ export const MediaProvider = ({ children }) => {
       ]);
       setInputMessage('');
       setMediaFiles([]);
+      setAttachmentsInFlight((current) => [...current, ...attachedFiles]);
       turnPausedForUserRef.current = false;
       setPendingSendCount((count) => count + 1);
       // Say something from the moment the turn starts. The first stream frame
@@ -814,13 +974,28 @@ export const MediaProvider = ({ children }) => {
       // makes a working avatar look like a stuck one.
       setAssistantActivity(ASSISTANT_ACTIVITY.thinking);
 
-      await sendMessageAwaitResponseUpdateMessages(
+      const turnResult = await sendMessageAwaitResponseUpdateMessages(
         user,
         activeAvatar,
         activeConversation,
         messageContent,
         attachedFiles
       );
+
+      // Keep a local copy of what was attached so reopening or reloading this
+      // conversation still shows it. The thread identifier is only known now
+      // when the turn created the conversation, which is why this waits for the
+      // turn rather than running beside the send.
+      if (attachedFiles.length > 0) {
+        const threadIdForArchive = turnResult?.threadId ?? activeConversation;
+        if (threadIdForArchive) {
+          await saveMessageAttachments(
+            threadIdForArchive,
+            humanMessageOrdinal,
+            attachedFiles
+          );
+        }
+      }
     } catch (sendError) {
       console.error('Failed to send message:', sendError);
 
@@ -839,10 +1014,13 @@ export const MediaProvider = ({ children }) => {
           `The server rejected the attachment as too large (over ${MAX_FILE_SIZE_DESCRIPTION}).`
         );
       } else {
-        toast.error(sendError.message || 'Failed to send message');
+        reportTurnFailure(sendError, 'Failed to send message');
       }
     } finally {
       setPendingSendCount((count) => Math.max(0, count - 1));
+      setAttachmentsInFlight((current) =>
+        current.filter((heldFile) => !attachedFiles.includes(heldFile))
+      );
       // The turn is over however it ended; leaving the status up would keep
       // claiming the avatar is working on a reply that is never coming. The one
       // exception is a turn that paused for the user: that status describes a
@@ -904,7 +1082,7 @@ export const MediaProvider = ({ children }) => {
       return reply ?? '';
     } catch (voiceError) {
       console.error('The spoken turn failed:', voiceError);
-      toast.error(voiceError.message || 'Could not send that recording.');
+      reportTurnFailure(voiceError, 'Could not send that recording.');
       return '';
     } finally {
       setPendingSendCount((count) => Math.max(0, count - 1));
@@ -935,7 +1113,9 @@ export const MediaProvider = ({ children }) => {
       toast.error(
         `${rejectedFiles
           .map((rejectedFile) => rejectedFile.name)
-          .join(', ')} exceeds the ${MAX_FILE_SIZE_DESCRIPTION} limit and was not attached.`,
+          .join(
+            ', '
+          )} exceeds the ${MAX_FILE_SIZE_DESCRIPTION} limit and was not attached.`,
         { duration: 6000 }
       );
     }
@@ -1005,14 +1185,12 @@ export const MediaProvider = ({ children }) => {
         activeConversation,
         pendingInterrupt,
         setPendingInterrupt,
-<<<<<<< HEAD
         resumeTurn,
-=======
         resumePendingInterrupt,
->>>>>>> 8fc03f6fe8cd11d3fd1bc477c46848c373d22c58
         assistantActivity,
         sendVoiceTurn,
         pendingSendCount,
+        attachmentsInFlight,
       }}
     >
       {children}

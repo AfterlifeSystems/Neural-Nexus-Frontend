@@ -14,6 +14,7 @@
 
 import React, { useMemo, useState } from 'react';
 import { AlertTriangle } from 'lucide-react';
+import ConnectAccountCard from './ConnectAccountCard';
 import { useMedia } from '../context/MediaContext';
 import { useAuth } from '../context/AuthContext';
 import { resolveAssistantId } from './utils';
@@ -440,6 +441,28 @@ const InterruptPanel = () => {
   };
 
   const interrupt = pendingInterrupt.interrupt ?? {};
+
+  // Remounting on a new pause is what resets the choices a panel holds. The
+  // sequence number changes on every pause, so a second correction — including
+  // one raised on the thread and avatar that just answered the first — starts
+  // from its own recommendations rather than inheriting the previous panel's
+  // edits.
+  const panelKey = pendingInterrupt.sequence;
+
+  // Connecting an account is its own card: the credential is posted to the
+  // endpoint that verifies and encrypts it, and only then is the turn resumed,
+  // carrying a decision and nothing else. See the note in ConnectAccountCard on
+  // why a credential must never travel as an interrupt's resume value.
+  if (interrupt.kind === 'connect_account') {
+    return (
+      <ConnectAccountCard
+        key={panelKey}
+        interrupt={interrupt}
+        onDecision={handleResume}
+      />
+    );
+  }
+
   const PanelForKind =
     interrupt.kind === 'mcp_connect_consent'
       ? DataServerConsentPanel
@@ -447,11 +470,7 @@ const InterruptPanel = () => {
 
   return (
     <PanelForKind
-      // Remounting on a new pause is what resets the choices. Keying by thread
-      // and avatar means a second correction — or a pause in another
-      // conversation — starts from its own recommendations rather than
-      // inheriting the previous panel's edits.
-      key={`${pendingInterrupt.threadId}-${pendingInterrupt.assistantId}`}
+      key={panelKey}
       interrupt={interrupt}
       onResume={handleResume}
       isResuming={isResuming}

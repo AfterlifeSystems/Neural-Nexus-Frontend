@@ -125,9 +125,14 @@ const AccountMenu = ({ leadingAction = 'avatars', onNavigate, currentPath }) => 
         icon={<LogOut className="w-4 h-4 shrink-0" />}
         label="Log out"
         isDanger
-        onClick={async () => {
+        onClick={() => {
           onNavigate?.();
-          await logOut();
+          // Not awaited on purpose. logOut clears the local session before it
+          // returns and revokes the session at the API afterwards, so waiting
+          // here would only hold the person on a signed-out page until Auth0
+          // answered — the delay that made this entry look unresponsive to a
+          // single press.
+          logOut();
           navigate('/login');
         }}
       />

@@ -127,11 +127,22 @@ export const deleteAvatar = async (assistantId) => {
  * GET /avatar_reference_image
  *
  * @param {string} assistantId The avatar whose portrait to fetch.
+ * @param {Object} [options]
+ * @param {boolean} [options.asAnonymousIdentity] Ask as the anonymous visitor,
+ *   withholding any credential this browser holds. The portrait itself is the
+ *   same either way — the endpoint reads the avatar owner's namespace, not the
+ *   caller's — but a shared avatar's public chat must reach the API as the
+ *   visitor on every request it makes, not only on the ones whose answer would
+ *   otherwise differ.
  * @returns {Promise<string|null>} A data URI / URL, or null when none is stored.
  */
-export const getAvatarReferenceImage = async (assistantId) => {
+export const getAvatarReferenceImage = async (
+  assistantId,
+  { asAnonymousIdentity = false } = {}
+) => {
   const referenceImageResponse = await requestJson('/avatar_reference_image', {
     query: { assistant_id: assistantId },
+    asAnonymousIdentity,
   });
   if (!referenceImageResponse) {
     return null;
@@ -162,14 +173,52 @@ export const getAvatarReferenceImage = async (assistantId) => {
  * selection and the read.
  * GET /list_avatar_documents
  *
+ * Each entry names the uploaded source and says whether that source is one of
+ * the avatar's two reference assets: the portrait the avatar is depicted by
+ * (`referenceRole === 'reference_image'`) or the voice sample the diarizer
+ * labels the target speaker with (`referenceRole === 'reference_audio'`). Every
+ * other upload has a `referenceRole` of null.
+ *
+ * The API reports the roles on a `documents` array; the older `uploaded_documents`
+ * array of plain label strings is still returned alongside it and is read here as
+ * a fallback, so this screen keeps listing files (without role marks) against an
+ * API that predates the roles.
+ *
  * @param {string} assistantId The avatar whose documents to list.
- * @returns {Promise<string[]>} Document labels, one per uploaded source.
+ * @returns {Promise<Array<{label: string, referenceRole: string|null, isReferenceImage: boolean, isReferenceAudio: boolean}>>}
+ *   One entry per uploaded source. `label` is the exact string
+ *   deleteAvatarDocument accepts back.
  */
 export const listAvatarDocuments = async (assistantId) => {
   const documentsResponse = await requestJson('/list_avatar_documents', {
     query: { assistant_id: assistantId },
   });
-  return documentsResponse?.uploaded_documents ?? [];
+
+  const documentEntries = documentsResponse?.documents;
+  if (Array.isArray(documentEntries)) {
+    return documentEntries
+      .filter((documentEntry) => Boolean(documentEntry?.label))
+      .map((documentEntry) => ({
+        label: documentEntry.label,
+        referenceRole: documentEntry.reference_role ?? null,
+        // Read the booleans the API sends when present, and otherwise derive
+        // them from the role, so one renamed field cannot silently turn every
+        // reference mark off.
+        isReferenceImage:
+          documentEntry.is_reference_image ??
+          documentEntry.reference_role === 'reference_image',
+        isReferenceAudio:
+          documentEntry.is_reference_audio ??
+          documentEntry.reference_role === 'reference_audio',
+      }));
+  }
+
+  return (documentsResponse?.uploaded_documents ?? []).map((documentLabel) => ({
+    label: documentLabel,
+    referenceRole: null,
+    isReferenceImage: false,
+    isReferenceAudio: false,
+  }));
 };
 
 /**

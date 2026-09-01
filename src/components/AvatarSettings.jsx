@@ -24,6 +24,7 @@ import {
   Lock,
   Server,
   Mail,
+  Copy,
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import {
@@ -43,7 +44,18 @@ import {
   disconnectAccount,
 } from '../services/avatarService';
 import ConnectAccountCard from './ConnectAccountCard';
-import { forgetCachedAvatar, isAvatarOwnedByUser } from './utils';
+import {
+  forgetCachedAvatar,
+  writeCachedAvatarIcon,
+  forgetCachedAvatarIcon,
+  isAvatarOwnedByUser,
+  isAvatarListedPublicly,
+  canShareAvatar,
+  buildSharedAvatarUrl,
+} from './utils';
+import { isAdminAccount } from '../config/adminAccount';
+import { showRequestFailureToast } from './requestFailureToast';
+import AvatarDocumentRow from './AvatarDocumentRow';
 import { useNavigate } from 'react-router-dom';
 
 // Social Media Platform Configuration
@@ -61,7 +73,17 @@ const SOCIAL_PLATFORMS = [
   { id: 'microsoft', name: 'Microsoft', icon: Globe, color: '#00A4EF' },
   { id: 'reddit', name: 'Reddit', icon: Globe, color: '#FF4500' },
 ];
-const AvatarSettings = ({ avatarId }) => {
+/**
+ * @param {Object} props
+ * @param {string} props.avatarId The avatar being administered.
+ * @param {Function} [props.onPortraitChanged] Called with the avatar's portrait
+ *   (a data URI, or null when the avatar no longer has one) the moment a new one
+ *   is stored. The screen around this one paints the same portrait from its own
+ *   state — the header beside the avatar's name, the face beside every message —
+ *   and nothing else tells it that the portrait it fetched on mount has been
+ *   replaced, which is why a new portrait used to appear only after a reload.
+ */
+const AvatarSettings = ({ avatarId, onPortraitChanged }) => {
   // Context first: state below is seeded from it, and reading `activeAvatar`
   // before this line is a temporal-dead-zone error that blanks the screen.
   const {
@@ -82,7 +104,7 @@ const AvatarSettings = ({ avatarId }) => {
   // Sharing state is mirrored locally so the control responds immediately, then
   // reconciled against the avatar record the server returns.
   const [isAvatarShared, setIsAvatarShared] = useState(
-    Boolean(activeAvatar?.metadata?.is_public)
+    isAvatarListedPublicly(activeAvatar)
   );
   const [isUpdatingSharing, setIsUpdatingSharing] = useState(false);
   const [connectedDataServers, setConnectedDataServers] = useState([]);
@@ -98,8 +120,12 @@ const AvatarSettings = ({ avatarId }) => {
     password: '',
   });
   const [manualUrl, setManualUrl] = useState('');
-  // Source documents already uploaded to this avatar, as labels from
-  // GET /list_avatar_documents.
+  // Source documents already uploaded to this avatar, from
+  // GET /list_avatar_documents. Each entry is
+  // {label, referenceRole, isReferenceImage, isReferenceAudio}: `label` is both
+  // what is shown and what deleteAvatarDocument takes back, and the reference
+  // fields say whether that upload is the avatar's portrait or its voice sample
+  // rather than an ordinary source file.
   const [avatarDocuments, setAvatarDocuments] = useState([]);
   // Why the file list is empty, when it is empty because something FAILED
   // rather than because the avatar genuinely has no files. Without this the two
@@ -119,8 +145,18 @@ const AvatarSettings = ({ avatarId }) => {
     avatarId;
 
   // Every control on this screen writes to the avatar, and the API refuses all
-  // of them for an avatar the caller did not create.
+  // of them for an avatar the caller did not create. Sharing is the one
+  // exception, handled by canChangeSharing below.
   const canAdministerAvatar = isAvatarOwnedByUser(activeAvatar, user);
+
+  // The administrator may publish or withdraw ANY avatar — one it did not
+  // create, and one that does not depict its creator — which is precisely what
+  // POST /share_avatar exempts that account from. Without this the account's
+  // own invented avatars (a pastor, a restaurant) offered no way to publish
+  // them at all, because the sharing control below is otherwise reserved for
+  // the personal avatar.
+  const isAdministrator = isAdminAccount(user);
+  const canChangeSharing = canShareAvatar(activeAvatar, user);
 
   // The avatar that depicts its creator. Two things belong only to it: sharing
   // (you may publish your own likeness, not a character you invented) and the
@@ -222,13 +258,13 @@ const AvatarSettings = ({ avatarId }) => {
         if (cancelled) return;
         const dataServerCapability = (
           personalAvatarResponse?.capabilities ?? []
-        ).find((capability) => capability.status_key === 'connected_data_servers');
+        ).find(
+          (capability) => capability.status_key === 'connected_data_servers'
+        );
         const connections =
           personalAvatarResponse?.connected_data_servers ??
           dataServerCapability?.status;
-        setConnectedDataServers(
-          Array.isArray(connections) ? connections : []
-        );
+        setConnectedDataServers(Array.isArray(connections) ? connections : []);
 
         const mailboxCapability = (
           personalAvatarResponse?.capabilities ?? []
@@ -251,7 +287,7 @@ const AvatarSettings = ({ avatarId }) => {
 
   // Keep the sharing control in step with whichever avatar is open.
   useEffect(() => {
-    setIsAvatarShared(Boolean(activeAvatar?.metadata?.is_public));
+    setIsAvatarShared(isAvatarListedPublicly(activeAvatar));
   }, [activeAvatar]);
 
   // Seed the editors with what the avatar is currently called. They started
@@ -262,8 +298,17 @@ const AvatarSettings = ({ avatarId }) => {
     setUpdatedDesc(activeAvatar?.description ?? '');
   }, [activeAvatar?.name, activeAvatar?.description]);
 
-  // Global drag and drop handlers
+  // Global drag and drop handlers.
+  //
+  // These listen on the whole document, so they are registered only for an
+  // avatar the caller created. The administrator opening somebody else's avatar
+  // sees the sharing control alone, and a file dropped anywhere on that screen
+  // would otherwise raise the full-screen upload overlay for an upload the API
+  // refuses.
   useEffect(() => {
+    if (!canAdministerAvatar) {
+      return undefined;
+    }
     const handleDragEnter = (e) => {
       e.preventDefault();
       if (
@@ -307,7 +352,7 @@ const AvatarSettings = ({ avatarId }) => {
       document.removeEventListener('drop', handleDrop);
       document.removeEventListener('paste', handlePaste);
     };
-  }, []);
+  }, [canAdministerAvatar]);
 
   /**
    * Say what a media job is doing right now, in words rather than stage names.
@@ -330,7 +375,9 @@ const AvatarSettings = ({ avatarId }) => {
       indexing: 'Adding to memory',
     };
     const stageDescription =
-      stageDescriptions[progressEvent.stage] ?? progressEvent.stage ?? 'Processing';
+      stageDescriptions[progressEvent.stage] ??
+      progressEvent.stage ??
+      'Processing';
 
     const documentsIndexed =
       progressEvent.documents_indexed ?? progressEvent.current;
@@ -358,11 +405,23 @@ const AvatarSettings = ({ avatarId }) => {
    * own job and defeated the batch semantics the server is built around
    * (a shared master job, URL manifests, playlist expansion).
    *
+   * One upload is ONE toast from start to finish: the loading toast raised here
+   * is the same toast that later says the upload landed or says why it did not.
+   * Dismissing it and raising a fresh success toast — which is what this used to
+   * do — breaks a single upload into a chain of unrelated messages that arrive in
+   * different places in the stack, and lets a "finished" message stand beside a
+   * later message saying nothing was stored.
+   *
    * @param {Object} options
    * @param {File[]} [options.files] Files to send.
    * @param {string[]} [options.urls] URLs to ingest.
    * @param {boolean} [options.isReferenceImage] Send as the avatar's portrait.
    * @param {string} options.description What is being uploaded, for the toasts.
+   * @param {Function} [options.confirmStored] Run after the job reports done, to
+   *   check that what was uploaded is actually stored. Returns null when it is,
+   *   or the message to show instead of the success message when it is not — so
+   *   the upload's single toast ends on the truth rather than being contradicted
+   *   by a second one.
    * @returns {Promise<boolean>} Whether the job finished successfully.
    */
   const uploadMediaAndFollowJob = async ({
@@ -370,6 +429,7 @@ const AvatarSettings = ({ avatarId }) => {
     urls = [],
     isReferenceImage = false,
     description,
+    confirmStored,
   }) => {
     if (!user) {
       toast.error('Not logged in');
@@ -381,7 +441,7 @@ const AvatarSettings = ({ avatarId }) => {
     }
 
     const progressToastId = toast.loading(`Uploading ${description}…`, {
-      position: 'bottom-left',
+      position: 'top-right',
     });
 
     try {
@@ -407,17 +467,45 @@ const AvatarSettings = ({ avatarId }) => {
                 }`
             )
             .join('; ')}`,
-          { duration: 9000, position: 'bottom-left' }
+          { duration: 9000, position: 'top-right' }
         );
       }
+
+      /**
+       * End this upload's toast on its verdict: the confirmation step, when
+       * there is one, has the last word.
+       *
+       * @returns {Promise<boolean>} Whether the upload is considered successful.
+       */
+      const finishOnConfirmation = async () => {
+        const confirmationFailure = confirmStored ? await confirmStored() : null;
+        if (confirmationFailure) {
+          toast.error(confirmationFailure, {
+            id: progressToastId,
+            duration: 9000,
+            position: 'top-right',
+          });
+          return false;
+        }
+        toast.success(`${description} added`, {
+          id: progressToastId,
+          position: 'top-right',
+        });
+        return true;
+      };
 
       const jobId = uploadResponse?.job_id;
       if (!jobId) {
         // Nothing to follow — either everything was rejected, or this build of
         // the API answered synchronously.
-        toast.dismiss(progressToastId);
         await refreshAvatarDocuments();
-        return Array.isArray(rejectedItems) ? rejectedItems.length === 0 : true;
+        if (Array.isArray(rejectedItems) && rejectedItems.length > 0) {
+          // The rejection toast above already said what was refused; this one
+          // must not claim the upload landed.
+          toast.dismiss(progressToastId);
+          return false;
+        }
+        return finishOnConfirmation();
       }
 
       let jobFailure = null;
@@ -425,30 +513,33 @@ const AvatarSettings = ({ avatarId }) => {
         if (progressEvent.type === 'media_progress') {
           toast.loading(describeMediaProgress(progressEvent, description), {
             id: progressToastId,
-            position: 'bottom-left',
+            position: 'top-right',
           });
         } else if (progressEvent.type === 'done') {
           jobFailure = progressEvent.error ?? null;
         }
       });
 
-      toast.dismiss(progressToastId);
       if (jobFailure) {
         toast.error(`Processing ${description} failed: ${jobFailure}`, {
+          id: progressToastId,
           duration: 9000,
-          position: 'bottom-left',
+          position: 'top-right',
         });
         return false;
       }
 
-      toast.success(`${description} added`, { position: 'bottom-left' });
       await refreshAvatarDocuments();
-      return true;
+      return finishOnConfirmation();
     } catch (uploadError) {
       toast.dismiss(progressToastId);
       console.error('Media upload failed:', uploadError);
-      toast.error(`Upload failed: ${uploadError.message}`, {
-        position: 'bottom-left',
+      // An upload is metered too, so it can be refused for a spent allotment
+      // exactly as a message can; reported through the shared path, that
+      // refusal arrives with a way to billing rather than as a dead end.
+      showRequestFailureToast(uploadError, {
+        fallbackMessage: 'Upload failed.',
+        position: 'top-right',
       });
       return false;
     }
@@ -461,8 +552,7 @@ const AvatarSettings = ({ avatarId }) => {
 
     await uploadMediaAndFollowJob({
       files,
-      description:
-        files.length === 1 ? files[0].name : `${files.length} files`,
+      description: files.length === 1 ? files[0].name : `${files.length} files`,
     });
     if (e.target) {
       // Let the same file be chosen again after a failure.
@@ -618,13 +708,12 @@ const AvatarSettings = ({ avatarId }) => {
     const [chosenImage] = acceptedFiles ?? [];
     if (!chosenImage) return;
 
-    const succeeded = await uploadMediaAndFollowJob({
+    await uploadMediaAndFollowJob({
       files: [chosenImage],
       isReferenceImage: true,
       description: 'the avatar portrait',
+      confirmStored: confirmPortraitWasStored,
     });
-    if (!succeeded) return;
-    await confirmPortraitWasStored();
   };
 
   /**
@@ -637,11 +726,27 @@ const AvatarSettings = ({ avatarId }) => {
    * silently stayed empty, which is worse than an error: it sends the user off
    * believing something is set. So the portrait is fetched back, and its
    * absence is reported as the failure it is.
+   *
+   * @returns {Promise<string|null>} Null when the portrait is stored, otherwise
+   *   the message the upload's toast must end on instead of "added".
    */
   const confirmPortraitWasStored = async () => {
     try {
       const storedPortrait = await getAvatarReferenceImage(assistantId);
       setAvatarIcon(storedPortrait);
+      // The screen around this one holds its own copy of the portrait, fetched
+      // when it opened: the header beside the avatar's name and the face beside
+      // every message. Handing it the new portrait is what replaces those the
+      // moment it is stored rather than on the next page load.
+      onPortraitChanged?.(storedPortrait);
+      // The gallery paints from this cache before it asks the API, so a
+      // replaced portrait has to land here too — otherwise the old face
+      // survives on the selection screen until its revalidation catches up.
+      if (storedPortrait) {
+        writeCachedAvatarIcon(assistantId, storedPortrait);
+      } else {
+        forgetCachedAvatarIcon(assistantId);
+      }
       if (storedPortrait) {
         // If this was the avatar that depicts the user, their icon changes
         // everywhere at once — the alternative is a stale face beside their
@@ -649,16 +754,12 @@ const AvatarSettings = ({ avatarId }) => {
         refreshUserPortrait();
       }
       if (!storedPortrait) {
-        toast.error(
-          'The upload finished but no portrait was stored. The image could not be processed — check the server logs for the media job.',
-          { duration: 9000, position: 'bottom-left' }
-        );
+        return 'The upload finished but no portrait was stored. The image could not be processed — check the server logs for the media job.';
       }
+      return null;
     } catch (portraitError) {
       console.error('Re-reading the avatar portrait failed:', portraitError);
-      toast.error('Could not confirm the portrait was saved.', {
-        position: 'bottom-left',
-      });
+      return 'Could not confirm the portrait was saved.';
     }
   };
 
@@ -735,7 +836,10 @@ const AvatarSettings = ({ avatarId }) => {
       if (setActiveAvatar && activeAvatar) {
         setActiveAvatar({
           ...activeAvatar,
-          metadata: { ...(activeAvatar.metadata ?? {}), is_public: shouldShare },
+          metadata: {
+            ...(activeAvatar.metadata ?? {}),
+            is_public: shouldShare,
+          },
         });
       }
       toast.success(
@@ -766,9 +870,7 @@ const AvatarSettings = ({ avatarId }) => {
           (candidate) => candidate.server_name !== dataServer.server_name
         )
       );
-      toast.success(
-        `${dataServer.server_name ?? 'Data server'} disconnected.`
-      );
+      toast.success(`${dataServer.server_name ?? 'Data server'} disconnected.`);
     } catch (disconnectError) {
       console.error('Disconnecting the data server failed:', disconnectError);
       toast.error(disconnectError.message || 'Could not disconnect.');
@@ -809,7 +911,7 @@ const AvatarSettings = ({ avatarId }) => {
       const providers =
         connectableProviders.length > 0
           ? connectableProviders
-          : (await listConnectableProviders())?.providers ?? [];
+          : ((await listConnectableProviders())?.providers ?? []);
       setConnectableProviders(providers);
       const gmailProvider =
         providers.find((entry) => entry.provider === 'gmail') ?? providers[0];
@@ -822,7 +924,10 @@ const AvatarSettings = ({ avatarId }) => {
         already_connected: connectedMailboxes,
       });
     } catch (providersError) {
-      console.error('Reading the connectable providers failed:', providersError);
+      console.error(
+        'Reading the connectable providers failed:',
+        providersError
+      );
       toast.error(providersError.message || 'Could not open the sign-in form.');
     }
   };
@@ -864,10 +969,130 @@ const AvatarSettings = ({ avatarId }) => {
       setIsDeleting(false);
     }
   };
-  // A last line of defence. ChatArea does not offer the settings tab for an
-  // avatar the user does not own, so reaching here means something routed
-  // around that — and every control below would fail against the API anyway.
+  // The public address of this avatar, valid only while the avatar is shared.
+  // It is built rather than returned by the API: the API knows nothing about
+  // this application's routes.
+  const sharedAvatarUrl = buildSharedAvatarUrl(assistantId);
+
+  /**
+   * Put the share link on the clipboard.
+   *
+   * The clipboard API is unavailable outside a secure context (plain http on a
+   * hostname other than localhost), and refusing silently would look like a
+   * dead button — so the failure says what to do instead, and the link stays
+   * on screen and selectable either way.
+   */
+  const handleCopyShareLink = async () => {
+    try {
+      await navigator.clipboard.writeText(sharedAvatarUrl);
+      toast.success('Share link copied.');
+    } catch (copyError) {
+      console.error('Copying the share link failed:', copyError);
+      toast.error('Could not copy automatically — select the link to copy it.');
+    }
+  };
+
+  /**
+   * The Sharing control.
+   *
+   * Rendered from a function because it appears in two places: inside the full
+   * settings screen for the avatar's creator, and on its own for the
+   * administrator looking at an avatar somebody else created — the one account
+   * that may change the sharing of an avatar it does not otherwise administer.
+   */
+  const renderSharingCard = () => {
+    const isAdministeringSomeoneElsesAvatar =
+      !canAdministerAvatar && isAdministrator;
+    return (
+      <div className="bg-white/5 backdrop-blur-lg rounded-2xl border border-white/20 p-6">
+        <h3 className="text-xl font-semibold text-white mb-4 flex items-center gap-2">
+          {isAvatarShared ? <Globe size={20} /> : <Lock size={20} />}
+          Sharing
+        </h3>
+        <div className="flex items-start justify-between gap-6">
+          <p className="text-white/60 text-sm">
+            {isAdministeringSomeoneElsesAvatar
+              ? isAvatarShared
+                ? 'Another account created this avatar and it is listed publicly. As the administrator you can withdraw it from the public gallery. Its name, portrait and data stay with the account that created it.'
+                : 'Another account created this avatar. As the administrator you can list it publicly, so anyone can find it and chat with it. Its name, portrait and data stay with the account that created it.'
+              : isAvatarShared
+                ? 'This avatar is listed publicly. Anyone can find it and chat with it. Only you can change its settings or its data.'
+                : 'Only you can see this avatar. Share it to list it publicly, so anyone can find it and chat with it.'}
+          </p>
+          <button
+            onClick={handleToggleSharing}
+            disabled={isUpdatingSharing}
+            className={`shrink-0 px-4 py-2 rounded-lg border transition-all duration-300 disabled:opacity-50 disabled:cursor-not-allowed ${
+              isAvatarShared
+                ? 'bg-white/10 hover:bg-white/20 text-white border-white/20'
+                : 'bg-teal-500/20 hover:bg-teal-500/30 text-teal-300 border-teal-500/30'
+            }`}
+          >
+            {isUpdatingSharing
+              ? 'Saving…'
+              : isAvatarShared
+                ? 'Make private'
+                : 'Share publicly'}
+          </button>
+        </div>
+
+        {isAvatarShared && (
+          <div className="mt-4 pt-4 border-t border-white/10">
+            <p className="text-white/60 text-sm mb-2">
+              Anyone with this link can chat with this avatar. They do not need
+              an account, and they see nothing else of Neural Nexus.
+            </p>
+            <div className="flex flex-col sm:flex-row gap-2">
+              <input
+                readOnly
+                value={sharedAvatarUrl}
+                onFocus={(focusEvent) => focusEvent.target.select()}
+                aria-label="Public link to this avatar"
+                className="flex-grow min-w-0 px-3 py-2 rounded-lg bg-black/30 border border-white/20 text-white text-sm font-mono"
+              />
+              <div className="flex gap-2 shrink-0">
+                <button
+                  onClick={handleCopyShareLink}
+                  className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-teal-500/20 hover:bg-teal-500/30 border border-teal-500/30 text-teal-300 font-semibold transition-colors"
+                >
+                  <Copy size={16} />
+                  Copy link
+                </button>
+                <a
+                  href={sharedAvatarUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-white/10 hover:bg-white/20 border border-white/20 text-white transition-colors"
+                >
+                  <ExternalLink size={16} />
+                  Open
+                </a>
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+    );
+  };
+
+  // A last line of defence for everything OTHER than sharing. Renaming, the
+  // portrait, the source documents and deletion are all refused by the API for
+  // an avatar the caller did not create, so an avatar somebody else created
+  // shows the administrator the one control that account does hold over it, and
+  // shows everybody else nothing.
   if (!canAdministerAvatar) {
+    if (canChangeSharing) {
+      return (
+        <div className="flex flex-col gap-6 w-full max-w-4xl mx-auto">
+          {renderSharingCard()}
+          <p className="text-white/50 text-sm px-1">
+            Another account created this avatar, so its name, portrait, source
+            documents and deletion stay with that account. Sharing is the only
+            setting the administrator can change here.
+          </p>
+        </div>
+      );
+    }
     return (
       <div className="w-full max-w-4xl mx-auto bg-white/5 backdrop-blur-lg rounded-2xl border border-white/20 p-6 text-white/70">
         Settings are available to the person who created this avatar.
@@ -974,6 +1199,13 @@ const AvatarSettings = ({ avatarId }) => {
                 multiple={false}
                 accept={{ 'image/*': [] }}
                 noClick
+                // The screen also listens for a drop on the document itself, so
+                // that a file dropped anywhere is taken as source material. An
+                // image dropped HERE is the portrait and nothing else: without
+                // this the one drop ran both handlers and uploaded the same file
+                // twice — once as the portrait, once as an ordinary document —
+                // with two independent sets of progress toasts to match.
+                noDragEventsBubbling
               >
                 {({ getRootProps, getInputProps, open }) => (
                   <div
@@ -996,7 +1228,14 @@ const AvatarSettings = ({ avatarId }) => {
                 )}
               </Dropzone>
             ) : (
-              <Dropzone onDrop={handleIconUpload} multiple={false}>
+              <Dropzone
+                onDrop={handleIconUpload}
+                multiple={false}
+                accept={{ 'image/*': [] }}
+                // Same reason as the replace-the-portrait dropzone above: this
+                // drop is the portrait, not another source document.
+                noDragEventsBubbling
+              >
                 {({ getRootProps, getInputProps }) => (
                   <div
                     {...getRootProps()}
@@ -1004,7 +1243,9 @@ const AvatarSettings = ({ avatarId }) => {
                   >
                     <input {...getInputProps()} />
                     <Upload size={28} className="text-white/50" />
-                    <span className="text-xs text-white/50">Add a portrait</span>
+                    <span className="text-xs text-white/50">
+                      Add a portrait
+                    </span>
                   </div>
                 )}
               </Dropzone>
@@ -1252,79 +1493,141 @@ const AvatarSettings = ({ avatarId }) => {
           </p>
         </div>
       </div>
-      {/* Sharing — personal avatars only. Publishing is for your own likeness. */}
-      {isPersonalAvatar && (
-      <div className="bg-white/5 backdrop-blur-lg rounded-2xl border border-white/20 p-6">
-        <h3 className="text-xl font-semibold text-white mb-4 flex items-center gap-2">
-          {isAvatarShared ? <Globe size={20} /> : <Lock size={20} />}
-          Sharing
-        </h3>
-        <div className="flex items-start justify-between gap-6">
-          <p className="text-white/60 text-sm">
-            {isAvatarShared
-              ? 'This avatar is listed publicly. Anyone can find it and chat with it. Only you can change its settings or its data.'
-              : 'Only you can see this avatar. Share it to list it publicly, so anyone can find it and chat with it.'}
-          </p>
-          <button
-            onClick={handleToggleSharing}
-            disabled={isUpdatingSharing}
-            className={`shrink-0 px-4 py-2 rounded-lg border transition-all duration-300 disabled:opacity-50 disabled:cursor-not-allowed ${
-              isAvatarShared
-                ? 'bg-white/10 hover:bg-white/20 text-white border-white/20'
-                : 'bg-teal-500/20 hover:bg-teal-500/30 text-teal-300 border-teal-500/30'
-            }`}
-          >
-            {isUpdatingSharing
-              ? 'Saving…'
-              : isAvatarShared
-                ? 'Make private'
-                : 'Share publicly'}
-          </button>
-        </div>
-      </div>
-      )}
+      {/* Sharing. Publishing is for your own likeness, so this is the personal
+          avatar's control — except for the administrator, who may publish any
+          avatar and therefore sees it on all of them. */}
+      {canChangeSharing && renderSharingCard()}
 
       {/* Connected data servers — reached through the personal avatar, so they
           are not a property of any other avatar. */}
       {isPersonalAvatar && (
-      <div className="bg-white/5 backdrop-blur-lg rounded-2xl border border-white/20 p-6">
-        <h3 className="text-xl font-semibold text-white mb-4 flex items-center gap-2">
-          <Server size={20} />
-          Connected Data Servers
-        </h3>
-        {connectedDataServers.length > 0 ? (
-          <div className="space-y-2">
-            {connectedDataServers.map((dataServer) => (
-              <div
-                key={dataServer.server_name ?? dataServer.device_id}
-                className="flex items-center justify-between p-3 bg-white/5 border border-white/10 rounded-lg"
-              >
-                <div>
-                  <p className="text-white">
-                    {dataServer.server_name ?? 'Data server'}
-                  </p>
-                  <p className="text-white/50 text-xs">
-                    {dataServer.bound_to_this_avatar
-                      ? 'Available to this avatar'
-                      : 'Connected to your account, bound to another avatar'}
-                  </p>
-                </div>
-                <button
-                  onClick={() => handleDisconnectDataServer(dataServer)}
-                  className="px-3 py-1.5 text-sm bg-red-500/20 hover:bg-red-500/30 text-red-300 rounded-lg border border-red-500/30 transition-colors"
+        <div className="bg-white/5 backdrop-blur-lg rounded-2xl border border-white/20 p-6">
+          <h3 className="text-xl font-semibold text-white mb-4 flex items-center gap-2">
+            <Server size={20} />
+            Connected Data Servers
+          </h3>
+          {connectedDataServers.length > 0 ? (
+            <div className="space-y-2">
+              {connectedDataServers.map((dataServer) => (
+                <div
+                  key={dataServer.server_name ?? dataServer.device_id}
+                  className="flex items-center justify-between p-3 bg-white/5 border border-white/10 rounded-lg"
                 >
-                  Disconnect
-                </button>
-              </div>
-            ))}
+                  <div>
+                    <p className="text-white">
+                      {dataServer.server_name ?? 'Data server'}
+                    </p>
+                    <p className="text-white/50 text-xs">
+                      {dataServer.bound_to_this_avatar
+                        ? 'Available to this avatar'
+                        : 'Connected to your account, bound to another avatar'}
+                    </p>
+                  </div>
+                  <button
+                    onClick={() => handleDisconnectDataServer(dataServer)}
+                    className="px-3 py-1.5 text-sm bg-red-500/20 hover:bg-red-500/30 text-red-300 rounded-lg border border-red-500/30 transition-colors"
+                  >
+                    Disconnect
+                  </button>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <p className="text-white/50 text-sm">
+              No data servers connected. Connecting one lets this avatar work
+              with files and data on your own machine.
+            </p>
+          )}
+        </div>
+      )}
+
+      {/* Connected Mailboxes — personal-avatar only, for the same reason the
+          data servers are: these carry the owner's own mail credentials, and a
+          shared or demoted avatar must reach none of them. */}
+      {isPersonalAvatar && (
+        <div className="bg-white/5 backdrop-blur-lg rounded-2xl border border-white/20 p-6">
+          <div className="flex items-center justify-between mb-4">
+            <h3 className="text-xl font-semibold text-white flex items-center gap-2">
+              <Mail size={20} />
+              Connected Mailboxes
+            </h3>
+            <button
+              onClick={handleOpenConnectCard}
+              className="px-3 py-1.5 text-sm bg-teal-500/20 hover:bg-teal-500/30 text-teal-300 rounded-lg border border-teal-500/30 transition-colors"
+            >
+              Connect Gmail
+            </button>
           </div>
-        ) : (
-          <p className="text-white/50 text-sm">
-            No data servers connected. Connecting one lets this avatar work with
-            files and data on your own machine.
-          </p>
-        )}
-      </div>
+          {connectedMailboxes.length > 0 ? (
+            <div className="space-y-2">
+              {connectedMailboxes.map((mailbox) => (
+                <div
+                  key={mailbox.account_key}
+                  className="flex items-center justify-between p-3 bg-white/5 border border-white/10 rounded-lg"
+                >
+                  <div className="min-w-0">
+                    <p className="text-white truncate">
+                      {mailbox.account_address}
+                    </p>
+                    <p
+                      className={`text-xs ${
+                        mailbox.status === 'connected'
+                          ? 'text-white/50'
+                          : 'text-amber-300'
+                      }`}
+                    >
+                      {mailbox.status === 'connected'
+                        ? `Available to this avatar as "${mailbox.display_label}"`
+                        : 'The saved password has stopped working — reconnect this mailbox.'}
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-2 shrink-0">
+                    {mailbox.status !== 'connected' && (
+                      <button
+                        onClick={handleOpenConnectCard}
+                        className="px-3 py-1.5 text-sm bg-teal-500/20 hover:bg-teal-500/30 text-teal-300 rounded-lg border border-teal-500/30 transition-colors"
+                      >
+                        Reconnect
+                      </button>
+                    )}
+                    <button
+                      onClick={() => handleDisconnectMailbox(mailbox)}
+                      className="px-3 py-1.5 text-sm bg-red-500/20 hover:bg-red-500/30 text-red-300 rounded-lg border border-red-500/30 transition-colors"
+                    >
+                      Disconnect
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <p className="text-white/50 text-sm">
+              No mailboxes connected. Connecting one lets this avatar search and
+              read your email and write draft replies. It can never send.
+            </p>
+          )}
+        </div>
+      )}
+
+      {/* The sign-in card, in a modal. Deliberately the same component the
+          avatar raises mid-conversation, so there is one implementation of the
+          form and one place the app-password guidance is worded. */}
+      {providerBeingConnected && (
+        <div className="fixed inset-0 z-40 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="w-full max-w-md">
+            <ConnectAccountCard
+              interrupt={providerBeingConnected}
+              startOpen
+              className="w-full"
+              onDecision={(decision) => {
+                setProviderBeingConnected(null);
+                if (decision === 'apply') {
+                  refreshConnectedMailboxes();
+                }
+              }}
+            />
+          </div>
+        </div>
       )}
 
       {/* Connected Mailboxes — personal-avatar only, for the same reason the
@@ -1426,27 +1729,13 @@ const AvatarSettings = ({ avatarId }) => {
 
         <div className="space-y-2">
           {avatarDocuments.length > 0 ? (
-            avatarDocuments.map((documentLabel) => (
-              <div
-                key={documentLabel}
-                className="flex items-center justify-between p-3 bg-white/5 border border-white/10 rounded-lg hover:bg-white/10 transition-colors"
-              >
-                <div className="flex items-center gap-3">
-                  <FileText size={18} className="text-blue-400" />
-                  <span className="text-white text-sm font-medium">
-                    {documentLabel}
-                  </span>
-                </div>
-
-                <div className="flex items-center gap-2">
-                  <button
-                    onClick={() => handleDeleteDocument(documentLabel)}
-                    className="text-red-400 hover:text-red-300 transition-colors"
-                  >
-                    <Trash2 size={20} />
-                  </button>
-                </div>
-              </div>
+            avatarDocuments.map((documentEntry) => (
+              <AvatarDocumentRow
+                key={documentEntry.label}
+                documentEntry={documentEntry}
+                portraitDataUri={avatarIcon}
+                onDelete={handleDeleteDocument}
+              />
             ))
           ) : avatarDocumentsError ? (
             <div className="p-3 bg-red-500/10 border border-red-500/30 rounded-lg">
