@@ -13,8 +13,8 @@ const VantaBackground = () => {
       vantaEffect.current = NET({
         el: vantaRef.current,
         THREE,
-        color: 0x14b8a6, // Teal lines
-        backgroundColor: 0x301934,
+        color: 0x4a4335, // Warm gray lines, a hint of gold
+        backgroundColor: 0x000000,
         mouseControls: true,
         touchControls: true,
         gyroControls: false,

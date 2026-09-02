@@ -227,8 +227,8 @@ const SharedAvatarChat = () => {
   if (linkState === 'unavailable') {
     return (
       <div className="h-full flex items-center justify-center p-6">
-        <div className="w-full max-w-lg bg-white/5 backdrop-blur-lg rounded-2xl border border-white/20 p-6 text-center">
-          <h1 className="text-xl font-semibold text-white mb-2">
+        <div className="w-full max-w-lg bg-black/60 backdrop-blur-lg rounded-2xl border border-white/10 p-6 text-center">
+          <h1 className="text-xl font-semibold text-neutral-200 mb-2">
             This avatar is not available
           </h1>
           <p className="text-white/60 text-sm">
@@ -239,13 +239,13 @@ const SharedAvatarChat = () => {
           <div className="mt-5 flex flex-col sm:flex-row gap-2 justify-center">
             <button
               onClick={() => openApplicationScreen('/signup')}
-              className="px-4 py-2 rounded-lg bg-teal-500/20 hover:bg-teal-500/30 border border-teal-500/30 text-teal-200 font-semibold transition-colors"
+              className="px-4 py-2 rounded-lg bg-neutral-100/10 hover:bg-neutral-100/15 border border-neutral-700 text-neutral-200 font-semibold transition-colors"
             >
               Create your own avatar
             </button>
             <button
               onClick={() => openApplicationScreen('/welcome')}
-              className="px-4 py-2 rounded-lg bg-white/10 hover:bg-white/20 border border-white/20 text-white transition-colors"
+              className="px-4 py-2 rounded-lg bg-black/50 hover:bg-white/10 border border-white/10 text-neutral-200 transition-colors"
             >
               About Neural Nexus
             </button>
@@ -265,12 +265,12 @@ const SharedAvatarChat = () => {
       />
     )}
     <div className="h-full w-full p-2 sm:p-4">
-      <div className="flex flex-col w-full h-full bg-white/5 backdrop-blur-lg rounded-2xl border border-white/20 overflow-hidden relative">
+      <div className="flex flex-col w-full h-full bg-black/60 backdrop-blur-lg rounded-2xl border border-white/10 overflow-hidden relative">
         {/* The header names the one avatar this link opens. There is nothing to
             switch to and nothing to administer, so it carries no tabs. */}
-        <div className="flex items-center justify-between gap-3 px-4 py-3 border-b border-white/20">
+        <div className="flex items-center justify-between gap-3 px-4 py-3 border-b border-white/10">
           <div className="flex items-center gap-3 min-w-0">
-            <div className="w-9 h-9 shrink-0 rounded-full bg-white/10 border border-white/20 overflow-hidden flex items-center justify-center">
+            <div className="w-9 h-9 shrink-0 rounded-full bg-black/50 border border-white/10 overflow-hidden flex items-center justify-center">
               {avatarPortrait && isValidImageUrl(avatarPortrait) ? (
                 <img
                   src={avatarPortrait}
@@ -281,7 +281,7 @@ const SharedAvatarChat = () => {
                 <User className="w-5 h-5 text-white/40" />
               )}
             </div>
-            <span className="text-white font-semibold truncate">
+            <span className="text-neutral-200 font-semibold truncate">
               {activeAvatar?.name
                 ? `A.I. ${activeAvatar.name} Chat`
                 : 'A.I. Chat'}
@@ -289,7 +289,7 @@ const SharedAvatarChat = () => {
           </div>
           <button
             onClick={() => openApplicationScreen('/signup')}
-            className="shrink-0 inline-flex items-center gap-2 px-3 py-2 rounded-lg bg-teal-500/20 hover:bg-teal-500/30 border border-teal-500/30 text-teal-200 text-sm font-semibold transition-colors"
+            className="shrink-0 inline-flex items-center gap-2 px-3 py-2 rounded-lg bg-neutral-100/10 hover:bg-neutral-100/15 border border-neutral-700 text-neutral-200 text-sm font-semibold transition-colors"
           >
             <Sparkles className="w-4 h-4 shrink-0" />
             Create your own avatar
@@ -327,9 +327,9 @@ const SharedAvatarChat = () => {
                     onClick={() =>
                       handleSendMessageMediaContext(OPENING_QUESTION)
                     }
-                    className="group w-full max-w-lg inline-flex items-start gap-3 text-left px-4 py-3 rounded-2xl bg-teal-500/10 hover:bg-teal-500/20 border border-teal-500/30 hover:border-teal-400/50 text-teal-100 transition-colors duration-300"
+                    className="group w-full max-w-lg inline-flex items-start gap-3 text-left px-4 py-3 rounded-2xl bg-neutral-100/5 hover:bg-neutral-100/10 border border-neutral-700 hover:border-neutral-300/50 text-neutral-200 transition-colors duration-300"
                   >
-                    <MessageCircle className="w-4 h-4 mt-1 shrink-0 text-teal-300" />
+                    <MessageCircle className="w-4 h-4 mt-1 shrink-0 text-neutral-300" />
                     <span className="text-sm sm:text-base">
                       {OPENING_QUESTION}
                     </span>

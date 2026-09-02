@@ -64,10 +64,10 @@ const LiveChat = ({ avatarIcon, onEndLiveChat, onSendVoice }) => {
   return (
     <div className="relative flex flex-col items-center justify-end h-full w-full overflow-hidden">
       {/* Background Image or User Icon - Large circular image like loginCard but bigger */}
-      <div className="absolute inset-0 flex items-center justify-center bg-white/5">
+      <div className="absolute inset-0 flex items-center justify-center bg-black/60">
         {avatarIcon ? (
           // Desktop: Large circular image (4x loginCard size), Mobile: full background
-          <div className="hidden md:flex w-80 h-80 bg-white/20 rounded-full items-center justify-center">
+          <div className="hidden md:flex w-80 h-80 bg-white/10 rounded-full items-center justify-center">
             <img
               src={avatarIcon}
               alt="Avatar Icon"
@@ -80,8 +80,8 @@ const LiveChat = ({ avatarIcon, onEndLiveChat, onSendVoice }) => {
           </div>
         ) : (
           // Fallback User icon - larger circular container
-          <div className="w-80 h-80 bg-white/10 rounded-full flex items-center justify-center border-4 border-white/20">
-            <User className="w-40 h-40 text-gray-400 opacity-20" />
+          <div className="w-80 h-80 bg-black/50 rounded-full flex items-center justify-center border-4 border-white/10">
+            <User className="w-40 h-40 text-neutral-400 opacity-20" />
           </div>
         )}
 
@@ -104,7 +104,7 @@ const LiveChat = ({ avatarIcon, onEndLiveChat, onSendVoice }) => {
         {toasts.map((toast) => (
           <div
             key={toast.id}
-            className="px-4 py-2 bg-black/70 text-white rounded-lg shadow-lg animate-slide-down backdrop-blur-sm"
+            className="px-4 py-2 bg-black/70 text-neutral-200 rounded-lg shadow-lg animate-slide-down backdrop-blur-sm"
           >
             {toast.message}
           </div>
@@ -118,7 +118,7 @@ const LiveChat = ({ avatarIcon, onEndLiveChat, onSendVoice }) => {
 
       {/* Recording indicator overlay - circumscribed on desktop */}
       {isRecording && (
-        <div className="absolute inset-0 border-4 border-blue-500 animate-pulse  z-10" />
+        <div className="absolute inset-0 border-4 border-amber-400 animate-pulse  z-10" />
       )}
 
       {/* Control buttons at bottom */}
@@ -127,8 +127,8 @@ const LiveChat = ({ avatarIcon, onEndLiveChat, onSendVoice }) => {
         <button
           className={`p-4 rounded-full transition-all duration-300 backdrop-blur-sm ${
             isRecording
-              ? 'bg-red-500/80 hover:bg-red-600/80 text-white'
-              : 'bg-blue-500/80 hover:bg-blue-600/80 text-white'
+              ? 'bg-red-500/80 hover:bg-red-600/80 text-neutral-200'
+              : 'bg-amber-500/90 hover:bg-amber-600/90 text-neutral-900'
           }`}
           onMouseDown={startRecording}
           onMouseUp={stopRecording}
@@ -143,7 +143,7 @@ const LiveChat = ({ avatarIcon, onEndLiveChat, onSendVoice }) => {
         </button>
         {/* End button with CircleX icon */}
         <button
-          className="p-4 rounded-full bg-gray-500/80 hover:bg-red-600/80 text-white transition-all duration-300 backdrop-blur-sm"
+          className="p-4 rounded-full bg-neutral-500/80 hover:bg-red-600/80 text-neutral-200 transition-all duration-300 backdrop-blur-sm"
           onClick={onEndLiveChat}
         >
           <CircleX className="w-6 h-6" />

@@ -90,23 +90,9 @@ function createPlaceholderTexture(
   context.textAlign = 'center';
   context.textBaseline = 'middle';
   if (type === 'create') {
-    // Draw plus icon
-    const centerX = width / 2;
-    const centerY = height / 2;
-    const size = 40;
-    context.lineWidth = 8;
-    context.strokeStyle = 'rgba(200, 200, 200, 0.6)';
-    context.lineCap = 'round';
-    // Vertical line
-    context.beginPath();
-    context.moveTo(centerX, centerY - size);
-    context.lineTo(centerX, centerY + size);
-    context.stroke();
-    // Horizontal line
-    context.beginPath();
-    context.moveTo(centerX - size, centerY);
-    context.lineTo(centerX + size, centerY);
-    context.stroke();
+    // Nothing is drawn on the Create Avatar card: a live PixelCard is laid
+    // over this slot by the gallery's parent and tracks it as it scrolls, so
+    // anything painted here would show through the card's glass.
   } else {
     // Draw user icon (simplified)
     const centerX = width / 2;
@@ -424,6 +410,7 @@ class App {
       onCardClick,
       currentIndex = 0,
       onIndexChange,
+      onCreateCardMove,
     } = {}
   ) {
     document.documentElement.classList.remove('no-js');
@@ -434,6 +421,7 @@ class App {
     this.onCardClick = onCardClick;
     this.currentIndex = currentIndex;
     this.onIndexChange = onIndexChange;
+    this.onCreateCardMove = onCreateCardMove;
     this.isExternalControl = false;
     this.createRenderer();
     this.createCamera();
@@ -597,6 +585,27 @@ class App {
       );
     }
   }
+  /**
+   * Tell the parent where the Create Avatar slot is on screen this frame.
+   *
+   * The slot's plane position is in viewport units; converting through the
+   * container's pixel width gives the offset from the gallery's centre that
+   * a DOM element laid over the slot needs. Reported every frame, so the
+   * overlay moves with the drag rather than snapping when the index settles.
+   */
+  reportCreateCardPosition() {
+    if (!this.onCreateCardMove || !this.medias || !this.viewport || !this.screen) {
+      return;
+    }
+    const createMedia = this.medias.find((media) => media.cardType === 'create');
+    if (!createMedia) return;
+    const xInPixels =
+      (createMedia.plane.position.x / this.viewport.width) * this.screen.width;
+    this.onCreateCardMove({
+      x: xInPixels,
+      visible: !(createMedia.isBefore || createMedia.isAfter),
+    });
+  }
   update() {
     this.scroll.current = lerp(
       this.scroll.current,
@@ -607,6 +616,7 @@ class App {
     if (this.medias) {
       this.medias.forEach((media) => media.update(this.scroll, direction));
     }
+    this.reportCreateCardPosition();
     this.renderer.render({ scene: this.scene, camera: this.camera });
     this.scroll.last = this.scroll.current;
     this.raf = window.requestAnimationFrame(this.update.bind(this));
@@ -665,6 +675,7 @@ const CircularGallery = forwardRef(
       onCardClick,
       currentIndex = 0,
       onIndexChange,
+      onCreateCardMove,
     },
     ref
   ) => {
@@ -695,6 +706,7 @@ const CircularGallery = forwardRef(
         onCardClick,
         currentIndex,
         onIndexChange,
+        onCreateCardMove,
       });
       appRef.current = app;
       return () => {
@@ -710,7 +722,7 @@ const CircularGallery = forwardRef(
     }, [currentIndex]);
     return (
       <div
-        className="w-full h-full overflow-hidden cursor-grab active:cursor-grabbing bg-white/5 backdrop-blur-lg"
+        className="w-full h-full overflow-hidden cursor-grab active:cursor-grabbing bg-black/60 backdrop-blur-lg"
         ref={containerRef}
       />
     );

@@ -317,9 +317,9 @@ const AvatarDocumentRow = ({ documentEntry, portraitDataUri, onDelete }) => {
           />
           <span className="absolute inset-0 flex items-center justify-center bg-black/30 group-hover:bg-black/10 transition-colors">
             {isPlayerOpen ? (
-              <X size={22} className="text-white drop-shadow" />
+              <X size={22} className="text-neutral-200 drop-shadow" />
             ) : (
-              <Play size={22} className="text-white drop-shadow" fill="white" />
+              <Play size={22} className="text-neutral-200 drop-shadow" fill="white" />
             )}
           </span>
         </button>
@@ -367,7 +367,7 @@ const AvatarDocumentRow = ({ documentEntry, portraitDataUri, onDelete }) => {
   return (
     <div
       onClick={youTubeVideoId ? handleRowClick : undefined}
-      className={`p-3 bg-white/5 border border-white/10 rounded-lg hover:bg-white/10 transition-colors${
+      className={`p-3 bg-black/60 border border-white/10 rounded-lg hover:bg-white/10 transition-colors${
         youTubeVideoId ? ' cursor-pointer' : ''
       }`}
     >
@@ -382,12 +382,12 @@ const AvatarDocumentRow = ({ documentEntry, portraitDataUri, onDelete }) => {
                   target="_blank"
                   rel="noopener noreferrer"
                   title={documentEntry.label}
-                  className="text-white text-sm font-medium break-all hover:text-blue-300 transition-colors"
+                  className="text-neutral-200 text-sm font-medium break-all hover:text-blue-300 transition-colors"
                 >
                   {displayLabel}
                 </a>
               ) : (
-                <span className="text-white text-sm font-medium break-all">
+                <span className="text-neutral-200 text-sm font-medium break-all">
                   {displayLabel}
                 </span>
               )}
@@ -397,7 +397,7 @@ const AvatarDocumentRow = ({ documentEntry, portraitDataUri, onDelete }) => {
                 </span>
               ) : (
                 kindPresentation && (
-                  <span className="px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wide rounded-full border bg-white/10 text-white/70 border-white/20">
+                  <span className="px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wide rounded-full border bg-black/50 text-white/70 border-white/10">
                     {kindPresentation.chip}
                   </span>
                 )
@@ -441,7 +441,7 @@ const AvatarDocumentRow = ({ documentEntry, portraitDataUri, onDelete }) => {
             <button
               type="button"
               onClick={() => setIsPlayerOpen(false)}
-              className="inline-flex items-center gap-1 px-2 py-1 rounded-md text-xs text-white/70 hover:text-white hover:bg-white/10 transition-colors focus:outline-none focus:ring-2 focus:ring-teal-400"
+              className="inline-flex items-center gap-1 px-2 py-1 rounded-md text-xs text-white/70 hover:text-neutral-100 hover:bg-white/10 transition-colors focus:outline-none focus:ring-2 focus:ring-teal-400"
             >
               <X size={14} />
               Close preview

@@ -32,7 +32,7 @@ createRoot(document.getElementById('root')).render(
       toastOptions={{
         duration: 5000,
         style: {
-          background: 'rgba(30,30,40,0.95)',
+          background: 'rgba(0,0,0,0.92)',
           color: 'white',
           border: '1px solid rgba(255,255,255,0.12)',
         },

@@ -20,19 +20,19 @@ const CONNECTOR_ICONS = {
     tint: 'text-pink-400',
     ring: 'border-pink-400/30',
   },
-  twitch: { Icon: Twitch, tint: 'text-purple-400', ring: 'border-purple-400/30' },
+  twitch: { Icon: Twitch, tint: 'text-neutral-400', ring: 'border-neutral-400/30' },
 };
 
 const ConnectorIcon = ({ iconKey, className = '' }) => {
   const { Icon, tint, ring } = CONNECTOR_ICONS[iconKey] ?? {
     Icon: Plug,
     tint: 'text-white/60',
-    ring: 'border-white/20',
+    ring: 'border-white/10',
   };
 
   return (
     <div
-      className={`w-10 h-10 shrink-0 rounded-lg bg-white/10 border ${ring} flex items-center justify-center ${className}`}
+      className={`w-10 h-10 shrink-0 rounded-lg bg-black/50 border ${ring} flex items-center justify-center ${className}`}
     >
       <Icon className={`w-5 h-5 ${tint}`} aria-hidden="true" />
     </div>

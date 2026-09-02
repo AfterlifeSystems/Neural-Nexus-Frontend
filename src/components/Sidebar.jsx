@@ -68,8 +68,8 @@ const Sidebar = ({
       <div
         className={`flex items-center gap-3 p-3 rounded-lg cursor-pointer transition-all duration-200 ${
           isActive
-            ? 'bg-white/20 text-white shadow-lg scale-[1.02]'
-            : 'hover:bg-white/10 text-gray-300 hover:text-white'
+            ? 'bg-white/10 text-neutral-200 shadow-lg scale-[1.02]'
+            : 'hover:bg-white/10 text-neutral-300 hover:text-neutral-100'
         }`}
         tabIndex={0}
         onKeyDown={(e) => {
@@ -95,7 +95,7 @@ const Sidebar = ({
           <div className="font-semibold text-sm sm:text-base whitespace-normal">
             {avatar.name}
           </div>
-          <div className="text-xs text-gray-400 mt-1 whitespace-normal">
+          <div className="text-xs text-neutral-400 mt-1 whitespace-normal">
             {avatar.description}
           </div>
         </div>
@@ -143,8 +143,8 @@ const Sidebar = ({
           w-80 sm:w-96 lg:w-80
           h-full
           z-50
-          bg-white/5 backdrop-blur-lg
-          border-r border-white/20 lg:rounded-2xl lg:border
+          bg-black/60 backdrop-blur-lg
+          border-r border-white/10 lg:rounded-2xl lg:border
           transition-transform duration-300 ease-in-out
           ${isOpen ? 'translate-x-0' : '-translate-x-full'}
           shadow-lg
@@ -153,10 +153,10 @@ const Sidebar = ({
         <div className="flex flex-col h-full p-4 gap-4 overflow-y-auto">
           {/* Header */}
           <div className="flex justify-between items-center">
-            <h2 className="text-lg font-semibold text-white">Avatars</h2>
+            <h2 className="text-lg font-semibold text-neutral-200">Avatars</h2>
             <button
               onClick={onClose}
-              className="text-gray-300 hover:text-white p-2 rounded-lg hover:bg-white/10 transition-colors focus:outline-none focus:ring-2 focus:ring-white/20"
+              className="text-neutral-300 hover:text-neutral-100 p-2 rounded-lg hover:bg-white/10 transition-colors focus:outline-none focus:ring-2 focus:ring-white/20"
               aria-label="Close sidebar"
             >
               <svg
@@ -179,7 +179,7 @@ const Sidebar = ({
           {isLoggedIn ? (
             <button
               onClick={handleCreateAvatar}
-              className="px-4 py-2 rounded hover:bg-teal-600 transition-colors focus:outline focus:outline-2 focus:outline-teal-400 border border-gray-700 text-white bg-black/35 flex font-semibold gap-2 items-center justify-center"
+              className="px-4 py-2 rounded hover:bg-neutral-900 transition-colors focus:outline focus:outline-2 focus:outline-amber-400 border border-neutral-700 text-neutral-200 bg-black/60 flex font-semibold gap-2 items-center justify-center"
             >
               <UserPenIcon className="w-6 h-6" />
               <span className="sm:inline">Create Avatar</span>
@@ -205,7 +205,7 @@ const Sidebar = ({
                 className="relative flex-grow overflow-y-auto min-h-0"
               />
             ) : (
-              <div className="text-gray-400 text-sm p-4 italic text-center">
+              <div className="text-neutral-400 text-sm p-4 italic text-center">
                 {isLoggedIn
                   ? 'No avatars available. Create one to get started.'
                   : 'No avatars available. Sign up or Log in to get started.'}

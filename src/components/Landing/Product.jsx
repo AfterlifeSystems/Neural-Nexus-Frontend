@@ -98,7 +98,7 @@ function ScrollingSuggestions() {
           // opaque and centred, the rest are nudged out of the way. Animating
           // opacity and transform keeps this off the layout path, so nothing
           // around it moves as the text changes.
-          className={`absolute inset-0 flex items-center justify-center px-4 text-center text-teal-200 transition-all duration-700 ease-out ${
+          className={`absolute inset-0 flex items-center justify-center px-4 text-center text-neutral-200 transition-all duration-700 ease-out ${
             index === visibleIndex
               ? 'opacity-100 translate-y-0'
               : 'opacity-0 translate-y-4'
@@ -128,12 +128,12 @@ export default function Product() {
   return (
     <section
       id="product"
-      className="py-16 bg-gradient-to-b from-[#301934] via-purple-900 to-white text-white"
+      className="py-16 bg-gradient-to-b from-black via-neutral-950 to-neutral-800 text-neutral-200"
     >
       <div className="container mx-auto">
         <h2 className="text-3xl font-bold text-center mb-8">Our Product</h2>
         <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
-          <div className="bg-gradient-to-b bg-purple-900 to-purple-400 bg-opacity-20 p-6 rounded-lg shadow-lg text-white">
+          <div className="bg-black/60 border border-white/10 p-6 rounded-lg shadow-lg text-neutral-200">
             <h3 className="text-xl font-semibold mb-4"> ⚙️ Custom LLMs</h3>
             <p>
               Create personalized AI models tailored to your communication
@@ -144,7 +144,7 @@ export default function Product() {
                 <span
                   key={name}
                   title={name}
-                  className="w-full aspect-square max-w-[46px] mx-auto rounded-lg bg-white/10 border border-white/15 flex items-center justify-center text-teal-200 hover:text-white hover:border-teal-400/50 hover:bg-white/15 transition-colors"
+                  className="w-full aspect-square max-w-[46px] mx-auto rounded-lg bg-black/50 border border-white/10 flex items-center justify-center text-neutral-200 hover:text-neutral-100 hover:border-neutral-300/50 hover:bg-white/10 transition-colors"
                 >
                   {icon}
                   <span className="sr-only">{name}</span>
@@ -153,7 +153,7 @@ export default function Product() {
             </div>
           </div>
 
-          <div className="bg-gradient-to-b bg-purple-900 to-purple-400 bg-opacity-20 p-6 rounded-lg shadow-lg text-white">
+          <div className="bg-black/60 border border-white/10 p-6 rounded-lg shadow-lg text-neutral-200">
             <h3 className="text-xl font-semibold mb-4 ">
               <p>💬 Future Feature:</p>
               <p>Conversation Suggestions</p>
@@ -164,7 +164,7 @@ export default function Product() {
             <ScrollingSuggestions />
           </div>
 
-          <div className="bg-gradient-to-b bg-purple-900 to-purple-400 bg-opacity-20 p-6 rounded-lg shadow-lg text-white">
+          <div className="bg-black/60 border border-white/10 p-6 rounded-lg shadow-lg text-neutral-200">
             <h3 className="text-xl font-semibold mb-4">
               <p>🧠 Future Feature:</p>
               <p>Neural Data Integration</p>
@@ -179,7 +179,7 @@ export default function Product() {
                 is what the preview is for. */}
             <button
               onClick={() => setIsPreviewOpen(true)}
-              className="mt-4 block w-full rounded-lg overflow-hidden border border-white/15 hover:border-purple-900/60 transition-colors focus:outline-none focus:ring-2 focus:ring-teal-400"
+              className="mt-4 block w-full rounded-lg overflow-hidden border border-white/10 hover:border-neutral-900/60 transition-colors focus:outline-none focus:ring-2 focus:ring-amber-400/50"
               aria-label="Preview the reconstructed images from visual cortex activity"
             >
               <img
@@ -188,7 +188,7 @@ export default function Product() {
                 className="w-full h-20 object-cover"
                 loading="lazy"
               />
-              <span className="block text-xs text-teal-200 py-1.5">
+              <span className="block text-xs text-neutral-200 py-1.5">
                 Reconstructed from V1 activity — click to look closer
               </span>
             </button>
@@ -213,7 +213,7 @@ export default function Product() {
               </p>
               <button
                 onClick={() => setIsPreviewOpen(false)}
-                className="p-2 rounded-lg text-white/70 hover:text-white hover:bg-white/10 transition-colors"
+                className="p-2 rounded-lg text-white/70 hover:text-neutral-100 hover:bg-white/10 transition-colors"
                 aria-label="Close the preview"
               >
                 <CloseIcon className="w-5 h-5" />
@@ -222,7 +222,7 @@ export default function Product() {
 
             {/* The image keeps its own dimensions and scrolls if the window is
                 smaller, rather than being squeezed into the viewport. */}
-            <div className="overflow-auto max-h-[75vh] rounded-lg border border-white/20 bg-black/40">
+            <div className="overflow-auto max-h-[75vh] rounded-lg border border-white/10 bg-black/40">
               <a
                 href={RECONSTRUCTION_PROJECT_URL}
                 target="_blank"
@@ -241,7 +241,7 @@ export default function Product() {
               href={RECONSTRUCTION_PROJECT_URL}
               target="_blank"
               rel="noopener noreferrer"
-              className="inline-flex items-center gap-2 px-4 py-2 bg-teal-600 hover:bg-teal-700 rounded-lg text-white font-semibold transition"
+              className="inline-flex items-center gap-2 px-4 py-2 bg-neutral-200 hover:bg-neutral-100 rounded-lg text-neutral-900 font-semibold transition"
             >
               View the project on GitHub
               <ExternalLink className="w-4 h-4" />

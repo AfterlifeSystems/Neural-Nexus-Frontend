@@ -44,7 +44,7 @@ const DataExchangeDropdown = ({
       <div className="relative inline-block text-left">
         <button
           onClick={() => setShowDataExchangeDropdown((v) => !v)}
-          className="transition-transform duration-300 hover:scale-105 px-4 py-2 rounded hover:bg-teal-600 transition-colors focus:outline focus:outline-2 focus:outline-teal-400 min-w-0 rounded px-3 py-2 border border-gray-700 text-white bg-black/35 from-teal-500 to-purple-600 hover:from-teal-600 hover:to-purple-900 px-6 py-3 rounded-xl flex font-semibold gap-2 transition-all duration-300 transform shadow-lg items-center justify-center max-h-64 overflow-y-auto"
+          className="transition-transform duration-300 hover:scale-105 px-4 py-2 rounded hover:bg-neutral-900 transition-colors focus:outline focus:outline-2 focus:outline-amber-400 min-w-0 rounded px-3 py-2 border border-neutral-700 text-neutral-200 bg-black/60 from-neutral-800 to-black hover:from-neutral-700 hover:to-neutral-800 px-6 py-3 rounded-xl flex font-semibold gap-2 transition-all duration-300 transform shadow-lg items-center justify-center max-h-64 overflow-y-auto"
           aria-label="Toggle data exchange options"
         >
           {showDataExchangeDropdown ? (
@@ -53,19 +53,19 @@ const DataExchangeDropdown = ({
             <ChevronUp className="w-6 h-6" />
           )}
         </button>
-        <span className="absolute hidden group-hover:block -top-10 left-1/2 transform -translate-x-1/2 bg-black/75 text-white text-xs rounded py-1 px-2 whitespace-nowrap z-20">
+        <span className="absolute hidden group-hover:block -top-10 left-1/2 transform -translate-x-1/2 bg-black/75 text-neutral-200 text-xs rounded py-1 px-2 whitespace-nowrap z-20">
           Toggle options
         </span>
       </div>
       {showDataExchangeDropdown && (
-        <div className="absolute bottom-20 left-0 bg-black/50 backdrop-blur-lg rounded-lg border border-white/20 p-2 flex flex-row gap-2 z-10">
+        <div className="absolute bottom-20 left-0 bg-black/50 backdrop-blur-lg rounded-lg border border-white/10 p-2 flex flex-row gap-2 z-10">
           <div className="relative group">
             <button
               onClick={isTranscribing ? stopTranscription : startTranscription}
               className={
                 isTranscribing
                   ? 'transition-transform duration-300 hover:scale-105 p-2 rounded transition-colors focus:outline focus:outline-2 bg-yellow-600 hover:bg-yellow-700'
-                  : 'transition-transform duration-300 hover:scale-105 px-6 py-3 rounded-xl flex font-semibold gap-2 transition-all duration-300 transform shadow-lg items-center justify-center hover:bg-teal-600 focus:outline focus:outline-2 focus:outline-teal-400 min-w-0 border border-gray-700 text-white bg-black/35 from-teal-500 to-purple-600 hover:from-teal-600 hover:to-purple-900'
+                  : 'transition-transform duration-300 hover:scale-105 px-6 py-3 rounded-xl flex font-semibold gap-2 transition-all duration-300 transform shadow-lg items-center justify-center hover:bg-neutral-900 focus:outline focus:outline-2 focus:outline-amber-400 min-w-0 border border-neutral-700 text-neutral-200 bg-black/60 from-neutral-800 to-black hover:from-neutral-700 hover:to-neutral-800'
               }
               aria-label={
                 isTranscribing ? 'Stop suggestions' : 'Start suggestions'
@@ -79,7 +79,7 @@ const DataExchangeDropdown = ({
               )}
               {/* {dataExchangeTypes.voice ? "Transcription On" : "Transcription Off"} */}
             </button>
-            <span className="absolute hidden group-hover:block -top-10 left-1/2 transform -translate-x-1/2 bg-black/75 text-white text-xs rounded py-1 px-2 whitespace-nowrap z-20">
+            <span className="absolute hidden group-hover:block -top-10 left-1/2 transform -translate-x-1/2 bg-black/75 text-neutral-200 text-xs rounded py-1 px-2 whitespace-nowrap z-20">
               {isTranscribing ? 'Stop suggestions' : 'Start suggestions'}
             </span>
           </div>
@@ -88,7 +88,7 @@ const DataExchangeDropdown = ({
             <button
               onClick={() => toggleDataExchangeType("voice")}
               className={dataExchangeTypes.voice 
-                ? "transition-transform duration-300 hover:scale-105 px-6 py-3 rounded-xl flex font-semibold gap-2 transition-all duration-300 transform shadow-lg items-center justify-center hover:bg-teal-600 focus:outline focus:outline-2 focus:outline-teal-400 min-w-0 border border-gray-700 text-white bg-black/35 from-teal-500 to-purple-600 hover:from-teal-600 hover:to-purple-900" 
+                ? "transition-transform duration-300 hover:scale-105 px-6 py-3 rounded-xl flex font-semibold gap-2 transition-all duration-300 transform shadow-lg items-center justify-center hover:bg-neutral-900 focus:outline focus:outline-2 focus:outline-amber-400 min-w-0 border border-neutral-700 text-neutral-200 bg-black/60 from-neutral-800 to-black hover:from-neutral-700 hover:to-neutral-800" 
                 : "transition-transform duration-300 hover:scale-105 p-2 rounded transition-colors focus:outline focus:outline-2 bg-yellow-600 hover:bg-yellow-700"
               }
               aria-label={dataExchangeTypes.voice ? "Disable Voice Input" : "Enable Voice Input"}
@@ -96,7 +96,7 @@ const DataExchangeDropdown = ({
               <Mic className="w-6 h-6 inline-block mr-2" />
               // {dataExchangeTypes.voice ? "Voice On" : "Voice Off"} 
             </button>
-            <span className="absolute hidden group-hover:block -top-10 left-1/2 transform -translate-x-1/2 bg-black/75 text-white text-xs rounded py-1 px-2 whitespace-nowrap z-20">
+            <span className="absolute hidden group-hover:block -top-10 left-1/2 transform -translate-x-1/2 bg-black/75 text-neutral-200 text-xs rounded py-1 px-2 whitespace-nowrap z-20">
               {dataExchangeTypes.voice ? "Enable Voice Input" : "Disable Voice Input"}
             </span>
           </div>  
@@ -106,7 +106,7 @@ const DataExchangeDropdown = ({
               onClick={() => toggleDataExchangeType('text')}
               className={
                 dataExchangeTypes.text
-                  ? 'transition-transform duration-300 hover:scale-105 px-6 py-3 rounded-xl flex font-semibold gap-2 transition-all duration-300 transform shadow-lg items-center justify-center hover:bg-teal-600 focus:outline focus:outline-2 focus:outline-teal-400 min-w-0 border border-gray-700 text-white bg-black/35 from-teal-500 to-purple-600 hover:from-teal-600 hover:to-purple-900'
+                  ? 'transition-transform duration-300 hover:scale-105 px-6 py-3 rounded-xl flex font-semibold gap-2 transition-all duration-300 transform shadow-lg items-center justify-center hover:bg-neutral-900 focus:outline focus:outline-2 focus:outline-amber-400 min-w-0 border border-neutral-700 text-neutral-200 bg-black/60 from-neutral-800 to-black hover:from-neutral-700 hover:to-neutral-800'
                   : 'transition-transform duration-300 hover:scale-105 p-2 rounded transition-colors focus:outline focus:outline-2 bg-yellow-600 hover:bg-yellow-700'
               }
               aria-label={
@@ -119,7 +119,7 @@ const DataExchangeDropdown = ({
               <TbBubble className="w-6 h-6 inline-block mr-2" />
               // </div>{dataExchangeTypes.text ? "Text On" : "Text Off"} 
             </button>
-            <span className="absolute hidden group-hover:block -top-10 left-1/2 transform -translate-x-1/2 bg-black/75 text-white text-xs rounded py-1 px-2 whitespace-nowrap z-20">
+            <span className="absolute hidden group-hover:block -top-10 left-1/2 transform -translate-x-1/2 bg-black/75 text-neutral-200 text-xs rounded py-1 px-2 whitespace-nowrap z-20">
               {dataExchangeTypes.text
                 ? 'Enable Thought-To-Text Input'
                 : 'Disable Thought-To-Text Input'}
@@ -136,7 +136,7 @@ const DataExchangeDropdown = ({
               className={
                 isThoughtToImageEnabled
                   ? 'transition-transform duration-300 hover:scale-105 p-2 rounded transition-colors focus:outline focus:outline-2 bg-yellow-600 hover:bg-yellow-700'
-                  : 'transition-transform duration-300 hover:scale-105 px-6 py-3 rounded-xl flex font-semibold gap-2 transition-all duration-300 transform shadow-lg items-center justify-center hover:bg-teal-600 focus:outline focus:outline-2 focus:outline-teal-400 min-w-0 border border-gray-700 text-white bg-black/35 from-teal-500 to-purple-600 hover:from-teal-600 hover:to-purple-900'
+                  : 'transition-transform duration-300 hover:scale-105 px-6 py-3 rounded-xl flex font-semibold gap-2 transition-all duration-300 transform shadow-lg items-center justify-center hover:bg-neutral-900 focus:outline focus:outline-2 focus:outline-amber-400 min-w-0 border border-neutral-700 text-neutral-200 bg-black/60 from-neutral-800 to-black hover:from-neutral-700 hover:to-neutral-800'
               }
               aria-label={
                 isThoughtToImageEnabled
@@ -148,7 +148,7 @@ const DataExchangeDropdown = ({
               <Eye className="w-6 h-6 inline-block mr-2" />
               {/* {dataExchangeTypes.custom ? 'Custom On' : 'Custom Off'} */}
             </button>
-            <span className="absolute hidden group-hover:block -top-10 left-1/2 transform -translate-x-1/2 bg-black/75 text-white text-xs rounded py-1 px-2 whitespace-nowrap z-20`0">
+            <span className="absolute hidden group-hover:block -top-10 left-1/2 transform -translate-x-1/2 bg-black/75 text-neutral-200 text-xs rounded py-1 px-2 whitespace-nowrap z-20`0">
               {isThoughtToImageEnabled
                 ? 'Disable Thought-To-Image Input'
                 : 'Enable Thought-To-Image Input'}
@@ -160,7 +160,7 @@ const DataExchangeDropdown = ({
               onClick={() => toggleDataExchangeType('neuralMotion')}
               className={
                 dataExchangeTypes.neuralMotion
-                  ? 'transition-transform duration-300 hover:scale-105 px-6 py-3 rounded-xl flex font-semibold gap-2 transition-all duration-300 transform shadow-lg items-center justify-center hover:bg-teal-600 focus:outline focus:outline-2 focus:outline-teal-400 min-w-0 border border-gray-700 text-white bg-black/35 from-teal-500 to-purple-600 hover:from-teal-600 hover:to-purple-900'
+                  ? 'transition-transform duration-300 hover:scale-105 px-6 py-3 rounded-xl flex font-semibold gap-2 transition-all duration-300 transform shadow-lg items-center justify-center hover:bg-neutral-900 focus:outline focus:outline-2 focus:outline-amber-400 min-w-0 border border-neutral-700 text-neutral-200 bg-black/60 from-neutral-800 to-black hover:from-neutral-700 hover:to-neutral-800'
                   : 'transition-transform duration-300 hover:scale-105 p-2 rounded transition-colors focus:outline focus:outline-2 bg-yellow-600 hover:bg-yellow-700'
               }
               aria-label={
@@ -172,7 +172,7 @@ const DataExchangeDropdown = ({
               <GiRobotGolem className="w-6 h-6 inline-block mr-2" />
               // {dataExchangeTypes.voice ? 'Voice On' : 'Voice Off'}
             </button>
-            <span className="absolute hidden group-hover:block -top-10 left-1/2 transform -translate-x-1/2 bg-black/75 text-white text-xs rounded py-1 px-2 whitespace-nowrap z-20">
+            <span className="absolute hidden group-hover:block -top-10 left-1/2 transform -translate-x-1/2 bg-black/75 text-neutral-200 text-xs rounded py-1 px-2 whitespace-nowrap z-20">
               {dataExchangeTypes.neuralMotion
                 ? 'Enable Thought-to-Motion Input'
                 : 'Disable Thought-to-Motion Input'}
@@ -184,7 +184,7 @@ const DataExchangeDropdown = ({
               onClick={() => toggleDataExchangeType('telepathy')}
               className={
                 dataExchangeTypes.telepathy
-                  ? 'transition-transform duration-300 hover:scale-105 px-6 py-3 rounded-xl flex font-semibold gap-2 transition-all duration-300 transform shadow-lg items-center justify-center hover:bg-teal-600 focus:outline focus:outline-2 focus:outline-teal-400 min-w-0 border border-gray-700 text-white bg-black/35 from-teal-500 to-purple-600 hover:from-teal-600 hover:to-purple-900'
+                  ? 'transition-transform duration-300 hover:scale-105 px-6 py-3 rounded-xl flex font-semibold gap-2 transition-all duration-300 transform shadow-lg items-center justify-center hover:bg-neutral-900 focus:outline focus:outline-2 focus:outline-amber-400 min-w-0 border border-neutral-700 text-neutral-200 bg-black/60 from-neutral-800 to-black hover:from-neutral-700 hover:to-neutral-800'
                   : 'transition-transform duration-300 hover:scale-105 p-2 rounded transition-colors focus:outline focus:outline-2 bg-yellow-600 hover:bg-yellow-700'
               }
               aria-label={
@@ -196,7 +196,7 @@ const DataExchangeDropdown = ({
               <MousePointer2 className="w-6 h-6 inline-block mr-2" />
               //  {dataExchangeTypes.voice ? "Voice On" : "Voice Off"} 
             </button>
-            <span className="absolute hidden group-hover:block -top-10 left-1/2 transform -translate-x-1/2 bg-black/75 text-white text-xs rounded py-1 px-2 whitespace-nowrap z-20">
+            <span className="absolute hidden group-hover:block -top-10 left-1/2 transform -translate-x-1/2 bg-black/75 text-neutral-200 text-xs rounded py-1 px-2 whitespace-nowrap z-20">
               {dataExchangeTypes.telepathy
                 ? 'Enable Telepathy'
                 : 'Disable Telepathy'}
@@ -207,7 +207,7 @@ const DataExchangeDropdown = ({
             <button
               onClick={() => toggleDataExchangeType('bluetoothControl')}
               className={
-                'transition-transform duration-300 hover:scale-105 px-4 py-2 rounded hover:bg-teal-600 transition-colors focus:outline focus:outline-2 focus:outline-teal-400 min-w-0 rounded px-3 py-2 border border-gray-700 text-white bg-black/35 from-teal-500 to-purple-600 hover:from-teal-600 hover:to-purple-900 px-6 py-3 rounded-xl flex font-semibold gap-2 transition-all duration-300 transform shadow-lg items-center justify-center'
+                'transition-transform duration-300 hover:scale-105 px-4 py-2 rounded hover:bg-neutral-900 transition-colors focus:outline focus:outline-2 focus:outline-amber-400 min-w-0 rounded px-3 py-2 border border-neutral-700 text-neutral-200 bg-black/60 from-neutral-800 to-black hover:from-neutral-700 hover:to-neutral-800 px-6 py-3 rounded-xl flex font-semibold gap-2 transition-all duration-300 transform shadow-lg items-center justify-center'
               }
               aria-label={
                 dataExchangeTypes.bluetoothControl
@@ -218,7 +218,7 @@ const DataExchangeDropdown = ({
               <Bluetooth className="w-6 h-6 inline-block mr-2" />
               // {dataExchangeTypes.voice ? "Voice On" : "Voice Off"} 
             </button>
-            <span className="absolute hidden group-hover:block -top-10 left-1/2 transform -translate-x-1/2 bg-black/75 text-white text-xs rounded py-1 px-2 whitespace-nowrap z-20">
+            <span className="absolute hidden group-hover:block -top-10 left-1/2 transform -translate-x-1/2 bg-black/75 text-neutral-200 text-xs rounded py-1 px-2 whitespace-nowrap z-20">
               {dataExchangeTypes.bluetoothControl
                 ? 'Discover & Control Bluetooth Devices'
                 : 'Discover & Control Bluetooth Devices'}
@@ -234,7 +234,7 @@ const DataExchangeDropdown = ({
                 }
               }}
               className={
-                'transition-transform duration-300 hover:scale-105 px-4 py-2 rounded hover:bg-teal-600 transition-colors focus:outline focus:outline-2 focus:outline-teal-400 min-w-0 rounded px-3 py-2 border border-gray-700 text-white bg-black/35 from-teal-500 to-purple-600 hover:from-teal-600 hover:to-purple-900 px-6 py-3 rounded-xl flex font-semibold gap-2 transition-all duration-300 transform shadow-lg items-center justify-center'
+                'transition-transform duration-300 hover:scale-105 px-4 py-2 rounded hover:bg-neutral-900 transition-colors focus:outline focus:outline-2 focus:outline-amber-400 min-w-0 rounded px-3 py-2 border border-neutral-700 text-neutral-200 bg-black/60 from-neutral-800 to-black hover:from-neutral-700 hover:to-neutral-800 px-6 py-3 rounded-xl flex font-semibold gap-2 transition-all duration-300 transform shadow-lg items-center justify-center'
               }
               aria-label={
                 dataExchangeTypes.fileUpload ? 'File Upload' : 'File Upload'
@@ -243,7 +243,7 @@ const DataExchangeDropdown = ({
               <Upload className="w-6 h-6 inline-block mr-2" />
    
             </button>
-            <span className="absolute hidden group-hover:block -top-10 left-1/2 transform -translate-x-1/2 bg-black/75 text-white text-xs rounded py-1 px-2 whitespace-nowrap z-20">
+            <span className="absolute hidden group-hover:block -top-10 left-1/2 transform -translate-x-1/2 bg-black/75 text-neutral-200 text-xs rounded py-1 px-2 whitespace-nowrap z-20">
               {dataExchangeTypes.fileUpload ? 'File Upload' : 'File Upload'}
             </span>
           </div> */}

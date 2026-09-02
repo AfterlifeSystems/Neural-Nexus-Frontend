@@ -133,11 +133,11 @@ const AccountSettings = ({ activeTab }) => {
           type="text"
           value={username}
           onChange={(e) => setUsername(e.target.value)}
-          className="p-2 rounded bg-gray-700 text-white"
+          className="p-2 rounded bg-neutral-700 text-neutral-200"
         />
         <button
           onClick={handleUsernameChange}
-          className="bg-teal-600 px-4 py-2 rounded"
+          className="bg-neutral-200 text-neutral-900 px-4 py-2 rounded"
         >
           Change Username
         </button>
@@ -150,11 +150,11 @@ const AccountSettings = ({ activeTab }) => {
           type="text"
           value={neuralNexusKey}
           onChange={(e) => setNeuralNexusKey(e.target.value)}
-          className="p-2 rounded bg-gray-700 text-white"
+          className="p-2 rounded bg-neutral-700 text-neutral-200"
         />
         <button
           onClick={() => handleApiKeyUpdate('Neural Nexus')}
-          className="bg-teal-600 px-4 py-2 rounded"
+          className="bg-neutral-200 text-neutral-900 px-4 py-2 rounded"
         >
           Update
         </button>
@@ -164,7 +164,7 @@ const AccountSettings = ({ activeTab }) => {
           type="text"
           value={grokKey}
           onChange={(e) => setGrokKey(e.target.value)}
-          className="p-2 rounded bg-gray-700 text-white"
+          className="p-2 rounded bg-neutral-700 text-neutral-200"
         />
         <div className="flex items-center gap-2">
           <input
@@ -176,7 +176,7 @@ const AccountSettings = ({ activeTab }) => {
         </div>
         <button
           onClick={() => handleApiKeyUpdate('Grok')}
-          className="bg-teal-600 px-4 py-2 rounded"
+          className="bg-neutral-200 text-neutral-900 px-4 py-2 rounded"
         >
           Update
         </button>
@@ -186,7 +186,7 @@ const AccountSettings = ({ activeTab }) => {
           type="text"
           value={elevenLabsKey}
           onChange={(e) => setElevenLabsKey(e.target.value)}
-          className="p-2 rounded bg-gray-700 text-white"
+          className="p-2 rounded bg-neutral-700 text-neutral-200"
         />
         <div className="flex items-center gap-2">
           <input
@@ -198,7 +198,7 @@ const AccountSettings = ({ activeTab }) => {
         </div>
         <button
           onClick={() => handleApiKeyUpdate('ElevenLabs')}
-          className="bg-teal-600 px-4 py-2 rounded"
+          className="bg-neutral-200 text-neutral-900 px-4 py-2 rounded"
         >
           Update
         </button>
@@ -208,7 +208,7 @@ const AccountSettings = ({ activeTab }) => {
           leaving. These are the three operations the API supports on an
           account, and each one is destructive in its own way, so each says
           what it will do before it does it. */}
-      <div className="flex flex-col gap-4 bg-white/5 border border-white/20 rounded-2xl p-6">
+      <div className="flex flex-col gap-4 bg-black/60 border border-white/10 rounded-2xl p-6">
         <h2 className="text-xl font-semibold">Manage your account</h2>
 
         {newApiKey && (
@@ -231,7 +231,7 @@ const AccountSettings = ({ activeTab }) => {
           <button
             onClick={handleRotateApiKey}
             disabled={isWorking}
-            className="self-start bg-white/10 hover:bg-white/20 border border-white/20 px-4 py-2 rounded-lg disabled:opacity-50"
+            className="self-start bg-black/50 hover:bg-white/10 border border-white/10 px-4 py-2 rounded-lg disabled:opacity-50"
           >
             Rotate API key
           </button>
@@ -244,7 +244,7 @@ const AccountSettings = ({ activeTab }) => {
           <button
             onClick={handleForgotPassword}
             disabled={isWorking}
-            className="self-start bg-white/10 hover:bg-white/20 border border-white/20 px-4 py-2 rounded-lg disabled:opacity-50"
+            className="self-start bg-black/50 hover:bg-white/10 border border-white/10 px-4 py-2 rounded-lg disabled:opacity-50"
           >
             Email a password reset link
           </button>

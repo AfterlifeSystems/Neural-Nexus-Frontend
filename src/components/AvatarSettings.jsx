@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { toast } from 'react-hot-toast';
 import Dropzone from 'react-dropzone';
 import {
@@ -25,6 +25,7 @@ import {
   Server,
   Mail,
   Copy,
+  Search,
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import {
@@ -47,6 +48,7 @@ import ConnectAccountCard from './ConnectAccountCard';
 import {
   forgetCachedAvatar,
   writeCachedAvatarIcon,
+  readCachedAvatarIcons,
   forgetCachedAvatarIcon,
   isAvatarOwnedByUser,
   isAvatarListedPublicly,
@@ -55,7 +57,11 @@ import {
 } from './utils';
 import { isAdminAccount } from '../config/adminAccount';
 import { showRequestFailureToast } from './requestFailureToast';
-import AvatarDocumentRow from './AvatarDocumentRow';
+import AvatarDocumentRow, {
+  describeDocumentKind,
+  describeUrlKind,
+  parseDocumentSourceUrl,
+} from './AvatarDocumentRow';
 import { useNavigate } from 'react-router-dom';
 
 // Social Media Platform Configuration
@@ -127,6 +133,10 @@ const AvatarSettings = ({ avatarId, onPortraitChanged }) => {
   // fields say whether that upload is the avatar's portrait or its voice sample
   // rather than an ordinary source file.
   const [avatarDocuments, setAvatarDocuments] = useState([]);
+  // Narrowing the uploads list: a text search over labels, and one kind at a
+  // time. Both are view state only; the list itself is never changed by them.
+  const [documentSearchQuery, setDocumentSearchQuery] = useState('');
+  const [documentKindFilter, setDocumentKindFilter] = useState('all');
   // Why the file list is empty, when it is empty because something FAILED
   // rather than because the avatar genuinely has no files. Without this the two
   // states render identically, and "No files attached to this avatar" is shown
@@ -135,14 +145,19 @@ const AvatarSettings = ({ avatarId, onPortraitChanged }) => {
   // Bumped by the retry control to re-run the loading effect below.
   const [avatarDocumentsReloadCount, setAvatarDocumentsReloadCount] =
     useState(0);
-  // The avatar's portrait from GET /avatar_reference_image (data URI or URL).
-  const [avatarIcon, setAvatarIcon] = useState(null);
-
   const assistantId =
     activeAvatar?.assistant_id ??
     activeAvatar?.avatar_id ??
     activeAvatar?.metadata?.assistant_id ??
     avatarId;
+
+  // The avatar's portrait from GET /avatar_reference_image (data URI or URL).
+  // Seeded from what this browser already holds for the avatar, so the screen
+  // opens with the portrait in place; the effect below re-asks the API and
+  // corrects the picture if the stored one has changed.
+  const [avatarIcon, setAvatarIcon] = useState(
+    () => readCachedAvatarIcons()[assistantId] ?? null
+  );
 
   // Every control on this screen writes to the avatar, and the API refuses all
   // of them for an avatar the caller did not create. Sharing is the one
@@ -165,6 +180,78 @@ const AvatarSettings = ({ avatarId, onPortraitChanged }) => {
   const isPersonalAvatar = Boolean(
     activeAvatar?.metadata?.is_personal_avatar_of_creator
   );
+
+  /**
+   * Say which filter bucket an upload belongs to. The two reference roles come
+   * first because they say what the upload is FOR, which is what someone
+   * looking for "the portrait" or "the voice sample" filters by; everything
+   * else is bucketed by what it IS.
+   */
+  const describeDocumentBucket = (documentEntry) => {
+    if (documentEntry.isReferenceImage) return 'reference_image';
+    if (documentEntry.isReferenceAudio) return 'reference_audio';
+    const sourceUrl = parseDocumentSourceUrl(documentEntry.label);
+    if (sourceUrl) {
+      // Links are bucketed by where they point — YouTube, Instagram, X — so a
+      // pull from one platform can be reviewed on its own.
+      return `source:${describeUrlKind(sourceUrl)}`;
+    }
+    return describeDocumentKind(documentEntry.label) ?? 'other';
+  };
+
+  const DOCUMENT_BUCKET_LABELS = {
+    all: 'All',
+    reference_image: 'Reference image',
+    reference_audio: 'Reference audio',
+    image: 'Images',
+    audio: 'Audio',
+    video: 'Video',
+    document: 'Documents',
+    data: 'Data',
+    text: 'Text',
+    'source:YouTube': 'YouTube',
+    'source:X': 'X',
+    'source:Instagram': 'Instagram',
+    'source:Twitch': 'Twitch',
+    'source:Linktree': 'Linktree',
+    'source:Link': 'Other links',
+    other: 'Other',
+  };
+
+  // Only the buckets that actually hold something are offered, each with its
+  // count, so the filter row never advertises an empty category.
+  const documentBucketCounts = useMemo(() => {
+    const counts = {};
+    for (const documentEntry of avatarDocuments) {
+      const bucket = describeDocumentBucket(documentEntry);
+      counts[bucket] = (counts[bucket] ?? 0) + 1;
+    }
+    return counts;
+  }, [avatarDocuments]);
+
+  const visibleAvatarDocuments = useMemo(() => {
+    const normalizedQuery = documentSearchQuery.trim().toLowerCase();
+    return avatarDocuments.filter((documentEntry) => {
+      if (
+        documentKindFilter !== 'all' &&
+        describeDocumentBucket(documentEntry) !== documentKindFilter
+      ) {
+        return false;
+      }
+      return (
+        !normalizedQuery ||
+        (documentEntry.label ?? '').toLowerCase().includes(normalizedQuery)
+      );
+    });
+  }, [avatarDocuments, documentSearchQuery, documentKindFilter]);
+
+  // A filter that no longer matches anything (its last item was deleted) falls
+  // back to showing everything rather than an empty list with no explanation.
+  useEffect(() => {
+    if (documentKindFilter !== 'all' && !documentBucketCounts[documentKindFilter]) {
+      setDocumentKindFilter('all');
+    }
+  }, [documentBucketCounts, documentKindFilter]);
 
   // Memoized on the avatar it reads, so the loading effect below can depend on
   // it honestly instead of closing over a stale assistantId.
@@ -192,18 +279,23 @@ const AvatarSettings = ({ avatarId, onPortraitChanged }) => {
         // so an avatar the user is merely visiting is not read at all.
         return;
       }
-      await refreshAvatarDocuments();
-      if (cancelled) return;
-      try {
-        const iconSource = await getAvatarReferenceImage(assistantId);
-        if (!cancelled) {
-          setAvatarIcon(iconSource);
+      // The file list and the portrait are independent reads, so they go out
+      // together: waiting for one before starting the other made the screen
+      // take the sum of both round trips.
+      const loadPortrait = async () => {
+        try {
+          const iconSource = await getAvatarReferenceImage(assistantId);
+          if (!cancelled) {
+            setAvatarIcon(iconSource);
+            if (iconSource) writeCachedAvatarIcon(assistantId, iconSource);
+          }
+        } catch (iconError) {
+          // The portrait is a separate request from the file list; losing one
+          // must not blank the other.
+          console.error('Loading the avatar portrait failed:', iconError);
         }
-      } catch (iconError) {
-        // The portrait is a separate request from the file list; losing one
-        // must not blank the other.
-        console.error('Loading the avatar portrait failed:', iconError);
-      }
+      };
+      await Promise.all([refreshAvatarDocuments(), loadPortrait()]);
     };
     loadAvatarFilesAndPortrait();
     return () => {
@@ -594,7 +686,24 @@ const AvatarSettings = ({ avatarId, onPortraitChanged }) => {
     };
     return urls[platform] || '#';
   };
+  /**
+   * Delete one uploaded source from the avatar.
+   *
+   * Deletion is irreversible — the API drops the stored bytes along with the
+   * identity documents derived from them — and the delete control sits beside
+   * every row of the list, so one misplaced press must not silently remove a
+   * source. The person confirms first, with the source named, so what is about
+   * to be lost is unambiguous.
+   */
   const handleDeleteDocument = async (sourceDocumentName) => {
+    if (
+      !window.confirm(
+        `Delete "${sourceDocumentName}" from this avatar? The upload and ` +
+          'everything the avatar learned from it are removed. This cannot be undone.'
+      )
+    ) {
+      return;
+    }
     try {
       if (!user) throw new Error('Not logged in');
       await deleteAvatarDocument(assistantId, sourceDocumentName);
@@ -608,8 +717,8 @@ const AvatarSettings = ({ avatarId, onPortraitChanged }) => {
   const renderDocumentPreview = (doc) => {
     if (doc.loading) {
       return (
-        <div className="flex items-center justify-center h-48 bg-white/5 rounded-lg">
-          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-400"></div>
+        <div className="flex items-center justify-center h-48 bg-black/60 rounded-lg">
+          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-amber-300"></div>
         </div>
       );
     }
@@ -617,7 +726,7 @@ const AvatarSettings = ({ avatarId, onPortraitChanged }) => {
     switch (doc.type) {
       case 'image':
         return (
-          <div className="relative w-full h-48 bg-white/5 rounded-lg overflow-hidden">
+          <div className="relative w-full h-48 bg-black/60 rounded-lg overflow-hidden">
             <img
               src={src}
               alt={doc.name}
@@ -627,13 +736,13 @@ const AvatarSettings = ({ avatarId, onPortraitChanged }) => {
         );
       case 'video':
         return (
-          <div className="relative w-full h-48 bg-white/5 rounded-lg overflow-hidden">
+          <div className="relative w-full h-48 bg-black/60 rounded-lg overflow-hidden">
             <video src={src} controls className="w-full h-full object-cover" />
           </div>
         );
       case 'audio':
         return (
-          <div className="flex items-center gap-3 p-4 bg-white/5 rounded-lg">
+          <div className="flex items-center gap-3 p-4 bg-black/60 rounded-lg">
             <Music className="text-blue-400" size={32} />
             <audio src={src} controls className="flex-1" />
           </div>
@@ -641,13 +750,13 @@ const AvatarSettings = ({ avatarId, onPortraitChanged }) => {
       case 'pdf':
       case 'text':
         return (
-          <div className="flex items-center gap-3 p-4 bg-white/5 rounded-lg">
+          <div className="flex items-center gap-3 p-4 bg-black/60 rounded-lg">
             <FileText className="text-red-400" size={32} />
             <a
               href={src}
               target="_blank"
               rel="noopener noreferrer"
-              className="text-blue-400 hover:underline flex items-center gap-2"
+              className="text-amber-300 hover:underline flex items-center gap-2"
             >
               Open File <ExternalLink size={16} />
             </a>
@@ -657,12 +766,12 @@ const AvatarSettings = ({ avatarId, onPortraitChanged }) => {
       case 'twitter':
       case 'web':
         return (
-          <div className="p-4 bg-white/5 rounded-lg">
+          <div className="p-4 bg-black/60 rounded-lg">
             <a
               href={doc.url}
               target="_blank"
               rel="noopener noreferrer"
-              className="text-blue-400 hover:underline flex items-center gap-2"
+              className="text-amber-300 hover:underline flex items-center gap-2"
             >
               <Globe size={20} />
               {doc.url}
@@ -672,9 +781,9 @@ const AvatarSettings = ({ avatarId, onPortraitChanged }) => {
         );
       default:
         return (
-          <div className="flex items-center gap-3 p-4 bg-white/5 rounded-lg">
+          <div className="flex items-center gap-3 p-4 bg-black/60 rounded-lg">
             <File className="text-white/50" size={32} />
-            <span className="text-white">{doc.name}</span>
+            <span className="text-neutral-200">{doc.name}</span>
           </div>
         );
     }
@@ -684,7 +793,7 @@ const AvatarSettings = ({ avatarId, onPortraitChanged }) => {
       case 'image':
         return <Image className="text-green-400" />;
       case 'video':
-        return <Video className="text-purple-400" />;
+        return <Video className="text-neutral-400" />;
       case 'audio':
         return <Music className="text-blue-400" />;
       case 'pdf':
@@ -1004,8 +1113,8 @@ const AvatarSettings = ({ avatarId, onPortraitChanged }) => {
     const isAdministeringSomeoneElsesAvatar =
       !canAdministerAvatar && isAdministrator;
     return (
-      <div className="bg-white/5 backdrop-blur-lg rounded-2xl border border-white/20 p-6">
-        <h3 className="text-xl font-semibold text-white mb-4 flex items-center gap-2">
+      <div className="bg-black/60 backdrop-blur-lg rounded-2xl border border-white/10 p-6">
+        <h3 className="text-xl font-semibold text-neutral-200 mb-4 flex items-center gap-2">
           {isAvatarShared ? <Globe size={20} /> : <Lock size={20} />}
           Sharing
         </h3>
@@ -1024,8 +1133,8 @@ const AvatarSettings = ({ avatarId, onPortraitChanged }) => {
             disabled={isUpdatingSharing}
             className={`shrink-0 px-4 py-2 rounded-lg border transition-all duration-300 disabled:opacity-50 disabled:cursor-not-allowed ${
               isAvatarShared
-                ? 'bg-white/10 hover:bg-white/20 text-white border-white/20'
-                : 'bg-teal-500/20 hover:bg-teal-500/30 text-teal-300 border-teal-500/30'
+                ? 'bg-black/50 hover:bg-white/10 text-neutral-200 border-white/10'
+                : 'bg-amber-400 hover:bg-amber-300 text-neutral-900 border-amber-400 font-semibold'
             }`}
           >
             {isUpdatingSharing
@@ -1048,12 +1157,12 @@ const AvatarSettings = ({ avatarId, onPortraitChanged }) => {
                 value={sharedAvatarUrl}
                 onFocus={(focusEvent) => focusEvent.target.select()}
                 aria-label="Public link to this avatar"
-                className="flex-grow min-w-0 px-3 py-2 rounded-lg bg-black/30 border border-white/20 text-white text-sm font-mono"
+                className="flex-grow min-w-0 px-3 py-2 rounded-lg bg-black/30 border border-white/10 text-neutral-200 text-sm font-mono"
               />
               <div className="flex gap-2 shrink-0">
                 <button
                   onClick={handleCopyShareLink}
-                  className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-teal-500/20 hover:bg-teal-500/30 border border-teal-500/30 text-teal-300 font-semibold transition-colors"
+                  className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-neutral-100/10 hover:bg-neutral-100/15 border border-neutral-700 text-neutral-300 font-semibold transition-colors"
                 >
                   <Copy size={16} />
                   Copy link
@@ -1062,7 +1171,7 @@ const AvatarSettings = ({ avatarId, onPortraitChanged }) => {
                   href={sharedAvatarUrl}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-white/10 hover:bg-white/20 border border-white/20 text-white transition-colors"
+                  className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-black/50 hover:bg-white/10 border border-white/10 text-neutral-200 transition-colors"
                 >
                   <ExternalLink size={16} />
                   Open
@@ -1094,7 +1203,7 @@ const AvatarSettings = ({ avatarId, onPortraitChanged }) => {
       );
     }
     return (
-      <div className="w-full max-w-4xl mx-auto bg-white/5 backdrop-blur-lg rounded-2xl border border-white/20 p-6 text-white/70">
+      <div className="w-full max-w-4xl mx-auto bg-black/60 backdrop-blur-lg rounded-2xl border border-white/10 p-6 text-white/70">
         Settings are available to the person who created this avatar.
       </div>
     );
@@ -1107,10 +1216,10 @@ const AvatarSettings = ({ avatarId, onPortraitChanged }) => {
         <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm flex items-center justify-center">
           <div className="text-center">
             <Upload
-              className="mx-auto mb-4 text-white animate-bounce"
+              className="mx-auto mb-4 text-neutral-200 animate-bounce"
               size={80}
             />
-            <h2 className="text-3xl font-bold text-white mb-4">
+            <h2 className="text-3xl font-bold text-neutral-200 mb-4">
               Drop to Upload
             </h2>
             <p className="text-white/80 text-lg mb-2">
@@ -1125,15 +1234,15 @@ const AvatarSettings = ({ avatarId, onPortraitChanged }) => {
       {/* Social Login Modal */}
       {showLoginModal && (
         <div className="fixed inset-0 z-40 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="bg-white/5 backdrop-blur-lg rounded-2xl p-6 max-w-md w-full border border-white/20">
+          <div className="bg-black/60 backdrop-blur-lg rounded-2xl p-6 max-w-md w-full border border-white/10">
             <div className="flex justify-between items-center mb-6">
-              <h3 className="text-xl font-bold text-white">
+              <h3 className="text-xl font-bold text-neutral-200">
                 Connect{' '}
                 {SOCIAL_PLATFORMS.find((p) => p.id === selectedPlatform)?.name}
               </h3>
               <button
                 onClick={() => setShowLoginModal(false)}
-                className="text-white/60 hover:text-white"
+                className="text-white/60 hover:text-neutral-100"
               >
                 <X size={24} />
               </button>
@@ -1149,7 +1258,7 @@ const AvatarSettings = ({ avatarId, onPortraitChanged }) => {
                     username: e.target.value,
                   }))
                 }
-                className="w-full px-4 py-3 bg-white/10 border border-white/20 rounded-lg text-white placeholder-white/40 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                className="w-full px-4 py-3 bg-black/50 border border-white/10 rounded-lg text-neutral-200 placeholder-white/40 focus:outline-none focus:ring-2 focus:ring-amber-400/50"
               />
               <input
                 type="password"
@@ -1161,11 +1270,11 @@ const AvatarSettings = ({ avatarId, onPortraitChanged }) => {
                     password: e.target.value,
                   }))
                 }
-                className="w-full px-4 py-3 bg-white/10 border border-white/20 rounded-lg text-white placeholder-white/40 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                className="w-full px-4 py-3 bg-black/50 border border-white/10 rounded-lg text-neutral-200 placeholder-white/40 focus:outline-none focus:ring-2 focus:ring-amber-400/50"
               />
               <button
                 onClick={submitSocialLogin}
-                className="w-full px-6 py-3 bg-blue-500/20 hover:bg-blue-500/30 text-blue-400 font-semibold rounded-lg transition-all duration-300 border border-blue-500/30"
+                className="w-full px-6 py-3 bg-amber-400/15 hover:bg-amber-400/25 text-amber-300 font-semibold rounded-lg transition-all duration-300 border border-amber-400/30"
               >
                 Connect Account
               </button>
@@ -1175,7 +1284,7 @@ const AvatarSettings = ({ avatarId, onPortraitChanged }) => {
       )}
       {/* Header with Delete Button */}
       <div className="flex justify-between items-center">
-        <h2 className="text-2xl font-bold text-white">Avatar Settings</h2>
+        <h2 className="text-2xl font-bold text-neutral-200">Avatar Settings</h2>
         <button
           onClick={handleDeleteAvatar}
           disabled={isDeleting}
@@ -1186,8 +1295,8 @@ const AvatarSettings = ({ avatarId, onPortraitChanged }) => {
         </button>
       </div>
       {/* Avatar Profile Section */}
-      <div className="bg-white/5 backdrop-blur-lg rounded-2xl border border-white/20 p-6">
-        <h3 className="text-lg font-semibold text-white mb-4">
+      <div className="bg-black/60 backdrop-blur-lg rounded-2xl border border-white/10 p-6">
+        <h3 className="text-lg font-semibold text-neutral-200 mb-4">
           Profile Information
         </h3>
         <div className="flex gap-6 items-start">
@@ -1239,7 +1348,7 @@ const AvatarSettings = ({ avatarId, onPortraitChanged }) => {
                 {({ getRootProps, getInputProps }) => (
                   <div
                     {...getRootProps()}
-                    className="w-32 h-32 border-2 border-dashed border-white/30 hover:border-white/50 flex flex-col gap-2 items-center justify-center cursor-pointer rounded-2xl bg-white/5 transition-all duration-300"
+                    className="w-32 h-32 border-2 border-dashed border-white/30 hover:border-white/50 flex flex-col gap-2 items-center justify-center cursor-pointer rounded-2xl bg-black/60 transition-all duration-300"
                   >
                     <input {...getInputProps()} />
                     <Upload size={28} className="text-white/50" />
@@ -1268,32 +1377,32 @@ const AvatarSettings = ({ avatarId, onPortraitChanged }) => {
                     value={updatedAvatarName}
                     onChange={(e) => setUpdatedAvatarName(e.target.value)}
                     placeholder="Enter avatar name"
-                    className="flex-grow px-4 py-2 bg-white/10 border border-white/20 rounded-lg text-white placeholder-white/40 focus:outline-none focus:ring-2 focus:ring-blue-500/50"
+                    className="flex-grow px-4 py-2 bg-black/50 border border-white/10 rounded-lg text-neutral-200 placeholder-white/40 focus:outline-none focus:ring-2 focus:ring-amber-400/50"
                   />
                   <button
                     onClick={() => {
                       handleUpdateName(updatedAvatarName);
                       setEditingName(false);
                     }}
-                    className="px-4 py-2 bg-blue-500/20 hover:bg-blue-500/30 text-blue-400 rounded-lg transition-all duration-300 border border-blue-500/30"
+                    className="px-4 py-2 bg-amber-400/15 hover:bg-amber-400/25 text-amber-300 rounded-lg transition-all duration-300 border border-amber-400/30"
                   >
                     Save
                   </button>
                   <button
                     onClick={() => setEditingName(false)}
-                    className="px-4 py-2 bg-white/10 hover:bg-white/20 text-white rounded-lg transition-all duration-300 border border-white/20"
+                    className="px-4 py-2 bg-black/50 hover:bg-white/10 text-neutral-200 rounded-lg transition-all duration-300 border border-white/10"
                   >
                     Cancel
                   </button>
                 </div>
               ) : (
-                <div className="flex justify-between items-center px-4 py-2 bg-white/5 border border-white/10 rounded-lg">
-                  <span className="text-white font-medium">
+                <div className="flex justify-between items-center px-4 py-2 bg-black/60 border border-white/10 rounded-lg">
+                  <span className="text-neutral-200 font-medium">
                     {activeAvatar?.name}
                   </span>
                   <button
                     onClick={() => setEditingName(true)}
-                    className="text-blue-400 hover:text-blue-300 transition-colors duration-300"
+                    className="text-amber-300 hover:text-amber-200 transition-colors duration-300"
                   >
                     Edit
                   </button>
@@ -1312,7 +1421,7 @@ const AvatarSettings = ({ avatarId, onPortraitChanged }) => {
                     onChange={(e) => setUpdatedDesc(e.target.value)}
                     placeholder="Enter description"
                     rows="3"
-                    className="w-full px-4 py-2 bg-white/10 border border-white/20 rounded-lg text-white placeholder-white/40 focus:outline-none focus:ring-2 focus:ring-blue-500/50 resize-none"
+                    className="w-full px-4 py-2 bg-black/50 border border-white/10 rounded-lg text-neutral-200 placeholder-white/40 focus:outline-none focus:ring-2 focus:ring-amber-400/50 resize-none"
                   />
                   <div className="flex gap-2">
                     <button
@@ -1320,26 +1429,26 @@ const AvatarSettings = ({ avatarId, onPortraitChanged }) => {
                         handleDescSave(updatedDesc);
                         setEditingDesc(false);
                       }}
-                      className="px-4 py-2 bg-blue-500/20 hover:bg-blue-500/30 text-blue-400 rounded-lg transition-all duration-300 border border-blue-500/30"
+                      className="px-4 py-2 bg-amber-400/15 hover:bg-amber-400/25 text-amber-300 rounded-lg transition-all duration-300 border border-amber-400/30"
                     >
                       Save
                     </button>
                     <button
                       onClick={() => setEditingDesc(false)}
-                      className="px-4 py-2 bg-white/10 hover:bg-white/20 text-white rounded-lg transition-all duration-300 border border-white/20"
+                      className="px-4 py-2 bg-black/50 hover:bg-white/10 text-neutral-200 rounded-lg transition-all duration-300 border border-white/10"
                     >
                       Cancel
                     </button>
                   </div>
                 </div>
               ) : (
-                <div className="flex justify-between items-start px-4 py-2 bg-white/5 border border-white/10 rounded-lg min-h-[80px]">
+                <div className="flex justify-between items-start px-4 py-2 bg-black/60 border border-white/10 rounded-lg min-h-[80px]">
                   <p className="text-white/80 flex-grow">
                     {activeAvatar?.description}
                   </p>
                   <button
                     onClick={() => setEditingDesc(true)}
-                    className="text-blue-400 hover:text-blue-300 transition-colors duration-300 ml-4"
+                    className="text-amber-300 hover:text-amber-200 transition-colors duration-300 ml-4"
                   >
                     Edit
                   </button>
@@ -1350,8 +1459,8 @@ const AvatarSettings = ({ avatarId, onPortraitChanged }) => {
         </div>
       </div>
       {/* Social Media Section */}
-      {/* <div className="bg-white/5 backdrop-blur-lg rounded-2xl border border-white/20 p-6">
-        <h2 className="text-2xl font-semibold text-white mb-4 flex items-center gap-2">
+      {/* <div className="bg-black/60 backdrop-blur-lg rounded-2xl border border-white/10 p-6">
+        <h2 className="text-2xl font-semibold text-neutral-200 mb-4 flex items-center gap-2">
           <Link size={24} />
           Social Media Accounts
         </h2>
@@ -1365,7 +1474,7 @@ const AvatarSettings = ({ avatarId, onPortraitChanged }) => {
               return (
                 <div
                   key={login.id}
-                  className="bg-white/10 border border-white/20 rounded-lg p-4 flex items-center justify-between hover:bg-white/15 transition-all duration-300"
+                  className="bg-black/50 border border-white/10 rounded-lg p-4 flex items-center justify-between hover:bg-white/10 transition-all duration-300"
                 >
                   <a
                     href={getSocialUrl(login.platform, login.username)}
@@ -1377,7 +1486,7 @@ const AvatarSettings = ({ avatarId, onPortraitChanged }) => {
                       <Icon size={32} style={{ color: platform.color }} />
                     )}
                     <div>
-                      <p className="text-white font-semibold">
+                      <p className="text-neutral-200 font-semibold">
                         {platform?.name}
                       </p>
                       <p className="text-white/60 text-sm">@{login.username}</p>
@@ -1416,11 +1525,11 @@ const AvatarSettings = ({ avatarId, onPortraitChanged }) => {
                 className={`p-3 rounded-lg border transition-all duration-300 flex flex-col items-center gap-2 ${
                   isConnected
                     ? 'bg-green-500/20 border-green-500/50 cursor-not-allowed'
-                    : 'bg-white/5 border-white/20 hover:bg-white/10 hover:border-white/40'
+                    : 'bg-black/60 border-white/10 hover:bg-white/10 hover:border-white/40'
                 }`}
               >
                 <Icon size={24} style={{ color: platform.color }} />
-                <span className="text-white text-xs">{platform.name}</span>
+                <span className="text-neutral-200 text-xs">{platform.name}</span>
                 {isConnected && (
                   <span className="text-xs text-green-400">Connected</span>
                 )}
@@ -1430,8 +1539,8 @@ const AvatarSettings = ({ avatarId, onPortraitChanged }) => {
         </div>
       </div> */}
       {/* Upload Section */}
-      <div className="bg-white/5 backdrop-blur-lg rounded-2xl border border-white/20 p-6">
-        <h2 className="text-2xl font-semibold text-white mb-4 flex items-center gap-2">
+      <div className="bg-black/60 backdrop-blur-lg rounded-2xl border border-white/10 p-6">
+        <h2 className="text-2xl font-semibold text-neutral-200 mb-4 flex items-center gap-2">
           <Upload size={24} />
           Upload
         </h2>
@@ -1452,7 +1561,7 @@ const AvatarSettings = ({ avatarId, onPortraitChanged }) => {
                   setManualUrl('');
                 }
               }}
-              className="flex-1 px-4 py-3 bg-white/10 border border-white/20 rounded-lg text-white placeholder-white/40 focus:outline-none focus:ring-2 focus:ring-blue-500"
+              className="flex-1 px-4 py-3 bg-black/50 border border-white/10 rounded-lg text-neutral-200 placeholder-white/40 focus:outline-none focus:ring-2 focus:ring-amber-400/50"
             />
             <button
               onClick={() => {
@@ -1462,22 +1571,22 @@ const AvatarSettings = ({ avatarId, onPortraitChanged }) => {
                 }
               }}
               disabled={!manualUrl || isLoading}
-              className="px-6 py-3 bg-blue-500/20 hover:bg-blue-500/30 text-blue-400 font-semibold rounded-lg transition-all duration-300 flex items-center gap-2 border border-blue-500/30 disabled:opacity-50 disabled:cursor-not-allowed"
+              className="px-6 py-3 bg-amber-400/15 hover:bg-amber-400/25 text-amber-300 font-semibold rounded-lg transition-all duration-300 flex items-center gap-2 border border-amber-400/30 disabled:opacity-50 disabled:cursor-not-allowed"
             >
               <Upload size={20} />
               Add
             </button>
           </div>
         </div>
-        <div className="border-2 border-dashed border-white/30 rounded-xl p-8 text-center hover:border-white/50 transition-all duration-300 bg-white/5">
+        <div className="border-2 border-dashed border-white/30 rounded-xl p-8 text-center hover:border-white/50 transition-all duration-300 bg-black/60">
           <Upload className="mx-auto mb-4 text-white/60" size={48} />
-          <p className="text-white text-lg mb-2">
+          <p className="text-neutral-200 text-lg mb-2">
             Drag & drop anywhere on the page
           </p>
           <p className="text-white/60 text-sm mb-4">
             or paste URLs with Ctrl+V / Cmd+V
           </p>
-          <label className="inline-block px-6 py-3 bg-blue-500/20 hover:bg-blue-500/30 text-blue-400 font-semibold rounded-lg cursor-pointer transition-all duration-300 border border-blue-500/30">
+          <label className="inline-block px-6 py-3 bg-amber-400/15 hover:bg-amber-400/25 text-amber-300 font-semibold rounded-lg cursor-pointer transition-all duration-300 border border-amber-400/30">
             Choose Files
             <input
               type="file"
@@ -1501,8 +1610,8 @@ const AvatarSettings = ({ avatarId, onPortraitChanged }) => {
       {/* Connected data servers — reached through the personal avatar, so they
           are not a property of any other avatar. */}
       {isPersonalAvatar && (
-        <div className="bg-white/5 backdrop-blur-lg rounded-2xl border border-white/20 p-6">
-          <h3 className="text-xl font-semibold text-white mb-4 flex items-center gap-2">
+        <div className="bg-black/60 backdrop-blur-lg rounded-2xl border border-white/10 p-6">
+          <h3 className="text-xl font-semibold text-neutral-200 mb-4 flex items-center gap-2">
             <Server size={20} />
             Connected Data Servers
           </h3>
@@ -1511,10 +1620,10 @@ const AvatarSettings = ({ avatarId, onPortraitChanged }) => {
               {connectedDataServers.map((dataServer) => (
                 <div
                   key={dataServer.server_name ?? dataServer.device_id}
-                  className="flex items-center justify-between p-3 bg-white/5 border border-white/10 rounded-lg"
+                  className="flex items-center justify-between p-3 bg-black/60 border border-white/10 rounded-lg"
                 >
                   <div>
-                    <p className="text-white">
+                    <p className="text-neutral-200">
                       {dataServer.server_name ?? 'Data server'}
                     </p>
                     <p className="text-white/50 text-xs">
@@ -1545,15 +1654,15 @@ const AvatarSettings = ({ avatarId, onPortraitChanged }) => {
           data servers are: these carry the owner's own mail credentials, and a
           shared or demoted avatar must reach none of them. */}
       {isPersonalAvatar && (
-        <div className="bg-white/5 backdrop-blur-lg rounded-2xl border border-white/20 p-6">
+        <div className="bg-black/60 backdrop-blur-lg rounded-2xl border border-white/10 p-6">
           <div className="flex items-center justify-between mb-4">
-            <h3 className="text-xl font-semibold text-white flex items-center gap-2">
+            <h3 className="text-xl font-semibold text-neutral-200 flex items-center gap-2">
               <Mail size={20} />
               Connected Mailboxes
             </h3>
             <button
               onClick={handleOpenConnectCard}
-              className="px-3 py-1.5 text-sm bg-teal-500/20 hover:bg-teal-500/30 text-teal-300 rounded-lg border border-teal-500/30 transition-colors"
+              className="px-3 py-1.5 text-sm bg-neutral-100/10 hover:bg-neutral-100/15 text-neutral-300 rounded-lg border border-neutral-700 transition-colors"
             >
               Connect Gmail
             </button>
@@ -1563,10 +1672,10 @@ const AvatarSettings = ({ avatarId, onPortraitChanged }) => {
               {connectedMailboxes.map((mailbox) => (
                 <div
                   key={mailbox.account_key}
-                  className="flex items-center justify-between p-3 bg-white/5 border border-white/10 rounded-lg"
+                  className="flex items-center justify-between p-3 bg-black/60 border border-white/10 rounded-lg"
                 >
                   <div className="min-w-0">
-                    <p className="text-white truncate">
+                    <p className="text-neutral-200 truncate">
                       {mailbox.account_address}
                     </p>
                     <p
@@ -1585,7 +1694,7 @@ const AvatarSettings = ({ avatarId, onPortraitChanged }) => {
                     {mailbox.status !== 'connected' && (
                       <button
                         onClick={handleOpenConnectCard}
-                        className="px-3 py-1.5 text-sm bg-teal-500/20 hover:bg-teal-500/30 text-teal-300 rounded-lg border border-teal-500/30 transition-colors"
+                        className="px-3 py-1.5 text-sm bg-neutral-100/10 hover:bg-neutral-100/15 text-neutral-300 rounded-lg border border-neutral-700 transition-colors"
                       >
                         Reconnect
                       </button>
@@ -1632,22 +1741,77 @@ const AvatarSettings = ({ avatarId, onPortraitChanged }) => {
 
       {/* Documents Section */}
 
-      <div className="bg-white/5 backdrop-blur-lg rounded-2xl border border-white/20 p-6">
-        <h3 className="text-xl font-semibold text-white mb-4 flex items-center gap-2">
+      <div className="bg-black/60 backdrop-blur-lg rounded-2xl border border-white/10 p-6">
+        <h3 className="text-xl font-semibold text-neutral-200 mb-4 flex items-center gap-2">
           <File size={20} />
           Data Uploaded for {activeAvatar?.name}
         </h3>
 
-        <div className="space-y-2">
-          {avatarDocuments.length > 0 ? (
-            avatarDocuments.map((documentEntry) => (
-              <AvatarDocumentRow
-                key={documentEntry.label}
-                documentEntry={documentEntry}
-                portraitDataUri={avatarIcon}
-                onDelete={handleDeleteDocument}
+        {avatarDocuments.length > 0 && (
+          <div className="mb-4 space-y-3">
+            <div className="relative">
+              <Search
+                size={16}
+                className="absolute left-3 top-1/2 -translate-y-1/2 text-white/40 pointer-events-none"
               />
-            ))
+              <input
+                type="search"
+                value={documentSearchQuery}
+                onChange={(event) => setDocumentSearchQuery(event.target.value)}
+                placeholder="Search uploaded data…"
+                aria-label="Search uploaded data"
+                className="w-full pl-9 pr-3 py-2 bg-black/50 border border-white/10 rounded-lg text-neutral-200 placeholder-white/40 focus:outline-none focus:ring-2 focus:ring-amber-400/50 text-sm"
+              />
+            </div>
+            <div className="flex flex-wrap gap-2" role="group" aria-label="Filter by type">
+              {['all', ...Object.keys(DOCUMENT_BUCKET_LABELS).filter(
+                (bucket) => bucket !== 'all' && documentBucketCounts[bucket]
+              )].map((bucket) => {
+                const isSelected = documentKindFilter === bucket;
+                const count =
+                  bucket === 'all'
+                    ? avatarDocuments.length
+                    : documentBucketCounts[bucket];
+                return (
+                  <button
+                    key={bucket}
+                    type="button"
+                    onClick={() => setDocumentKindFilter(bucket)}
+                    aria-pressed={isSelected}
+                    className={`px-3 py-1 rounded-full text-xs font-medium border transition-colors ${
+                      isSelected
+                        ? 'bg-neutral-200 text-neutral-900 border-neutral-200'
+                        : 'bg-black/60 text-white/70 border-white/10 hover:bg-white/10 hover:text-neutral-100'
+                    }`}
+                  >
+                    {DOCUMENT_BUCKET_LABELS[bucket]}
+                    <span className="ml-1 opacity-70">{count}</span>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
+        {/* The list scrolls within a bounded height, so a long upload history
+            does not push the rest of the settings off the bottom of the page,
+            and the search and filters above it stay in reach. */}
+        <div className="space-y-2 max-h-[60vh] overflow-y-auto pr-1">
+          {avatarDocuments.length > 0 ? (
+            visibleAvatarDocuments.length > 0 ? (
+              visibleAvatarDocuments.map((documentEntry) => (
+                <AvatarDocumentRow
+                  key={documentEntry.label}
+                  documentEntry={documentEntry}
+                  portraitDataUri={avatarIcon}
+                  onDelete={handleDeleteDocument}
+                />
+              ))
+            ) : (
+              <p className="text-white/40 text-sm italic">
+                Nothing uploaded matches this search or filter.
+              </p>
+            )
           ) : avatarDocumentsError ? (
             <div className="p-3 bg-red-500/10 border border-red-500/30 rounded-lg">
               <p className="text-red-300 text-sm">{avatarDocumentsError}</p>
@@ -1657,7 +1821,7 @@ const AvatarSettings = ({ avatarId, onPortraitChanged }) => {
                     (reloadCount) => reloadCount + 1
                   )
                 }
-                className="mt-2 px-3 py-1.5 text-sm bg-white/10 hover:bg-white/20 text-white rounded-lg border border-white/20 transition-colors"
+                className="mt-2 px-3 py-1.5 text-sm bg-black/50 hover:bg-white/10 text-neutral-200 rounded-lg border border-white/10 transition-colors"
               >
                 Try again
               </button>

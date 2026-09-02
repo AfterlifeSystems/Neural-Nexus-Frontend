@@ -14,8 +14,8 @@ export default function Hero() {
       vantaEffect = NET({
         el: vantaRef.current,
         THREE,
-        color: 0x14b8a6, // Teal lines
-        backgroundColor: 0x301934,
+        color: 0x4a4335, // Warm gray lines, a hint of gold
+        backgroundColor: 0x000000,
         mouseControls: true,
         touchControls: true,
         gyroControls: false,
@@ -37,7 +37,7 @@ export default function Hero() {
     <section
       id="home"
       ref={vantaRef}
-      className="min-h-screen flex items-center justify-center text-white relative py-16 lg:py-28"
+      className="min-h-screen flex items-center justify-center text-neutral-200 relative py-16 lg:py-28"
     >
       <div className="w-full max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 text-center z-10">
         {/* The QR sits alongside the headline from lg up rather than beneath it,

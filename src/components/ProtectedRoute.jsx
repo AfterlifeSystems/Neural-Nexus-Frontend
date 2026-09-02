@@ -1,6 +1,6 @@
 // components/ProtectedRoute.jsx
 import { useState } from 'react';
-import { Navigate, Outlet } from 'react-router-dom';
+import { Navigate, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { useMedia, NEW_CONVERSATION_ID } from '../context/MediaContext';
 import LoadingSpinner from './LoadingSpinner';
@@ -17,6 +17,18 @@ export default function ProtectedRoute() {
     setMessages,
   } = useMedia();
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
+  const location = useLocation();
+  const navigate = useNavigate();
+
+  // The sidebar lists conversations wherever an avatar is open in context —
+  // the gallery, account settings, billing — but only the chat screen can show
+  // one. Picking a conversation anywhere else has to go to that screen first,
+  // carrying the choice in the URL so the chat opens on it rather than on the
+  // newest thread, which is what the chat screen opens by default.
+  const activeAvatarId =
+    activeAvatar?.assistant_id ?? activeAvatar?.avatar_id ?? null;
+  const chatPath = activeAvatarId ? `/chat/${activeAvatarId}` : null;
+  const isOnChatScreen = chatPath !== null && location.pathname === chatPath;
 
   // Conversations belong to an open avatar, so the sidebar shows them only on a
   // chat screen. The account half of it is shown everywhere.
@@ -31,6 +43,10 @@ export default function ProtectedRoute() {
    */
   const handleSelectConversation = async (threadId) => {
     setIsSidebarOpen(false);
+    if (chatPath && !isOnChatScreen) {
+      navigate(`${chatPath}?thread=${encodeURIComponent(threadId)}`);
+      return;
+    }
     setActiveConversation(threadId);
     try {
       await getActiveConversationMessages(user, activeAvatar, threadId);
@@ -46,6 +62,10 @@ export default function ProtectedRoute() {
    */
   const handleStartNewConversation = () => {
     setIsSidebarOpen(false);
+    if (chatPath && !isOnChatScreen) {
+      navigate(`${chatPath}?thread=new`);
+      return;
+    }
     setActiveConversation(NEW_CONVERSATION_ID);
     setMessages([]);
   };

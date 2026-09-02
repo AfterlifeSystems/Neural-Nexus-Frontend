@@ -110,10 +110,10 @@ const AnonymousSidebar = ({
       )}
 
       {!isOpen && (
-        <div className="fixed top-0 left-0 h-full w-14 z-40 bg-white/5 backdrop-blur-lg border-r border-white/20 flex flex-col items-center py-4">
+        <div className="fixed top-0 left-0 h-full w-14 z-40 bg-black/60 backdrop-blur-lg border-r border-white/10 flex flex-col items-center py-4">
           <button
             onClick={onOpen}
-            className="p-2 rounded-lg text-white/70 hover:text-white hover:bg-white/10 transition-colors"
+            className="p-2 rounded-lg text-white/70 hover:text-neutral-100 hover:bg-white/10 transition-colors"
             aria-label="Open the sidebar"
             title="Open the sidebar"
           >
@@ -121,7 +121,7 @@ const AnonymousSidebar = ({
           </button>
           <button
             onClick={() => goTo('/welcome')}
-            className="mt-auto shrink-0 p-1 rounded-lg opacity-70 hover:opacity-100 hover:bg-white/10 transition-all duration-300 focus:outline-none focus:ring-2 focus:ring-teal-400 focus:opacity-100"
+            className="mt-auto shrink-0 p-1 rounded-lg opacity-70 hover:opacity-100 hover:bg-white/10 transition-all duration-300 focus:outline-none focus:ring-2 focus:ring-amber-400/50 focus:opacity-100"
             aria-label="Neural Nexus — scan or open the welcome page"
             title="Scan to share Neural Nexus, or press to open the welcome page"
           >
@@ -144,8 +144,8 @@ const AnonymousSidebar = ({
           w-80 sm:w-96 lg:w-80
           h-full
           z-50
-          bg-white/5 backdrop-blur-lg
-          border-r border-white/20 lg:rounded-2xl lg:border
+          bg-black/60 backdrop-blur-lg
+          border-r border-white/10 lg:rounded-2xl lg:border
           transition-transform duration-300 ease-in-out
           ${isOpen ? 'translate-x-0' : '-translate-x-full'}
           shadow-lg
@@ -154,7 +154,7 @@ const AnonymousSidebar = ({
         <div className="flex flex-col h-full p-4 gap-4">
           <div className="shrink-0 flex justify-between items-center gap-2">
             <div className="flex items-center gap-2 min-w-0">
-              <div className="w-9 h-9 shrink-0 rounded-full bg-white/10 border border-white/20 flex items-center justify-center">
+              <div className="w-9 h-9 shrink-0 rounded-full bg-black/50 border border-white/10 flex items-center justify-center">
                 <User className="w-4 h-4 text-white/40" />
               </div>
               {/* The identity named here is the identity the API is being
@@ -165,7 +165,7 @@ const AnonymousSidebar = ({
                   previewing their own link should be able to tell they have not
                   been signed out — but as the aside it is. */}
               <div className="min-w-0">
-                <span className="block text-white font-semibold truncate">
+                <span className="block text-neutral-200 font-semibold truncate">
                   Anonymous visitor
                 </span>
                 {user?.email && (
@@ -177,7 +177,7 @@ const AnonymousSidebar = ({
             </div>
             <button
               onClick={onClose}
-              className="text-gray-300 hover:text-white p-2 rounded-lg hover:bg-white/10 transition-colors focus:outline-none focus:ring-2 focus:ring-white/20 shrink-0"
+              className="text-neutral-300 hover:text-neutral-100 p-2 rounded-lg hover:bg-white/10 transition-colors focus:outline-none focus:ring-2 focus:ring-white/20 shrink-0"
               aria-label="Close sidebar"
             >
               <X className="w-5 h-5" />
@@ -245,7 +245,7 @@ const AnonymousSidebar = ({
 
                 <button
                   onClick={onStartNewConversation}
-                  className="px-4 py-2 rounded-lg border border-white/20 bg-black/35 hover:bg-teal-600 text-white font-semibold flex items-center justify-center gap-2 transition-colors focus:outline-none focus:ring-2 focus:ring-teal-400"
+                  className="px-4 py-2 rounded-lg border border-white/10 bg-black/60 hover:bg-neutral-900 text-neutral-200 font-semibold flex items-center justify-center gap-2 transition-colors focus:outline-none focus:ring-2 focus:ring-amber-400/50"
                 >
                   <MessageSquarePlus className="w-5 h-5" />
                   New conversation
@@ -272,8 +272,8 @@ const AnonymousSidebar = ({
                               aria-current={isActive ? 'true' : undefined}
                               className={`w-full text-left px-3 py-2 rounded-lg transition-colors truncate ${
                                 isActive
-                                  ? 'bg-teal-600/30 text-white border border-teal-400/40'
-                                  : 'text-white/70 hover:bg-white/10 hover:text-white border border-transparent'
+                                  ? 'bg-neutral-700/40 text-neutral-200 border border-neutral-400/40'
+                                  : 'text-white/70 hover:bg-white/10 hover:text-neutral-100 border border-transparent'
                               }`}
                               title={describeConversation(conversation)}
                             >
@@ -289,7 +289,7 @@ const AnonymousSidebar = ({
             )}
 
             {!user && (
-              <div className="shrink-0 rounded-xl border border-teal-400/30 bg-teal-500/10 p-4">
+              <div className="shrink-0 rounded-xl border border-neutral-400/30 bg-neutral-100/5 p-4">
                 <p className="text-white/80 text-sm">
                   You are chatting as a guest
                   {avatarName ? ` with ${avatarName}` : ''}. These chats are kept
@@ -299,7 +299,7 @@ const AnonymousSidebar = ({
                 </p>
                 <button
                   onClick={() => goTo('/signup')}
-                  className="mt-3 w-full px-4 py-2 rounded-lg bg-teal-500/20 hover:bg-teal-500/30 border border-teal-500/30 text-teal-200 font-semibold transition-colors focus:outline-none focus:ring-2 focus:ring-teal-400"
+                  className="mt-3 w-full px-4 py-2 rounded-lg bg-neutral-100/10 hover:bg-neutral-100/15 border border-neutral-700 text-neutral-200 font-semibold transition-colors focus:outline-none focus:ring-2 focus:ring-amber-400/50"
                 >
                   Sign up free
                 </button>
@@ -308,7 +308,7 @@ const AnonymousSidebar = ({
                     the only route back to a session is the landing page. */}
                 <button
                   onClick={() => goTo('/login')}
-                  className="mt-2 w-full px-4 py-2 rounded-lg text-white/70 hover:text-white hover:bg-white/10 transition-colors flex items-center justify-center gap-2 text-sm"
+                  className="mt-2 w-full px-4 py-2 rounded-lg text-white/70 hover:text-neutral-100 hover:bg-white/10 transition-colors flex items-center justify-center gap-2 text-sm"
                 >
                   <LogIn className="w-4 h-4 shrink-0" />
                   Already have an account? Log in
@@ -319,7 +319,7 @@ const AnonymousSidebar = ({
             <div className="mt-auto shrink-0 pt-4 border-t border-white/10 flex flex-col items-center gap-2">
               <button
                 onClick={() => goTo('/welcome')}
-                className="rounded-xl p-2 bg-white/5 border border-white/10 hover:border-teal-400/40 hover:bg-white/10 transition-colors focus:outline-none focus:ring-2 focus:ring-teal-400"
+                className="rounded-xl p-2 bg-black/60 border border-white/10 hover:border-neutral-300/40 hover:bg-white/10 transition-colors focus:outline-none focus:ring-2 focus:ring-amber-400/50"
                 aria-label="Neural Nexus — scan or open the welcome page"
                 title="Scan to share Neural Nexus, or press to open the welcome page"
               >

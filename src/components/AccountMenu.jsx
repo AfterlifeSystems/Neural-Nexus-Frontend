@@ -2,10 +2,11 @@
 //
 // The account actions, defined once. They appear in two places — the sidebar
 // and the User Settings menu on the avatar screen — and the only difference
-// between them is the first entry: the sidebar leads back to the avatar
-// gallery, while the User Settings menu leads to the settings of the avatar
-// that depicts you. Everything else is shared here so the two cannot drift
-// into offering different things.
+// between them is whether the list opens with a way back to the avatar
+// gallery: the sidebar does, the User Settings menu (already on an avatar's
+// screen) does not. Both offer the settings of the avatar that depicts you,
+// and everything else is shared here so the two cannot drift into offering
+// different things.
 
 import React from 'react';
 import { CreditCard, Settings, LogOut, Users, UserCog } from 'lucide-react';
@@ -23,10 +24,10 @@ export const AccountMenuItem = ({ icon, label, onClick, isCurrent, isDanger }) =
     aria-current={isCurrent ? 'page' : undefined}
     className={`w-full text-left px-3 py-2 rounded-lg transition-colors flex items-center gap-2 ${
       isDanger
-        ? 'text-red-400 hover:bg-red-900/40 hover:text-white'
+        ? 'text-red-400 hover:bg-red-900/40 hover:text-neutral-100'
         : isCurrent
-          ? 'bg-white/15 text-white'
-          : 'text-white/70 hover:bg-white/10 hover:text-white'
+          ? 'bg-white/15 text-neutral-200'
+          : 'text-white/70 hover:bg-white/10 hover:text-neutral-100'
     }`}
   >
     {icon}
@@ -62,24 +63,21 @@ export async function resolvePersonalAvatarId(userAvatars) {
 }
 
 /**
- * The shared account actions.
+ * Navigate to the settings of the avatar that depicts the signed-in user.
  *
- * @param {Object} options
- * @param {'avatars'|'personalAvatar'} options.leadingAction Which entry leads.
- * @param {Function} options.onNavigate Called before navigating, to dismiss the
- *   panel or menu the items are rendered inside.
- * @param {string} options.currentPath The active route, for marking the current item.
+ * Shared by every control that leads there — the menu entry and the sidebar
+ * header — so that they all resolve the avatar the same way and land on the
+ * same tab.
+ *
+ * @param {Function} [onNavigate] Called before navigating, to dismiss the
+ *   panel or menu the control is rendered inside.
+ * @returns {Function} An async handler that performs the navigation.
  */
-const AccountMenu = ({ leadingAction = 'avatars', onNavigate, currentPath }) => {
+export function usePersonalAvatarSettingsNavigation(onNavigate) {
   const navigate = useNavigate();
-  const { userAvatars, logOut } = useAuth();
+  const { userAvatars } = useAuth();
 
-  const goTo = (path) => {
-    onNavigate?.();
-    navigate(path);
-  };
-
-  const openPersonalAvatarSettings = async () => {
+  return async () => {
     const personalAvatarId = await resolvePersonalAvatarId(userAvatars);
     onNavigate?.();
     if (!personalAvatarId) {
@@ -92,23 +90,45 @@ const AccountMenu = ({ leadingAction = 'avatars', onNavigate, currentPath }) => 
     // parameter opens that tab directly rather than landing on the chat.
     navigate(`/chat/${personalAvatarId}?tab=settings`);
   };
+}
+
+/**
+ * The shared account actions.
+ *
+ * @param {Object} options
+ * @param {'avatars'|'personalAvatar'} options.leadingAction Whether the list
+ *   opens with the way back to the avatar gallery ('avatars') or goes straight
+ *   to the personal avatar's settings ('personalAvatar').
+ * @param {Function} options.onNavigate Called before navigating, to dismiss the
+ *   panel or menu the items are rendered inside.
+ * @param {string} options.currentPath The active route, for marking the current item.
+ */
+const AccountMenu = ({ leadingAction = 'avatars', onNavigate, currentPath }) => {
+  const navigate = useNavigate();
+  const { logOut } = useAuth();
+  const openPersonalAvatarSettings =
+    usePersonalAvatarSettingsNavigation(onNavigate);
+
+  const goTo = (path) => {
+    onNavigate?.();
+    navigate(path);
+  };
 
   return (
     <>
-      {leadingAction === 'avatars' ? (
+      {leadingAction === 'avatars' && (
         <AccountMenuItem
           icon={<Users className="w-4 h-4 shrink-0" />}
           label="Avatars"
           onClick={() => goTo('/avatars')}
           isCurrent={currentPath === '/avatars'}
         />
-      ) : (
-        <AccountMenuItem
-          icon={<UserCog className="w-4 h-4 shrink-0" />}
-          label="Your avatar's settings"
-          onClick={openPersonalAvatarSettings}
-        />
       )}
+      <AccountMenuItem
+        icon={<UserCog className="w-4 h-4 shrink-0" />}
+        label="Your avatar's settings"
+        onClick={openPersonalAvatarSettings}
+      />
       <AccountMenuItem
         icon={<Settings className="w-4 h-4 shrink-0" />}
         label="Account settings"

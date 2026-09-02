@@ -1,0 +1,49 @@
+/* src/components/PixelCard.css — see PixelCard.jsx. Sizing is the caller's:
+   the original fixed the card at 300x400, which cannot follow the gallery. */
+.pixel-canvas {
+  width: 100%;
+  height: 100%;
+  display: block;
+  position: absolute;
+  inset: 0;
+}
+
+.pixel-card {
+  position: relative;
+  overflow: hidden;
+  display: grid;
+  place-items: center;
+  border: 1px solid var(--pixel-card-border, rgba(255, 255, 255, 0.1));
+  background: var(--pixel-card-background, rgba(0, 0, 0, 0.6));
+  border-radius: 1rem;
+  isolation: isolate;
+  transition: border-color 200ms cubic-bezier(0.5, 1, 0.89, 1);
+  user-select: none;
+}
+
+.pixel-card:hover,
+.pixel-card:focus-within {
+  border-color: var(--pixel-card-active-border, rgba(251, 191, 36, 0.5));
+}
+
+.pixel-card::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  margin: auto;
+  aspect-ratio: 1;
+  background: radial-gradient(circle, var(--pixel-card-active-color, #000000), transparent 85%);
+  opacity: 0;
+  transition: opacity 800ms cubic-bezier(0.5, 1, 0.89, 1);
+}
+
+.pixel-card:hover::before,
+.pixel-card:focus-within::before {
+  opacity: 1;
+}
+
+/* Whatever the card holds sits above the pixel canvas and the glow. */
+.pixel-card > :not(.pixel-canvas) {
+  position: relative;
+  z-index: 1;
+}

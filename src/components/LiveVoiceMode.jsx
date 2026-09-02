@@ -106,7 +106,7 @@ const LiveVoiceMode = ({ avatarName, avatarPortrait, onClose }) => {
   return (
     <div className="fixed inset-0 z-[70] bg-black/80 backdrop-blur-lg flex flex-col items-center">
       <div className="w-full max-w-3xl flex justify-between items-center p-4">
-        <h2 className="text-white font-semibold">
+        <h2 className="text-neutral-200 font-semibold">
           Live with {avatarName ?? 'your avatar'}
         </h2>
         <div className="flex items-center gap-2">
@@ -118,7 +118,7 @@ const LiveVoiceMode = ({ avatarName, avatarPortrait, onClose }) => {
               }
               setIsVoiceOutputOn((isOn) => !isOn);
             }}
-            className="p-2 rounded-lg text-white/70 hover:text-white hover:bg-white/10 transition-colors"
+            className="p-2 rounded-lg text-white/70 hover:text-neutral-100 hover:bg-white/10 transition-colors"
             aria-label={isVoiceOutputOn ? 'Mute the reply' : 'Unmute the reply'}
             title={isVoiceOutputOn ? 'Mute the reply' : 'Unmute the reply'}
           >
@@ -130,7 +130,7 @@ const LiveVoiceMode = ({ avatarName, avatarPortrait, onClose }) => {
           </button>
           <button
             onClick={onClose}
-            className="p-2 rounded-lg text-white/70 hover:text-white hover:bg-white/10 transition-colors"
+            className="p-2 rounded-lg text-white/70 hover:text-neutral-100 hover:bg-white/10 transition-colors"
             aria-label="Leave live mode"
           >
             <X className="w-5 h-5" />
@@ -143,11 +143,11 @@ const LiveVoiceMode = ({ avatarName, avatarPortrait, onClose }) => {
       <div
         className={`w-40 h-40 rounded-full overflow-hidden border-4 flex items-center justify-center shrink-0 transition-all duration-300 ${
           isSpeaking
-            ? 'border-teal-400 shadow-[0_0_40px_rgba(45,212,191,0.5)] scale-105'
+            ? 'border-neutral-300 shadow-[0_0_40px_rgba(245,245,245,0.35)] scale-105'
             : isRecording
               ? 'border-red-400/70'
-              : 'border-white/20'
-        } bg-white/10`}
+              : 'border-white/10'
+        } bg-black/50`}
       >
         {avatarPortrait && isValidImageUrl(avatarPortrait) ? (
           <img
@@ -176,11 +176,11 @@ const LiveVoiceMode = ({ avatarName, avatarPortrait, onClose }) => {
               key={message.id ?? message.timestamp}
               className={`max-w-[85%] px-4 py-2 rounded-2xl ${
                 message.type === 'human'
-                  ? 'bg-teal-600/80 text-white ml-auto'
-                  : 'bg-white/10 text-white mr-auto'
+                  ? 'bg-neutral-800/80 text-neutral-200 ml-auto'
+                  : 'bg-black/50 text-neutral-200 mr-auto'
               } ${
                 message.id === lastAvatarMessage?.id && isSpeaking
-                  ? 'ring-2 ring-teal-400/60'
+                  ? 'ring-2 ring-amber-400/50/60'
                   : ''
               }`}
             >
@@ -207,14 +207,14 @@ const LiveVoiceMode = ({ avatarName, avatarPortrait, onClose }) => {
           className={`w-20 h-20 rounded-full flex items-center justify-center transition-all duration-200 disabled:opacity-40 ${
             isRecording
               ? 'bg-red-500 scale-110 shadow-[0_0_30px_rgba(239,68,68,0.6)]'
-              : 'bg-teal-600 hover:bg-teal-500'
+              : 'bg-neutral-200 hover:bg-neutral-100'
           }`}
           aria-label={isRecording ? 'Stop and send' : 'Hold to speak'}
         >
           {isRecording ? (
-            <Square className="w-7 h-7 text-white" />
+            <Square className="w-7 h-7 text-neutral-200" />
           ) : (
-            <Mic className="w-8 h-8 text-white" />
+            <Mic className="w-8 h-8 text-neutral-900" />
           )}
         </button>
         <p className="text-white/40 text-xs">

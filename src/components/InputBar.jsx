@@ -17,7 +17,7 @@ import { describeDocumentKind } from './AvatarDocumentRow';
 // itself; everything else shows what kind of file it is, because a document has
 // no thumbnail and an <img> pointed at one renders a broken tile.
 const ATTACHMENT_PRESENTATION = {
-  image: { Icon: ImageIcon, label: 'Image', tileClassName: 'bg-purple-500' },
+  image: { Icon: ImageIcon, label: 'Image', tileClassName: 'bg-neutral-500' },
   audio: { Icon: FileAudio, label: 'Audio', tileClassName: 'bg-emerald-500' },
   video: { Icon: FileVideo, label: 'Video', tileClassName: 'bg-rose-500' },
   data: { Icon: FileSpreadsheet, label: 'Data', tileClassName: 'bg-lime-600' },
@@ -57,11 +57,48 @@ const InputBar = ({
   showDataExchangeDropdown,
   dropdownRef,
   onActivateLiveChat,
+  avatarId,
 }) => {
   const fileInputRef = useRef(null);
   const textareaRef = useRef(null);
 
-  const [messageHistory, setMessageHistory] = useState([]);
+  // The keyboard hints in the placeholder wrap to three lines on a phone and
+  // push the composer up the screen; a phone has no Ctrl key anyway.
+  const [isNarrowViewport, setIsNarrowViewport] = useState(() =>
+    typeof window !== 'undefined' && window.matchMedia('(max-width: 640px)').matches
+  );
+  useEffect(() => {
+    const narrowViewportQuery = window.matchMedia('(max-width: 640px)');
+    const updateViewport = (event) => setIsNarrowViewport(event.matches);
+    narrowViewportQuery.addEventListener('change', updateViewport);
+    return () => narrowViewportQuery.removeEventListener('change', updateViewport);
+  }, []);
+
+  // What this person has sent to this avatar, for Ctrl+↑ / Ctrl+↓ recall. Kept
+  // in this browser rather than only in memory, so a reload, a rebuild during
+  // development, or a remount of the composer does not empty it.
+  const sentMessageHistoryStorageKey = `sent_message_history_${avatarId ?? 'default'}`;
+  const [messageHistory, setMessageHistory] = useState(() => {
+    try {
+      const storedHistory = JSON.parse(
+        localStorage.getItem(sentMessageHistoryStorageKey) ?? '[]'
+      );
+      return Array.isArray(storedHistory) ? storedHistory : [];
+    } catch {
+      return [];
+    }
+  });
+  useEffect(() => {
+    try {
+      localStorage.setItem(
+        sentMessageHistoryStorageKey,
+        JSON.stringify(messageHistory.slice(-100))
+      );
+    } catch {
+      // Storage can be unavailable (private mode, quota); recall then lasts
+      // only as long as the composer does, which is what it did before.
+    }
+  }, [messageHistory, sentMessageHistoryStorageKey]);
   const [historyIndex, setHistoryIndex] = useState(-1);
   const [tempMessage, setTempMessage] = useState('');
   const [editingCaption, setEditingCaption] = useState(null);
@@ -249,10 +286,10 @@ const InputBar = ({
       {/* Input Bar + Send Button on Same Row */}
       <div className="flex flex-row items-center gap-2 flex-col mb-2">
         {/* Input Container */}
-        <div className="flex-1 relative border border-gray-700 rounded-lg bg-black/35 focus-within:border-teal-400 transition-colors">
+        <div className="flex-1 relative border border-neutral-700 rounded-lg bg-black/60 focus-within:border-neutral-300 transition-colors">
           {composerAttachments.length > 0 && (
-            <div className="p-3 border-b border-gray-700/50">
-              <div className="flex gap-3 overflow-x-auto scrollbar-thin scrollbar-thumb-teal-400">
+            <div className="p-3 border-b border-neutral-700/50">
+              <div className="flex gap-3 overflow-x-auto scrollbar-thin scrollbar-thumb-neutral-600">
                 {composerAttachments.map((file, index) => {
                   // Anything past the composed files belongs to a turn already
                   // under way: it is shown, but cannot be taken back.
@@ -273,10 +310,10 @@ const InputBar = ({
                             src={imagePreviewUrl}
                             alt={file.name}
                             title={file.name}
-                            className="h-16 w-16 object-cover rounded-lg border border-gray-600 group-hover:border-teal-400 transition-colors"
+                            className="h-16 w-16 object-cover rounded-lg border border-neutral-600 group-hover:border-neutral-200 transition-colors"
                           />
                           {isBeingSent && (
-                            <span className="absolute inset-x-0 bottom-0 rounded-b-lg bg-black/70 text-[10px] text-center text-white py-0.5">
+                            <span className="absolute inset-x-0 bottom-0 rounded-b-lg bg-black/70 text-[10px] text-center text-neutral-200 py-0.5">
                               Sending…
                             </span>
                           )}
@@ -285,7 +322,7 @@ const InputBar = ({
                               type="button"
                               onClick={() => handleRemoveFile(index)}
                               aria-label={`Remove ${file.name}`}
-                              className="absolute top-1 right-1 p-0! w-4 h-4 rounded-full flex items-center justify-center bg-black/70 text-white hover:bg-red-500 transition-colors z-20"
+                              className="absolute top-1 right-1 p-0! w-4 h-4 rounded-full flex items-center justify-center bg-black/70 text-neutral-200 hover:bg-red-500 transition-colors z-20"
                             >
                               <HiXMark className="w-2.5 h-2.5" />
                             </button>
@@ -294,18 +331,18 @@ const InputBar = ({
                       ) : (
                         <div
                           title={file.name}
-                          className="h-16 flex items-center gap-2 pl-2 pr-2 rounded-lg border border-gray-600 bg-white/5 group-hover:border-teal-400 transition-colors"
+                          className="h-16 flex items-center gap-2 pl-2 pr-2 rounded-lg border border-neutral-600 bg-black/60 group-hover:border-neutral-200 transition-colors"
                         >
                           <span
                             className={`w-9 h-9 shrink-0 rounded-lg flex items-center justify-center ${tileClassName}`}
                           >
-                            <Icon size={18} className="text-white" />
+                            <Icon size={18} className="text-neutral-200" />
                           </span>
                           <span className="min-w-0">
-                            <span className="block max-w-[10rem] truncate text-sm text-white">
+                            <span className="block max-w-[10rem] truncate text-sm text-neutral-200">
                               {file.name}
                             </span>
-                            <span className="block text-xs text-gray-400">
+                            <span className="block text-xs text-neutral-400">
                               {isBeingSent ? 'Sending…' : label}
                             </span>
                           </span>
@@ -314,7 +351,7 @@ const InputBar = ({
                               type="button"
                               onClick={() => handleRemoveFile(index)}
                               aria-label={`Remove ${file.name}`}
-                              className="shrink-0 p-0! w-5 h-5 rounded-full flex items-center justify-center text-gray-400 hover:text-white hover:bg-red-500 transition-colors"
+                              className="shrink-0 p-0! w-5 h-5 rounded-full flex items-center justify-center text-neutral-400 hover:text-neutral-100 hover:bg-red-500 transition-colors"
                             >
                               <HiXMark className="w-3 h-3" />
                             </button>
@@ -332,8 +369,13 @@ const InputBar = ({
             ref={textareaRef}
             rows={1}
             style={{ lineHeight: '1.5rem', maxHeight: '9rem' }}
-            className="w-full resize-none overflow-y-auto max-h-40 px-4 py-3 text-white bg-transparent placeholder-gray-400 scrollbar-thin scrollbar-thumb-teal-400 focus:outline-none border-none"
-            placeholder="Type your message... (Ctrl+↑ or ↓ for sent message history) (Shift+Enter for Newline)"
+            className="w-full resize-none overflow-y-auto max-h-40 px-4 py-3 text-neutral-200 bg-transparent placeholder-neutral-400 scrollbar-thin scrollbar-thumb-neutral-600 focus:outline-none border-none"
+            placeholder={
+              isNarrowViewport
+                ? 'Type your message…'
+                : 'Type your message... (Ctrl+↑ or ↓ for sent message history) (Shift+Enter for Newline)'
+            }
+            title="Ctrl+↑ or ↓ recalls sent messages. Shift+Enter inserts a newline."
             value={inputMessage}
             onChange={handleInput}
             onKeyDown={handleKeyDown}
@@ -350,14 +392,14 @@ const InputBar = ({
               onClick={() => fileInputRef.current?.click()}
               title="Attach images or documents"
               aria-label="Attach images or documents"
-              className="p-1.5 rounded-lg text-gray-400 hover:text-teal-300 hover:bg-white/10 transition-colors focus:outline-none focus:ring-2 focus:ring-teal-400"
+              className="p-1.5 rounded-lg text-neutral-400 hover:text-neutral-100 hover:bg-white/10 transition-colors focus:outline-none focus:ring-2 focus:ring-amber-400/50"
             >
               <Paperclip className="w-5 h-5" />
             </button>
           </div>
 
           {historyIndex !== -1 && (
-            <div className="absolute right-2 top-2 text-xs text-teal-400 bg-black/50 px-2 py-1 rounded">
+            <div className="absolute right-2 top-2 text-xs text-neutral-400 bg-black/50 px-2 py-1 rounded">
               {messageHistory.length - historyIndex}/{messageHistory.length}
             </div>
           )}
@@ -387,7 +429,7 @@ const InputBar = ({
           }}
           title={hasSomethingToSend ? 'Send message' : 'Talk out loud'}
           aria-label={hasSomethingToSend ? 'Send message' : 'Enter live mode'}
-          className="transition-transform duration-300 hover:scale-105 px-6 rounded-xl text-white bg-black/35 border border-gray-700 hover:border-teal-400 flex items-center justify-center gap-2 whitespace-nowrap self-stretch"
+          className="transition-transform duration-300 hover:scale-105 px-6 rounded-xl text-neutral-200 bg-black/60 border border-neutral-700 hover:border-neutral-200 flex items-center justify-center gap-2 whitespace-nowrap self-stretch"
         >
           {hasSomethingToSend ? (
             'Send'

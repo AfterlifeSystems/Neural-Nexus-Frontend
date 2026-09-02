@@ -21,8 +21,8 @@ export default function LiveAvatarDemo({ isEmbeddedInHero = false }) {
       id="demo"
       className={
         isEmbeddedInHero
-          ? 'w-full text-white scroll-mt-20 lg:scroll-mt-24'
-          : 'py-16 bg-gradient-to-b from-[#301934] to-purple-900 text-white scroll-mt-20 lg:scroll-mt-24'
+          ? 'w-full text-neutral-200 scroll-mt-20 lg:scroll-mt-24'
+          : 'py-16 bg-gradient-to-b from-black to-black text-neutral-200 scroll-mt-20 lg:scroll-mt-24'
       }
     >
       <div
@@ -38,14 +38,14 @@ export default function LiveAvatarDemo({ isEmbeddedInHero = false }) {
         {/* In the hero this line is carried by <ScanToStart>, which sits
             directly above and pairs it with the QR code. */}
         {!isEmbeddedInHero && (
-          <p className="text-center text-teal-300/80 mb-8">
+          <p className="text-center text-neutral-400/80 mb-8">
             No signup required — the conversation below is running against a
             real Neural Nexus avatar right now.
           </p>
         )}
 
         <div
-          className={`relative w-full rounded-2xl overflow-hidden border border-teal-500/30 shadow-2xl shadow-teal-500/20 bg-black/40 ${
+          className={`relative w-full rounded-2xl overflow-hidden border border-neutral-700 shadow-2xl shadow-white/5 bg-black/40 ${
             isEmbeddedInHero
               ? 'h-[clamp(460px,calc(100vh-22rem),680px)]'
               : 'h-[min(80vh,720px)] min-h-[560px]'
@@ -67,23 +67,23 @@ export default function LiveAvatarDemo({ isEmbeddedInHero = false }) {
             allow="clipboard-write; microphone"
             referrerPolicy="no-referrer-when-downgrade"
             onLoad={() => setIsFrameLoaded(true)}
-            className="w-full h-full border-0 bg-[#0e1117]"
+            className="w-full h-full border-0 bg-black"
           />
 
           {!isFrameLoaded && (
             <div className="absolute inset-0 flex flex-col items-center justify-center gap-4 bg-black/40 backdrop-blur-sm pointer-events-none">
               <LoadingSpinner />
-              <p className="text-sm text-teal-300/80">Waking the avatar…</p>
+              <p className="text-sm text-neutral-400/80">Waking the avatar…</p>
             </div>
           )}
         </div>
 
-        <p className="mt-4 text-center text-sm text-gray-400">
+        <p className="mt-4 text-center text-sm text-neutral-400">
           <a
             href={sharedAvatarUrl}
             target="_blank"
             rel="noopener noreferrer"
-            className="text-teal-300 hover:text-teal-200 underline underline-offset-4 transition-colors duration-300"
+            className="text-neutral-300 hover:text-neutral-100 underline underline-offset-4 transition-colors duration-300"
           >
             Open the full demo in a new tab
           </a>
