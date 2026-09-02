@@ -2,9 +2,9 @@ import React from 'react';
 
 export default function PrivacyPolicy() {
   return (
-    <div className="bg-gray-900 text-white min-h-screen py-10">
+    <div className="bg-neutral-950 text-neutral-200 min-h-screen py-10">
       <div className="container mx-auto px-4 sm:px-6 lg:px-8">
-        <h1 className="text-4xl font-bold text-purple-300 mb-6">
+        <h1 className="text-4xl font-bold text-neutral-300 mb-6">
           Privacy Policy
         </h1>
         <p className="text-lg mb-4">Effective Date: July 4, 2026</p>
@@ -13,7 +13,7 @@ export default function PrivacyPolicy() {
           Nexus platform, accessible at{' '}
           <a
             href="https://neuralnexus.site"
-            className="text-purple-300 hover:text-purple-100"
+            className="text-neutral-300 hover:text-neutral-100"
           >
             https://neuralnexus.site
           </a>{' '}
@@ -23,7 +23,7 @@ export default function PrivacyPolicy() {
           when you use our Service.
         </p>
 
-        <h2 className="text-2xl font-semibold text-purple-200 mt-8 mb-4">
+        <h2 className="text-2xl font-semibold text-neutral-200 mt-8 mb-4">
           1. Information We Collect
         </h2>
         <p className="mb-4">
@@ -31,7 +31,7 @@ export default function PrivacyPolicy() {
           of information we may collect include:
         </p>
 
-        <h3 className="text-xl font-medium text-purple-100 mt-6 mb-2">
+        <h3 className="text-xl font-medium text-neutral-200 mt-6 mb-2">
           a. Personal Information
         </h3>
         <ul className="list-disc pl-6 mb-4">
@@ -53,7 +53,7 @@ export default function PrivacyPolicy() {
           </li>
         </ul>
 
-        <h3 className="text-xl font-medium text-purple-100 mt-6 mb-2">
+        <h3 className="text-xl font-medium text-neutral-200 mt-6 mb-2">
           b. Usage Data
         </h3>
         <ul className="list-disc pl-6 mb-4">
@@ -71,7 +71,7 @@ export default function PrivacyPolicy() {
           </li>
         </ul>
 
-        <h3 className="text-xl font-medium text-purple-100 mt-6 mb-2">
+        <h3 className="text-xl font-medium text-neutral-200 mt-6 mb-2">
           c. User-Generated Content
         </h3>
         <p className="mb-4">
@@ -79,7 +79,7 @@ export default function PrivacyPolicy() {
           collected and stored to provide the Service's functionality.
         </p>
 
-        <h2 className="text-2xl font-semibold text-purple-200 mt-8 mb-4">
+        <h2 className="text-2xl font-semibold text-neutral-200 mt-8 mb-4">
           2. How We Use Your Information
         </h2>
         <p className="mb-4">We use your information to:</p>
@@ -100,7 +100,7 @@ export default function PrivacyPolicy() {
           <li>Comply with legal obligations and protect our rights.</li>
         </ul>
 
-        <h2 className="text-2xl font-semibold text-purple-200 mt-8 mb-4">
+        <h2 className="text-2xl font-semibold text-neutral-200 mt-8 mb-4">
           3. How We Share Your Information
         </h2>
         <p className="mb-4">
@@ -128,7 +128,7 @@ export default function PrivacyPolicy() {
           </li>
         </ul>
 
-        <h2 className="text-2xl font-semibold text-purple-200 mt-8 mb-4">
+        <h2 className="text-2xl font-semibold text-neutral-200 mt-8 mb-4">
           4. Data Security
         </h2>
         <p className="mb-4">
@@ -138,7 +138,7 @@ export default function PrivacyPolicy() {
           guarantee absolute security.
         </p>
 
-        <h2 className="text-2xl font-semibold text-purple-200 mt-8 mb-4">
+        <h2 className="text-2xl font-semibold text-neutral-200 mt-8 mb-4">
           5. Your Rights and Choices
         </h2>
         <p className="mb-4">
@@ -168,14 +168,14 @@ export default function PrivacyPolicy() {
           To exercise these rights, contact us at{' '}
           <a
             href="mailto:contact@neuralnexus.site"
-            className="text-purple-300 hover:text-purple-100"
+            className="text-neutral-300 hover:text-neutral-100"
           >
             contact@neuralnexus.site
           </a>
           . We will respond within 30 days, or as required by law.
         </p>
 
-        <h2 className="text-2xl font-semibold text-purple-200 mt-8 mb-4">
+        <h2 className="text-2xl font-semibold text-neutral-200 mt-8 mb-4">
           6. Data Retention
         </h2>
         <p className="mb-4">
@@ -192,7 +192,7 @@ export default function PrivacyPolicy() {
           </li>
         </ul>
 
-        <h2 className="text-2xl font-semibold text-purple-200 mt-8 mb-4">
+        <h2 className="text-2xl font-semibold text-neutral-200 mt-8 mb-4">
           7. Third-Party Links
         </h2>
         <p className="mb-4">
@@ -201,7 +201,7 @@ export default function PrivacyPolicy() {
           policies of those websites.
         </p>
 
-        <h2 className="text-2xl font-semibold text-purple-200 mt-8 mb-4">
+        <h2 className="text-2xl font-semibold text-neutral-200 mt-8 mb-4">
           8. International Data Transfers
         </h2>
         <p className="mb-4">
@@ -211,7 +211,7 @@ export default function PrivacyPolicy() {
           international transfers to comply with regulations like GDPR.
         </p>
 
-        <h2 className="text-2xl font-semibold text-purple-200 mt-8 mb-4">
+        <h2 className="text-2xl font-semibold text-neutral-200 mt-8 mb-4">
           9. Children's Privacy
         </h2>
         <p className="mb-4">
@@ -220,7 +220,7 @@ export default function PrivacyPolicy() {
           collected such data, please contact us to request deletion.
         </p>
 
-        <h2 className="text-2xl font-semibold text-purple-200 mt-8 mb-4">
+        <h2 className="text-2xl font-semibold text-neutral-200 mt-8 mb-4">
           10. Changes to This Privacy Policy
         </h2>
         <p className="mb-4">
@@ -230,7 +230,7 @@ export default function PrivacyPolicy() {
           as of the "Effective Date" listed above.
         </p>
 
-        <h2 className="text-2xl font-semibold text-purple-200 mt-8 mb-4">
+        <h2 className="text-2xl font-semibold text-neutral-200 mt-8 mb-4">
           11. Contact Us
         </h2>
         <p className="mb-4">
@@ -243,7 +243,7 @@ export default function PrivacyPolicy() {
           Email:{' '}
           <a
             href="mailto:contact@neuralnexus.site"
-            className="text-purple-300 hover:text-purple-100"
+            className="text-neutral-300 hover:text-neutral-100"
           >
             contact@neuralnexus.site
           </a>

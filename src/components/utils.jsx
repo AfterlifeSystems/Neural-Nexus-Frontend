@@ -358,3 +358,35 @@ export const forgetCachedAvatar = (avatarId) => {
  */
 export const resolveAssistantId = (avatar) =>
   avatar?.assistant_id ?? avatar?.avatar_id ?? avatar?.metadata?.assistant_id;
+
+/**
+ * Follow an application path, leaving any frame this page is embedded in.
+ *
+ * The shared-avatar screen is embedded as the live demo on the landing page, so
+ * a plain in-application navigation from it — "Create your own avatar", "About
+ * Neural Nexus" — would paint the signup or marketing page inside the demo
+ * panel, a few hundred pixels tall, with the landing page still around it.
+ * Those destinations are whole screens and belong to the whole window.
+ *
+ * When the page is not embedded, nothing here applies and the caller's normal
+ * router navigation should run instead.
+ *
+ * @param {string} applicationPath A root-relative path, e.g. "/signup".
+ * @returns {boolean} True when the top window was sent to the path, so the
+ *   caller should not also navigate; false when this page owns its window, or
+ *   when the embedding page is cross-origin and therefore not ours to move.
+ */
+export const followPathInTopWindow = (applicationPath) => {
+  if (typeof window === 'undefined' || window.top === window.self) return false;
+  try {
+    window.top.location.href = new URL(
+      applicationPath,
+      window.location.origin
+    ).toString();
+    return true;
+  } catch {
+    // A cross-origin embedder. Reading or writing its location throws, and the
+    // navigation stays inside this frame rather than failing outright.
+    return false;
+  }
+};

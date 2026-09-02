@@ -21,8 +21,8 @@ const DockButton = ({
         flex items-center justify-center min-w-[48px] h-12
         ${
           isActive
-            ? 'bg-gradient-to-r from-yellow-500 to-orange-500 text-white shadow-lg scale-105'
-            : 'bg-black/40 border border-white/20 text-white hover:bg-black/60 hover:scale-105 hover:border-white/40'
+            ? 'bg-gradient-to-r from-yellow-500 to-orange-500 text-neutral-200 shadow-lg scale-105'
+            : 'bg-black/40 border border-white/10 text-neutral-200 hover:bg-black/60 hover:scale-105 hover:border-white/40'
         }
         ${disabled ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}
         backdrop-blur-sm
@@ -34,7 +34,7 @@ const DockButton = ({
     {/* Tooltip */}
     <span
       className="absolute -top-12 left-1/2 transform -translate-x-1/2 
-                     bg-black/90 text-white text-xs rounded-lg py-2 px-3 
+                     bg-black/90 text-neutral-200 text-xs rounded-lg py-2 px-3 
                      whitespace-nowrap opacity-0 group-hover:opacity-100 
                      transition-opacity duration-200 pointer-events-none z-30
                      before:content-[''] before:absolute before:top-full 

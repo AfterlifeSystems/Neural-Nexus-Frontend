@@ -6,7 +6,7 @@ import { User } from 'lucide-react';
 import MessageList from './MessageList';
 import InputBar from './InputBar';
 import { useAuth } from '../context/AuthContext';
-import { useMedia } from '../context/MediaContext';
+import { useMedia, NEW_CONVERSATION_ID } from '../context/MediaContext';
 import AvatarSettings from './AvatarSettings';
 import LiveVoiceMode from './LiveVoiceMode';
 import {
@@ -34,6 +34,7 @@ const ChatArea = ({
     getConversationList,
     getActiveConversationMessages,
     setActiveConversation,
+    setMessages,
     resetConversationState,
   } = useMedia(); // messages is now a simple array
 
@@ -210,13 +211,26 @@ const ChatArea = ({
         const threads = await getConversationList(user, activeAvatar);
         if (!isCurrentLoad()) return;
 
-        // Open the newest thread. A brand-new avatar has none, and that must
-        // resolve to "no conversation yet" rather than falling back to anything
-        // remembered from a previous avatar.
-        const newestThreadId = threads?.[0]?.thread_id ?? null;
-        setActiveConversation(newestThreadId);
+        // Open the thread named in the URL when the sidebar sent someone here
+        // from another screen (`?thread=<id>`, or `?thread=new` for a fresh
+        // conversation). Otherwise open the newest thread. A brand-new avatar
+        // has none, and that must resolve to "no conversation yet" rather than
+        // falling back to anything remembered from a previous avatar.
+        const requestedThreadId = searchParams.get('thread');
+        if (requestedThreadId === 'new') {
+          setActiveConversation(NEW_CONVERSATION_ID);
+          setMessages([]);
+          return;
+        }
+        const requestedThreadExists = (threads ?? []).some(
+          (thread) => thread.thread_id === requestedThreadId
+        );
+        const threadIdToOpen = requestedThreadExists
+          ? requestedThreadId
+          : (threads?.[0]?.thread_id ?? null);
+        setActiveConversation(threadIdToOpen);
 
-        await getActiveConversationMessages(user, activeAvatar, newestThreadId);
+        await getActiveConversationMessages(user, activeAvatar, threadIdToOpen);
         if (!isCurrentLoad()) return;
       } catch (error) {
         if (!isCurrentLoad()) return;
@@ -249,14 +263,17 @@ const ChatArea = ({
       />
     )}
     <div
-      className={`flex flex-row flex-grow w-full h-full bg-white/5 backdrop-blur-lg rounded-2xl border border-white/20 overflow-hidden relative ${className}`}
+      className={`flex flex-row flex-grow w-full h-full bg-black/60 backdrop-blur-lg rounded-2xl border border-white/10 overflow-hidden relative ${className}`}
     >
       {/* Main Chat Section */}
       <div className="flex flex-col flex-grow p-2 sm:p-4 relative z-10">
         {/* Tabs */}
-        <div className="flex justify-center items-center mb-2 border-b border-white/20 gap-4">
+        {/* On a phone the three tabs plus the avatar's name do not fit in one
+            row, so the row scrolls sideways and the labels drop their
+            prefixes rather than wrapping the name over four lines. */}
+        <div className="flex items-center shrink-0 mb-2 border-b border-white/10 gap-1 sm:gap-4 sm:justify-center overflow-x-auto overflow-y-hidden scrollbar-none">
           {/* The avatar's face, or a placeholder standing in for one. */}
-          <div className="w-9 h-9 shrink-0 rounded-full bg-white/10 border border-white/20 flex items-center justify-center overflow-hidden">
+          <div className="w-9 h-9 shrink-0 rounded-full bg-black/50 border border-white/10 flex items-center justify-center overflow-hidden">
             {avatarPortrait && isValidImageUrl(avatarPortrait) ? (
               <img
                 src={avatarPortrait}
@@ -269,38 +286,40 @@ const ChatArea = ({
             )}
           </div>
           <button
-            className={`px-4 py-2 ${
+            className={`px-3 sm:px-4 py-2 whitespace-nowrap text-sm sm:text-base ${
               activeTab === 'chat'
-                ? 'border-b-2 border-white font-semibold'
+                ? 'border-b-2 border-amber-400 font-semibold'
                 : ''
-            } text-white`}
+            } text-neutral-200`}
             onClick={() => handleTabChange('chat')}
           >
-            {activeAvatar?.name
-              ? `A.I. ${activeAvatar.name} Chat`
-              : 'A.I. Chat'}
+            <span className="hidden sm:inline">
+              {activeAvatar?.name ? `A.I. ${activeAvatar.name} ` : 'A.I. '}
+            </span>
+            Chat
           </button>
           {canOpenAvatarSettings && (
             <button
-              className={`px-4 py-2 ${
+              className={`px-3 sm:px-4 py-2 whitespace-nowrap text-sm sm:text-base ${
                 activeTab === 'avatar-settings'
-                  ? 'border-b-2 border-white font-semibold'
+                  ? 'border-b-2 border-amber-400 font-semibold'
                   : ''
-              } text-white`}
+              } text-neutral-200`}
               onClick={() => handleTabChange('avatar-settings')}
             >
-              Avatar Settings
+              <span className="hidden sm:inline">Avatar </span>Settings
             </button>
           )}
           <button
-            className={`px-4 py-2 ${
+            className={`px-3 sm:px-4 py-2 whitespace-nowrap text-sm sm:text-base ${
               activeTab === 'avatar-selection'
-                ? 'border-b-2 border-white font-semibold'
+                ? 'border-b-2 border-amber-400 font-semibold'
                 : ''
-            } text-white`}
+            } text-neutral-200`}
             onClick={() => navigate('/avatars')}
           >
-            Avatar Selection
+            <span className="hidden sm:inline">Avatar Selection</span>
+            <span className="sm:hidden">Avatars</span>
           </button>
         </div>
 

@@ -5,7 +5,7 @@ import qrCode from '../../assets/qr-neuralnexus.png';
 // The QR encodes https://bit.ly/4wfBJZn?r=qr, which redirects to the site root.
 // It is deliberately not a link: on the page it already points at, a click would
 // only reload. It exists to be scanned off a screen by someone else's phone, so
-// the plaque stays white and keeps the code's quiet zone intact — a teal-tinted
+// the plaque stays white and keeps the code's quiet zone intact — a gray-tinted
 // or tightly cropped QR is measurably slower for a camera to lock onto.
 //
 // Sits beside the headline on lg and up, so it costs the hero no vertical space
@@ -13,7 +13,7 @@ import qrCode from '../../assets/qr-neuralnexus.png';
 export default function ScanToStart({ className = '' }) {
   return (
     <div
-      className={`inline-flex w-max flex-col items-center gap-3 rounded-2xl border border-teal-500/30 bg-black/40 p-4 text-center shadow-xl shadow-teal-500/10 backdrop-blur-md ${className}`}
+      className={`inline-flex w-max flex-col items-center gap-3 rounded-2xl border border-neutral-700 bg-black/40 p-4 text-center shadow-xl shadow-neutral-500/10 backdrop-blur-md ${className}`}
     >
       <div className="rounded-xl bg-white p-2">
         <img
@@ -26,10 +26,10 @@ export default function ScanToStart({ className = '' }) {
       </div>
 
       <div>
-        <p className="font-semibold leading-snug text-white">
+        <p className="font-semibold leading-snug text-neutral-200">
           Scan to open on your phone
         </p>
-        <p className="mt-1 text-sm text-teal-300/80">No signup required</p>
+        <p className="mt-1 text-sm text-neutral-400/80">No signup required</p>
       </div>
     </div>
   );

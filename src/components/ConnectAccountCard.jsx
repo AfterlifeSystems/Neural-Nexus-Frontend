@@ -108,12 +108,12 @@ const ConnectAccountCard = ({
 
   return (
     <div
-      className={`${className} bg-white/5 backdrop-blur-lg rounded-2xl border border-white/20 p-4`}
+      className={`${className} bg-black/60 backdrop-blur-lg rounded-2xl border border-white/10 p-4`}
     >
       <div className="flex items-center gap-3">
         <ConnectorIcon iconKey={iconKey} />
         <div className="min-w-0 flex-grow">
-          <p className="text-white font-medium truncate">
+          <p className="text-neutral-200 font-medium truncate">
             {displayName ?? provider}
           </p>
           {cardDescription && (
@@ -136,7 +136,7 @@ const ConnectAccountCard = ({
             <button
               type="button"
               onClick={() => setStage('signing_in')}
-              className="shrink-0 px-4 py-2 rounded-lg bg-teal-500/20 hover:bg-teal-500/30 border border-teal-500/30 text-teal-300 text-sm font-medium transition-colors"
+              className="shrink-0 px-4 py-2 rounded-lg bg-neutral-100/10 hover:bg-neutral-100/15 border border-neutral-700 text-neutral-300 text-sm font-medium transition-colors"
             >
               Add {displayName ?? provider}
             </button>
@@ -184,7 +184,7 @@ const ConnectAccountCard = ({
                 onChange={(changeEvent) =>
                   setFieldValue(field.name, changeEvent.target.value)
                 }
-                className="w-full px-4 py-2.5 bg-white/10 border border-white/20 rounded-lg text-white placeholder-white/40 focus:outline-none focus:ring-2 focus:ring-teal-400"
+                className="w-full px-4 py-2.5 bg-black/50 border border-white/10 rounded-lg text-neutral-200 placeholder-white/40 focus:outline-none focus:ring-2 focus:ring-amber-400/50"
               />
               {field.help_text && (
                 <p className="mt-1 text-white/50 text-xs">{field.help_text}</p>
@@ -197,7 +197,7 @@ const ConnectAccountCard = ({
               href={credentialHelpUrl}
               target="_blank"
               rel="noopener noreferrer"
-              className="inline-flex items-center gap-1 text-teal-300 hover:text-teal-200 text-xs underline"
+              className="inline-flex items-center gap-1 text-neutral-300 hover:text-neutral-100 text-xs underline"
             >
               Generate an app password
               <ExternalLink className="w-3 h-3" aria-hidden="true" />
@@ -217,7 +217,7 @@ const ConnectAccountCard = ({
             <button
               type="submit"
               disabled={isSubmitting || !everyFieldFilled}
-              className="px-4 py-2 rounded-lg bg-teal-500/20 hover:bg-teal-500/30 disabled:opacity-40 disabled:hover:bg-teal-500/20 border border-teal-500/30 text-teal-300 text-sm font-medium transition-colors inline-flex items-center gap-2"
+              className="px-4 py-2 rounded-lg bg-neutral-100/10 hover:bg-neutral-100/15 disabled:opacity-40 disabled:hover:bg-neutral-100/10 border border-neutral-700 text-neutral-300 text-sm font-medium transition-colors inline-flex items-center gap-2"
             >
               {isSubmitting && (
                 <Loader2 className="w-4 h-4 animate-spin" aria-hidden="true" />
@@ -239,7 +239,7 @@ const ConnectAccountCard = ({
       {stage === 'connected' && connectedAddress && (
         <p className="mt-3 text-white/60 text-sm">
           Signed in as{' '}
-          <span className="text-white">{connectedAddress}</span>. Drafts are
+          <span className="text-neutral-200">{connectedAddress}</span>. Drafts are
           saved to the mailbox; nothing is ever sent.
         </p>
       )}

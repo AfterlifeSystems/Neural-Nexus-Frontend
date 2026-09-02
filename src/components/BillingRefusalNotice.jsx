@@ -75,16 +75,16 @@ const BillingRefusalNotice = ({ message }) => {
           navigate(billingPath);
         }
       }}
-      className="group self-stretch w-full my-2 flex items-start gap-3 p-3 rounded-xl cursor-pointer bg-white/5 border border-teal-400/30 hover:bg-white/10 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-teal-400"
+      className="group self-stretch w-full my-2 flex items-start gap-3 p-3 rounded-xl cursor-pointer bg-black/60 border border-neutral-400/30 hover:bg-white/10 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-neutral-400"
     >
-      <CreditCard className="w-5 h-5 shrink-0 mt-0.5 text-teal-300" />
+      <CreditCard className="w-5 h-5 shrink-0 mt-0.5 text-neutral-300" />
       <div className="min-w-0">
         <p className="text-sm text-white/90 whitespace-pre-wrap">
           {message.content}
         </p>
         <p className="mt-1 text-sm text-white/60">
           Open{' '}
-          <span className="font-semibold text-teal-300 underline underline-offset-2 group-hover:text-teal-200">
+          <span className="font-semibold text-neutral-300 underline underline-offset-2 group-hover:text-neutral-100">
             Billing
           </span>{' '}
           {reasonToOpenBilling}.

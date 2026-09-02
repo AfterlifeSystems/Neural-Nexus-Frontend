@@ -33,7 +33,7 @@ export default function Contact() {
   };
 
   return (
-    <section id="contact" className="py-16 bg-gray-100 text-gray-800">
+    <section id="contact" className="py-16 bg-neutral-100 text-neutral-800">
       <div className="container mx-auto">
         <h2 className="text-3xl font-bold text-center mb-8">Contact Us</h2>
         <div className="max-w-md mx-auto">
@@ -43,25 +43,25 @@ export default function Contact() {
               placeholder="Name"
               value={name}
               onChange={(e) => setName(e.target.value)}
-              className="w-full p-2 mb-4 border focus:border-purple-900 focus:ring-4 focus:ring-purple-400 focus:outline-none rounded transition-all"
+              className="w-full p-2 mb-4 border focus:border-neutral-900 focus:ring-2 focus:ring-amber-400/50 focus:outline-none rounded transition-all"
             />
             <input
               type="email"
               placeholder="Email"
               value={senderEmail}
               onChange={(e) => setSenderEmail(e.target.value)}
-              className="w-full p-2 mb-4 border focus:border-purple-900 focus:ring-4 focus:ring-purple-400 focus:outline-none rounded transition-all"
+              className="w-full p-2 mb-4 border focus:border-neutral-900 focus:ring-2 focus:ring-amber-400/50 focus:outline-none rounded transition-all"
             />
             <textarea
               placeholder="Message"
               value={message}
               onChange={(e) => setMessage(e.target.value)}
-              className="w-full p-2 mb-4 border focus:border-purple-900 focus:ring-4 focus:ring-purple-400 focus:outline-none rounded transition-all"
+              className="w-full p-2 mb-4 border focus:border-neutral-900 focus:ring-2 focus:ring-amber-400/50 focus:outline-none rounded transition-all"
             ></textarea>
             <button
               type="button"
               onClick={handleSend}
-              className="bg-purple-900 text-white px-6 py-2 rounded-full w-full"
+              className="bg-black text-neutral-200 px-6 py-2 rounded-full w-full"
             >
               Send
             </button>
@@ -69,19 +69,19 @@ export default function Contact() {
           <div className="flex justify-center mt-4">
             {/* <a
               href="https://x.com/neuralnexus"
-              className="mx-2 text-purple-900 hover:text-purple-500 transition"
+              className="mx-2 text-neutral-900 hover:text-neutral-500 transition"
             >
               <FaXTwitter />
             </a> */}
             {/* <a
               href="https://linkedin.com/company/neuralnexus"
-              className="mx-2 text-purple-900 hover:text-purple-500 transition"
+              className="mx-2 text-neutral-900 hover:text-neutral-500 transition"
             >
               <FaLinkedin />
             </a> */}
             <a
               href="https://github.com/sponsors/efwoods"
-              className="mx-2 text-purple-900 hover:text-purple-500 transition"
+              className="mx-2 text-neutral-900 hover:text-neutral-500 transition"
             >
               <FaGithub />
             </a>

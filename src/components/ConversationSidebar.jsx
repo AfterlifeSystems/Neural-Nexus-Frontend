@@ -14,7 +14,9 @@ import { useLocation, useNavigate } from 'react-router-dom';
 import { NEW_CONVERSATION_ID } from '../context/MediaContext';
 import { useAuth } from '../context/AuthContext';
 import { isValidImageUrl } from './utils';
-import AccountMenu from './AccountMenu';
+import AccountMenu, {
+  usePersonalAvatarSettingsNavigation,
+} from './AccountMenu';
 import qrCode from '../assets/qr-neuralnexus.png';
 
 /**
@@ -77,6 +79,10 @@ const ConversationSidebar = ({
     onClose?.();
     navigate('/welcome');
   };
+  // The signed-in person's portrait and email lead to the settings of the
+  // avatar that depicts them — the same place the account menu's entry goes.
+  const openPersonalAvatarSettings =
+    usePersonalAvatarSettingsNavigation(onClose);
 
   // The unsent conversation is not in the server's list, so it is prepended
   // here — otherwise starting one would empty the panel's selection.
@@ -103,10 +109,17 @@ const ConversationSidebar = ({
           rather than a floating button — a place rather than something to hunt
           for. It carries one control: the one that opens it. */}
       {!isOpen && (
-        <div className="fixed top-0 left-0 h-full w-14 z-40 bg-white/5 backdrop-blur-lg border-r border-white/20 flex flex-col items-center py-4">
+        <div
+          onClick={onOpen}
+          title="Open the sidebar"
+          className="fixed top-0 left-0 h-full w-14 z-40 bg-black/60 backdrop-blur-lg border-r border-white/10 flex flex-col items-center py-4 cursor-pointer hover:bg-black/70 transition-colors"
+        >
           <button
-            onClick={onOpen}
-            className="p-2 rounded-lg text-white/70 hover:text-white hover:bg-white/10 transition-colors"
+            onClick={(clickEvent) => {
+              clickEvent.stopPropagation();
+              onOpen();
+            }}
+            className="p-2 rounded-lg text-white/70 hover:text-neutral-100 hover:bg-white/10 transition-colors"
             aria-label="Show conversations"
             title="Open the sidebar"
           >
@@ -118,8 +131,11 @@ const ConversationSidebar = ({
               edge nothing else occupies. It used to float over the page here,
               where on a narrow window it covered the composer's send button. */}
           <button
-            onClick={openWelcomePage}
-            className="mt-auto shrink-0 p-1 rounded-lg opacity-70 hover:opacity-100 hover:bg-white/10 transition-all duration-300 focus:outline-none focus:ring-2 focus:ring-teal-400 focus:opacity-100"
+            onClick={(clickEvent) => {
+              clickEvent.stopPropagation();
+              openWelcomePage();
+            }}
+            className="mt-auto shrink-0 p-0! border-0! rounded-md! opacity-70 hover:opacity-100 hover:ring-2 hover:ring-white/40 transition-[opacity,box-shadow] duration-300 focus:outline-none focus:ring-2 focus:ring-amber-400/50 focus:opacity-100"
             aria-label="Neural Nexus — scan or open the welcome page"
             title="Scan to share Neural Nexus, or press to open the welcome page"
           >
@@ -142,8 +158,8 @@ const ConversationSidebar = ({
           w-80 sm:w-96 lg:w-80
           h-full
           z-50
-          bg-white/5 backdrop-blur-lg
-          border-r border-white/20 lg:rounded-2xl lg:border
+          bg-black/60 backdrop-blur-lg
+          border-r border-white/10 lg:rounded-2xl lg:border
           transition-transform duration-300 ease-in-out
           ${isOpen ? 'translate-x-0' : '-translate-x-full'}
           shadow-lg
@@ -153,8 +169,14 @@ const ConversationSidebar = ({
           {/* Who is signed in. The portrait is the personal avatar's, the same
               face that appears beside this person's messages. */}
           <div className="flex justify-between items-center gap-2">
-            <div className="flex items-center gap-2 min-w-0">
-              <div className="w-9 h-9 shrink-0 rounded-full bg-white/10 border border-white/20 overflow-hidden flex items-center justify-center">
+            <button
+              type="button"
+              onClick={openPersonalAvatarSettings}
+              title="Open your avatar's settings"
+              aria-label="Open your avatar's settings"
+              className="flex items-center gap-2 min-w-0 -ml-1 pl-1 pr-2 py-1 rounded-lg text-left hover:bg-white/10 transition-colors focus:outline-none focus:ring-2 focus:ring-white/20"
+            >
+              <div className="w-9 h-9 shrink-0 rounded-full bg-black/50 border border-white/10 overflow-hidden flex items-center justify-center">
                 {userPortrait && isValidImageUrl(userPortrait) ? (
                   <img
                     src={userPortrait}
@@ -165,13 +187,13 @@ const ConversationSidebar = ({
                   <User className="w-4 h-4 text-white/40" />
                 )}
               </div>
-              <span className="text-white font-semibold truncate">
+              <span className="text-neutral-200 font-semibold truncate">
                 {user?.email ?? 'Signed in'}
               </span>
-            </div>
+            </button>
             <button
               onClick={onClose}
-              className="text-gray-300 hover:text-white p-2 rounded-lg hover:bg-white/10 transition-colors focus:outline-none focus:ring-2 focus:ring-white/20 shrink-0"
+              className="text-neutral-300 hover:text-neutral-100 p-2 rounded-lg hover:bg-white/10 transition-colors focus:outline-none focus:ring-2 focus:ring-white/20 shrink-0"
               aria-label="Close sidebar"
             >
               <X className="w-5 h-5" />
@@ -196,41 +218,41 @@ const ConversationSidebar = ({
 
               <button
                 onClick={onStartNewConversation}
-                className="px-4 py-2 rounded-lg border border-white/20 bg-black/35 hover:bg-teal-600 text-white font-semibold flex items-center justify-center gap-2 transition-colors focus:outline-none focus:ring-2 focus:ring-teal-400"
+                className="px-4 py-2 rounded-lg border border-white/10 bg-black/60 hover:bg-neutral-900 text-neutral-200 font-semibold flex items-center justify-center gap-2 transition-colors focus:outline-none focus:ring-2 focus:ring-amber-400/50"
               >
                 <MessageSquarePlus className="w-5 h-5" />
                 New conversation
               </button>
 
               <div className="flex-grow overflow-y-auto -mx-1 px-1">
-            {listedConversations.length === 0 ? (
-              <p className="text-white/50 text-sm px-2 py-4">
-                No conversations yet. Send a message to start one.
-              </p>
-            ) : (
-              <ul className="space-y-1">
-                {listedConversations.map((conversation) => {
-                  const threadId = conversation.thread_id;
-                  const isActive = threadId === activeConversationId;
-                  return (
-                    <li key={threadId}>
-                      <button
-                        onClick={() => onSelectConversation(threadId)}
-                        aria-current={isActive ? 'true' : undefined}
-                        className={`w-full text-left px-3 py-2 rounded-lg transition-colors truncate ${
-                          isActive
-                            ? 'bg-teal-600/30 text-white border border-teal-400/40'
-                            : 'text-white/70 hover:bg-white/10 hover:text-white border border-transparent'
-                        }`}
-                        title={describeConversation(conversation)}
-                      >
-                        {describeConversation(conversation)}
-                      </button>
-                    </li>
-                  );
-                })}
-              </ul>
-            )}
+                {listedConversations.length === 0 ? (
+                  <p className="text-white/50 text-sm px-2 py-4">
+                    No conversations yet. Send a message to start one.
+                  </p>
+                ) : (
+                  <ul className="space-y-1">
+                    {listedConversations.map((conversation) => {
+                      const threadId = conversation.thread_id;
+                      const isActive = threadId === activeConversationId;
+                      return (
+                        <li key={threadId}>
+                          <button
+                            onClick={() => onSelectConversation(threadId)}
+                            aria-current={isActive ? 'true' : undefined}
+                            className={`w-full text-left px-3 py-2 rounded-lg transition-colors truncate ${
+                              isActive
+                                ? 'bg-neutral-700/40 text-neutral-200 border border-neutral-400/40'
+                                : 'text-white/70 hover:bg-white/10 hover:text-neutral-100 border border-transparent'
+                            }`}
+                            title={describeConversation(conversation)}
+                          >
+                            {describeConversation(conversation)}
+                          </button>
+                        </li>
+                      );
+                    })}
+                  </ul>
+                )}
               </div>
             </>
           )}
@@ -242,7 +264,7 @@ const ConversationSidebar = ({
           <div className="mt-auto shrink-0 pt-4 border-t border-white/10 flex flex-col items-center gap-2">
             <button
               onClick={openWelcomePage}
-              className="rounded-xl p-2 bg-white/5 border border-white/10 hover:border-teal-400/40 hover:bg-white/10 transition-colors focus:outline-none focus:ring-2 focus:ring-teal-400"
+              className="p-0! border-0! rounded-lg! overflow-hidden ring-1 ring-white/10 hover:ring-2 hover:ring-neutral-300/60 transition-shadow focus:outline-none focus:ring-2 focus:ring-amber-400/50"
               aria-label="Neural Nexus — scan or open the welcome page"
               title="Scan to share Neural Nexus, or press to open the welcome page"
             >

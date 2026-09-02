@@ -8,9 +8,9 @@ const defaultIcons = {
 
 const UserSettingsComponent = ({ onCardClick }) => {
   return (
-    <div className="bg-white/5 backdrop-blur-lg rounded-2xl border border-white/20 p-16 text-center cursor-pointer hover:bg-white/10 transition-all duration-300">
+    <div className="bg-black/60 backdrop-blur-lg rounded-2xl border border-white/10 p-16 text-center cursor-pointer hover:bg-white/10 transition-all duration-300">
       <div className="flex justify-center mb-8">
-        <div className="w-32 h-32 bg-white/20 rounded-full flex items-center justify-center">
+        <div className="w-32 h-32 bg-white/10 rounded-full flex items-center justify-center">
           <img
             src={defaultIcons.userCog}
             alt="User Settings Icon"
@@ -18,7 +18,7 @@ const UserSettingsComponent = ({ onCardClick }) => {
           />
         </div>
       </div>
-      <h2 className="text-5xl font-bold text-white mb-6">User Settings</h2>
+      <h2 className="text-5xl font-bold text-neutral-200 mb-6">User Settings</h2>
       <p className="text-white/80 mb-10 text-xl">
         Manage your account and preferences
       </p>

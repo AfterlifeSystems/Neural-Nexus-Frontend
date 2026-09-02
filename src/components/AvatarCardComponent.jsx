@@ -14,11 +14,11 @@ import { isValidImageUrl } from './utils'; // Utility function moved to a shared
 const AvatarCardComponent = ({ avatar, iconSource, onCardClick }) => {
   return (
     <div
-      className="bg-white/5 backdrop-blur-lg rounded-2xl border border-white/20 p-16 text-center cursor-pointer hover:bg-white/10 transition-all duration-300"
+      className="bg-black/60 backdrop-blur-lg rounded-2xl border border-white/10 p-16 text-center cursor-pointer hover:bg-white/10 transition-all duration-300"
       onClick={() => onCardClick(avatar)}
     >
       <div className="flex justify-center mb-8">
-        <div className="w-32 h-32 bg-white/20 rounded-full flex items-center justify-center border-2 border-white/20 hover:border-white/40 transition-all duration-300">
+        <div className="w-32 h-32 bg-white/10 rounded-full flex items-center justify-center border-2 border-white/10 hover:border-white/40 transition-all duration-300">
           {iconSource && isValidImageUrl(iconSource) ? (
             <img
               src={iconSource}
@@ -30,7 +30,7 @@ const AvatarCardComponent = ({ avatar, iconSource, onCardClick }) => {
               }}
             />
           ) : (
-            <User className="w-16 h-16 text-gray-400 opacity-20" />
+            <User className="w-16 h-16 text-neutral-400 opacity-20" />
           )}
         </div>
       </div>

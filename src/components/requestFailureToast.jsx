@@ -87,7 +87,7 @@ export function showRequestFailureToast(requestError, options = {}) {
           billingToast.visible
             ? 'opacity-100 translate-y-0'
             : 'opacity-0 -translate-y-2'
-        } transition-all duration-200 max-w-md w-full flex pointer-events-auto rounded-lg shadow-lg backdrop-blur-lg bg-[rgba(30,30,40,0.95)] ring-1 ring-white/15`}
+        } transition-all duration-200 max-w-md w-full flex pointer-events-auto rounded-lg shadow-lg backdrop-blur-lg bg-[rgba(0,0,0,0.92)] ring-1 ring-white/15`}
       >
         {/* The text is the control. Pressing anywhere in it opens billing, and
             the word Billing is underlined inside the sentence so that is
@@ -104,15 +104,15 @@ export function showRequestFailureToast(requestError, options = {}) {
               openBilling(billingToast.id);
             }
           }}
-          className="group flex-1 w-0 p-4 text-left cursor-pointer rounded-l-lg focus:outline-none focus-visible:ring-2 focus-visible:ring-teal-400"
+          className="group flex-1 w-0 p-4 text-left cursor-pointer rounded-l-lg focus:outline-none focus-visible:ring-2 focus-visible:ring-neutral-400"
         >
           <div className="flex items-start gap-3">
-            <CreditCard className="w-5 h-5 shrink-0 mt-0.5 text-teal-300" />
+            <CreditCard className="w-5 h-5 shrink-0 mt-0.5 text-neutral-300" />
             <div className="min-w-0">
-              <p className="text-sm text-white">{description}</p>
+              <p className="text-sm text-neutral-200">{description}</p>
               <p className="mt-1 text-sm text-white/60">
                 Open{' '}
-                <span className="font-semibold text-teal-300 underline underline-offset-2 group-hover:text-teal-200">
+                <span className="font-semibold text-neutral-300 underline underline-offset-2 group-hover:text-neutral-100">
                   Billing
                 </span>{' '}
                 {reasonToOpenBilling}.
@@ -123,10 +123,10 @@ export function showRequestFailureToast(requestError, options = {}) {
 
         {/* Closing is its own pane, divided from the text, so dismissing the
             refusal and acting on it cannot be the same press. */}
-        <div className="flex border-l border-white/15">
+        <div className="flex border-l border-white/10">
           <button
             onClick={() => toast.dismiss(billingToast.id)}
-            className="w-full border border-transparent rounded-none rounded-r-lg p-4 flex items-center justify-center text-sm font-medium text-white/70 hover:text-white focus:outline-none focus:ring-2 focus:ring-teal-400 transition-colors"
+            className="w-full border border-transparent rounded-none rounded-r-lg p-4 flex items-center justify-center text-sm font-medium text-white/70 hover:text-neutral-100 focus:outline-none focus:ring-2 focus:ring-amber-400/50 transition-colors"
           >
             Close
           </button>

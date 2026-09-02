@@ -43,6 +43,7 @@ import { NEW_CONVERSATION_ID } from '../context/MediaContext';
 import { AccountMenuItem } from './AccountMenu';
 import { describeConversation } from './ConversationSidebar';
 import qrCode from '../assets/qr-neuralnexus.png';
+import { followPathInTopWindow } from './utils';
 
 /**
  * @param {Object} props
@@ -83,6 +84,11 @@ const AnonymousSidebar = ({
 
   const goTo = (path) => {
     onClose?.();
+    // Every destination in this panel is a whole screen, and this panel also
+    // rides along inside the landing page's embedded demo, so a destination
+    // opened from there takes the whole window rather than painting itself
+    // into the demo panel.
+    if (followPathInTopWindow(path)) return;
     navigate(path);
   };
 
@@ -104,18 +110,28 @@ const AnonymousSidebar = ({
       )}
 
       {!isOpen && (
-        <div className="fixed top-0 left-0 h-full w-14 z-40 bg-white/5 backdrop-blur-lg border-r border-white/20 flex flex-col items-center py-4">
+        <div
+          onClick={onOpen}
+          title="Open the sidebar"
+          className="fixed top-0 left-0 h-full w-14 z-40 bg-black/60 backdrop-blur-lg border-r border-white/10 flex flex-col items-center py-4 cursor-pointer hover:bg-black/70 transition-colors"
+        >
           <button
-            onClick={onOpen}
-            className="p-2 rounded-lg text-white/70 hover:text-white hover:bg-white/10 transition-colors"
+            onClick={(clickEvent) => {
+              clickEvent.stopPropagation();
+              onOpen();
+            }}
+            className="p-2 rounded-lg text-white/70 hover:text-neutral-100 hover:bg-white/10 transition-colors"
             aria-label="Open the sidebar"
             title="Open the sidebar"
           >
             <PanelLeftOpen className="w-5 h-5" />
           </button>
           <button
-            onClick={() => goTo('/welcome')}
-            className="mt-auto shrink-0 p-1 rounded-lg opacity-70 hover:opacity-100 hover:bg-white/10 transition-all duration-300 focus:outline-none focus:ring-2 focus:ring-teal-400 focus:opacity-100"
+            onClick={(clickEvent) => {
+              clickEvent.stopPropagation();
+              goTo('/welcome');
+            }}
+            className="mt-auto shrink-0 p-0! border-0! rounded-md! opacity-70 hover:opacity-100 hover:ring-2 hover:ring-white/40 transition-[opacity,box-shadow] duration-300 focus:outline-none focus:ring-2 focus:ring-amber-400/50 focus:opacity-100"
             aria-label="Neural Nexus — scan or open the welcome page"
             title="Scan to share Neural Nexus, or press to open the welcome page"
           >
@@ -138,17 +154,17 @@ const AnonymousSidebar = ({
           w-80 sm:w-96 lg:w-80
           h-full
           z-50
-          bg-white/5 backdrop-blur-lg
-          border-r border-white/20 lg:rounded-2xl lg:border
+          bg-black/60 backdrop-blur-lg
+          border-r border-white/10 lg:rounded-2xl lg:border
           transition-transform duration-300 ease-in-out
           ${isOpen ? 'translate-x-0' : '-translate-x-full'}
           shadow-lg
         `}
       >
         <div className="flex flex-col h-full p-4 gap-4">
-          <div className="flex justify-between items-center gap-2">
+          <div className="shrink-0 flex justify-between items-center gap-2">
             <div className="flex items-center gap-2 min-w-0">
-              <div className="w-9 h-9 shrink-0 rounded-full bg-white/10 border border-white/20 flex items-center justify-center">
+              <div className="w-9 h-9 shrink-0 rounded-full bg-black/50 border border-white/10 flex items-center justify-center">
                 <User className="w-4 h-4 text-white/40" />
               </div>
               {/* The identity named here is the identity the API is being
@@ -159,7 +175,7 @@ const AnonymousSidebar = ({
                   previewing their own link should be able to tell they have not
                   been signed out — but as the aside it is. */}
               <div className="min-w-0">
-                <span className="block text-white font-semibold truncate">
+                <span className="block text-neutral-200 font-semibold truncate">
                   Anonymous visitor
                 </span>
                 {user?.email && (
@@ -171,148 +187,166 @@ const AnonymousSidebar = ({
             </div>
             <button
               onClick={onClose}
-              className="text-gray-300 hover:text-white p-2 rounded-lg hover:bg-white/10 transition-colors focus:outline-none focus:ring-2 focus:ring-white/20 shrink-0"
+              className="text-neutral-300 hover:text-neutral-100 p-2 rounded-lg hover:bg-white/10 transition-colors focus:outline-none focus:ring-2 focus:ring-white/20 shrink-0"
               aria-label="Close sidebar"
             >
               <X className="w-5 h-5" />
             </button>
           </div>
 
-          <div className="space-y-1 border-b border-white/10 pb-4">
-            {user ? (
+          {/* Everything below the header scrolls as one column. The panel is
+              `h-full`, and "full" is short in the places this sidebar actually
+              opens: the landing page's embedded demo frames it a few hundred
+              pixels tall, and a laptop in a browser window with chrome is not
+              much taller. Letting only the conversation list scroll — which is
+              what this panel did — left the sign-up card, the log-in link, and
+              the QR code hanging past the bottom edge with no way to reach
+              them. `min-h-0` is what lets this box actually shrink inside the
+              column: a flex item's default `min-height: auto` would hold it at
+              its content height and push the overflow back out of the panel.
+              `overscroll-contain` keeps a scroll that reaches the end of this
+              panel from chaining to the landing page behind the demo frame. */}
+          <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain -mx-1 px-1 flex flex-col gap-4">
+            <div className="space-y-1 border-b border-white/10 pb-4">
+              {user ? (
+                <>
+                  <AccountMenuItem
+                    icon={<Sparkles className="w-4 h-4 shrink-0" />}
+                    label="Open Neural Nexus"
+                    onClick={() => goTo('/avatars')}
+                  />
+                  <AccountMenuItem
+                    icon={<CreditCard className="w-4 h-4 shrink-0" />}
+                    label="Billing"
+                    onClick={() => goTo(billingPath)}
+                  />
+                </>
+              ) : (
+                <>
+                  <AccountMenuItem
+                    icon={<Sparkles className="w-4 h-4 shrink-0" />}
+                    label="Create your own avatar"
+                    onClick={() => goTo('/signup')}
+                  />
+                  <AccountMenuItem
+                    icon={<UserPlus className="w-4 h-4 shrink-0" />}
+                    label="Sign up"
+                    onClick={() => goTo('/signup')}
+                  />
+                  <AccountMenuItem
+                    icon={<CreditCard className="w-4 h-4 shrink-0" />}
+                    label="Billing"
+                    onClick={() => goTo(billingPath)}
+                  />
+                </>
+              )}
+            </div>
+
+            {/* The chats held with this avatar. Same shape as the signed-in
+                sidebar's list, so a visitor who later signs up finds the panel
+                they already know. */}
+            {showConversations && (
               <>
-                <AccountMenuItem
-                  icon={<Sparkles className="w-4 h-4 shrink-0" />}
-                  label="Open Neural Nexus"
-                  onClick={() => goTo('/avatars')}
-                />
-                <AccountMenuItem
-                  icon={<CreditCard className="w-4 h-4 shrink-0" />}
-                  label="Billing"
-                  onClick={() => goTo(billingPath)}
-                />
-              </>
-            ) : (
-              <>
-                <AccountMenuItem
-                  icon={<Sparkles className="w-4 h-4 shrink-0" />}
-                  label="Create your own avatar"
-                  onClick={() => goTo('/signup')}
-                />
-                <AccountMenuItem
-                  icon={<UserPlus className="w-4 h-4 shrink-0" />}
-                  label="Sign up"
-                  onClick={() => goTo('/signup')}
-                />
-                <AccountMenuItem
-                  icon={<CreditCard className="w-4 h-4 shrink-0" />}
-                  label="Billing"
-                  onClick={() => goTo(billingPath)}
-                />
+                <div className="flex items-center justify-between">
+                  <h2 className="text-sm font-semibold text-white/60 uppercase tracking-wide">
+                    {avatarName ? `Chats with ${avatarName}` : 'Conversations'}
+                  </h2>
+                </div>
+
+                <button
+                  onClick={onStartNewConversation}
+                  className="px-4 py-2 rounded-lg border border-white/10 bg-black/60 hover:bg-neutral-900 text-neutral-200 font-semibold flex items-center justify-center gap-2 transition-colors focus:outline-none focus:ring-2 focus:ring-amber-400/50"
+                >
+                  <MessageSquarePlus className="w-5 h-5" />
+                  New conversation
+                </button>
+
+                {/* Sized to its content rather than owning a scroll region of
+                    its own: the column around it is the scroller now, so a long
+                    list lengthens that one scroll instead of trapping the reader
+                    in a nested one. */}
+                <div className="shrink-0">
+                  {listedConversations.length === 0 ? (
+                    <p className="text-white/50 text-sm px-2 py-4">
+                      No conversations yet. Send a message to start one.
+                    </p>
+                  ) : (
+                    <ul className="space-y-1">
+                      {listedConversations.map((conversation) => {
+                        const threadId = conversation.thread_id;
+                        const isActive = threadId === activeConversationId;
+                        return (
+                          <li key={threadId}>
+                            <button
+                              onClick={() => onSelectConversation?.(threadId)}
+                              aria-current={isActive ? 'true' : undefined}
+                              className={`w-full text-left px-3 py-2 rounded-lg transition-colors truncate ${
+                                isActive
+                                  ? 'bg-neutral-700/40 text-neutral-200 border border-neutral-400/40'
+                                  : 'text-white/70 hover:bg-white/10 hover:text-neutral-100 border border-transparent'
+                              }`}
+                              title={describeConversation(conversation)}
+                            >
+                              {describeConversation(conversation)}
+                            </button>
+                          </li>
+                        );
+                      })}
+                    </ul>
+                  )}
+                </div>
               </>
             )}
-          </div>
 
-          {/* The chats held with this avatar. Same shape as the signed-in
-              sidebar's list, so a visitor who later signs up finds the panel
-              they already know. */}
-          {showConversations && (
-            <>
-              <div className="flex items-center justify-between">
-                <h2 className="text-sm font-semibold text-white/60 uppercase tracking-wide">
-                  {avatarName ? `Chats with ${avatarName}` : 'Conversations'}
-                </h2>
+            {!user && (
+              <div className="shrink-0 rounded-xl border border-neutral-400/30 bg-neutral-100/5 p-4">
+                <p className="text-white/80 text-sm">
+                  You are chatting as a guest
+                  {avatarName ? ` with ${avatarName}` : ''}. These chats are kept
+                  against this network connection rather than an account, so they
+                  will not follow you to another device. Sign up to keep them and
+                  to build an avatar of your own.
+                </p>
+                <button
+                  onClick={() => goTo('/signup')}
+                  className="mt-3 w-full px-4 py-2 rounded-lg bg-neutral-100/10 hover:bg-neutral-100/15 border border-neutral-700 text-neutral-200 font-semibold transition-colors focus:outline-none focus:ring-2 focus:ring-amber-400/50"
+                >
+                  Sign up free
+                </button>
+                {/* Where "Log out" sits for a signed-in user. A visitor who
+                    already has an account needs the opposite door, and without it
+                    the only route back to a session is the landing page. */}
+                <button
+                  onClick={() => goTo('/login')}
+                  className="mt-2 w-full px-4 py-2 rounded-lg text-white/70 hover:text-neutral-100 hover:bg-white/10 transition-colors flex items-center justify-center gap-2 text-sm"
+                >
+                  <LogIn className="w-4 h-4 shrink-0" />
+                  Already have an account? Log in
+                </button>
               </div>
+            )}
 
+            <div className="mt-auto shrink-0 pt-4 border-t border-white/10 flex flex-col items-center gap-2">
               <button
-                onClick={onStartNewConversation}
-                className="px-4 py-2 rounded-lg border border-white/20 bg-black/35 hover:bg-teal-600 text-white font-semibold flex items-center justify-center gap-2 transition-colors focus:outline-none focus:ring-2 focus:ring-teal-400"
+                onClick={() => goTo('/welcome')}
+                className="p-0! border-0! rounded-lg! overflow-hidden ring-1 ring-white/10 hover:ring-2 hover:ring-neutral-300/60 transition-shadow focus:outline-none focus:ring-2 focus:ring-amber-400/50"
+                aria-label="Neural Nexus — scan or open the welcome page"
+                title="Scan to share Neural Nexus, or press to open the welcome page"
               >
-                <MessageSquarePlus className="w-5 h-5" />
-                New conversation
+                <span className="flex h-32 w-32 shrink-0 items-center justify-center rounded-lg bg-white p-2">
+                  <img
+                    src={qrCode}
+                    alt="QR code linking to Neural Nexus"
+                    width={112}
+                    height={112}
+                    className="block h-28 w-28 max-w-none shrink-0"
+                  />
+                </span>
               </button>
-
-              <div className="flex-grow overflow-y-auto -mx-1 px-1">
-                {listedConversations.length === 0 ? (
-                  <p className="text-white/50 text-sm px-2 py-4">
-                    No conversations yet. Send a message to start one.
-                  </p>
-                ) : (
-                  <ul className="space-y-1">
-                    {listedConversations.map((conversation) => {
-                      const threadId = conversation.thread_id;
-                      const isActive = threadId === activeConversationId;
-                      return (
-                        <li key={threadId}>
-                          <button
-                            onClick={() => onSelectConversation?.(threadId)}
-                            aria-current={isActive ? 'true' : undefined}
-                            className={`w-full text-left px-3 py-2 rounded-lg transition-colors truncate ${
-                              isActive
-                                ? 'bg-teal-600/30 text-white border border-teal-400/40'
-                                : 'text-white/70 hover:bg-white/10 hover:text-white border border-transparent'
-                            }`}
-                            title={describeConversation(conversation)}
-                          >
-                            {describeConversation(conversation)}
-                          </button>
-                        </li>
-                      );
-                    })}
-                  </ul>
-                )}
-              </div>
-            </>
-          )}
-
-          {!user && (
-            <div className="shrink-0 rounded-xl border border-teal-400/30 bg-teal-500/10 p-4">
-              <p className="text-white/80 text-sm">
-                You are chatting as a guest
-                {avatarName ? ` with ${avatarName}` : ''}. These chats are kept
-                against this network connection rather than an account, so they
-                will not follow you to another device. Sign up to keep them and
-                to build an avatar of your own.
-              </p>
-              <button
-                onClick={() => goTo('/signup')}
-                className="mt-3 w-full px-4 py-2 rounded-lg bg-teal-500/20 hover:bg-teal-500/30 border border-teal-500/30 text-teal-200 font-semibold transition-colors focus:outline-none focus:ring-2 focus:ring-teal-400"
-              >
-                Sign up free
-              </button>
-              {/* Where "Log out" sits for a signed-in user. A visitor who
-                  already has an account needs the opposite door, and without it
-                  the only route back to a session is the landing page. */}
-              <button
-                onClick={() => goTo('/login')}
-                className="mt-2 w-full px-4 py-2 rounded-lg text-white/70 hover:text-white hover:bg-white/10 transition-colors flex items-center justify-center gap-2 text-sm"
-              >
-                <LogIn className="w-4 h-4 shrink-0" />
-                Already have an account? Log in
-              </button>
-            </div>
-          )}
-
-          <div className="mt-auto shrink-0 pt-4 border-t border-white/10 flex flex-col items-center gap-2">
-            <button
-              onClick={() => goTo('/welcome')}
-              className="rounded-xl p-2 bg-white/5 border border-white/10 hover:border-teal-400/40 hover:bg-white/10 transition-colors focus:outline-none focus:ring-2 focus:ring-teal-400"
-              aria-label="Neural Nexus — scan or open the welcome page"
-              title="Scan to share Neural Nexus, or press to open the welcome page"
-            >
-              <span className="flex h-32 w-32 shrink-0 items-center justify-center rounded-lg bg-white p-2">
-                <img
-                  src={qrCode}
-                  alt="QR code linking to Neural Nexus"
-                  width={112}
-                  height={112}
-                  className="block h-28 w-28 max-w-none shrink-0"
-                />
+              <span className="text-xs text-white/40">
+                Scan to share Neural Nexus
               </span>
-            </button>
-            <span className="text-xs text-white/40">
-              Scan to share Neural Nexus
-            </span>
+            </div>
           </div>
         </div>
       </div>

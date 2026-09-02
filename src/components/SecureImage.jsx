@@ -9,7 +9,7 @@
 const SecureImage = ({ mediaUrl, filename }) => {
   if (!mediaUrl) {
     return (
-      <div className="text-xs text-gray-300 italic">
+      <div className="text-xs text-neutral-300 italic">
         {filename ? `${filename} (no preview available)` : 'Image unavailable'}
       </div>
     );
@@ -19,7 +19,7 @@ const SecureImage = ({ mediaUrl, filename }) => {
     <img
       src={mediaUrl}
       alt={filename}
-      className="max-w-full max-h-64 object-contain rounded border border-white"
+      className="max-w-full max-h-64 object-contain rounded border border-neutral-300"
     />
   );
 };

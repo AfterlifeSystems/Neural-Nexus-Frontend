@@ -20,7 +20,7 @@ import BillingRefusalNotice, {
  * case rather than an error state.
  */
 const MessageAuthorIcon = ({ portrait, name }) => (
-  <div className="w-8 h-8 shrink-0 rounded-full bg-white/10 border border-white/20 overflow-hidden flex items-center justify-center">
+  <div className="w-8 h-8 shrink-0 rounded-full bg-black/50 border border-white/10 overflow-hidden flex items-center justify-center">
     {portrait && isValidImageUrl(portrait) ? (
       <img src={portrait} alt={name} className="w-full h-full object-cover" />
     ) : (
@@ -28,6 +28,30 @@ const MessageAuthorIcon = ({ portrait, name }) => (
     )}
   </div>
 );
+
+/**
+ * The scrolling box a descendant actually scrolls inside: the nearest ancestor
+ * whose own overflow is scrollable, or the document itself when no element in
+ * the chain scrolls. Deliberately stops at this document — a parent frame's
+ * scroll position belongs to the page doing the embedding, not to the chat.
+ *
+ * @param {Element} descendantElement The element to scroll into view.
+ * @returns {Element|null} The box to scroll, or null when there is none.
+ */
+const findNearestScrollingAncestor = (descendantElement) => {
+  let candidate = descendantElement.parentElement;
+  while (candidate) {
+    const { overflowY } = window.getComputedStyle(candidate);
+    if (
+      (overflowY === 'auto' || overflowY === 'scroll') &&
+      candidate.scrollHeight > candidate.clientHeight
+    ) {
+      return candidate;
+    }
+    candidate = candidate.parentElement;
+  }
+  return descendantElement.ownerDocument?.scrollingElement ?? null;
+};
 
 const MessageList = ({
   messages,
@@ -49,9 +73,22 @@ const MessageList = ({
   const readerPortrait = readerIsTheAnonymousVisitor ? null : userPortrait;
 
   useEffect(() => {
-    if (messagesEndRef?.current) {
-      messagesEndRef.current.scrollIntoView({ behavior: 'smooth' });
-    }
+    const transcriptEndMarker = messagesEndRef?.current;
+    if (!transcriptEndMarker) return;
+
+    // Scroll the transcript's own scrolling box, not the marker's ancestry.
+    // `scrollIntoView` walks every scrollable ancestor up to and through the
+    // document of a parent frame, so on the landing page — which embeds this
+    // chat as the live demo — it dragged the whole page down to the demo the
+    // moment the frame mounted, past the headline nobody had read yet.
+    const transcriptScrollBox = findNearestScrollingAncestor(
+      transcriptEndMarker
+    );
+    if (!transcriptScrollBox) return;
+    transcriptScrollBox.scrollTo({
+      top: transcriptScrollBox.scrollHeight,
+      behavior: 'smooth',
+    });
   }, [messages, messagesEndRef]);
 
   return (
@@ -94,10 +131,10 @@ const MessageList = ({
                 <div
                   className={`p-2 rounded-lg break-words transition-all duration-150 ${
                     isFromUser
-                      ? 'bg-teal-600 text-white'
+                      ? 'bg-neutral-900 border border-white/10 text-neutral-200'
                       : isFromAvatar
-                        ? 'bg-indigo-700 text-white'
-                        : 'bg-indigo-700 italic text-gray-300'
+                        ? 'bg-black/60 border border-white/10 text-neutral-200'
+                        : 'bg-black/60 border border-white/10 italic text-neutral-400'
                   }`}
                 >
                   {isLoading ? (
@@ -150,7 +187,7 @@ const MessageList = ({
                                 href={media.url}
                                 target="_blank"
                                 rel="noopener noreferrer"
-                                className="underline text-blue-300"
+                                className="underline text-amber-300"
                               >
                                 {media.filename ||
                                   media.name ||
@@ -160,7 +197,7 @@ const MessageList = ({
                           </div>
                         ))}
 
-                      <div className="text-xs text-gray-400 mt-1 text-right select-none">
+                      <div className="text-xs text-neutral-400 mt-1 text-right select-none">
                         {msg.timestamp &&
                           new Date(msg.timestamp).toLocaleTimeString(
                             undefined,
@@ -192,7 +229,7 @@ const MessageList = ({
           stuck. */}
       {assistantActivity && (
         <div className="self-start flex items-center gap-2 px-2 py-1 text-xs text-white/70 italic">
-          <span className="w-1.5 h-1.5 bg-teal-300 rounded-full animate-pulse" />
+          <span className="w-1.5 h-1.5 bg-amber-400 rounded-full animate-pulse" />
           {assistantActivity}…
         </div>
       )}

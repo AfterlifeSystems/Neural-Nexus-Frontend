@@ -1,7 +1,6 @@
 // src/components/Landing/Header.jsx
 import React, { useState, useEffect } from 'react';
 import { ExternalLink } from 'lucide-react';
-import NeuralNexusLogo from '../../assets/NeuralNexus.png';
 import { useNavigate } from 'react-router-dom'; // 1. Add this
 import { useAuth } from '../../context/AuthContext'; // 2. Add this
 
@@ -49,21 +48,21 @@ export default function Header() {
     <header
       className={`fixed top-0 left-0 right-0 z-50 transition-all duration-700 ${
         scrolled
-          ? 'bg-black/80 backdrop-blur-2xl border-b border-teal-500/30 shadow-2xl shadow-teal-500/20'
+          ? 'bg-black/80 backdrop-blur-2xl border-b border-neutral-700 shadow-2xl shadow-white/5'
           : 'bg-black/20 backdrop-blur-sm'
       }`}
     >
       {/* Animated gradient border */}
-      <div className="absolute inset-0 bg-gradient-to-r from-teal-500/10 via-teal-400/20 to-teal-500/10 opacity-0 hover:opacity-100 transition-opacity duration-700"></div>
+      <div className="absolute inset-0 bg-gradient-to-r from-neutral-100/5 via-neutral-100/10 to-neutral-100/5 opacity-0 hover:opacity-100 transition-opacity duration-700"></div>
       <div className="relative max-w-7xl mx-auto px-3 sm:px-6 lg:px-8">
         <div className="flex items-center justify-between h-14 sm:h-16 lg:h-20">
           {/* Logo Section */}
           <div className="flex items-center space-x-2 sm:space-x-3 group cursor-pointer">
             <div className="flex flex-col">
-              <span className="text-lg sm:text-xl lg:text-2xl xl:text-3xl font-black bg-gradient-to-r from-teal-300 via-teal-400 to-teal-500 bg-clip-text text-transparent drop-shadow-sm">
+              <span className="text-lg sm:text-xl lg:text-2xl xl:text-3xl font-black bg-gradient-to-r from-amber-100 via-neutral-200 to-neutral-400 bg-clip-text text-transparent drop-shadow-sm">
                 Neural Nexus
               </span>
-              <span className="text-xs sm:text-sm text-teal-300/70 font-light tracking-[0.2em] hidden sm:block uppercase">
+              <span className="text-xs sm:text-sm text-neutral-300/70 font-light tracking-[0.2em] hidden sm:block uppercase">
                 Authentic Artificial Intelligence
               </span>
             </div>
@@ -75,14 +74,14 @@ export default function Header() {
               <a
                 key={item.name}
                 href={item.href}
-                className="relative px-4 py-2 text-gray-300 hover:text-white transition-all duration-300 group"
+                className="relative px-4 py-2 text-neutral-300 hover:text-neutral-100 transition-all duration-300 group"
                 style={{ animationDelay: `${index * 100}ms` }}
               >
                 <span className="relative z-10 font-medium tracking-under">
                   {item.name}
                 </span>
-                <div className="absolute inset-0 bg-gradient-to-r from-teal-500/20 to-teal-400/20 rounded-lg scale-0 group-hover:scale-100 transition-transform duration-300"></div>
-                <div className="absolute bottom-0 left-0 w-0 h-0.5 bg-gradient-to-r from-teal-500 to-teal-400 group-hover:w-full transition-all duration-300"></div>
+                <div className="absolute inset-0 bg-gradient-to-r from-neutral-100/10 to-neutral-100/10 rounded-lg scale-0 group-hover:scale-100 transition-transform duration-300"></div>
+                <div className="absolute bottom-0 left-0 w-0 h-0.5 bg-gradient-to-r from-neutral-200 to-neutral-200 group-hover:w-full transition-all duration-300"></div>
               </a>
             ))}
           </nav>
@@ -96,19 +95,19 @@ export default function Header() {
               href={EXTERNAL_LINKS.api}
               target="_blank"
               rel="noopener noreferrer"
-              className="px-3 py-2 text-gray-300 hover:text-white border border-white/15 hover:border-teal-400/60 rounded-lg transition-all duration-300 flex items-center gap-1.5"
+              className="px-3 py-2 text-neutral-300 hover:text-neutral-100 border border-white/10 hover:border-neutral-300/60 rounded-lg transition-all duration-300 flex items-center gap-1.5"
             >
               API
               <ExternalLink className="w-3.5 h-3.5" />
             </a>
             <button
               onClick={handleTryNow}
-              className="relative px-3 py-2 bg-gradient-to-r bg-white/5 text-white font-bold rounded-lg overflow-hidden group hover:shadow-xl hover:shadow-teal-500/40 transition-all duration-300 transform hover:scale-105"
+              className="relative px-3 py-2 bg-gradient-to-r bg-black/60 text-neutral-200 font-bold rounded-lg overflow-hidden group hover:shadow-xl hover:shadow-white/10 transition-all duration-300 transform hover:scale-105"
             >
               <span className="relative z-10">Try Now</span>
-              <div className="absolute inset-0 bg-gradient-to-r from-teal-500 to-teal-400 opacity-0 group-hover:opacity-100 transition-opacity duration-300"></div>
-              <div className="absolute inset-0 bg-white/20 translate-x-full group-hover:translate-x-0 transition-transform duration-700 skew-x-12"></div>
-              <div className="absolute -inset-1 bg-gradient-to-r from-teal-500 to-teal-400 rounded-lg opacity-0 group-hover:opacity-50 blur transition-all duration-300"></div>
+              <div className="absolute inset-0 bg-gradient-to-r from-neutral-700 to-neutral-600 opacity-0 group-hover:opacity-100 transition-opacity duration-300"></div>
+              <div className="absolute inset-0 bg-white/10 translate-x-full group-hover:translate-x-0 transition-transform duration-700 skew-x-12"></div>
+              <div className="absolute -inset-1 bg-gradient-to-r from-neutral-200 to-neutral-200 rounded-lg opacity-0 group-hover:opacity-50 blur transition-all duration-300"></div>
             </button>
           </div>
 
@@ -118,18 +117,18 @@ export default function Header() {
 
             <button
               onClick={handleTryNow}
-              className="relative px-3 py-2 bg-gradient-to-r bg-white/5 text-white font-bold rounded-lg overflow-hidden group hover:shadow-xl hover:shadow-teal-500/40 transition-all duration-300 transform hover:scale-105"
+              className="relative px-3 py-2 bg-gradient-to-r bg-black/60 text-neutral-200 font-bold rounded-lg overflow-hidden group hover:shadow-xl hover:shadow-white/10 transition-all duration-300 transform hover:scale-105"
             >
               <span className="relative z-10">Try Now</span>
-              <div className="absolute inset-0 bg-gradient-to-r from-teal-500 to-teal-400 opacity-0 group-hover:opacity-100 transition-opacity duration-300"></div>
-              <div className="absolute inset-0 bg-white/20 translate-x-full group-hover:translate-x-0 transition-transform duration-700 skew-x-12"></div>
-              <div className="absolute -inset-1 bg-gradient-to-r from-teal-500 to-teal-400 rounded-lg opacity-0 group-hover:opacity-50 blur transition-all duration-300"></div>
+              <div className="absolute inset-0 bg-gradient-to-r from-neutral-700 to-neutral-600 opacity-0 group-hover:opacity-100 transition-opacity duration-300"></div>
+              <div className="absolute inset-0 bg-white/10 translate-x-full group-hover:translate-x-0 transition-transform duration-700 skew-x-12"></div>
+              <div className="absolute -inset-1 bg-gradient-to-r from-neutral-200 to-neutral-200 rounded-lg opacity-0 group-hover:opacity-50 blur transition-all duration-300"></div>
             </button>
 
             {/* Mobile menu button */}
             <button
               onClick={toggleMenu}
-              className="relative p-2 text-gray-300 hover:text-white transition-colors duration-300 hover:bg-teal-500/10 rounded-lg"
+              className="relative p-2 text-neutral-300 hover:text-neutral-100 transition-colors duration-300 hover:bg-neutral-100/5 rounded-lg"
             >
               <div className="w-6 h-6 flex flex-col justify-center items-center">
                 <span
@@ -161,7 +160,7 @@ export default function Header() {
             : 'max-h-0 opacity-0 pointer-events-none'
         }`}
       >
-        <div className="bg-black/5 backdrop-blur-2xl border-t border-teal-500/30">
+        <div className="bg-black/5 backdrop-blur-2xl border-t border-neutral-700">
           <div className="max-w-7xl mx-auto px-4 py-6">
             <nav className="flex flex-col space-y-2">
               {navItems.map((item, index) => (
@@ -169,7 +168,7 @@ export default function Header() {
                   key={item.name}
                   href={item.href}
                   onClick={() => setIsMenuOpen(false)}
-                  className="text-gray-300 hover:text-white py-3 px-4 rounded-xl hover:bg-teal-500/10 transition-all duration-300 transform hover:translate-x-2 hover:shadow-lg border border-transparent hover:border-teal-500/20"
+                  className="text-neutral-300 hover:text-neutral-100 py-3 px-4 rounded-xl hover:bg-neutral-100/5 transition-all duration-300 transform hover:translate-x-2 hover:shadow-lg border border-transparent hover:border-neutral-600"
                   style={{
                     animationDelay: `${index * 100}ms`,
                     opacity: isMenuOpen ? 1 : 0,
@@ -184,21 +183,23 @@ export default function Header() {
                 </a>
               ))}
               {/* The same off-site link the desktop header carries. */}
-              {[{ name: 'API', href: EXTERNAL_LINKS.api }].map((externalItem) => (
-                <a
-                  key={externalItem.name}
-                  href={externalItem.href}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  onClick={() => setIsMenuOpen(false)}
-                  className="text-gray-300 hover:text-white py-3 px-4 rounded-xl hover:bg-teal-500/10 transition-all duration-300 transform hover:translate-x-2 border border-transparent hover:border-teal-500/20 flex items-center gap-2"
-                >
-                  <span className="font-medium tracking-wide text-lg">
-                    {externalItem.name}
-                  </span>
-                  <ExternalLink className="w-4 h-4" />
-                </a>
-              ))}
+              {[{ name: 'API', href: EXTERNAL_LINKS.api }].map(
+                (externalItem) => (
+                  <a
+                    key={externalItem.name}
+                    href={externalItem.href}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    onClick={() => setIsMenuOpen(false)}
+                    className="text-neutral-300 hover:text-neutral-100 py-3 px-4 rounded-xl hover:bg-neutral-100/5 transition-all duration-300 transform hover:translate-x-2 border border-transparent hover:border-neutral-600 flex items-center gap-2"
+                  >
+                    <span className="font-medium tracking-wide text-lg">
+                      {externalItem.name}
+                    </span>
+                    <ExternalLink className="w-4 h-4" />
+                  </a>
+                )
+              )}
             </nav>
           </div>
         </div>

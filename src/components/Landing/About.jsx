@@ -5,7 +5,7 @@ export default function About() {
   return (
     <section
       id="about"
-      className="py-16 bg-gradient-to-b from-white to-purple bg-gray-100 text-gray-800"
+      className="py-16 bg-neutral-200 text-neutral-900"
     >
       <div className="container mx-auto">
         <h2 className="text-3xl font-bold text-center mb-8">

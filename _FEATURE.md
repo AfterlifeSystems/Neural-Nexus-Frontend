@@ -4,12 +4,6 @@ Please view the repositories but do not alter the codebase. Only use the followi
 # API
 /home/user/gh/anubis-project/anubis
 
-# Thin Python Frontend
-/home/user/gh/anubis-project/anubis/frontend
-
-I need this to integrate with the API, there are now endpoints for viewing documents, uploading, downloading, and messaging.
-There needs to be a login and signup experience, the QR code on each page that routes to neuralnexus.site/welcome.
-ALL API ENDPOINTS NEED TO BE INTEGRATED INTO THE FRONTEND WHERE THIS MAKES SENSE TO ALLOW FOR THE SAME CAPABILITY AS THE CURRENT STREAMLIT APPLICATION AND THE CURRENT CAPABILITIES OF THIS REPOSITORY.
 
 # KEEP THE FUTURE FEATURES IN MIND WHEN DEVELOPING:
 There will be features in the future for geo-location related avatar services.
