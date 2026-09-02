@@ -1,10 +1,30 @@
 # Single sign-on into the embedded billing portal
 
-**Status: two of three sides built.** The Neural Nexus API mints the credential
-and the web application hands it to the portal frame. The customer portal does
-not yet accept it, so today the handshake is a few messages into a frame that
-ignores them and the portal still shows its own sign-in card. Nothing regresses
-while that half is missing.
+**Status: working end to end in the TEST environment as of 2026-09-02; live
+still awaits its shared secret and a portal deploy.** The Neural Nexus API mints
+the credential, the web application hands it to the portal frame, and the
+customer portal accepts it.
+
+Test environment — all three sides configured and verified:
+
+| Side | Where | State |
+|---|---|---|
+| Neural Nexus API | `anubis/.env.dev` → `BILLING_PORTAL_EXCHANGE_SECRET` | set |
+| Portal server | `anubis-customer-portal/src/server/.env.dev` → `NN_EXCHANGE_SHARED_SECRET` | set to the same value |
+| This app | `.env.dev` → `VITE_NEURAL_NEXUS_API_BASE_URL=http://localhost:9600`, `VITE_BILLING_PORTAL_URL=http://localhost:5171` | already pointed at both |
+
+Verified 2026-09-02: a code minted with the shared secret and spent at the
+portal's `POST /auth/single_sign_on` returns a verified portal session
+(HTTP 200), and replaying the same code is refused (HTTP 400, "already
+redeemed"). Before the secret was set, `POST /redeem_billing_portal_exchange_code`
+on the API answered 503 and the portal's route did not exist in the running
+container at all.
+
+**Live is still off.** `BILLING_PORTAL_EXCHANGE_SECRET` is empty in
+`anubis/.env`, `NN_EXCHANGE_SHARED_SECRET` is absent from the portal's `.env`,
+and the running `portal-live` container predates the route. Until all three are
+addressed the live embed shows the portal's own sign-in card — every failure
+path falls back to it, which is the designed behaviour, not a break.
 
 ## What it is
 
@@ -63,29 +83,48 @@ from that same origin. Retries exist because the frame's listener may not be
 registered when the first message is sent; the cap exists so a portal that never
 answers costs a handful of messages rather than a timer for the life of the page.
 
-## What remains — the portal
+**The portal** (`anubis-customer-portal`)
 
-`anubis-customer-portal`. Two changes:
+| Piece | Where |
+|---|---|
+| Redemption call + signing headers | `src/server/neural_nexus_gateway.py` (`redeem_billing_portal_exchange_code`), `src/server/billing_portal_exchange_signature.py` |
+| `POST /auth/single_sign_on` | `src/server/routers/auth.py` — mints the same session `/auth/login` does, from a code instead of a password |
+| Shared secret | `NN_EXCHANGE_SHARED_SECRET` → `PortalSettings.nn_exchange_shared_secret` |
+| Frame listener | `src/client/src/singleSignOn.ts`, started from `src/client/src/main.tsx` before first render; `App.tsx` redraws on it |
+| Tests | `src/server/tests/test_portal_flow.py`, `src/server/tests/test_billing_portal_exchange_signature.py` |
 
-1. **Server** — a route that mints the *same* session as `POST /auth/login` from
-   an exchange code instead of a password. Only the first step differs: POST the
-   code to the API's `/redeem_billing_portal_exchange_code` with the two
-   signature headers above, take the `email` off the response, then reuse
-   `find_customer_by_email` → `mint_session_token` unchanged. Add
-   `nn_exchange_shared_secret` to `settings.py` (env `NN_EXCHANGE_SHARED_SECRET`,
-   which must equal the API's `BILLING_PORTAL_EXCHANGE_SECRET` exactly).
-   `mint_session_token` is called with `nn_refresh_token=None`, because that
-   token deliberately never reaches the portal — so a session created this way
-   has nothing for `/auth/logout` to revoke, and portal sign-out ends the portal
-   session only.
-2. **Client** — when running inside a frame, register a `message` listener
-   *before first render*, check `event.origin` against this app's origin, exchange
-   the code through that route, `setSessionToken`, and post
-   `{type: 'neural-nexus-portal-single-sign-on-acknowledged'}` back to
-   `event.source` so the parent stops retrying. `api.ts` decides `tabIsAnonymous`
-   once at load and `setSessionToken` already clears that flag, so a late exchange
-   is safe — registering the listener early only avoids a flash of the anonymous
-   view.
+The server route POSTs the code to the API's `/redeem_billing_portal_exchange_code`
+with the two signature headers above, takes the `email` off the response, and
+reuses `find_customer_by_email` → `mint_session_token` unchanged.
+`mint_session_token` is called with `nn_refresh_token=None`, because that token
+deliberately never reaches the portal — so a session created this way has nothing
+for `/auth/logout` to revoke, and portal sign-out ends the portal session only.
+
+The client registers its `message` listener before first render, checks
+`event.origin` against `VITE_NEURAL_NEXUS_APP_ORIGINS` (the same allowlist
+`appReturn.ts` validates `return_to` against), exchanges the code, calls
+`setSessionToken`, and posts the acknowledgement back to `event.source` at that
+same origin so the parent stops retrying. `api.ts` decides `tabIsAnonymous` once
+at load and `setSessionToken` clears that flag, so a late exchange is safe;
+registering early only avoids a flash of the anonymous view.
+
+## What remains — deployment
+
+Test is done (see the status block above). For **live**:
+
+1. Set `BILLING_PORTAL_EXCHANGE_SECRET` in `anubis/.env` and
+   `NN_EXCHANGE_SHARED_SECRET` in the portal's `src/server/.env` to the same
+   value — a *different* value from the test pair, so a test code cannot be
+   spent against live. Restart the Neural Nexus API (`langgraph-api-prod`) after
+   the first; the secret is read into `GlobalContext` at lifespan startup.
+2. Rebuild the portal live server — `cd src/server && docker compose -f
+   docker-compose.yml up --build -d`. The running `portal-live` image predates
+   this feature and has no `/auth/single_sign_on` route (it also predates the
+   usage-stream routes, which the deployed client is already polling for).
+   Note the server compose mounts no source, so a rebuild is required; the
+   client compose does mount `./src`, so the client picks changes up on its own.
+3. Deploy the portal client (Vercel → `checkout.neuralnexus.site`). The embed
+   loads the deployed portal, so local portal changes do nothing for it.
 
 ## Constraints and hazards
 
