@@ -18,7 +18,13 @@ import { getPersonalAvatar } from '../services/avatarService';
 /**
  * One row of the account menu.
  */
-export const AccountMenuItem = ({ icon, label, onClick, isCurrent, isDanger }) => (
+export const AccountMenuItem = ({
+  icon,
+  label,
+  onClick,
+  isCurrent,
+  isDanger,
+}) => (
   <button
     onClick={onClick}
     aria-current={isCurrent ? 'page' : undefined}
@@ -57,7 +63,10 @@ export async function resolvePersonalAvatarId(userAvatars) {
     const personalAvatarResponse = await getPersonalAvatar();
     return personalAvatarResponse?.personal_avatar?.assistant_id ?? null;
   } catch (personalAvatarError) {
-    console.error('Could not resolve the personal avatar:', personalAvatarError);
+    console.error(
+      'Could not resolve the personal avatar:',
+      personalAvatarError
+    );
     return null;
   }
 }
@@ -103,7 +112,11 @@ export function usePersonalAvatarSettingsNavigation(onNavigate) {
  *   panel or menu the items are rendered inside.
  * @param {string} options.currentPath The active route, for marking the current item.
  */
-const AccountMenu = ({ leadingAction = 'avatars', onNavigate, currentPath }) => {
+const AccountMenu = ({
+  leadingAction = 'avatars',
+  onNavigate,
+  currentPath,
+}) => {
   const navigate = useNavigate();
   const { logOut } = useAuth();
   const openPersonalAvatarSettings =
