@@ -1,57 +1,40 @@
 // src/config/demoAvatar.js
 //
 // Configuration for the single public demo avatar embedded on the landing page.
-// The demo is served by the Neural Nexus Streamlit application, which is embedded
-// in an iframe by src/components/Landing/LiveAvatarDemo.jsx.
+// The demo is this application's own anonymous shared-avatar page — the same
+// screen anyone reaches by following a share link, e.g.
+// https://www.neuralnexus.site/share/47cfdaa2-1196-4519-9127-31cb13ff9d3a —
+// rendered inside an iframe by src/components/Landing/LiveAvatarDemo.jsx.
 
-export const STREAMLIT_EMBED_BASE_URL =
-  import.meta.env.VITE_STREAMLIT_EMBED_URL ??
-  'https://neural-nexus-ui.streamlit.app';
+// Where the shared-avatar page is served from. Empty means "this same origin",
+// which is what production wants: the deployed site frames its own /share page,
+// and a development server frames the copy running in front of the developer.
+// Set VITE_DEMO_SHARE_BASE_URL to an absolute origin (no trailing path) only to
+// point the demo at a different deployment than the one serving the page.
+export const DEMO_SHARE_BASE_URL =
+  import.meta.env.VITE_DEMO_SHARE_BASE_URL ?? '';
 
 export const DEMO_ASSISTANT_ID =
   import.meta.env.VITE_DEMO_ASSISTANT_ID ??
   '47cfdaa2-1196-4519-9127-31cb13ff9d3a';
 
 /**
- * Build the embeddable Streamlit URL for one assistant.
+ * Build the address of the anonymous shared-avatar page for one assistant.
  *
- * `embed=true` is required, not cosmetic: without that parameter Streamlit
- * Community Cloud runs a session handshake that sets `SameSite=Lax` cookies.
- * Those cookies are never sent inside a cross-site iframe, so the handshake
- * redirect-loops forever. With `embed=true` the application responds `200`
- * directly and skips the handshake.
- *
- * No `api_key` parameter is passed. When the Streamlit application sees no
- * `api_key`, it takes its anonymous branch: it opens a fresh conversation and
- * posts the automatic greeting, so a visitor sees messages without clicking.
+ * The page needs no credential and no query parameters: the API resolves an
+ * anonymous identity for any caller with none, so a visitor lands in a fresh
+ * conversation with the avatar. The same address serves both the iframe and the
+ * "open in a new tab" link, because the shared page is a real, linkable screen
+ * rather than an embed-only view.
  *
  * @param {string} assistantIdentifier The assistant to converse with.
- * @returns {string} A URL suitable for an iframe `src`.
+ * @returns {string} An absolute URL when DEMO_SHARE_BASE_URL names an origin,
+ *   otherwise a root-relative path resolved against the current origin.
  */
-export function buildStreamlitEmbedUrl(assistantIdentifier = DEMO_ASSISTANT_ID) {
-  const embedUrl = new URL(STREAMLIT_EMBED_BASE_URL);
-  embedUrl.searchParams.set('assistant_id', assistantIdentifier);
-  embedUrl.searchParams.set('embed', 'true');
-  embedUrl.searchParams.set('embed_options', 'dark_theme');
-  // Streamlit's own boot screen is light, so it flashes as a white panel while a
-  // sleeping app wakes — several seconds on Community Cloud. Suppressing it lets
-  // the dark overlay in LiveAvatarDemo cover that window instead.
-  embedUrl.searchParams.append('embed_options', 'hide_loading_screen');
-  return embedUrl.toString();
-}
-
-/**
- * Build the standalone Streamlit URL — the same assistant with the full
- * Streamlit chrome. Used for the "open in a new tab" escape hatch shown when a
- * browser or extension blocks third-party frames.
- *
- * @param {string} assistantIdentifier The assistant to converse with.
- * @returns {string} A URL suitable for a normal link.
- */
-export function buildStreamlitStandaloneUrl(
+export function buildSharedAvatarDemoUrl(
   assistantIdentifier = DEMO_ASSISTANT_ID
 ) {
-  const standaloneUrl = new URL(STREAMLIT_EMBED_BASE_URL);
-  standaloneUrl.searchParams.set('assistant_id', assistantIdentifier);
-  return standaloneUrl.toString();
+  const sharePath = `/share/${assistantIdentifier}`;
+  if (!DEMO_SHARE_BASE_URL) return sharePath;
+  return `${DEMO_SHARE_BASE_URL.replace(/\/+$/, '')}${sharePath}`;
 }

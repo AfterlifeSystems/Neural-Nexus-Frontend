@@ -1,22 +1,18 @@
 // src/components/Landing/LiveAvatarDemo.jsx
 import React, { useState } from 'react';
 import LoadingSpinner from '../LoadingSpinner';
-import {
-  buildStreamlitEmbedUrl,
-  buildStreamlitStandaloneUrl,
-} from '../../config/demoAvatar';
+import { buildSharedAvatarDemoUrl } from '../../config/demoAvatar';
 
 // `isEmbeddedInHero` drops the standalone section chrome (its own gradient
 // background and vertical padding) so the demo can sit directly on top of the
 // hero's animated background instead of below it as a separate band.
 export default function LiveAvatarDemo({ isEmbeddedInHero = false }) {
-  // Cleared by the iframe's onLoad handler. Streamlit Community Cloud puts
-  // applications to sleep after inactivity, so a cold open can take several
-  // seconds before the first frame paints.
+  // Cleared by the iframe's onLoad handler. The framed page is this same
+  // application booting a second time, so the panel is empty for the moment
+  // that takes.
   const [isFrameLoaded, setIsFrameLoaded] = useState(false);
 
-  const embedUrl = buildStreamlitEmbedUrl();
-  const standaloneUrl = buildStreamlitStandaloneUrl();
+  const sharedAvatarUrl = buildSharedAvatarDemoUrl();
 
   const SectionElement = isEmbeddedInHero ? 'div' : 'section';
 
@@ -55,19 +51,23 @@ export default function LiveAvatarDemo({ isEmbeddedInHero = false }) {
               : 'h-[min(80vh,720px)] min-h-[560px]'
           }`}
         >
-          {/* Streamlit Cloud reserves the bottom 40px of whatever viewport it is
-              given for a light "Built with Streamlit / Fullscreen" bar, which
-              reads as a white strip across the demo. It cannot be turned off and
-              cannot be recoloured from here — the wrapper document is
-              cross-origin. Overhanging the frame by exactly that much pushes the
-              bar past the parent's overflow-hidden edge, where it is clipped. */}
+          {/* The shared-avatar page, exactly as a visitor following a share
+              link sees it: no account, no credential, its own anonymous
+              conversation. The empty chat inside offers a one-tap opening
+              question — see OPENING_QUESTION in
+              src/components/SharedAvatarChat.jsx — so a visitor who has not
+              thought of anything to say still gets the avatar to introduce
+              itself. Framing it rather than rendering the chat inline
+              keeps that conversation's state — the active avatar, the message
+              stream, the remembered threads — in its own document, where it
+              cannot collide with the landing page around it. */}
           <iframe
-            src={embedUrl}
+            src={sharedAvatarUrl}
             title="Neural Nexus live avatar demo"
             allow="clipboard-write; microphone"
             referrerPolicy="no-referrer-when-downgrade"
             onLoad={() => setIsFrameLoaded(true)}
-            className="w-full h-[calc(100%+2.5rem)] border-0 bg-[#0e1117]"
+            className="w-full h-full border-0 bg-[#0e1117]"
           />
 
           {!isFrameLoaded && (
@@ -80,7 +80,7 @@ export default function LiveAvatarDemo({ isEmbeddedInHero = false }) {
 
         <p className="mt-4 text-center text-sm text-gray-400">
           <a
-            href={standaloneUrl}
+            href={sharedAvatarUrl}
             target="_blank"
             rel="noopener noreferrer"
             className="text-teal-300 hover:text-teal-200 underline underline-offset-4 transition-colors duration-300"

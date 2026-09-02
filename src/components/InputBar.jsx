@@ -189,7 +189,10 @@ const InputBar = ({
     setHistoryIndex(-1);
     setTempMessage('');
     setType('user');
-    handleSendMessageMediaContext(mediaFiles, () => {});
+    // No arguments: the attachments and the text both come from the media
+    // context's own state, and the only caller that passes anything is a
+    // starter prompt supplying text the composer does not hold.
+    handleSendMessageMediaContext();
     setMediaFiles([]);
     setInputMessage('');
     setCaptions({});

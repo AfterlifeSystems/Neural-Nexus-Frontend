@@ -515,51 +515,6 @@ export const MediaProvider = ({ children }) => {
   }
 
   /**
-   * Resume a turn the graph paused, and stream the continuation.
-   * POST /message/{assistant_id}/resume.
-   *
-   * A paused turn is a real turn waiting on an answer, so resuming reuses the
-   * same reader as a fresh message: the continuation arrives as the identical
-   * `assistant_token` → `done` sequence and may pause again, and a second copy
-   * of that logic would drift from the first.
-   *
-   * The resume body carries a decision and nothing else. Anything the user
-   * typed into an interrupt's card — a password above all — must reach its own
-   * endpoint instead, because a resume value is written into the graph's
-   * checkpointer and would come to rest in the conversation's stored state.
-   *
-   * @param {Object} parameters
-   * @param {Object} parameters.avatarForMessage The avatar whose turn paused.
-   * @param {string} parameters.threadId The paused thread.
-   * @param {string} [parameters.decision] `apply` or `cancel`.
-   */
-  async function resumeTurn({
-    avatarForMessage,
-    threadId,
-    decision = 'apply',
-  }) {
-    const formData = new FormData();
-    formData.append('thread_id', threadId);
-    formData.append('decision', decision);
-    const userTimezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
-    if (userTimezone) {
-      formData.append('user_timezone', userTimezone);
-    }
-
-    // The pause is over the moment the continuation is requested; leaving this
-    // set would keep the composer disabled for the rest of the conversation.
-    setPendingInterrupt(null);
-
-    return runAssistantTurnStream({
-      _user: user,
-      avatarForMessage,
-      threadId,
-      path: `/message/${encodeURIComponent(resolveAssistantId(avatarForMessage))}/resume`,
-      formData,
-    });
-  }
-
-  /**
    * Stream one assistant turn — a new message or a resumed one — into the
    * messages array.
    *
@@ -924,14 +879,35 @@ export const MediaProvider = ({ children }) => {
     return releaseRestoredAttachmentUrls;
   }, []);
 
-  async function handleSendMessageMediaContext() {
-    if (!activeAvatar || (!inputMessage.trim() && mediaFiles.length === 0)) {
+  /**
+   * Send a turn: the composer's contents, or a message the interface supplies
+   * on the user's behalf.
+   *
+   * `messageTextOverride` is what a one-click starter prompt sends — the
+   * suggestion offered in an empty shared-avatar chat. It cannot be expressed
+   * by writing the suggestion into the composer and calling this function,
+   * because `inputMessage` is React state: the new value is not readable in
+   * the tick it is set, so this function would send the empty string the
+   * composer still holds. A supplied message also leaves the composer alone —
+   * whatever the visitor was part-way through typing, and anything they had
+   * attached, is still theirs to send afterwards.
+   *
+   * @param {string} [messageTextOverride] Text to send instead of the
+   *   composer's contents.
+   */
+  async function handleSendMessageMediaContext(messageTextOverride) {
+    const messageWasSuppliedByTheInterface =
+      typeof messageTextOverride === 'string';
+    const messageContent = messageWasSuppliedByTheInterface
+      ? messageTextOverride
+      : inputMessage;
+    const attachedFiles = messageWasSuppliedByTheInterface ? [] : mediaFiles;
+
+    if (!activeAvatar || (!messageContent.trim() && attachedFiles.length === 0)) {
       console.log('Missing required data for sending message');
       return;
     }
 
-    const messageContent = inputMessage;
-    const attachedFiles = mediaFiles;
     const temporaryUserMessageId = `temp-${Date.now()}`;
     // Which of the user's messages this turn will be, counted before the
     // optimistic one is added. The archive keys attachments by this ordinal
@@ -964,8 +940,10 @@ export const MediaProvider = ({ children }) => {
             attachedFiles.length > 0 && !messageContent ? 'media' : 'text',
         },
       ]);
-      setInputMessage('');
-      setMediaFiles([]);
+      if (!messageWasSuppliedByTheInterface) {
+        setInputMessage('');
+        setMediaFiles([]);
+      }
       setAttachmentsInFlight((current) => [...current, ...attachedFiles]);
       turnPausedForUserRef.current = false;
       setPendingSendCount((count) => count + 1);
@@ -1185,7 +1163,6 @@ export const MediaProvider = ({ children }) => {
         activeConversation,
         pendingInterrupt,
         setPendingInterrupt,
-        resumeTurn,
         resumePendingInterrupt,
         assistantActivity,
         sendVoiceTurn,
