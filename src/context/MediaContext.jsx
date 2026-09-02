@@ -108,6 +108,10 @@ function describeInterrupt(interrupt) {
   if (interrupt?.kind === 'mcp_connect_consent') {
     return 'Waiting for your decision on connecting a data server';
   }
+  if (interrupt?.kind === 'connect_account') {
+    const displayName = interrupt?.display_name || 'an account';
+    return `Waiting for you to connect ${displayName}`;
+  }
   return 'Waiting for your confirmation on a correction';
 }
 
