@@ -1,7 +1,6 @@
 // src/components/Landing/Header.jsx
 import React, { useState, useEffect } from 'react';
 import { ExternalLink } from 'lucide-react';
-import NeuralNexusLogo from '../../assets/NeuralNexus.png';
 import { useNavigate } from 'react-router-dom'; // 1. Add this
 import { useAuth } from '../../context/AuthContext'; // 2. Add this
 
@@ -184,21 +183,23 @@ export default function Header() {
                 </a>
               ))}
               {/* The same off-site link the desktop header carries. */}
-              {[{ name: 'API', href: EXTERNAL_LINKS.api }].map((externalItem) => (
-                <a
-                  key={externalItem.name}
-                  href={externalItem.href}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  onClick={() => setIsMenuOpen(false)}
-                  className="text-neutral-300 hover:text-neutral-100 py-3 px-4 rounded-xl hover:bg-neutral-100/5 transition-all duration-300 transform hover:translate-x-2 border border-transparent hover:border-neutral-600 flex items-center gap-2"
-                >
-                  <span className="font-medium tracking-wide text-lg">
-                    {externalItem.name}
-                  </span>
-                  <ExternalLink className="w-4 h-4" />
-                </a>
-              ))}
+              {[{ name: 'API', href: EXTERNAL_LINKS.api }].map(
+                (externalItem) => (
+                  <a
+                    key={externalItem.name}
+                    href={externalItem.href}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    onClick={() => setIsMenuOpen(false)}
+                    className="text-neutral-300 hover:text-neutral-100 py-3 px-4 rounded-xl hover:bg-neutral-100/5 transition-all duration-300 transform hover:translate-x-2 border border-transparent hover:border-neutral-600 flex items-center gap-2"
+                  >
+                    <span className="font-medium tracking-wide text-lg">
+                      {externalItem.name}
+                    </span>
+                    <ExternalLink className="w-4 h-4" />
+                  </a>
+                )
+              )}
             </nav>
           </div>
         </div>
