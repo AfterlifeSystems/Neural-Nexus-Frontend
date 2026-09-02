@@ -2,7 +2,6 @@
 
 import React from 'react';
 import { PanelLeftClose, PanelLeftOpen } from 'lucide-react';
-import NeuralNexusLogo from '../assets/NeuralNexus.png';
 import AuthComponent from './AuthComponent';
 
 const Header = ({
