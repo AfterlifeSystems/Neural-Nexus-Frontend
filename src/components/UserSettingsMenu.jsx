@@ -55,7 +55,7 @@ const UserSettingsMenu = ({
       <div className="relative w-48" ref={menuRef}>
         <button
           onClick={() => setIsOpen((open) => !open)}
-          className="bg-white/10 rounded-lg border border-white/20 py-2 px-4 text-white hover:bg-white/15 transition-all duration-300 flex items-center gap-2 w-full"
+          className="bg-black/50 rounded-lg border border-white/10 py-2 px-4 text-neutral-200 hover:bg-white/10 transition-all duration-300 flex items-center gap-2 w-full"
           aria-haspopup="true"
           aria-expanded={isOpen}
           aria-controls="user-menu"
@@ -86,7 +86,7 @@ const UserSettingsMenu = ({
         {isOpen && (
           <div
             id="user-menu"
-            className="absolute bottom-full mb-2 w-full right-0 backdrop-blur-lg bg-white/10 rounded-md shadow-lg ring-1 ring-black ring-opacity-5 focus:outline-none z-50"
+            className="absolute bottom-full mb-2 w-full right-0 backdrop-blur-lg bg-black/50 rounded-md shadow-lg ring-1 ring-black ring-opacity-5 focus:outline-none z-50"
           >
             {/* The name heads the menu only when there is one to show. An
                 empty heading is a bar of blank space that reads as something
@@ -94,8 +94,8 @@ const UserSettingsMenu = ({
                 menu, or a press outside it, so the menu carries no close
                 button of its own. */}
             {profile?.username && (
-              <div className="flex items-center px-4 py-2 border-b border-white/20">
-                <span className="text-white text-sm font-semibold truncate">
+              <div className="flex items-center px-4 py-2 border-b border-white/10">
+                <span className="text-neutral-200 text-sm font-semibold truncate">
                   {profile.username}
                 </span>
               </div>

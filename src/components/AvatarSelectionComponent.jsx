@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useMemo } from 'react';
+import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { toast } from 'react-hot-toast';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
@@ -68,6 +68,17 @@ const AvatarSelectionComponent = ({}) => {
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
   const [highlightedIndex, setHighlightedIndex] = useState(-1);
   const galleryRef = useRef(null);
+  // The live Create Avatar card laid over the WebGL gallery. The gallery
+  // reports the slot's position every frame; writing the transform straight
+  // onto the element keeps the card glued to the slot without a React render
+  // per frame.
+  const createCardOverlayRef = useRef(null);
+  const handleCreateCardMove = useCallback(({ x, visible }) => {
+    const overlay = createCardOverlayRef.current;
+    if (!overlay) return;
+    overlay.style.transform = `translate(calc(-50% + ${x}px), -50%)`;
+    overlay.style.visibility = visible ? 'visible' : 'hidden';
+  }, []);
   const searchRef = useRef(null);
   const hasInitialized = useRef(false);
   const [showCreateModal, setShowCreateModal] = useState(false);
@@ -700,7 +711,7 @@ const AvatarSelectionComponent = ({}) => {
     <div className="flex flex-col items-center justify-start p-4 relative mx-auto min-h-screen w-full">
       {isLoadingAvatars && (
         <div className="fixed inset-0 z-[60] bg-black/60 backdrop-blur-sm flex items-center justify-center">
-          <div className="bg-white/5 backdrop-blur-lg rounded-2xl border border-white/20 px-8 py-6 flex flex-col items-center gap-4">
+          <div className="bg-black/60 backdrop-blur-lg rounded-2xl border border-white/10 px-8 py-6 flex flex-col items-center gap-4">
             <LoadingSpinner />
             <p className="text-white/80">Loading your avatars…</p>
           </div>
@@ -714,22 +725,22 @@ const AvatarSelectionComponent = ({}) => {
             onChange={handleSearch}
             onFocus={handleSearchFocus}
             onKeyDown={handleKeyDown}
-            placeholder="Search userAvatars..."
-            className="w-full bg-white/5 rounded-lg border border-white/20 py-2 pl-10 pr-4 text-white placeholder-white/50 focus:outline-none focus:ring-2 focus:ring-white/30"
+            placeholder="Search avatars…"
+            className="w-full bg-black/60 rounded-lg border border-white/10 py-2 pl-10 pr-4 text-neutral-200 placeholder-white/50 focus:outline-none focus:ring-2 focus:ring-white/30"
           />
           <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-white/80" />
           {isDropdownOpen && suggestions.length > 0 && (
-            <ul className="absolute z-10 w-full bg-white/10 rounded-lg border border-white/20 mt-1 max-h-60 overflow-auto">
+            <ul className="absolute z-10 w-full bg-black/50 rounded-lg border border-white/10 mt-1 max-h-60 overflow-auto">
               {suggestions.map((suggestion, idx) => (
                 <li
                   key={suggestion.id}
                   onClick={() =>
                     handleSuggestionSelect(suggestion.originalIndex)
                   }
-                  className={`px-4 py-2 text-white cursor-pointer ${
+                  className={`px-4 py-2 text-neutral-200 cursor-pointer ${
                     idx === highlightedIndex
-                      ? 'bg-white/20'
-                      : 'hover:bg-white/20'
+                      ? 'bg-white/10'
+                      : 'hover:bg-white/10'
                   }`}
                 >
                   {suggestion.text}
@@ -738,7 +749,24 @@ const AvatarSelectionComponent = ({}) => {
             </ul>
           )}
         </div>
-        <div className="h-full flex flex-col min-h-0 w-full mb-2">
+        <div className="h-full flex flex-col min-h-0 w-full mb-2 relative">
+          {/* The gallery is WebGL, so the Create Avatar entry it draws is a
+              flat texture. When that entry is the one in front, a real card
+              is laid over it at the same size — the gallery draws each card
+              60% of its height tall at a 7:9 aspect — so the pixel shimmer
+              and the click land on a live element. */}
+          {authenticatedCards.some((card) => card.type === 'create') && (
+            <div
+              ref={createCardOverlayRef}
+              className="absolute left-1/2 top-1/2 h-[60%] aspect-[7/9] z-10"
+              style={{
+                transform: 'translate(-50%, -50%)',
+                visibility: 'hidden',
+              }}
+            >
+              <CreateAvatarComponent onCardClick={handleClick} />
+            </div>
+          )}
           <CircularGallery
             ref={galleryRef}
             items={authenticatedCards}
@@ -751,12 +779,13 @@ const AvatarSelectionComponent = ({}) => {
             onCardClick={handleClick}
             currentIndex={currentCardIndex}
             onIndexChange={setCurrentCardIndex}
+            onCreateCardMove={handleCreateCardMove}
           />
         </div>
         <div className="flex flex-col items-center w-full gap-2 z-10">
           {/* <button
               onClick={handleCustomizeAvatar}
-              className="bg-white/10 rounded-lg border border-white/20 py-2 px-4 text-white hover:bg-white/15 transition-all duration-300 flex items-center gap-2"
+              className="bg-black/50 rounded-lg border border-white/10 py-2 px-4 text-neutral-200 hover:bg-white/10 transition-all duration-300 flex items-center gap-2"
             >
               {currentCardIndex === authenticatedCards.length - 1 ? (
                 <>
@@ -778,7 +807,7 @@ const AvatarSelectionComponent = ({}) => {
               className={`p-1 rounded-full transition-all duration-300 ${
                 currentCardIndex === 0
                   ? 'text-white/20 cursor-not-allowed'
-                  : 'text-white/50 hover:text-white hover:bg-white/10 cursor-pointer'
+                  : 'text-white/50 hover:text-neutral-100 hover:bg-white/10 cursor-pointer'
               }`}
               aria-label="Jump left 5 positions"
             >
@@ -818,7 +847,7 @@ const AvatarSelectionComponent = ({}) => {
                     onClick={() => handleDotClick(card.originalIndex)}
                     className={`rounded-full transition-all duration-300 cursor-pointer hover:scale-110 border-2 ${
                       isSelected
-                        ? 'border-white'
+                        ? 'border-neutral-300'
                         : 'border-white/30 hover:border-white/60'
                     }`}
                     style={{
@@ -830,8 +859,8 @@ const AvatarSelectionComponent = ({}) => {
                     aria-label={`Go to ${card.text}`}
                   >
                     {isCreateAvatar ? (
-                      <div className="w-full h-full flex items-center justify-center bg-white/10 rounded-full">
-                        <CirclePlus className="w-5 h-5 text-white" />
+                      <div className="w-full h-full flex items-center justify-center bg-black/50 rounded-full">
+                        <CirclePlus className="w-5 h-5 text-neutral-200" />
                       </div>
                     ) : card.image && isValidImageUrl(card.image) ? (
                       <img
@@ -843,7 +872,7 @@ const AvatarSelectionComponent = ({}) => {
                         }}
                       />
                     ) : (
-                      <div className="w-full h-full flex items-center justify-center bg-white/10 rounded-full">
+                      <div className="w-full h-full flex items-center justify-center bg-black/50 rounded-full">
                         <User className="w-4 h-4 text-white/50" />
                       </div>
                     )}
@@ -859,7 +888,7 @@ const AvatarSelectionComponent = ({}) => {
               className={`p-1 rounded-full transition-all duration-300 ${
                 currentCardIndex === authenticatedCards.length - 1
                   ? 'text-white/20 cursor-not-allowed'
-                  : 'text-white/50 hover:text-white hover:bg-white/10 cursor-pointer'
+                  : 'text-white/50 hover:text-neutral-100 hover:bg-white/10 cursor-pointer'
               }`}
               aria-label="Jump right 5 positions"
             >
@@ -908,7 +937,7 @@ const AvatarSelectionComponent = ({}) => {
                     toast.success('success works');
                     toast.error('error works');
                   }}
-                  className="px-4 py-2 bg-indigo-600 text-white rounded"
+                  className="px-4 py-2 bg-neutral-200 text-neutral-900 rounded"
                 >
                   Test Promise Toast
                 </button>

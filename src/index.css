@@ -9,14 +9,14 @@
 
   color-scheme: light dark;
   color: rgba(255, 255, 255, 0.87);
-  /* The same colour VantaBackground paints (`backgroundColor: 0x301934`).
+  /* The same colour VantaBackground paints (`backgroundColor: 0x000000`).
      Stylesheet and animated background must agree, because they arrive at very
      different times: this colour is painted the moment the stylesheet parses,
      while the Vanta canvas cannot exist until three.js has loaded and React has
      mounted. Any other value here shows as a flash of the wrong colour for the
      whole of that gap — which is most of the load on a cold cache, and longer
      still under the dev server, where three.js arrives as unbundled modules. */
-  background-color: #301934;
+  background-color: #000000;
 
   font-synthesis: none;
   text-rendering: optimizeLegibility;
@@ -31,6 +31,14 @@ html,
   padding: 0;
   width: 100%;
   height: 100%;
+}
+
+/* A row that scrolls sideways without showing a bar (the phone tab strip). */
+.scrollbar-none {
+  scrollbar-width: none;
+}
+.scrollbar-none::-webkit-scrollbar {
+  display: none;
 }
 
 h1 {
@@ -49,7 +57,7 @@ button {
   transition: border-color 0.25s;
 }
 button:hover {
-  border-color: #646cff;
+  border-color: #525252;
 }
 button:focus,
 button:focus-visible {

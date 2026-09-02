@@ -32,15 +32,15 @@ const DEFAULT_ACTION_LABELS = {
 };
 
 const PANEL_CLASSES =
-  'self-start w-full bg-white/5 backdrop-blur-lg rounded-2xl border border-white/20 p-4 sm:p-6 space-y-4';
+  'self-start w-full bg-black/60 backdrop-blur-lg rounded-2xl border border-white/10 p-4 sm:p-6 space-y-4';
 const PRIMARY_BUTTON_CLASSES =
-  'px-4 py-2 rounded border border-gray-700 bg-teal-600 text-white hover:bg-teal-500 focus:outline-none focus:ring-2 focus:ring-teal-400 disabled:opacity-50 disabled:cursor-not-allowed';
+  'px-4 py-2 rounded border border-neutral-700 bg-neutral-200 text-neutral-900 hover:bg-neutral-100 focus:outline-none focus:ring-2 focus:ring-amber-400/50 disabled:opacity-50 disabled:cursor-not-allowed';
 const SECONDARY_BUTTON_CLASSES =
-  'px-4 py-2 rounded border border-gray-700 bg-black/35 text-white hover:bg-white/10 focus:outline-none focus:ring-2 focus:ring-teal-400 disabled:opacity-50 disabled:cursor-not-allowed';
+  'px-4 py-2 rounded border border-neutral-700 bg-black/60 text-neutral-200 hover:bg-white/10 focus:outline-none focus:ring-2 focus:ring-amber-400/50 disabled:opacity-50 disabled:cursor-not-allowed';
 const DANGER_BUTTON_CLASSES =
-  'px-4 py-2 rounded border border-red-500/60 bg-red-600/80 text-white hover:bg-red-600 focus:outline-none focus:ring-2 focus:ring-red-400 disabled:opacity-50 disabled:cursor-not-allowed';
+  'px-4 py-2 rounded border border-red-500/60 bg-red-600/80 text-neutral-200 hover:bg-red-600 focus:outline-none focus:ring-2 focus:ring-red-400 disabled:opacity-50 disabled:cursor-not-allowed';
 const TEXTAREA_CLASSES =
-  'w-full px-3 py-2 bg-white/10 border border-white/20 rounded-lg text-white placeholder-white/40 text-sm focus:outline-none focus:ring-2 focus:ring-teal-400';
+  'w-full px-3 py-2 bg-black/50 border border-white/10 rounded-lg text-neutral-200 placeholder-white/40 text-sm focus:outline-none focus:ring-2 focus:ring-amber-400/50';
 
 /**
  * How strongly a stored document matched what the user called inaccurate.
@@ -113,7 +113,7 @@ const MatchCard = ({ match, decision, actionLabels, onChange, isResuming }) => {
         </div>
       </div>
 
-      <div className="text-sm text-white">
+      <div className="text-sm text-neutral-200">
         <span className="font-semibold">Current document fact content: </span>
         <span className="text-white/90">{match.current_fact_content}</span>
       </div>
@@ -125,7 +125,7 @@ const MatchCard = ({ match, decision, actionLabels, onChange, isResuming }) => {
       ) : null}
 
       {hint ? (
-        <div className="text-xs text-teal-200/90">💡 {hint}</div>
+        <div className="text-xs text-neutral-100/90">💡 {hint}</div>
       ) : null}
 
       <fieldset disabled={isResuming}>
@@ -140,8 +140,8 @@ const MatchCard = ({ match, decision, actionLabels, onChange, isResuming }) => {
                 key={action}
                 className={`cursor-pointer text-xs px-3 py-1.5 rounded-full border transition-colors ${
                   isSelected
-                    ? 'bg-teal-600 border-teal-400 text-white'
-                    : 'bg-black/35 border-gray-700 text-white/70 hover:bg-white/10'
+                    ? 'bg-neutral-200 border-neutral-100 text-neutral-900'
+                    : 'bg-black/60 border-neutral-700 text-white/70 hover:bg-white/10'
                 } ${isResuming ? 'opacity-50 cursor-not-allowed' : ''}`}
               >
                 <input
@@ -272,7 +272,7 @@ const FactCorrectionPanel = ({ interrupt, onResume, isResuming }) => {
   return (
     <div className={PANEL_CLASSES}>
       <div className="space-y-1">
-        <div className="text-sm font-semibold text-white">
+        <div className="text-sm font-semibold text-neutral-200">
           ✏️ I found {matches.length} stored item
           {matches.length === 1 ? '' : 's'} that might match — choose what to do
           with each.
@@ -374,7 +374,7 @@ const DataServerConsentPanel = ({ interrupt, onResume, isResuming }) => {
 
   return (
     <div className={PANEL_CLASSES}>
-      <div className="text-sm font-semibold text-white">
+      <div className="text-sm font-semibold text-neutral-200">
         {interrupt.prompt ??
           'A data server is available — connect it to this avatar for data analysis?'}
       </div>

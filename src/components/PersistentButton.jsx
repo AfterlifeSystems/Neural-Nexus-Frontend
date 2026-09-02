@@ -33,8 +33,8 @@ const PersistentButton = ({ currentCard, onAction, className = '' }) => {
           buttonConfig.variant === 'primary'
             ? 'bg-white text-black hover:bg-white/90'
             : buttonConfig.variant === 'dropdown'
-            ? 'bg-black/20 backdrop-blur-sm border border-white/20 text-white hover:bg-white/10'
-            : 'bg-black/30 backdrop-blur-sm border border-white/30 text-white hover:bg-white/20'
+            ? 'bg-black/20 backdrop-blur-sm border border-white/10 text-neutral-200 hover:bg-white/10'
+            : 'bg-black/30 backdrop-blur-sm border border-white/30 text-neutral-200 hover:bg-white/10'
         }`}
       >
         {buttonConfig.text}

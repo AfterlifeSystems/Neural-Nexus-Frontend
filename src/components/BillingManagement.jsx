@@ -90,7 +90,7 @@ const BillingManagement = ({ showAccountMenu = true }) => {
     <div className="h-full flex flex-col p-4 sm:p-6 gap-4">
       <div className="flex items-center justify-between gap-4 flex-wrap">
         <div className="flex items-center gap-3 flex-wrap">
-          <h1 className="text-2xl font-bold text-white flex items-center gap-2">
+          <h1 className="text-2xl font-bold text-neutral-200 flex items-center gap-2">
             <CreditCard className="w-6 h-6" />
             Billing
           </h1>
@@ -103,14 +103,14 @@ const BillingManagement = ({ showAccountMenu = true }) => {
           href={billingPortalUrl}
           target="_blank"
           rel="noopener noreferrer"
-          className="inline-flex items-center gap-2 px-4 py-2 bg-white/10 hover:bg-white/20 border border-white/20 rounded-lg text-white transition"
+          className="inline-flex items-center gap-2 px-4 py-2 bg-black/50 hover:bg-white/10 border border-white/10 rounded-lg text-neutral-200 transition"
         >
           Open in a new tab
           <ExternalLink size={16} />
         </a>
       </div>
 
-      <div className="relative flex-grow min-h-[600px] rounded-2xl overflow-hidden border border-white/20 bg-black/30">
+      <div className="relative flex-grow min-h-[600px] rounded-2xl overflow-hidden border border-white/10 bg-black/30">
         {!hasLoaded && (
           <div className="absolute inset-0 flex items-center justify-center text-white/60">
             Loading the customer portal…

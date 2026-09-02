@@ -135,20 +135,20 @@ export default function DocumentDropZone() {
         onPaste={handlePaste}
         className={`border-2 border-dashed rounded-lg p-8 text-center cursor-pointer transition ${
           isDragging
-            ? 'border-blue-500 bg-blue-50'
-            : 'border-gray-300 hover:border-gray-400'
+            ? 'border-amber-400 bg-amber-400/10'
+            : 'border-neutral-300 hover:border-neutral-400'
         } ${isLoading ? 'opacity-50 cursor-wait' : ''}`}
       >
         <div className="space-y-2">
           <p className="text-lg font-semibold">Drag & drop documents here</p>
-          <p className="text-sm text-gray-600">
+          <p className="text-sm text-neutral-600">
             Supports: Text files, PDFs, Images, Audio, Video, URLs, and Web URLs
           </p>
-          <p className="text-xs text-gray-500">
+          <p className="text-xs text-neutral-500">
             Or paste a URL (Ctrl+V / Cmd+V)
           </p>
           {isLoading && (
-            <p className="text-blue-600">{progressMessage ?? 'Loading…'}</p>
+            <p className="text-amber-300">{progressMessage ?? 'Loading…'}</p>
           )}
         </div>
       </div>
@@ -166,16 +166,16 @@ export default function DocumentDropZone() {
             {documents.map((documentEntry, documentIndex) => (
               <div
                 key={documentIndex}
-                className="p-3 bg-gray-50 border border-gray-200 rounded flex items-start space-x-3"
+                className="p-3 bg-neutral-50 border border-neutral-200 rounded flex items-start space-x-3"
               >
-                <span className="inline-block px-2 py-1 text-xs font-semibold text-white rounded bg-blue-600">
+                <span className="inline-block px-2 py-1 text-xs font-semibold text-neutral-200 rounded bg-blue-600">
                   {documentEntry.type.toUpperCase()}
                 </span>
                 <div className="flex-1 min-w-0">
                   <p className="font-medium truncate">
                     {documentEntry.filename || documentEntry.url || 'Document'}
                   </p>
-                  <p className="text-sm text-gray-600">
+                  <p className="text-sm text-neutral-600">
                     Source: {documentEntry.source}
                   </p>
                 </div>

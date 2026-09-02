@@ -4162,11 +4162,6 @@
       "post": {
         "summary": "Forgot Password",
         "operationId": "forgot_password_forgot_password_post",
-        "security": [
-          {
-            "APIKeyHeader": []
-          }
-        ],
         "parameters": [
           {
             "name": "email",

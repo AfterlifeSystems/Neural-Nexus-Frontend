@@ -52,7 +52,7 @@ const QrBadge = () => {
       onClick={() => navigate('/welcome')}
       // z-30 keeps it beneath the sidebar (40/50) and any modal (60/70): it is
       // the least important thing on screen and must never be in the way.
-      className="group fixed bottom-4 right-4 z-30 p-2 rounded-xl bg-white/5 backdrop-blur-sm border border-white/10 opacity-40 hover:opacity-100 hover:border-teal-400/40 hover:bg-white/10 transition-all duration-300 focus:outline-none focus:ring-2 focus:ring-teal-400 focus:opacity-100"
+      className="group fixed bottom-4 right-4 z-30 p-2 rounded-xl bg-black/60 backdrop-blur-sm border border-white/10 opacity-40 hover:opacity-100 hover:border-neutral-300/40 hover:bg-white/10 transition-all duration-300 focus:outline-none focus:ring-2 focus:ring-amber-400/50 focus:opacity-100"
       aria-label="Neural Nexus — scan or open the welcome page"
       title="Scan to share Neural Nexus, or press to open the welcome page"
     >

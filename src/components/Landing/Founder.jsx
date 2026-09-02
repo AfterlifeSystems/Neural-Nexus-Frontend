@@ -21,23 +21,23 @@ export default function Founder() {
   return (
     <section
       id="founder"
-      className="py-16 bg-gradient-to-b from-purple-900 to-[#301934] text-white"
+      className="py-16 bg-gradient-to-b from-black to-black text-neutral-200"
     >
       <div className="container mx-auto">
         <h2 className="text-3xl font-bold text-center mb-8">The Founder</h2>
 
-        <div className="max-w-3xl mx-auto flex flex-col sm:flex-row items-center gap-8 bg-white/5 border border-white/15 rounded-2xl p-8">
+        <div className="max-w-3xl mx-auto flex flex-col sm:flex-row items-center gap-8 bg-black/60 border border-white/10 rounded-2xl p-8">
           <img
             src={FOUNDER.portraitUrl}
             alt={FOUNDER.name}
-            className="w-40 h-40 rounded-2xl object-cover border border-white/20 shrink-0"
+            className="w-40 h-40 rounded-2xl object-cover border border-white/10 shrink-0"
             loading="lazy"
           />
 
           <div className="flex flex-col gap-3 text-center sm:text-left">
             <div>
               <h3 className="text-2xl font-semibold">{FOUNDER.name}</h3>
-              <p className="text-teal-300">{FOUNDER.role}</p>
+              <p className="text-neutral-300">{FOUNDER.role}</p>
             </div>
 
             <p className="text-white/80">
@@ -53,7 +53,7 @@ export default function Founder() {
                 href={FOUNDER.githubUrl}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="px-3 py-2 rounded-lg bg-white/10 border border-white/15 hover:border-teal-400/60 hover:bg-white/15 transition-colors flex items-center gap-2"
+                className="px-3 py-2 rounded-lg bg-black/50 border border-white/10 hover:border-neutral-300/60 hover:bg-white/10 transition-colors flex items-center gap-2"
               >
                 <Github className="w-4 h-4" />
                 GitHub
@@ -62,14 +62,14 @@ export default function Founder() {
                 href={FOUNDER.linkedinUrl}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="px-3 py-2 rounded-lg bg-white/10 border border-white/15 hover:border-teal-400/60 hover:bg-white/15 transition-colors flex items-center gap-2"
+                className="px-3 py-2 rounded-lg bg-black/50 border border-white/10 hover:border-neutral-300/60 hover:bg-white/10 transition-colors flex items-center gap-2"
               >
                 <Linkedin className="w-4 h-4" />
                 LinkedIn
               </a>
               <a
                 href={`mailto:${FOUNDER.email}`}
-                className="px-3 py-2 rounded-lg bg-white/10 border border-white/15 hover:border-teal-400/60 hover:bg-white/15 transition-colors flex items-center gap-2"
+                className="px-3 py-2 rounded-lg bg-black/50 border border-white/10 hover:border-neutral-300/60 hover:bg-white/10 transition-colors flex items-center gap-2"
               >
                 <Mail className="w-4 h-4" />
                 Email

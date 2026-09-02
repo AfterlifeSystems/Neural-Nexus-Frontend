@@ -23,7 +23,7 @@
 
 import React, { useEffect, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { Sparkles, User } from 'lucide-react';
+import { MessageCircle, Sparkles, User } from 'lucide-react';
 
 import { useAuth } from '../context/AuthContext';
 import { useMedia, NEW_CONVERSATION_ID } from '../context/MediaContext';
@@ -33,15 +33,37 @@ import {
   resolveAssistantId,
   rememberSharedAvatarThread,
   listRememberedSharedAvatarThreadIds,
+  followPathInTopWindow,
 } from './utils';
 import LoadingSpinner from './LoadingSpinner';
 import LiveVoiceMode from './LiveVoiceMode';
 import MessageList from './MessageList';
 import InputBar from './InputBar';
 
+// The one-click opening question offered in an empty chat. It is the first
+// thing a visitor to the landing page's embedded demo sees inside the frame
+// (src/components/Landing/LiveAvatarDemo.jsx), and it asks the avatar to
+// introduce itself — the answer that turns a blank chat window into a
+// demonstration of what the avatar is. Every shared avatar gets the same
+// offer, because the question is about whoever the link opens rather than
+// about any particular one of them.
+const OPENING_QUESTION = 'Hey - tell me all about yourself and what you can do for me';
+
 const SharedAvatarChat = () => {
   const { avatarId } = useParams();
   const navigate = useNavigate();
+
+  /**
+   * Leave this screen for another part of the application.
+   *
+   * Written as one helper rather than a bare `navigate` because this screen is
+   * also the landing page's embedded demo: a whole screen opened from inside
+   * that frame has to take the whole window with it.
+   */
+  const openApplicationScreen = (applicationPath) => {
+    if (followPathInTopWindow(applicationPath)) return;
+    navigate(applicationPath);
+  };
   const { activeAvatar, setActiveAvatar } = useAuth();
   const {
     messages,
@@ -52,6 +74,8 @@ const SharedAvatarChat = () => {
     getConversationList,
     getActiveConversationMessages,
     resetConversationState,
+    handleSendMessageMediaContext,
+    pendingSendCount,
   } = useMedia();
 
   // Three states, kept apart on purpose: a link that is still resolving must not
@@ -64,6 +88,13 @@ const SharedAvatarChat = () => {
   // all. A spoken turn is an ordinary turn with the recording attached, so it
   // travels the anonymous message stream this chat already uses.
   const [isLiveModeOpen, setIsLiveModeOpen] = useState(false);
+  // Whether the lookup for this visitor's earlier chats with this avatar has
+  // finished. The opening question is offered only for a conversation that is
+  // genuinely empty, and the transcript is empty for the moment that lookup
+  // takes as well — so without this the suggestion flashes on screen and is
+  // then replaced by a restored thread.
+  const [hasCheckedForEarlierChats, setHasCheckedForEarlierChats] =
+    useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -73,6 +104,7 @@ const SharedAvatarChat = () => {
     setAvatarPortrait(null);
     setLinkState('loading');
     setIsLiveModeOpen(false);
+    setHasCheckedForEarlierChats(false);
 
     (async () => {
       try {
@@ -131,6 +163,10 @@ const SharedAvatarChat = () => {
             'Listing this visitor\'s chats with the avatar failed:',
             historyError
           );
+        } finally {
+          // Whether earlier chats were found, absent, or unlistable, the
+          // question of what belongs on screen is now settled.
+          if (!cancelled) setHasCheckedForEarlierChats(true);
         }
 
         try {
@@ -175,6 +211,15 @@ const SharedAvatarChat = () => {
     }
   }, [avatarId, activeConversation, linkState]);
 
+  // Offered only for a conversation with nothing in it yet, and never while a
+  // turn is already on its way — a second copy of the question sent by an
+  // impatient double-tap would read as the visitor having asked twice.
+  const isOfferingTheOpeningQuestion =
+    linkState === 'ready' &&
+    hasCheckedForEarlierChats &&
+    messages.length === 0 &&
+    pendingSendCount === 0;
+
   if (linkState === 'loading') {
     return <LoadingSpinner />;
   }
@@ -182,8 +227,8 @@ const SharedAvatarChat = () => {
   if (linkState === 'unavailable') {
     return (
       <div className="h-full flex items-center justify-center p-6">
-        <div className="w-full max-w-lg bg-white/5 backdrop-blur-lg rounded-2xl border border-white/20 p-6 text-center">
-          <h1 className="text-xl font-semibold text-white mb-2">
+        <div className="w-full max-w-lg bg-black/60 backdrop-blur-lg rounded-2xl border border-white/10 p-6 text-center">
+          <h1 className="text-xl font-semibold text-neutral-200 mb-2">
             This avatar is not available
           </h1>
           <p className="text-white/60 text-sm">
@@ -193,14 +238,14 @@ const SharedAvatarChat = () => {
           </p>
           <div className="mt-5 flex flex-col sm:flex-row gap-2 justify-center">
             <button
-              onClick={() => navigate('/signup')}
-              className="px-4 py-2 rounded-lg bg-teal-500/20 hover:bg-teal-500/30 border border-teal-500/30 text-teal-200 font-semibold transition-colors"
+              onClick={() => openApplicationScreen('/signup')}
+              className="px-4 py-2 rounded-lg bg-neutral-100/10 hover:bg-neutral-100/15 border border-neutral-700 text-neutral-200 font-semibold transition-colors"
             >
               Create your own avatar
             </button>
             <button
-              onClick={() => navigate('/welcome')}
-              className="px-4 py-2 rounded-lg bg-white/10 hover:bg-white/20 border border-white/20 text-white transition-colors"
+              onClick={() => openApplicationScreen('/welcome')}
+              className="px-4 py-2 rounded-lg bg-black/50 hover:bg-white/10 border border-white/10 text-neutral-200 transition-colors"
             >
               About Neural Nexus
             </button>
@@ -220,12 +265,12 @@ const SharedAvatarChat = () => {
       />
     )}
     <div className="h-full w-full p-2 sm:p-4">
-      <div className="flex flex-col w-full h-full bg-white/5 backdrop-blur-lg rounded-2xl border border-white/20 overflow-hidden relative">
+      <div className="flex flex-col w-full h-full bg-black/60 backdrop-blur-lg rounded-2xl border border-white/10 overflow-hidden relative">
         {/* The header names the one avatar this link opens. There is nothing to
             switch to and nothing to administer, so it carries no tabs. */}
-        <div className="flex items-center justify-between gap-3 px-4 py-3 border-b border-white/20">
+        <div className="flex items-center justify-between gap-3 px-4 py-3 border-b border-white/10">
           <div className="flex items-center gap-3 min-w-0">
-            <div className="w-9 h-9 shrink-0 rounded-full bg-white/10 border border-white/20 overflow-hidden flex items-center justify-center">
+            <div className="w-9 h-9 shrink-0 rounded-full bg-black/50 border border-white/10 overflow-hidden flex items-center justify-center">
               {avatarPortrait && isValidImageUrl(avatarPortrait) ? (
                 <img
                   src={avatarPortrait}
@@ -236,15 +281,15 @@ const SharedAvatarChat = () => {
                 <User className="w-5 h-5 text-white/40" />
               )}
             </div>
-            <span className="text-white font-semibold truncate">
+            <span className="text-neutral-200 font-semibold truncate">
               {activeAvatar?.name
                 ? `A.I. ${activeAvatar.name} Chat`
                 : 'A.I. Chat'}
             </span>
           </div>
           <button
-            onClick={() => navigate('/signup')}
-            className="shrink-0 inline-flex items-center gap-2 px-3 py-2 rounded-lg bg-teal-500/20 hover:bg-teal-500/30 border border-teal-500/30 text-teal-200 text-sm font-semibold transition-colors"
+            onClick={() => openApplicationScreen('/signup')}
+            className="shrink-0 inline-flex items-center gap-2 px-3 py-2 rounded-lg bg-neutral-100/10 hover:bg-neutral-100/15 border border-neutral-700 text-neutral-200 text-sm font-semibold transition-colors"
           >
             <Sparkles className="w-4 h-4 shrink-0" />
             Create your own avatar
@@ -262,6 +307,38 @@ const SharedAvatarChat = () => {
                 avatarPortrait={avatarPortrait}
                 avatarName={activeAvatar?.name}
               />
+
+              {/* An empty chat asks a visitor to think of something to say to a
+                  stranger, which is the moment most of them leave. One tap on
+                  the question below spends that decision for them and puts the
+                  avatar's own introduction on screen. It is offered rather than
+                  sent automatically: the landing page frames this chat, and a
+                  turn taken by everyone who merely scrolls past would be billed
+                  and rate-limited as though they had all asked. */}
+              {isOfferingTheOpeningQuestion && (
+                <div className="flex flex-col items-center gap-4 py-8 px-2 text-center">
+                  <p className="text-white/50 text-sm">
+                    {activeAvatar?.name
+                      ? `Say hello to A.I. ${activeAvatar.name}`
+                      : 'Start the conversation'}
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      handleSendMessageMediaContext(OPENING_QUESTION)
+                    }
+                    className="group w-full max-w-lg inline-flex items-start gap-3 text-left px-4 py-3 rounded-2xl bg-neutral-100/5 hover:bg-neutral-100/10 border border-neutral-700 hover:border-neutral-300/50 text-neutral-200 transition-colors duration-300"
+                  >
+                    <MessageCircle className="w-4 h-4 mt-1 shrink-0 text-neutral-300" />
+                    <span className="text-sm sm:text-base">
+                      {OPENING_QUESTION}
+                    </span>
+                  </button>
+                  <p className="text-white/40 text-xs">
+                    …or ask anything you like below.
+                  </p>
+                </div>
+              )}
             </div>
           </div>
 

@@ -2,9 +2,9 @@ import React from 'react';
 
 export default function TermsOfService() {
   return (
-    <div className="bg-gray-900 text-white min-h-screen py-10">
+    <div className="bg-neutral-950 text-neutral-200 min-h-screen py-10">
       <div className="container mx-auto px-4 sm:px-6 lg:px-8">
-        <h1 className="text-4xl font-bold text-purple-300 mb-6">
+        <h1 className="text-4xl font-bold text-neutral-300 mb-6">
           Terms of Service
         </h1>
         <p className="text-lg mb-4">Effective Date: July 4, 2026</p>
@@ -13,7 +13,7 @@ export default function TermsOfService() {
           "us," or "our") at{' '}
           <a
             href="https://neuralnexus.site"
-            className="text-purple-300 hover:text-purple-100"
+            className="text-neutral-300 hover:text-neutral-100"
           >
             https://neuralnexus.site
           </a>{' '}
@@ -22,7 +22,7 @@ export default function TermsOfService() {
           do not agree, please do not use the Service.
         </p>
 
-        <h2 className="text-2xl font-semibold text-purple-200 mt-8 mb-4">
+        <h2 className="text-2xl font-semibold text-neutral-200 mt-8 mb-4">
           1. Acceptance of Terms
         </h2>
         <p className="mb-4">
@@ -32,7 +32,7 @@ export default function TermsOfService() {
           Service constitutes acceptance of the updated Terms.
         </p>
 
-        <h2 className="text-2xl font-semibold text-purple-200 mt-8 mb-4">
+        <h2 className="text-2xl font-semibold text-neutral-200 mt-8 mb-4">
           2. Eligibility
         </h2>
         <p className="mb-4">
@@ -41,7 +41,7 @@ export default function TermsOfService() {
           legal capacity to enter into these Terms.
         </p>
 
-        <h2 className="text-2xl font-semibold text-purple-200 mt-8 mb-4">
+        <h2 className="text-2xl font-semibold text-neutral-200 mt-8 mb-4">
           3. Account Registration
         </h2>
         <p className="mb-4">
@@ -57,7 +57,7 @@ export default function TermsOfService() {
             Notify us immediately of any unauthorized use of your account at{' '}
             <a
               href="mailto:contact@neuralnexus.site"
-              className="text-purple-300 hover:text-purple-100"
+              className="text-neutral-300 hover:text-neutral-100"
             >
               contact@neuralnexus.site
             </a>
@@ -69,10 +69,10 @@ export default function TermsOfService() {
           of these Terms.
         </p>
 
-        <h2 className="text-2xl font-semibold text-purple-200 mt-8 mb-4">
+        <h2 className="text-2xl font-semibold text-neutral-200 mt-8 mb-4">
           4. Use of the Service
         </h2>
-        <h3 className="text-xl font-medium text-purple-100 mt-6 mb-2">
+        <h3 className="text-xl font-medium text-neutral-200 mt-6 mb-2">
           a. Permitted Use
         </h3>
         <p className="mb-4">
@@ -80,7 +80,7 @@ export default function TermsOfService() {
           these Terms and applicable laws.
         </p>
 
-        <h3 className="text-xl font-medium text-purple-100 mt-6 mb-2">
+        <h3 className="text-xl font-medium text-neutral-200 mt-6 mb-2">
           b. Prohibited Conduct
         </h3>
         <p className="mb-4">You agree not to:</p>
@@ -100,7 +100,7 @@ export default function TermsOfService() {
           <li>Interfere with the Service's functionality or security.</li>
         </ul>
 
-        <h3 className="text-xl font-medium text-purple-100 mt-6 mb-2">
+        <h3 className="text-xl font-medium text-neutral-200 mt-6 mb-2">
           c. User Content
         </h3>
         <p className="mb-4">
@@ -111,10 +111,10 @@ export default function TermsOfService() {
           complies with these Terms.
         </p>
 
-        <h2 className="text-2xl font-semibold text-purple-200 mt-8 mb-4">
+        <h2 className="text-2xl font-semibold text-neutral-200 mt-8 mb-4">
           5. Subscriptions and Payments
         </h2>
-        <h3 className="text-xl font-medium text-purple-100 mt-6 mb-2">
+        <h3 className="text-xl font-medium text-neutral-200 mt-6 mb-2">
           a. Subscriptions
         </h3>
         <p className="mb-4">
@@ -122,7 +122,7 @@ export default function TermsOfService() {
           including pricing, are available at{' '}
           <a
             href="https://neuralnexus.site/pricing"
-            className="text-purple-300 hover:text-purple-100"
+            className="text-neutral-300 hover:text-neutral-100"
           >
             https://neuralnexus.site/pricing
           </a>
@@ -130,7 +130,7 @@ export default function TermsOfService() {
           processor.
         </p>
 
-        <h3 className="text-xl font-medium text-purple-100 mt-6 mb-2">
+        <h3 className="text-xl font-medium text-neutral-200 mt-6 mb-2">
           b. Billing
         </h3>
         <p className="mb-4">
@@ -140,7 +140,7 @@ export default function TermsOfService() {
           of the current billing cycle.
         </p>
 
-        <h3 className="text-xl font-medium text-purple-100 mt-6 mb-2">
+        <h3 className="text-xl font-medium text-neutral-200 mt-6 mb-2">
           c. Refunds
         </h3>
         <p className="mb-4">
@@ -148,17 +148,17 @@ export default function TermsOfService() {
           available at{' '}
           <a
             href="https://neuralnexus.site/refunds"
-            className="text-purple-300 hover:text-purple-100"
+            className="text-neutral-300 hover:text-neutral-100"
           >
             https://neuralnexus.site/refunds
           </a>
           .
         </p>
 
-        <h2 className="text-2xl font-semibold text-purple-200 mt-8 mb-4">
+        <h2 className="text-2xl font-semibold text-neutral-200 mt-8 mb-4">
           6. Intellectual Property
         </h2>
-        <h3 className="text-xl font-medium text-purple-100 mt-6 mb-2">
+        <h3 className="text-xl font-medium text-neutral-200 mt-6 mb-2">
           a. Our Content
         </h3>
         <p className="mb-4">
@@ -167,7 +167,7 @@ export default function TermsOfService() {
           licensors and is protected by copyright, trademark, and other laws.
         </p>
 
-        <h3 className="text-xl font-medium text-purple-100 mt-6 mb-2">
+        <h3 className="text-xl font-medium text-neutral-200 mt-6 mb-2">
           b. License to You
         </h3>
         <p className="mb-4">
@@ -176,7 +176,7 @@ export default function TermsOfService() {
           subject to these Terms.
         </p>
 
-        <h2 className="text-2xl font-semibold text-purple-200 mt-8 mb-4">
+        <h2 className="text-2xl font-semibold text-neutral-200 mt-8 mb-4">
           7. Termination
         </h2>
         <p className="mb-4">
@@ -186,7 +186,7 @@ export default function TermsOfService() {
           the Service will cease immediately.
         </p>
 
-        <h2 className="text-2xl font-semibold text-purple-200 mt-8 mb-4">
+        <h2 className="text-2xl font-semibold text-neutral-200 mt-8 mb-4">
           8. Disclaimer of Warranties
         </h2>
         <p className="mb-4">
@@ -197,7 +197,7 @@ export default function TermsOfService() {
           uninterrupted, error-free, or secure.
         </p>
 
-        <h2 className="text-2xl font-semibold text-purple-200 mt-8 mb-4">
+        <h2 className="text-2xl font-semibold text-neutral-200 mt-8 mb-4">
           9. Limitation of Liability
         </h2>
         <p className="mb-4">
@@ -208,7 +208,7 @@ export default function TermsOfService() {
           exceed the amount you paid for the Service in the preceding 12 months.
         </p>
 
-        <h2 className="text-2xl font-semibold text-purple-200 mt-8 mb-4">
+        <h2 className="text-2xl font-semibold text-neutral-200 mt-8 mb-4">
           10. Indemnification
         </h2>
         <p className="mb-4">
@@ -218,7 +218,7 @@ export default function TermsOfService() {
           Service or violation of these Terms.
         </p>
 
-        <h2 className="text-2xl font-semibold text-purple-200 mt-8 mb-4">
+        <h2 className="text-2xl font-semibold text-neutral-200 mt-8 mb-4">
           11. Governing Law and Dispute Resolution
         </h2>
         <p className="mb-4">
@@ -229,7 +229,7 @@ export default function TermsOfService() {
           You waive the right to participate in class action lawsuits.
         </p>
 
-        <h2 className="text-2xl font-semibold text-purple-200 mt-8 mb-4">
+        <h2 className="text-2xl font-semibold text-neutral-200 mt-8 mb-4">
           12. Third-Party Services
         </h2>
         <p className="mb-4">
@@ -239,7 +239,7 @@ export default function TermsOfService() {
           and privacy policies.
         </p>
 
-        <h2 className="text-2xl font-semibold text-purple-200 mt-8 mb-4">
+        <h2 className="text-2xl font-semibold text-neutral-200 mt-8 mb-4">
           13. Contact Us
         </h2>
         <p className="mb-4">
@@ -251,7 +251,7 @@ export default function TermsOfService() {
           Email:{' '}
           <a
             href="mailto:contact@neuralnexus.site"
-            className="text-purple-300 hover:text-purple-100"
+            className="text-neutral-300 hover:text-neutral-100"
           >
             contact@neuralnexus.site
           </a>

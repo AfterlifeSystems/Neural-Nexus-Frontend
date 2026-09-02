@@ -61,13 +61,13 @@ const ApiKeyPresentation = ({ apiKey }) => {
         integrations like the Discord bot or your own scripts.
       </p>
       <div className="flex items-stretch gap-2">
-        <code className="flex-1 select-all break-all rounded-md bg-black/40 px-3 py-2 font-mono text-sm text-white">
+        <code className="flex-1 select-all break-all rounded-md bg-black/40 px-3 py-2 font-mono text-sm text-neutral-200">
           {apiKey}
         </code>
         <button
           type="button"
           onClick={copyApiKeyToClipboard}
-          className="shrink-0 px-3 rounded-md bg-white/10 hover:bg-white/20 text-white transition flex items-center gap-1"
+          className="shrink-0 px-3 rounded-md bg-black/50 hover:bg-white/10 border border-white/10 text-neutral-200 transition flex items-center gap-1"
           aria-label="Copy API key"
         >
           {wasCopied ? <Check size={18} /> : <Copy size={18} />}
@@ -293,14 +293,14 @@ const AuthComponent = ({ initialView = 'login' }) => {
 
         {/* Modal */}
         <div
-          className="relative z-10 p-8 rounded-xl shadow-2xl w-full max-w-md bg-white/5 backdrop-blur-lg border border-white/20"
+          className="relative z-10 p-8 rounded-xl shadow-2xl w-full max-w-md bg-black/60 backdrop-blur-lg border border-white/10"
           onClick={(e) => e.stopPropagation()}
         >
           {/* Header */}
           <>
-            {/* relative flex items-center justify-center space-x-4 bg-white/5 backdrop-blur-lg rounded-2xl border border-white/20 p-16 text-center cursor-pointer hover:bg-white/10 transition-all duration-300 min-h-screen w-full flex flex-col justify-evenly items-center  */}
+            {/* relative flex items-center justify-center space-x-4 bg-black/60 backdrop-blur-lg rounded-2xl border border-white/10 p-16 text-center cursor-pointer hover:bg-white/10 transition-all duration-300 min-h-screen w-full flex flex-col justify-evenly items-center  */}
             <div className="flex jusify-center items-center justify-evenly ">
-              <h2 className="text-5xl font-bold text-white mb-6">
+              <h2 className="text-5xl font-bold text-neutral-200 mb-6">
                 Neural Nexus
               </h2>
               {import.meta.env.VITE_TESTING === 'true' && (
@@ -327,7 +327,7 @@ const AuthComponent = ({ initialView = 'login' }) => {
                     toast.success('success works');
                     toast.error('error works');
                   }}
-                  className="px-4 py-2 bg-indigo-600 text-white rounded"
+                  className="px-4 py-2 bg-neutral-200 text-neutral-900 rounded"
                 >
                   Test Promise Toast
                 </button>
@@ -335,7 +335,7 @@ const AuthComponent = ({ initialView = 'login' }) => {
             </div>
             {validIcons?.length > 0 && (
               <div className="flex justify-center items-center pb-6">
-                <div className="w-32 h-32 bg-white/20 rounded-full flex items-center justify-center">
+                <div className="w-32 h-32 bg-white/10 rounded-full flex items-center justify-center">
                   <img
                     src={validIcons[rotatingIndex] ?? validIcons[0]}
                     alt="Avatar"
@@ -350,7 +350,7 @@ const AuthComponent = ({ initialView = 'login' }) => {
             )}
           </>
           <div className="flex items-center justify-between mb-6">
-            <h2 className="text-3xl font-bold text-white">
+            <h2 className="text-3xl font-bold text-neutral-200">
               {modalView === 'signup' && 'Create Account'}
               {modalView === 'login' && 'Login'}
               {modalView === 'forgotPassword' && 'Reset Password'}
@@ -367,7 +367,7 @@ const AuthComponent = ({ initialView = 'login' }) => {
               )}
               <p>
                 A verification email is on the way to{' '}
-                <span className="font-semibold text-white">{email}</span>.
+                <span className="font-semibold text-neutral-200">{email}</span>.
                 Follow the link inside and this page will take you straight in —
                 no need to log in again.
               </p>
@@ -391,14 +391,14 @@ const AuthComponent = ({ initialView = 'login' }) => {
                   }
                 }}
                 disabled={isLoading}
-                className="w-full py-3 bg-teal-600 hover:bg-teal-700 disabled:bg-teal-600/50 rounded-lg text-white font-semibold transition flex items-center justify-center gap-2"
+                className="w-full py-3 bg-neutral-200 hover:bg-neutral-100 disabled:bg-neutral-200/50 rounded-lg text-neutral-900 font-semibold transition flex items-center justify-center gap-2"
               >
                 <Check size={20} />
                 I've verified — continue
               </button>
               <button
                 onClick={() => setModalView('login')}
-                className="w-full py-3 bg-white/10 hover:bg-white/20 rounded-lg text-white font-semibold transition flex items-center justify-center gap-2"
+                className="w-full py-3 bg-black/50 hover:bg-white/10 border border-white/10 rounded-lg text-neutral-200 font-semibold transition flex items-center justify-center gap-2"
               >
                 <LogIn size={20} />
                 Back to Login
@@ -418,7 +418,7 @@ const AuthComponent = ({ initialView = 'login' }) => {
                   type="text"
                   value={username}
                   onChange={(e) => setUsername(e.target.value)}
-                  className="w-full px-4 py-3 rounded-lg bg-white/10 text-white border border-white/20 focus:outline-none focus:ring-2 focus:ring-teal-500 focus:border-transparent placeholder-white/40"
+                  className="w-full px-4 py-3 rounded-lg bg-black/50 text-neutral-200 border border-white/10 focus:outline-none focus:ring-2 focus:ring-amber-400/50 focus:border-transparent placeholder-white/40"
                   placeholder="Enter your username"
                   required
                 />
@@ -433,7 +433,7 @@ const AuthComponent = ({ initialView = 'login' }) => {
                 type="email"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
-                className="w-full px-4 py-3 rounded-lg bg-white/10 text-white border border-white/20 focus:outline-none focus:ring-2 focus:ring-teal-500 focus:border-transparent placeholder-white/40"
+                className="w-full px-4 py-3 rounded-lg bg-black/50 text-neutral-200 border border-white/10 focus:outline-none focus:ring-2 focus:ring-amber-400/50 focus:border-transparent placeholder-white/40"
                 placeholder="Enter your email"
                 required
               />
@@ -453,7 +453,7 @@ const AuthComponent = ({ initialView = 'login' }) => {
                     type={isPasswordVisible ? 'text' : 'password'}
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
-                    className="w-full px-4 py-3 pr-12 rounded-lg bg-white/10 text-white border border-white/20 focus:outline-none focus:ring-2 focus:ring-teal-500 focus:border-transparent placeholder-white/40"
+                    className="w-full px-4 py-3 pr-12 rounded-lg bg-black/50 text-neutral-200 border border-white/10 focus:outline-none focus:ring-2 focus:ring-amber-400/50 focus:border-transparent placeholder-white/40"
                     placeholder="Enter your password"
                     required
                     minLength={6}
@@ -461,7 +461,7 @@ const AuthComponent = ({ initialView = 'login' }) => {
                   <button
                     type="button"
                     onClick={() => setIsPasswordVisible(!isPasswordVisible)}
-                    className="absolute inset-y-0 right-0 px-4 flex items-center text-white/60 hover:text-white transition"
+                    className="absolute inset-y-0 right-0 px-4 flex items-center text-white/60 hover:text-neutral-100 transition"
                     aria-label={
                       isPasswordVisible ? 'Hide password' : 'Show password'
                     }
@@ -483,7 +483,7 @@ const AuthComponent = ({ initialView = 'login' }) => {
                 <button
                   type="button"
                   onClick={() => setModalView('forgotPassword')}
-                  className="text-teal-400 hover:text-teal-300 text-sm transition"
+                  className="text-neutral-400 hover:text-neutral-100 text-sm transition"
                 >
                   Forgot password?
                 </button>
@@ -494,7 +494,7 @@ const AuthComponent = ({ initialView = 'login' }) => {
             <button
               type="submit"
               disabled={isLoading}
-              className="w-full py-3 bg-teal-600 hover:bg-teal-700 disabled:bg-teal-600/50 rounded-lg text-white font-semibold transition flex items-center justify-center gap-2"
+              className="w-full py-3 bg-neutral-200 hover:bg-neutral-100 disabled:bg-neutral-200/50 rounded-lg text-neutral-900 font-semibold transition flex items-center justify-center gap-2"
             >
               {authProgressMessage ? (
                 <>
@@ -535,7 +535,7 @@ const AuthComponent = ({ initialView = 'login' }) => {
                       setModalView('signup');
                       setPassword('');
                     }}
-                    className="text-teal-400 hover:text-teal-300 font-medium transition"
+                    className="text-neutral-400 hover:text-neutral-100 font-medium transition"
                   >
                     Sign up
                   </button>
@@ -548,7 +548,7 @@ const AuthComponent = ({ initialView = 'login' }) => {
                       setModalView('login');
                       setUsername('');
                     }}
-                    className="text-teal-400 hover:text-teal-300 font-medium transition"
+                    className="text-neutral-400 hover:text-neutral-100 font-medium transition"
                   >
                     Log in
                   </button>
@@ -562,7 +562,7 @@ const AuthComponent = ({ initialView = 'login' }) => {
             <div className="mt-6 text-center">
               <button
                 onClick={() => setModalView('login')}
-                className="text-teal-400 hover:text-teal-300 text-sm transition"
+                className="text-neutral-400 hover:text-neutral-100 text-sm transition"
               >
                 ← Back to login
               </button>
