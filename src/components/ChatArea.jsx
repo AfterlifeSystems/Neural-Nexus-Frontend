@@ -21,7 +21,6 @@ import {
 import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 
 const ChatArea = ({
-  dropdownRef,
   onActivateLiveChat,
   onEndLiveChat,
   className,
@@ -342,7 +341,6 @@ const ChatArea = ({
             <div className="flex-shrink-0 items-center mt-2">
               <InputBar
                 avatarId={activeAvatar?.assistant_id ?? avatarId}
-                dropdownRef={dropdownRef}
                 onActivateLiveChat={() => setIsLiveModeOpen(true)}
               />
             </div>

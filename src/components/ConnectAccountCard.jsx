@@ -2,24 +2,26 @@
 import React, { useState } from 'react';
 import { Check, ExternalLink, Loader2 } from 'lucide-react';
 import ConnectorIcon from './icons/ConnectorIcon';
-import { connectMailbox } from '../services/avatarService';
+import { connectAccount } from '../services/avatarService';
 
 /**
- * The sign-in card the avatar raises when it needs an account connected.
+ * The connect card the avatar raises when it needs an account connected.
  *
- * Rendered from an `interrupt` frame whose kind is `connect_account`. Every
- * label, field, and help string comes from that payload rather than from this
- * file, so a provider added to the backend registry renders here with no change
- * — which is the whole reason the payload is shaped the way it is.
+ * Rendered from an `interrupt` frame whose kind is `connect_account`, or from
+ * the same description served by `GET /connectable_providers`. Every label,
+ * field, help string, and the endpoint to post to comes from that payload rather
+ * than from this file, so a provider added to the backend registry — a mailbox,
+ * a custom Model Context Protocol server, whatever comes next — renders here
+ * with no change. That is the whole reason the payload is shaped the way it is.
  *
  * THE CREDENTIAL DOES NOT GO THROUGH THE RESUME
  *   It would be simpler to hand what the owner types back as the interrupt's
  *   resume value and let the graph store it. That must never be built: a resume
  *   value is written into the graph's checkpointer, so the password would come
  *   to rest in the conversation's stored state and be readable by anything that
- *   replays the thread. The card posts the credential to its own endpoint,
- *   which verifies and encrypts it, and only then resumes the turn — carrying a
- *   decision and nothing else.
+ *   replays the thread. The card posts the credential to the endpoint the
+ *   payload names, which verifies and encrypts it, and only then resumes the
+ *   turn — carrying a decision and nothing else.
  *
  * @param {Object} parameters
  * @param {Object} parameters.interrupt The `connect_account` payload.
@@ -43,25 +45,35 @@ const ConnectAccountCard = ({
     icon_key: iconKey,
     tool_count: toolCount,
     credential_help_url: credentialHelpUrl,
+    connect_endpoint: connectEndpoint,
+    availability,
+    uses_form: usesForm = true,
+    pairing_instructions: pairingInstructions,
+    install_url: installUrl,
     fields = [],
     already_connected: alreadyConnected = [],
   } = interrupt ?? {};
 
+  const isComingSoon = availability === 'coming_soon';
+  const isMailbox = fields.some((field) => field.name === 'app_password');
+
   // 'offer' → 'signing_in' → 'connected', or 'dismissed'. Held here rather than
   // derived from the turn, because the turn resumes the moment the account is
   // connected and the card must keep showing what it did.
-  const [stage, setStage] = useState(startOpen ? 'signing_in' : 'offer');
+  const [stage, setStage] = useState(
+    startOpen && usesForm && !isComingSoon ? 'signing_in' : 'offer'
+  );
   const [fieldValues, setFieldValues] = useState({});
   const [errorMessage, setErrorMessage] = useState(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [connectedAddress, setConnectedAddress] = useState(null);
+  const [connectedLabel, setConnectedLabel] = useState(null);
 
   const setFieldValue = (name, value) =>
     setFieldValues((previous) => ({ ...previous, [name]: value }));
 
-  const everyFieldFilled = fields.every((field) =>
-    String(fieldValues[field.name] ?? '').trim()
-  );
+  const everyRequiredFieldFilled = fields
+    .filter((field) => field.required !== false)
+    .every((field) => String(fieldValues[field.name] ?? '').trim());
 
   const handleDismiss = () => {
     setStage('dismissed');
@@ -70,20 +82,25 @@ const ConnectAccountCard = ({
 
   const handleSubmit = async (submitEvent) => {
     submitEvent?.preventDefault();
-    if (isSubmitting || !everyFieldFilled) return;
+    if (isSubmitting || !everyRequiredFieldFilled) return;
 
     setIsSubmitting(true);
     setErrorMessage(null);
     try {
-      const response = await connectMailbox({
+      const response = await connectAccount({
         provider,
-        emailAddress: fieldValues.email_address,
-        appPassword: fieldValues.app_password,
+        fields: fieldValues,
+        endpoint: connectEndpoint || '/connect_account',
       });
-      setConnectedAddress(
-        response?.account?.account_address ?? fieldValues.email_address
+      const account = response?.account ?? {};
+      setConnectedLabel(
+        account.display_label ??
+          account.account_address ??
+          fieldValues.email_address ??
+          fieldValues.name ??
+          displayName
       );
-      // Drop the password from component state the instant it is no longer
+      // Drop the secret from component state the instant it is no longer
       // needed, so it does not sit in memory for the rest of the conversation.
       setFieldValues({});
       setStage('connected');
@@ -91,8 +108,9 @@ const ConnectAccountCard = ({
     } catch (connectError) {
       // Shown as written. The API's rejection names what was wrong — for Gmail,
       // that an app password is required and the account password will never
-      // work — and replacing it with a generic failure is what sends someone
-      // back to retype the same wrong secret.
+      // work; for a custom server, that the address did not answer — and
+      // replacing it with a generic failure is what sends someone back to
+      // retype the same wrong thing.
       setErrorMessage(
         connectError?.message ??
           `${displayName ?? 'That account'} could not be connected.`
@@ -131,8 +149,13 @@ const ConnectAccountCard = ({
             <Check className="w-4 h-4" aria-hidden="true" />
             Added
           </span>
+        ) : isComingSoon ? (
+          <span className="shrink-0 px-3 py-1.5 rounded-full bg-white/10 border border-white/10 text-white/60 text-xs">
+            Coming soon
+          </span>
         ) : (
-          stage === 'offer' && (
+          stage === 'offer' &&
+          usesForm && (
             <button
               type="button"
               onClick={() => setStage('signing_in')}
@@ -144,11 +167,30 @@ const ConnectAccountCard = ({
         )}
       </div>
 
+      {/* A machine connects itself when the daemon runs; the card explains that
+          instead of offering a form it cannot honour. */}
+      {!usesForm && !isComingSoon && stage !== 'connected' && (
+        <div className="mt-3 space-y-2">
+          <p className="text-white/60 text-sm">{pairingInstructions}</p>
+          {installUrl && (
+            <a
+              href={installUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-1 text-neutral-300 hover:text-neutral-100 text-xs underline"
+            >
+              Get the Neural Nexus daemon
+              <ExternalLink className="w-3 h-3" aria-hidden="true" />
+            </a>
+          )}
+        </div>
+      )}
+
       {stage === 'offer' && alreadyConnected.length > 0 && (
         <p className="mt-3 text-white/50 text-xs">
           Already connected:{' '}
           {alreadyConnected
-            .map((account) => account.account_address)
+            .map((account) => account.display_label ?? account.account_address)
             .join(', ')}
         </p>
       )}
@@ -159,7 +201,7 @@ const ConnectAccountCard = ({
           onClick={handleDismiss}
           className="mt-3 text-white/40 hover:text-white/70 text-xs underline transition-colors"
         >
-          Not now
+          {isComingSoon || !usesForm ? 'Close' : 'Not now'}
         </button>
       )}
 
@@ -172,15 +214,16 @@ const ConnectAccountCard = ({
                 className="block text-white/70 text-sm mb-1"
               >
                 {field.label}
+                {field.required === false && (
+                  <span className="text-white/40"> (optional)</span>
+                )}
               </label>
               <input
                 id={`connect-${provider}-${field.name}`}
                 type={field.input_type || 'text'}
                 value={fieldValues[field.name] ?? ''}
                 placeholder={field.placeholder || ''}
-                autoComplete={
-                  field.input_type === 'password' ? 'off' : 'email'
-                }
+                autoComplete={field.input_type === 'password' ? 'off' : 'on'}
                 onChange={(changeEvent) =>
                   setFieldValue(field.name, changeEvent.target.value)
                 }
@@ -199,7 +242,7 @@ const ConnectAccountCard = ({
               rel="noopener noreferrer"
               className="inline-flex items-center gap-1 text-neutral-300 hover:text-neutral-100 text-xs underline"
             >
-              Generate an app password
+              {isMailbox ? 'Generate an app password' : 'Where to get the credential'}
               <ExternalLink className="w-3 h-3" aria-hidden="true" />
             </a>
           )}
@@ -216,13 +259,19 @@ const ConnectAccountCard = ({
           <div className="flex items-center gap-2">
             <button
               type="submit"
-              disabled={isSubmitting || !everyFieldFilled}
+              disabled={isSubmitting || !everyRequiredFieldFilled}
               className="px-4 py-2 rounded-lg bg-neutral-100/10 hover:bg-neutral-100/15 disabled:opacity-40 disabled:hover:bg-neutral-100/10 border border-neutral-700 text-neutral-300 text-sm font-medium transition-colors inline-flex items-center gap-2"
             >
               {isSubmitting && (
                 <Loader2 className="w-4 h-4 animate-spin" aria-hidden="true" />
               )}
-              {isSubmitting ? 'Signing in…' : 'Sign in'}
+              {isSubmitting
+                ? isMailbox
+                  ? 'Signing in…'
+                  : 'Connecting…'
+                : isMailbox
+                  ? 'Sign in'
+                  : 'Add connector'}
             </button>
             <button
               type="button"
@@ -236,11 +285,12 @@ const ConnectAccountCard = ({
         </form>
       )}
 
-      {stage === 'connected' && connectedAddress && (
+      {stage === 'connected' && connectedLabel && (
         <p className="mt-3 text-white/60 text-sm">
-          Signed in as{' '}
-          <span className="text-neutral-200">{connectedAddress}</span>. Drafts are
-          saved to the mailbox; nothing is ever sent.
+          Connected as <span className="text-neutral-200">{connectedLabel}</span>.
+          {isMailbox
+            ? ' The avatar can now read this mailbox, draft in your voice, and send when you ask.'
+            : ' Its tools are available to the avatar now.'}
         </p>
       )}
     </div>

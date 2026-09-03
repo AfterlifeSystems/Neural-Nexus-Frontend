@@ -425,3 +425,86 @@ export const disconnectAccount = async (accountKey) => {
 export const listConnectableProviders = async () => {
   return requestJson('/connectable_providers');
 };
+
+/**
+ * Connect any catalog provider through the generic route.
+ *
+ * The provider's connect card (from `listConnectableProviders`) names the fields
+ * this call must carry and the endpoint to post them to; passing them through
+ * unchanged is what lets a provider added to the API registry connect from this
+ * client with no code change. Secrets travel in the JSON body, never the URL.
+ * POST /connect_account (or the card's own `connect_endpoint`)
+ *
+ * @param {Object} parameters
+ * @param {string} parameters.provider The provider name from the catalog.
+ * @param {Object} parameters.fields The card's fields, keyed by field name.
+ * @param {string} [parameters.endpoint] The card's `connect_endpoint`.
+ * @returns {Promise<Object>} `{connected, account}` — no secret in either.
+ */
+export const connectAccount = async ({
+  provider,
+  fields,
+  endpoint = '/connect_account',
+}) => {
+  return requestJson(endpoint, {
+    method: 'POST',
+    body: { provider, fields },
+  });
+};
+
+/**
+ * Everything the personal avatar is connected to, accounts and devices alike.
+ *
+ * One row shape for a mailbox, a custom connector, and a machine running the
+ * Neural Nexus daemon. Keys are prefixed `account:` / `device:` so the toggle
+ * endpoint can route them, and each row names its own `disconnect_endpoint`.
+ * GET /list_connections
+ *
+ * @returns {Promise<Object>} `{personal_avatar_id, connection_count, connections}`.
+ */
+export const listConnections = async () => {
+  return requestJson('/list_connections');
+};
+
+/**
+ * Toggle one connection on or off.
+ *
+ * Off DISCONNECTS: the account's credential is deleted (or the machine is
+ * unbound and suppressed from re-adoption). On cannot restore a deleted
+ * credential, so for an account the response carries `action:
+ * 'open_connect_card'` and the card to open; for a machine it clears the
+ * suppression so the avatar reconnects on the next turn.
+ * POST /set_connection_state
+ *
+ * @param {string} connectionKey A prefixed key from `listConnections`.
+ * @param {boolean} connected The desired state.
+ * @returns {Promise<Object>} `{connection_key, connected, action?, card?}`.
+ */
+export const setConnectionState = async (connectionKey, connected) => {
+  return requestJson('/set_connection_state', {
+    method: 'POST',
+    body: { connection_key: connectionKey, connected },
+  });
+};
+
+/**
+ * Pull the owner's sent mail into the personal avatar's identity.
+ *
+ * Runs as a background media job, exactly like an uploaded text file, so the
+ * returned `job_id` can be followed with `streamMediaJobProgress`.
+ * POST /import_mailbox_writing_samples
+ *
+ * @param {Object} [parameters]
+ * @param {string} [parameters.accountKey] Which mailbox, when several are connected.
+ * @param {number} [parameters.limit] How many sent messages to read.
+ * @returns {Promise<Object>} `{job_id, progress_url, messages_imported, ...}`.
+ */
+export const importMailboxWritingSamples = async ({
+  accountKey,
+  limit,
+} = {}) => {
+  return requestJson('/import_mailbox_writing_samples', {
+    method: 'POST',
+    body: { account_key: accountKey, limit },
+  });
+};

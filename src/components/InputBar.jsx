@@ -1,4 +1,5 @@
 import { useRef, useEffect, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import {
   AudioLines,
   FileAudio,
@@ -6,9 +7,11 @@ import {
   FileText,
   FileVideo,
   Image as ImageIcon,
-  Paperclip,
+  Plus,
 } from 'lucide-react';
 import { useMedia } from '../context/MediaContext';
+import { useAuth } from '../context/AuthContext';
+import ComposerConnectorsMenu from './connections/ComposerConnectorsMenu';
 import Dock from './Dock';
 import { HiXMark } from 'react-icons/hi2';
 import { describeDocumentKind } from './AvatarDocumentRow';
@@ -50,17 +53,18 @@ const describeAttachment = (attachedFile) => {
   return ATTACHMENT_PRESENTATION[kind] ?? ATTACHMENT_PRESENTATION.document;
 };
 
-const InputBar = ({
-  avatar_id,
-  accessToken,
-  setShowDataExchangeDropdown,
-  showDataExchangeDropdown,
-  dropdownRef,
-  onActivateLiveChat,
-  avatarId,
-}) => {
+const InputBar = ({ onActivateLiveChat, avatarId }) => {
   const fileInputRef = useRef(null);
   const textareaRef = useRef(null);
+  const navigate = useNavigate();
+  const { activeAvatar } = useAuth();
+
+  // The "+" menu. Connectors live only on the personal avatar: they carry the
+  // owner's own credentials, and a shared or secondary avatar reaches none.
+  const [isComposerMenuOpen, setIsComposerMenuOpen] = useState(false);
+  const isPersonalAvatar = Boolean(
+    activeAvatar?.metadata?.is_personal_avatar_of_creator
+  );
 
   // The keyboard hints in the placeholder wrap to three lines on a phone and
   // push the composer up the screen; a phone has no Ctrl key anyway.
@@ -382,20 +386,40 @@ const InputBar = ({
             spellCheck={false}
           />
 
-          {/* The picker below has always been here, hidden, with nothing to
-              open it — so images and documents could only be attached by
-              dragging them onto the composer. This is that same input, finally
-              given a control, matching the paperclip in the Streamlit app. */}
-          <div className="flex items-center px-3 pb-2">
+          {/* The "+" menu: upload a file, and on the personal avatar the
+              Connectors submenu (each connected account with a switch, then
+              Add / Manage). The hidden file input below is what "Upload a
+              file" opens. */}
+          <div className="relative flex items-center px-3 pb-2">
             <button
               type="button"
-              onClick={() => fileInputRef.current?.click()}
-              title="Attach images or documents"
-              aria-label="Attach images or documents"
-              className="p-1.5 rounded-lg text-neutral-400 hover:text-neutral-100 hover:bg-white/10 transition-colors focus:outline-none focus:ring-2 focus:ring-amber-400/50"
+              onClick={() => setIsComposerMenuOpen((previous) => !previous)}
+              title="Add files or connectors"
+              aria-label="Add files or connectors"
+              aria-haspopup="menu"
+              aria-expanded={isComposerMenuOpen}
+              aria-controls="composer-menu"
+              className={`p-1.5 rounded-lg text-neutral-400 hover:text-neutral-100 hover:bg-white/10 transition-colors focus:outline-none focus:ring-2 focus:ring-amber-400/50 ${
+                isComposerMenuOpen ? 'bg-white/10 text-neutral-100' : ''
+              }`}
             >
-              <Paperclip className="w-5 h-5" />
+              <Plus
+                className={`w-5 h-5 transition-transform ${
+                  isComposerMenuOpen ? 'rotate-45' : ''
+                }`}
+              />
             </button>
+            <ComposerConnectorsMenu
+              open={isComposerMenuOpen}
+              onClose={() => setIsComposerMenuOpen(false)}
+              onAttachFile={() => fileInputRef.current?.click()}
+              showConnectors={isPersonalAvatar}
+              onManageConnectors={() =>
+                navigate(
+                  `/chat/${encodeURIComponent(avatarId)}?tab=settings&section=connections`
+                )
+              }
+            />
           </div>
 
           {historyIndex !== -1 && (
