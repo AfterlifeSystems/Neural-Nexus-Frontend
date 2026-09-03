@@ -9,11 +9,19 @@
 // different things.
 
 import React from 'react';
-import { CreditCard, Settings, LogOut, Users, UserCog } from 'lucide-react';
+import {
+  CreditCard,
+  Inbox,
+  LogOut,
+  Settings,
+  UserCog,
+  Users,
+} from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 
 import { useAuth } from '../context/AuthContext';
 import { getPersonalAvatar } from '../services/avatarService';
+import useInboxCount from '../hooks/useInboxCount';
 
 /**
  * One row of the account menu.
@@ -121,6 +129,9 @@ const AccountMenu = ({
   const { logOut } = useAuth();
   const openPersonalAvatarSettings =
     usePersonalAvatarSettingsNavigation(onNavigate);
+  // Pending agent-inbox items, polled in the background; the badge is the
+  // owner's first sign that something needs them.
+  const inboxCount = useInboxCount();
 
   const goTo = (path) => {
     onNavigate?.();
@@ -141,6 +152,24 @@ const AccountMenu = ({
         icon={<UserCog className="w-4 h-4 shrink-0" />}
         label="Your avatar's settings"
         onClick={openPersonalAvatarSettings}
+      />
+      <AccountMenuItem
+        icon={<Inbox className="w-4 h-4 shrink-0" />}
+        label={
+          <span className="flex items-center gap-2">
+            Agent Inbox
+            {inboxCount > 0 && (
+              <span
+                aria-label={`${inboxCount} items waiting`}
+                className="min-w-[1.25rem] h-5 px-1.5 rounded-full bg-amber-400 text-neutral-900 text-xs font-semibold flex items-center justify-center"
+              >
+                {inboxCount > 99 ? '99+' : inboxCount}
+              </span>
+            )}
+          </span>
+        }
+        onClick={() => goTo('/inbox')}
+        isCurrent={currentPath === '/inbox'}
       />
       <AccountMenuItem
         icon={<Settings className="w-4 h-4 shrink-0" />}

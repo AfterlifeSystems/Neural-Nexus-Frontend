@@ -741,3 +741,55 @@ export const requestLipSyncClip = async (
   }
   return null;
 };
+
+/**
+ * The owner's agent-inbox items.
+ * GET /inbox/items
+ *
+ * @param {Object} [options]
+ * @param {string} [options.state] `open` (default), `all`, or one state.
+ * @param {number} [options.limit] Maximum items.
+ * @returns {Promise<Object>} `{personal_avatar_id, pending_count, items}`.
+ */
+export const listInboxItems = async ({ state = 'open', limit = 50 } = {}) => {
+  return requestJson('/inbox/items', { query: { state, limit } });
+};
+
+/**
+ * How many inbox items await the owner — the badge.
+ * GET /inbox/count
+ *
+ * @returns {Promise<Object>} `{pending_count}`.
+ */
+export const getInboxCount = async () => {
+  return requestJson('/inbox/count');
+};
+
+/**
+ * Deliver the owner's decision on a pending inbox item.
+ *
+ * `type` is `accept`, `edit`, `ignore`, or `response` (the Agent Inbox
+ * HumanResponse); `edit` carries `{action:'send_reply', args:{subject, body}}`,
+ * `response` carries free text.
+ * POST /inbox/items/{item_id}/decide
+ *
+ * @param {string} itemId The item.
+ * @param {Object} decision `{type, args}`.
+ * @returns {Promise<Object>} `{item}` after the graph resumed.
+ */
+export const decideInboxItem = async (itemId, decision) => {
+  return requestJson(`/inbox/items/${encodeURIComponent(itemId)}/decide`, {
+    method: 'POST',
+    body: decision,
+  });
+};
+
+/**
+ * Check the owner's connected mailboxes now and triage anything new.
+ * POST /inbox/poll
+ *
+ * @returns {Promise<Object>} `{polled, new_items, at}`.
+ */
+export const pollInbox = async () => {
+  return requestJson('/inbox/poll', { method: 'POST' });
+};

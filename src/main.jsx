@@ -16,6 +16,7 @@ import AuthComponent from './components/AuthComponent';
 import ChatArea from './components/ChatArea';
 
 import AccountSettings from './components/AccountSettings';
+import InboxPanel from './components/inbox/InboxPanel';
 import BillingManagement from './components/BillingManagement';
 import SharedAvatarLayout from './components/SharedAvatarLayout';
 import SharedAvatarChat from './components/SharedAvatarChat';
@@ -129,6 +130,7 @@ createRoot(document.getElementById('root')).render(
               <Route path="/avatars" element={<AvatarSelectionComponent />} />
               <Route path="/chat/:avatarId" element={<ChatArea />} />
               <Route path="/account" element={<AccountSettings />} />
+              <Route path="/inbox" element={<InboxPanel />} />
               <Route path="/billing" element={<BillingManagement />} />
             </Route>
           </Routes>
