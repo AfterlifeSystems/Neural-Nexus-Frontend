@@ -19,6 +19,7 @@ import {
   getAvatarReferenceImage,
 } from '../services/avatarService';
 import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
+import useEmotionMedia, { stillFor } from '../hooks/useEmotionMedia';
 
 const ChatArea = ({
   onActivateLiveChat,
@@ -161,6 +162,21 @@ const ChatArea = ({
     };
   }, [avatarId]);
 
+  // The header face follows the most recent reply's emotion, so the avatar
+  // "looks" the way it last spoke. Neutral, or an avatar with no generated
+  // media, shows the portrait.
+  const { manifest: emotionMedia } = useEmotionMedia(
+    activeAvatar?.assistant_id ?? avatarId
+  );
+  const lastReplyEmotion = [...messages]
+    .reverse()
+    .find((message) => message.type === 'ai' && message.sentiment?.base_emotion)
+    ?.sentiment?.base_emotion;
+  const headerFace =
+    (lastReplyEmotion && lastReplyEmotion !== 'neutral'
+      ? stillFor(emotionMedia, lastReplyEmotion)
+      : null) ?? avatarPortrait;
+
   // Load the open avatar's conversation.
   //
   // Ordering matters here. The screen is cleared BEFORE the first request goes
@@ -271,11 +287,12 @@ const ChatArea = ({
             row, so the row scrolls sideways and the labels drop their
             prefixes rather than wrapping the name over four lines. */}
         <div className="flex items-center shrink-0 mb-2 border-b border-white/10 gap-1 sm:gap-4 sm:justify-center overflow-x-auto overflow-y-hidden scrollbar-none">
-          {/* The avatar's face, or a placeholder standing in for one. */}
+          {/* The avatar's face, or a placeholder standing in for one. It
+              follows the last reply's emotion when a still exists for it. */}
           <div className="w-9 h-9 shrink-0 rounded-full bg-black/50 border border-white/10 flex items-center justify-center overflow-hidden">
-            {avatarPortrait && isValidImageUrl(avatarPortrait) ? (
+            {headerFace && isValidImageUrl(headerFace) ? (
               <img
-                src={avatarPortrait}
+                src={headerFace}
                 alt={activeAvatar?.name ?? 'Avatar'}
                 className="w-full h-full object-cover"
                 onError={() => setAvatarPortrait(null)}
@@ -334,6 +351,7 @@ const ChatArea = ({
                   messagesEndRef={messagesEndRef}
                   avatarPortrait={avatarPortrait}
                   avatarName={activeAvatar?.name}
+                  assistantId={activeAvatar?.assistant_id ?? avatarId}
                 />
               </div>
             </div>

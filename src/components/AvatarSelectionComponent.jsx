@@ -3,6 +3,7 @@ import { toast } from 'react-hot-toast';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import CircularGallery from './CircularGallery';
+import { idleLoopFor, loadEmotionMedia } from '../hooks/useEmotionMedia';
 import {
   Search,
   CirclePlus,
@@ -299,11 +300,32 @@ const AvatarSelectionComponent = ({}) => {
   };
 
   // https://claude.ai/chat/8e125e85-be01-4541-a4f4-da3590f996c1
-  const authenticatedCards = useMemo(() => {
-    console.log(
-      `authenticatedCards USEMEMO XXXXXXXXXXXXXXXXXX userAvatars: ${userAvatars}`
-    );
+  // Each avatar's neutral idle loop, when its emotion media has been
+  // generated. Loaded once per avatar through the shared manifest cache; a
+  // card without one shows its portrait, exactly as before.
+  const [neutralLoopsById, setNeutralLoopsById] = useState({});
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const entries = await Promise.all(
+        (userAvatars ?? []).map(async (avatar) => {
+          const assistantId = avatar.assistant_id ?? avatar.avatar_id;
+          const manifest = await loadEmotionMedia(assistantId);
+          return [assistantId, idleLoopFor(manifest, 'neutral')];
+        })
+      );
+      if (!cancelled) {
+        setNeutralLoopsById(
+          Object.fromEntries(entries.filter(([, loopUrl]) => Boolean(loopUrl)))
+        );
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [userAvatars]);
 
+  const authenticatedCards = useMemo(() => {
     const avatarCards =
       userAvatars?.map((avatar) => {
         const assistantId = avatar.assistant_id ?? avatar.avatar_id;
@@ -320,6 +342,7 @@ const AvatarSelectionComponent = ({}) => {
           type: 'avatar',
           text: avatar.name,
           image: iconSource && isValidImageUrl(iconSource) ? iconSource : null,
+          video: neutralLoopsById[assistantId] ?? null,
           avatar_data: avatar,
         };
       }) || [];
@@ -333,7 +356,7 @@ const AvatarSelectionComponent = ({}) => {
     });
 
     return avatarCards;
-  }, [userAvatars, avatarIconsById]);
+  }, [userAvatars, avatarIconsById, neutralLoopsById]);
 
   const getCachedAvatarPosition = (avatarId = null) => {
     try {

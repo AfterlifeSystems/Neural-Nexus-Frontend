@@ -251,6 +251,10 @@ function normalizeThreadMessages(storedMessages) {
             ? withoutModelFacingAttachmentText(messageText)
             : messageText,
         response_metadata: storedMessage.response_metadata ?? {},
+        // The reply's classified emotion, which picks the avatar's emotion
+        // still beside the bubble. Absent on human turns and on replies made
+        // before sentiment was recorded.
+        sentiment: storedMessage.response_metadata?.sentiment ?? null,
       };
     });
 }
@@ -712,6 +716,11 @@ export const MediaProvider = ({ children }) => {
                 isLoading: false,
                 content: terminalFrame.content ?? message.content,
                 usage: terminalFrame.usage,
+                response_metadata: terminalFrame.response_metadata ?? {},
+                // Classified once the whole reply is known; the chat swaps the
+                // avatar's icon to the matching emotion still, and voice mode
+                // picks the emotion's idle loop and lip-sync still from it.
+                sentiment: terminalFrame.response_metadata?.sentiment ?? null,
               }
             : message
         )
@@ -751,6 +760,7 @@ export const MediaProvider = ({ children }) => {
       success: terminalFrame != null,
       reply: terminalFrame?.content ?? '',
       threadId: terminalFrame?.thread_id ?? null,
+      sentiment: terminalFrame?.response_metadata?.sentiment ?? null,
     };
   }
 

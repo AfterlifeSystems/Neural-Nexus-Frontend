@@ -306,6 +306,7 @@ const SharedAvatarChat = () => {
                 messagesEndRef={messagesEndRef}
                 avatarPortrait={avatarPortrait}
                 avatarName={activeAvatar?.name}
+                assistantId={avatarId}
               />
 
               {/* An empty chat asks a visitor to think of something to say to a

@@ -5,6 +5,7 @@
 // endpoint so components never build paths or headers themselves.
 
 import {
+  NEURAL_NEXUS_API_BASE_URL,
   requestJson,
   streamServerSentEvents,
 } from './neuralNexusApiClient';
@@ -508,3 +509,72 @@ export const importMailboxWritingSamples = async ({
     body: { account_key: accountKey, limit },
   });
 };
+
+/**
+ * The avatar's emotion media manifest: one still and one idle loop per emotion.
+ *
+ * `emotions[emotion].still.url` / `.idle_loop.url` are API paths served by
+ * `GET /avatar_emotion_media/{asset_id}` (immutable, cacheable). `complete` is
+ * true only when all seven emotions have both. Readable by anyone who may chat
+ * with the avatar, like the portrait.
+ * GET /avatar_emotion_media
+ *
+ * @param {string} assistantId The avatar.
+ * @param {Object} [options]
+ * @param {boolean} [options.asAnonymousIdentity] Withhold the credential (public chat).
+ * @returns {Promise<Object>} `{emotions, complete, missing}`.
+ */
+export const getAvatarEmotionMedia = async (
+  assistantId,
+  { asAnonymousIdentity = false } = {}
+) => {
+  return requestJson('/avatar_emotion_media', {
+    query: { assistant_id: assistantId },
+    asAnonymousIdentity,
+  });
+};
+
+/**
+ * (Re)build the avatar's emotion stills and idle loops from its reference image.
+ *
+ * Runs as a durable job; poll `getAvatarMediaJob(job_id)` for its state.
+ * POST /avatar_emotion_media/regenerate
+ *
+ * @param {string} assistantId The avatar.
+ * @param {Object} [options]
+ * @param {boolean} [options.onlyMissing] Retry only what failed (default true).
+ * @returns {Promise<Object>} `{job_id, status_url}`.
+ */
+export const regenerateAvatarEmotionMedia = async (
+  assistantId,
+  { onlyMissing = true } = {}
+) => {
+  return requestJson('/avatar_emotion_media/regenerate', {
+    method: 'POST',
+    body: { assistant_id: assistantId, only_missing: onlyMissing },
+  });
+};
+
+/**
+ * State and progress of one durable media job.
+ * GET /avatar_media_jobs/{job_id}
+ *
+ * @param {string} jobId The job.
+ * @returns {Promise<Object>} `{job_id, job_kind, state, detail, ...}`.
+ */
+export const getAvatarMediaJob = async (jobId) => {
+  return requestJson(`/avatar_media_jobs/${encodeURIComponent(jobId)}`);
+};
+
+/**
+ * Turn an API-relative media path into an absolute URL the browser can load.
+ *
+ * Emotion media is served as bytes with immutable caching, so an `<img>` or
+ * `<video>` can point straight at it; the bearer credential is not needed for
+ * public avatars and is deliberately not embedded in the URL.
+ *
+ * @param {string} path An API path such as `/avatar_emotion_media/{id}`.
+ * @returns {string} The absolute URL.
+ */
+export const absoluteMediaUrl = (path) =>
+  path?.startsWith('http') ? path : `${NEURAL_NEXUS_API_BASE_URL}${path ?? ''}`;

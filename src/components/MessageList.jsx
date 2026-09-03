@@ -10,6 +10,7 @@ import { isValidImageUrl, isSharedAvatarChatPath } from './utils';
 import BillingRefusalNotice, {
   BILLING_REFUSAL_MESSAGE_TYPE,
 } from './BillingRefusalNotice';
+import useEmotionMedia, { stillFor } from '../hooks/useEmotionMedia';
 
 /**
  * The face beside a message: whoever said it.
@@ -18,16 +19,33 @@ import BillingRefusalNotice, {
  * relying on which edge a bubble is stuck to. A portrait is often absent — a
  * new avatar has none until one is uploaded — so the placeholder is the normal
  * case rather than an error state.
+ *
+ * For the avatar's replies the face follows the reply: when the reply's
+ * classified emotion is not neutral and the avatar has a generated still for
+ * that emotion, that still is shown in place of the portrait, so a joyful
+ * answer is delivered by a joyful face.
  */
-const MessageAuthorIcon = ({ portrait, name }) => (
-  <div className="w-8 h-8 shrink-0 rounded-full bg-black/50 border border-white/10 overflow-hidden flex items-center justify-center">
-    {portrait && isValidImageUrl(portrait) ? (
-      <img src={portrait} alt={name} className="w-full h-full object-cover" />
-    ) : (
-      <User className="w-4 h-4 text-white/40" />
-    )}
-  </div>
-);
+export const MessageAuthorIcon = ({ portrait, name, emotion, emotionMedia }) => {
+  const emotionStill =
+    emotion && emotion !== 'neutral' ? stillFor(emotionMedia, emotion) : null;
+  const face = emotionStill ?? portrait;
+  return (
+    <div
+      className="w-8 h-8 shrink-0 rounded-full bg-black/50 border border-white/10 overflow-hidden flex items-center justify-center"
+      title={emotionStill ? emotion : undefined}
+    >
+      {face && isValidImageUrl(face) ? (
+        <img
+          src={face}
+          alt={emotionStill ? `${name} (${emotion})` : name}
+          className="w-full h-full object-cover transition-opacity duration-300"
+        />
+      ) : (
+        <User className="w-4 h-4 text-white/40" />
+      )}
+    </div>
+  );
+};
 
 /**
  * The scrolling box a descendant actually scrolls inside: the nearest ancestor
@@ -58,10 +76,16 @@ const MessageList = ({
   messagesEndRef,
   avatarPortrait,
   avatarName,
+  assistantId,
 }) => {
   const { assistantActivity } = useMedia();
-  const { userPortrait } = useAuth();
+  const { userPortrait, activeAvatar } = useAuth();
   const location = useLocation();
+  const readerIsAnonymous = isSharedAvatarChatPath(location.pathname);
+  const { manifest: emotionMedia } = useEmotionMedia(
+    assistantId ?? activeAvatar?.assistant_id ?? activeAvatar?.avatar_id,
+    { asAnonymousIdentity: readerIsAnonymous }
+  );
 
   // Who the reader is on THIS screen, which is not always who this browser has
   // a session for. Every turn on a shared avatar's public chat is sent as the
@@ -126,6 +150,8 @@ const MessageList = ({
                   <MessageAuthorIcon
                     portrait={isFromUser ? readerPortrait : avatarPortrait}
                     name={isFromUser ? 'You' : (avatarName ?? 'Avatar')}
+                    emotion={isFromAvatar ? msg.sentiment?.base_emotion : null}
+                    emotionMedia={isFromAvatar ? emotionMedia : null}
                   />
                 )}
                 <div

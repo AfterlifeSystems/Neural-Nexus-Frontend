@@ -38,6 +38,8 @@ import {
   shareAvatar,
 } from '../services/avatarService';
 import ConnectionsSection from './connections/ConnectionsSection';
+import EmotionMediaStatus from './media/EmotionMediaStatus';
+import { forgetEmotionMedia } from '../hooks/useEmotionMedia';
 import {
   forgetCachedAvatar,
   writeCachedAvatarIcon,
@@ -388,6 +390,13 @@ const AvatarSettings = ({ avatarId, onPortraitChanged }) => {
       converting: 'Converting',
       expanding: 'Expanding the playlist',
       indexing: 'Adding to memory',
+      // A reference image also becomes six emotion portraits and seven idle
+      // loops; a reference recording becomes voice-clone material.
+      emotion_stills: 'Generating emotion portraits',
+      idle_loops: 'Animating idle loops',
+      emotion_media_complete: 'Emotion media ready',
+      voice_clip_collected: 'Collecting your voice',
+      instant_clone_created: 'Voice clone ready',
     };
     const stageDescription =
       stageDescriptions[progressEvent.stage] ??
@@ -779,6 +788,10 @@ const AvatarSettings = ({ avatarId, onPortraitChanged }) => {
       } else {
         forgetCachedAvatarIcon(assistantId);
       }
+      // The emotion stills and loops derive from the portrait, so a new
+      // portrait means a new set; drop the cached manifest so the chat, the
+      // gallery, and the status strip below the portrait re-read it.
+      forgetEmotionMedia(assistantId);
       if (storedPortrait) {
         // If this was the avatar that depicts the user, their icon changes
         // everywhere at once — the alternative is a stale face beside their
@@ -1208,6 +1221,10 @@ const AvatarSettings = ({ avatarId, onPortraitChanged }) => {
             <p className="text-xs text-white/40 text-center w-32">
               {avatarIcon ? 'Click to replace' : 'Drop or click'}
             </p>
+            <EmotionMediaStatus
+              assistantId={assistantId}
+              hasPortrait={Boolean(avatarIcon)}
+            />
           </div>
           {/* Name and Description */}
           <div className="flex-grow space-y-4">

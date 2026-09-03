@@ -193,11 +193,17 @@ class Media {
     font,
     onCardClick,
     cardType = 'avatar', // New prop to identify card type
+    video = null,
   }) {
     this.extra = 0;
     this.geometry = geometry;
     this.gl = gl;
     this.image = image;
+    // The avatar's neutral idle loop, when one has been generated. The still
+    // is shown until the first frame decodes, then the texture is refreshed
+    // from the video every frame so the card breathes and blinks in place.
+    this.video = video;
+    this.videoElement = null;
     this.index = index;
     this.length = length;
     this.renderer = renderer;
@@ -281,6 +287,7 @@ class Media {
       },
       transparent: true,
     });
+    this.texture = texture;
     // Handle null/invalid images
     if (!this.image) {
       // Create placeholder texture
@@ -303,6 +310,7 @@ class Media {
           img.naturalWidth,
           img.naturalHeight,
         ];
+        this.startIdleLoop();
       };
       img.onerror = () => {
         // Fallback to placeholder if image fails to load
@@ -316,6 +324,26 @@ class Media {
         this.program.uniforms.uImageSizes.value = [width, height];
       };
     }
+  }
+  startIdleLoop() {
+    if (!this.video || this.videoElement) return;
+    const video = document.createElement('video');
+    video.crossOrigin = 'anonymous';
+    video.muted = true;
+    video.loop = true;
+    video.playsInline = true;
+    video.autoplay = true;
+    video.preload = 'auto';
+    video.src = this.video;
+    video.addEventListener('error', () => {
+      // A loop that will not play leaves the still in place; nothing else to do.
+      this.videoElement = null;
+    });
+    video.play().catch(() => {
+      // Autoplay refused (no user gesture yet): the still stays until the
+      // page is interacted with, when the next update() tries again.
+    });
+    this.videoElement = video;
   }
   createMesh() {
     this.plane = new Mesh(this.gl, {
@@ -335,6 +363,21 @@ class Media {
     });
   }
   update(scroll, direction) {
+    // Refresh the card's texture from the idle loop once it has frames.
+    const video = this.videoElement;
+    if (video && video.readyState >= 2 && this.texture) {
+      if (video.paused) {
+        video.play().catch(() => {});
+      }
+      if (this.texture.image !== video) {
+        this.texture.image = video;
+        this.program.uniforms.uImageSizes.value = [
+          video.videoWidth || 1,
+          video.videoHeight || 1,
+        ];
+      }
+      this.texture.needsUpdate = true;
+    }
     this.plane.position.x = this.x - scroll.current - this.extra;
     const x = this.plane.position.x;
     const H = this.viewport.width / 2;
@@ -471,6 +514,7 @@ class App {
         geometry: this.planeGeometry,
         gl: this.gl,
         image: data.image,
+        video: data.video ?? null,
         index,
         length: this.mediasImages.length,
         renderer: this.renderer,
