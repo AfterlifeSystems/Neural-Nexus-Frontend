@@ -53,6 +53,7 @@ import {
 } from './utils';
 import { isAdminAccount } from '../config/adminAccount';
 import { showRequestFailureToast } from './requestFailureToast';
+import { describeMediaProgress } from '../services/mediaJobProgress';
 import AvatarDocumentRow, {
   describeDocumentKind,
   describeUrlKind,
@@ -371,49 +372,6 @@ const AvatarSettings = ({ avatarId, onPortraitChanged }) => {
       document.removeEventListener('paste', handlePaste);
     };
   }, [canAdministerAvatar]);
-
-  /**
-   * Say what a media job is doing right now, in words rather than stage names.
-   *
-   * The progress stream reports a `stage` and, while indexing, a running count.
-   * The stage names are internal vocabulary (`labeling`, `converting`), so they
-   * are translated here; an unrecognized stage falls back to its own name,
-   * which is still better than a spinner that says nothing.
-   *
-   * @param {Object} progressEvent A `media_progress` frame.
-   * @param {string} description What is being uploaded.
-   * @returns {string} A sentence for the progress toast.
-   */
-  const describeMediaProgress = (progressEvent, description) => {
-    const stageDescriptions = {
-      labeling: 'Working out what this is',
-      converting_started: 'Converting',
-      converting: 'Converting',
-      expanding: 'Expanding the playlist',
-      indexing: 'Adding to memory',
-      // A reference image also becomes six emotion portraits and seven idle
-      // loops; a reference recording becomes voice-clone material.
-      emotion_stills: 'Generating emotion portraits',
-      idle_loops: 'Animating idle loops',
-      emotion_media_complete: 'Emotion media ready',
-      voice_clip_collected: 'Collecting your voice',
-      instant_clone_created: 'Voice clone ready',
-    };
-    const stageDescription =
-      stageDescriptions[progressEvent.stage] ??
-      progressEvent.stage ??
-      'Processing';
-
-    const documentsIndexed =
-      progressEvent.documents_indexed ?? progressEvent.current;
-    const documentsTotal = progressEvent.documents_total ?? progressEvent.total;
-    const counted =
-      documentsIndexed != null && documentsTotal != null
-        ? ` (${documentsIndexed}/${documentsTotal})`
-        : '';
-
-    return `${stageDescription}: ${description}${counted}`;
-  };
 
   /**
    * Send media to the avatar and follow the processing job to completion.

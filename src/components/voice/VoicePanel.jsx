@@ -7,6 +7,7 @@ import {
   Check,
   Loader2,
   Mic,
+  RefreshCw,
   ShieldCheck,
   Square,
   Upload,
@@ -16,6 +17,7 @@ import {
   addAvatarVoiceSample,
   getAvatarVoice,
   getAvatarVoiceVerification,
+  retryAvatarProfessionalVoice,
   submitAvatarVoiceVerification,
 } from '../../services/avatarService';
 import { canCaptureMicrophone, recordOneTurn } from '../../services/voiceSession';
@@ -53,6 +55,7 @@ const STATE_LABELS = {
   training: 'Training (3–6 hours)',
   fine_tuned: 'Ready',
   failed: 'Failed',
+  plan_required: 'Needs ElevenLabs Creator plan',
 };
 
 /**
@@ -156,6 +159,26 @@ const VoicePanel = ({ assistantId, isPersonalAvatar, avatarName }) => {
     await submitRecording(file, file.name);
   };
 
+  const [isRetrying, setIsRetrying] = useState(false);
+  const retryProfessional = async () => {
+    setIsRetrying(true);
+    try {
+      const response = await retryAvatarProfessionalVoice(assistantId);
+      if (response?.professional_state === 'plan_required') {
+        toast.error('ElevenLabs still reports the plan is too low for professional cloning.');
+      } else if (response?.professional_state === 'failed') {
+        toast.error(response?.detail?.professional_error ?? 'Professional voice preparation failed again.');
+      } else {
+        toast.success('Professional voice preparation resumed.');
+      }
+      await refresh();
+    } catch (retryError) {
+      showRequestFailureToast(retryError, { fallbackMessage: 'Could not retry.' });
+    } finally {
+      setIsRetrying(false);
+    }
+  };
+
   const loadCaptcha = async () => {
     try {
       setCaptcha(await getAvatarVoiceVerification(assistantId));
@@ -241,6 +264,8 @@ const VoicePanel = ({ assistantId, isPersonalAvatar, avatarName }) => {
                   ? 'bg-emerald-500/20 border-emerald-500/30 text-emerald-300'
                   : professionalState === 'failed'
                     ? 'bg-red-500/20 border-red-500/30 text-red-300'
+                    : professionalState === 'plan_required'
+                      ? 'bg-amber-400/15 border-amber-400/30 text-amber-300'
                     : 'bg-white/10 border-white/10 text-white/60'
               }`}
             >
@@ -405,6 +430,46 @@ const VoicePanel = ({ assistantId, isPersonalAvatar, avatarName }) => {
               </button>
             </div>
           )}
+        </div>
+      )}
+
+      {isPersonalAvatar && professionalState === 'plan_required' && (
+        <div className="mt-4 rounded-xl bg-amber-400/10 border border-amber-400/30 p-4">
+          <p className="text-amber-200 text-sm font-medium mb-2">
+            Professional cloning needs the ElevenLabs Creator plan
+          </p>
+          <p className="text-white/60 text-xs mb-3">
+            ElevenLabs refused to create the professional voice:{' '}
+            <span className="text-white/80">
+              {status?.detail?.professional_error ?? 'the account plan is too low.'}
+            </span>{' '}
+            The instant voice keeps working. Upgrade the ElevenLabs account, then retry.
+          </p>
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              onClick={retryProfessional}
+              disabled={isRetrying}
+              className="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg bg-amber-400/15 hover:bg-amber-400/25 text-amber-300 text-sm border border-amber-400/30 transition-colors disabled:opacity-40"
+            >
+              {isRetrying ? (
+                <Loader2 className="w-4 h-4 animate-spin" aria-hidden="true" />
+              ) : (
+                <RefreshCw className="w-4 h-4" aria-hidden="true" />
+              )}
+              Retry
+            </button>
+            {status?.detail?.professional_help_url && (
+              <a
+                href={status.detail.professional_help_url}
+                target="_blank"
+                rel="noreferrer"
+                className="text-xs text-white/60 hover:text-white/90 underline underline-offset-2"
+              >
+                ElevenLabs professional voice cloning guide
+              </a>
+            )}
+          </div>
         </div>
       )}
 

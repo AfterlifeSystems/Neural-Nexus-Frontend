@@ -32,6 +32,7 @@ import {
   showRequestFailureToast,
 } from '../components/requestFailureToast';
 import { buildBillingRefusalMessage } from '../components/BillingRefusalNotice';
+import { followMediaJobWithToast } from '../services/mediaJobProgress';
 import {
   loadThreadAttachments,
   pruneExpiredAttachments,
@@ -635,6 +636,13 @@ export const MediaProvider = ({ children }) => {
         } else if (streamEvent.type === 'usage_estimate') {
           // The first frame of a turn: the request has been costed and the
           // model has not started speaking yet.
+          setActivityIfStillOnScreen(ASSISTANT_ACTIVITY.thinking);
+        } else if (streamEvent.type === 'media_job_started') {
+          // The avatar called update_avatar_identity_with_media: the media is
+          // processed in the background, and its progress gets the same toast
+          // an upload from the settings screen gets. Not awaited — the turn's
+          // reply keeps streaming while the job runs.
+          followMediaJobWithToast(streamEvent.job_id, streamEvent.description);
           setActivityIfStillOnScreen(ASSISTANT_ACTIVITY.thinking);
         } else if (streamEvent.type === 'keepalive_comment') {
           // Tokens have stopped but the turn has not: the server keeps this

@@ -643,6 +643,22 @@ export const submitAvatarVoiceVerification = async (assistantId, recording) => {
 };
 
 /**
+ * Retry professional voice preparation after ElevenLabs refused it.
+ * POST /avatar_voice/professional/retry
+ *
+ * Professional cloning needs the ElevenLabs Creator plan or above; the voice
+ * parks in `plan_required` until the account is upgraded and this is called.
+ *
+ * @param {string} assistantId The personal avatar.
+ * @returns {Promise<Object>} `{professional_state, detail}`.
+ */
+export const retryAvatarProfessionalVoice = async (assistantId) => {
+  const formData = new FormData();
+  formData.append('assistant_id', assistantId);
+  return requestJson('/avatar_voice/professional/retry', { method: 'POST', formData });
+};
+
+/**
  * Turn one spoken utterance into text (dictation, live-audio turns).
  * POST /transcribe
  *
