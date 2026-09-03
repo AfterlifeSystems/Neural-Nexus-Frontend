@@ -1036,6 +1036,55 @@ export const MediaProvider = ({ children }) => {
    * @param {File} recordedAudio The recorded turn.
    * @returns {Promise<string>} The avatar's reply text, for speaking aloud.
    */
+  /**
+   * Send a turn the browser has already transcribed (dictation or live audio).
+   *
+   * Unlike `sendVoiceTurn`, which attaches the recording for the server to
+   * transcribe, the words are known here, so the transcript shows what was
+   * said rather than a "spoken message" placeholder. Returns the reply and its
+   * classified sentiment so voice mode can pick the emotion's assets.
+   *
+   * @param {string} text The recognized words.
+   * @returns {Promise<{reply: string, sentiment: Object|null}>}
+   */
+  async function sendSpokenTurn(text) {
+    const words = String(text ?? '').trim();
+    if (!activeAvatar || !words) {
+      return { reply: '', sentiment: null };
+    }
+    setPendingSendCount((count) => count + 1);
+    try {
+      setMessages((previousMessages) => [
+        ...previousMessages,
+        {
+          id: `temp-${Date.now()}`,
+          content: words,
+          type: 'human',
+          timestamp: new Date().toISOString(),
+        },
+      ]);
+      turnPausedForUserRef.current = false;
+      setAssistantActivity(ASSISTANT_ACTIVITY.thinking);
+      const { reply, sentiment } = await sendMessageAwaitResponseUpdateMessages(
+        user,
+        activeAvatar,
+        activeConversation,
+        words,
+        []
+      );
+      return { reply: reply ?? '', sentiment: sentiment ?? null };
+    } catch (turnError) {
+      console.error('The spoken turn failed:', turnError);
+      reportTurnFailure(turnError, 'Could not send what you said.');
+      return { reply: '', sentiment: null };
+    } finally {
+      setPendingSendCount((count) => Math.max(0, count - 1));
+      if (!turnPausedForUserRef.current) {
+        setAssistantActivity(null);
+      }
+    }
+  }
+
   async function sendVoiceTurn(recordedAudio) {
     if (!activeAvatar || !recordedAudio) {
       return '';
@@ -1180,6 +1229,7 @@ export const MediaProvider = ({ children }) => {
         resumePendingInterrupt,
         assistantActivity,
         sendVoiceTurn,
+        sendSpokenTurn,
         pendingSendCount,
         attachmentsInFlight,
       }}

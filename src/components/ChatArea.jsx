@@ -272,6 +272,7 @@ const ChatArea = ({
     <>
     {isLiveModeOpen && (
       <LiveVoiceMode
+        assistantId={activeAvatar?.assistant_id ?? avatarId}
         avatarName={activeAvatar?.name}
         avatarPortrait={avatarPortrait}
         onClose={() => setIsLiveModeOpen(false)}

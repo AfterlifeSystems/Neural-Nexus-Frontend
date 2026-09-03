@@ -76,10 +76,14 @@ export function buildAuthenticationHeaders(asAnonymousIdentity = false) {
 }
 
 export class ApiError extends Error {
-  constructor(status, detail) {
+  constructor(status, detail, body = null) {
     super(detail);
     this.name = 'ApiError';
     this.status = status;
+    // The parsed error body, when there was one, so a caller can read a
+    // structured refusal (for example `voice_not_ready` with the seconds of
+    // voice collected so far) instead of parsing the sentence.
+    this.body = body;
   }
 }
 
@@ -181,7 +185,7 @@ async function raiseApiError(response, sessionCredentialWasSent) {
     clearSessionCredential();
   }
 
-  throw new ApiError(response.status, description);
+  throw new ApiError(response.status, description, errorBody);
 }
 
 /**
@@ -385,4 +389,50 @@ function dispatchServerSentEventFrame(frame, onEvent) {
       // otherwise delivering tokens.
     }
   }
+}
+
+
+/**
+ * Fetch a binary response (audio, video, an image) as a Blob.
+ *
+ * `requestJson` returns text for anything the server does not label JSON,
+ * which mangles bytes; this is the same request shape with the body read as a
+ * Blob. Errors still arrive as `ApiError` through the shared path, so a
+ * structured refusal (a 409 from `/speak`) keeps its parsed body.
+ *
+ * @param {string} path API path.
+ * @param {Object} [options] Same options as `requestJson`.
+ * @returns {Promise<Blob>} The response body.
+ */
+export async function requestBinary(path, options = {}) {
+  const {
+    method = 'GET',
+    query,
+    body,
+    formData,
+    signal,
+    asAnonymousIdentity = false,
+  } = options;
+
+  const headers = buildAuthenticationHeaders(asAnonymousIdentity);
+  const sessionCredentialWasSent = 'Authorization' in headers;
+  if (body !== undefined) {
+    headers['Content-Type'] = 'application/json';
+  }
+
+  const response = await fetch(
+    `${NEURAL_NEXUS_API_BASE_URL}${appendQueryParameters(path, query)}`,
+    {
+      method,
+      headers,
+      credentials: 'include',
+      body: formData ?? (body === undefined ? undefined : JSON.stringify(body)),
+      signal,
+    }
+  );
+
+  if (!response.ok) {
+    await raiseApiError(response, sessionCredentialWasSent);
+  }
+  return response.blob();
 }

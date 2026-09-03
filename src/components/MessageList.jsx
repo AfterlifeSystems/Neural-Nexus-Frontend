@@ -11,6 +11,10 @@ import BillingRefusalNotice, {
   BILLING_REFUSAL_MESSAGE_TYPE,
 } from './BillingRefusalNotice';
 import useEmotionMedia, { stillFor } from '../hooks/useEmotionMedia';
+import useSpeech from '../hooks/useSpeech';
+import SpeakButton from './media/SpeakButton';
+import { Copy, Check } from 'lucide-react';
+import { toast } from 'react-hot-toast';
 
 /**
  * The face beside a message: whoever said it.
@@ -82,10 +86,50 @@ const MessageList = ({
   const { userPortrait, activeAvatar } = useAuth();
   const location = useLocation();
   const readerIsAnonymous = isSharedAvatarChatPath(location.pathname);
-  const { manifest: emotionMedia } = useEmotionMedia(
-    assistantId ?? activeAvatar?.assistant_id ?? activeAvatar?.avatar_id,
-    { asAnonymousIdentity: readerIsAnonymous }
-  );
+  const resolvedAssistantId =
+    assistantId ?? activeAvatar?.assistant_id ?? activeAvatar?.avatar_id;
+  const { manifest: emotionMedia } = useEmotionMedia(resolvedAssistantId, {
+    asAnonymousIdentity: readerIsAnonymous,
+  });
+
+  // One voice at a time across the whole transcript: the speak buttons share
+  // this session, so starting one message stops another.
+  const speech = useSpeech({ asAnonymousIdentity: readerIsAnonymous });
+  const [loadingSpeechKey, setLoadingSpeechKey] = React.useState(null);
+  const [copiedKey, setCopiedKey] = React.useState(null);
+  useEffect(() => {
+    if (speech.notReady) {
+      toast(
+        `${avatarName ?? 'This avatar'} has no voice yet. Record about two minutes of speech in settings to create one (${Math.round(
+          speech.notReady.collectedSeconds
+        )}s collected so far).`,
+        { icon: '🎙', duration: 6000 }
+      );
+    }
+  }, [speech.notReady, avatarName]);
+
+  const toggleSpeech = async (messageKey, text) => {
+    if (speech.speakingKey === messageKey) {
+      speech.stop();
+      return;
+    }
+    setLoadingSpeechKey(messageKey);
+    try {
+      await speech.speak(resolvedAssistantId, text, { key: messageKey });
+    } finally {
+      setLoadingSpeechKey(null);
+    }
+  };
+
+  const copyMessage = async (messageKey, text) => {
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopiedKey(messageKey);
+      setTimeout(() => setCopiedKey(null), 1500);
+    } catch {
+      toast.error('Could not copy.');
+    }
+  };
 
   // Who the reader is on THIS screen, which is not always who this browser has
   // a session for. Every turn on a shared avatar's public chat is sent as the
@@ -223,15 +267,45 @@ const MessageList = ({
                           </div>
                         ))}
 
-                      <div className="text-xs text-neutral-400 mt-1 text-right select-none">
-                        {msg.timestamp &&
-                          new Date(msg.timestamp).toLocaleTimeString(
-                            undefined,
-                            {
-                              hour: '2-digit',
-                              minute: '2-digit',
-                            }
-                          )}
+                      <div className="flex items-center justify-between gap-3 mt-1">
+                        {/* The first per-message actions: copy, and speak
+                            aloud in the avatar's cloned voice. Only replies
+                            get a speak button; a person's own words are not
+                            rendered in the avatar's voice. */}
+                        {isFromAvatar && msg.content ? (
+                          <div className="flex items-center gap-0.5">
+                            <button
+                              type="button"
+                              onClick={() => copyMessage(messageKey, msg.content)}
+                              title="Copy"
+                              aria-label="Copy message"
+                              className="p-1 rounded-md text-neutral-400 hover:text-neutral-100 hover:bg-white/10 transition-colors focus:outline-none focus:ring-2 focus:ring-amber-400/50"
+                            >
+                              {copiedKey === messageKey ? (
+                                <Check className="w-3.5 h-3.5" aria-hidden="true" />
+                              ) : (
+                                <Copy className="w-3.5 h-3.5" aria-hidden="true" />
+                              )}
+                            </button>
+                            <SpeakButton
+                              isSpeaking={speech.speakingKey === messageKey}
+                              isLoading={loadingSpeechKey === messageKey}
+                              onToggle={() => toggleSpeech(messageKey, msg.content)}
+                            />
+                          </div>
+                        ) : (
+                          <span />
+                        )}
+                        <div className="text-xs text-neutral-400 text-right select-none">
+                          {msg.timestamp &&
+                            new Date(msg.timestamp).toLocaleTimeString(
+                              undefined,
+                              {
+                                hour: '2-digit',
+                                minute: '2-digit',
+                              }
+                            )}
+                        </div>
                       </div>
                     </>
                   )}

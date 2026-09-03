@@ -39,6 +39,7 @@ import {
 } from '../services/avatarService';
 import ConnectionsSection from './connections/ConnectionsSection';
 import EmotionMediaStatus from './media/EmotionMediaStatus';
+import VoicePanel from './voice/VoicePanel';
 import { forgetEmotionMedia } from '../hooks/useEmotionMedia';
 import {
   forgetCachedAvatar,
@@ -1320,6 +1321,14 @@ const AvatarSettings = ({ avatarId, onPortraitChanged }) => {
             </div>
           </div>
         </div>
+        {/* The avatar's voice: record it, watch the corpus fill, verify the
+            professional clone. Every avatar gets an instant clone from this;
+            only the personal avatar continues to a professional one. */}
+        <VoicePanel
+          assistantId={assistantId}
+          isPersonalAvatar={isPersonalAvatar}
+          avatarName={activeAvatar?.name}
+        />
       </div>
       {/* Social Media Section */}
       {/* <div className="bg-black/60 backdrop-blur-lg rounded-2xl border border-white/10 p-6">

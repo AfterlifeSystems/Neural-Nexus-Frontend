@@ -6,6 +6,7 @@
 
 import {
   NEURAL_NEXUS_API_BASE_URL,
+  requestBinary,
   requestJson,
   streamServerSentEvents,
 } from './neuralNexusApiClient';
@@ -578,3 +579,165 @@ export const getAvatarMediaJob = async (jobId) => {
  */
 export const absoluteMediaUrl = (path) =>
   path?.startsWith('http') ? path : `${NEURAL_NEXUS_API_BASE_URL}${path ?? ''}`;
+
+/**
+ * The avatar's voice status: seconds collected, clones, thresholds, active voice.
+ * GET /avatar_voice
+ *
+ * @param {string} assistantId The avatar.
+ * @returns {Promise<Object>} `{collected_seconds, instant_voice_id, professional_state, active_voice, ...}`.
+ */
+export const getAvatarVoice = async (assistantId) => {
+  return requestJson('/avatar_voice', { query: { assistant_id: assistantId } });
+};
+
+/**
+ * Add a recording of the avatar speaking to its voice corpus.
+ *
+ * The dominant speaker is isolated server-side, so only the avatar's own
+ * speech counts toward the clone. Returns the updated voice status plus the
+ * seconds this take contributed.
+ * POST /avatar_voice/samples
+ *
+ * @param {string} assistantId The avatar.
+ * @param {File|Blob} audio The recording.
+ * @returns {Promise<Object>} `{added_seconds, ...voice status}`.
+ */
+export const addAvatarVoiceSample = async (assistantId, audio) => {
+  const formData = new FormData();
+  formData.append('assistant_id', assistantId);
+  formData.append(
+    'audio',
+    audio,
+    audio.name ?? `voice-sample.${audio.type?.includes('mp4') ? 'm4a' : 'webm'}`
+  );
+  return requestJson('/avatar_voice/samples', { method: 'POST', formData });
+};
+
+/**
+ * The CAPTCHA the owner reads aloud to verify the professional voice.
+ * GET /avatar_voice/verification
+ *
+ * @param {string} assistantId The personal avatar.
+ * @returns {Promise<Object>} `{voice_id, captcha}` — `captcha.text` is what to read.
+ */
+export const getAvatarVoiceVerification = async (assistantId) => {
+  return requestJson('/avatar_voice/verification', {
+    query: { assistant_id: assistantId },
+  });
+};
+
+/**
+ * Submit the spoken CAPTCHA; training starts on success.
+ * POST /avatar_voice/verification
+ *
+ * @param {string} assistantId The personal avatar.
+ * @param {File|Blob} recording The owner reading the CAPTCHA.
+ * @returns {Promise<Object>} `{professional_state, training_started_at}`.
+ */
+export const submitAvatarVoiceVerification = async (assistantId, recording) => {
+  const formData = new FormData();
+  formData.append('assistant_id', assistantId);
+  formData.append('recording', recording, recording.name ?? 'captcha.webm');
+  return requestJson('/avatar_voice/verification', { method: 'POST', formData });
+};
+
+/**
+ * Turn one spoken utterance into text (dictation, live-audio turns).
+ * POST /transcribe
+ *
+ * @param {string} assistantId The avatar being spoken to.
+ * @param {File|Blob} audio The utterance.
+ * @param {Object} [options]
+ * @param {boolean} [options.asAnonymousIdentity] Public chat: withhold the credential.
+ * @returns {Promise<Object>} `{text, duration_seconds}`.
+ */
+export const transcribeRecording = async (
+  assistantId,
+  audio,
+  { asAnonymousIdentity = false } = {}
+) => {
+  const formData = new FormData();
+  formData.append('assistant_id', assistantId);
+  formData.append('audio', audio, audio.name ?? 'utterance.webm');
+  return requestJson('/transcribe', {
+    method: 'POST',
+    formData,
+    asAnonymousIdentity,
+  });
+};
+
+/**
+ * Render text in the avatar's cloned voice.
+ *
+ * Resolves to an audio Blob. A 409 `voice_not_ready` (no clone yet) is thrown
+ * as an ApiError whose `detail` says so and whose `body.collected_seconds`
+ * reports progress, so the caller can open the Voice panel.
+ * POST /speak
+ *
+ * @param {string} assistantId The avatar.
+ * @param {string} text What to say.
+ * @param {Object} [options]
+ * @param {boolean} [options.asAnonymousIdentity] Public chat: withhold the credential.
+ * @param {AbortSignal} [options.signal] Cancel the request.
+ * @returns {Promise<Blob>} MPEG audio.
+ */
+export const speakText = async (
+  assistantId,
+  text,
+  { asAnonymousIdentity = false, signal } = {}
+) => {
+  return requestBinary('/speak', {
+    method: 'POST',
+    body: { assistant_id: assistantId, text },
+    asAnonymousIdentity,
+    signal,
+  });
+};
+
+/**
+ * Render a lip-synced video of the avatar saying `text` with the given emotion.
+ *
+ * Starts the generation, then polls until it completes (or fails) and resolves
+ * to the clip's absolute URL — or null when the clip could not be made. A 403
+ * (the plan lacks video replies) is thrown so the caller can turn the option off.
+ * POST /lip_sync, then GET /lip_sync/{generation_id}
+ *
+ * @param {string} assistantId The avatar.
+ * @param {string} text The reply being spoken.
+ * @param {string} emotion The reply's base emotion (picks the still).
+ * @param {Object} [options]
+ * @param {boolean} [options.asAnonymousIdentity] Public chat: withhold the credential.
+ * @param {number} [options.pollMilliseconds] Delay between status checks.
+ * @param {number} [options.timeoutMilliseconds] Give up after this long.
+ * @returns {Promise<string|null>} The clip URL, or null.
+ */
+export const requestLipSyncClip = async (
+  assistantId,
+  text,
+  emotion,
+  { asAnonymousIdentity = false, pollMilliseconds = 4000, timeoutMilliseconds = 240_000 } = {}
+) => {
+  const started = await requestJson('/lip_sync', {
+    method: 'POST',
+    body: { assistant_id: assistantId, text, emotion },
+    asAnonymousIdentity,
+  });
+  if (started?.status === 'completed' && started?.video_url) {
+    return absoluteMediaUrl(started.video_url);
+  }
+  const generationId = started?.generation_id;
+  if (!generationId) return null;
+  const deadline = Date.now() + timeoutMilliseconds;
+  while (Date.now() < deadline) {
+    await new Promise((resolve) => setTimeout(resolve, pollMilliseconds));
+    const status = await requestJson(`/lip_sync/${encodeURIComponent(generationId)}`, {
+      asAnonymousIdentity,
+    });
+    if (status?.status === 'completed' && status?.video_url) {
+      return absoluteMediaUrl(status.video_url);
+    }
+    if (status?.status === 'failed') return null;
+  }
+  return null;
+};

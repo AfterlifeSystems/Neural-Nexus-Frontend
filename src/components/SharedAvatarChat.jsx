@@ -259,6 +259,7 @@ const SharedAvatarChat = () => {
     <>
     {isLiveModeOpen && (
       <LiveVoiceMode
+        assistantId={avatarId}
         avatarName={activeAvatar?.name}
         avatarPortrait={avatarPortrait}
         onClose={() => setIsLiveModeOpen(false)}
