@@ -8,16 +8,19 @@
 // account links buried on another.
 
 import React from 'react';
-import { MessageSquarePlus, X, PanelLeftOpen, User } from 'lucide-react';
+import { MessageSquarePlus, MoreHorizontal, Pin, Share2, Trash2, Pencil, X, PanelLeftOpen, User } from 'lucide-react';
 import { useLocation, useNavigate } from 'react-router-dom';
 
 import { NEW_CONVERSATION_ID } from '../context/MediaContext';
+import { useMedia } from '../context/MediaContext';
 import { useAuth } from '../context/AuthContext';
 import { isValidImageUrl } from './utils';
 import AccountMenu, {
   usePersonalAvatarSettingsNavigation,
 } from './AccountMenu';
 import qrCode from '../assets/qr-neuralnexus.png';
+import { toast } from 'react-hot-toast';
+import { sortConversationsChronologically } from '../services/pinnedConversations';
 
 /**
  * Name a conversation the way the user would recognize it.
@@ -60,6 +63,186 @@ export function describeConversation(conversation) {
   return threadId ? `Conversation ${threadId.slice(0, 8)}…` : 'Conversation';
 }
 
+/**
+ * Whether the thread is pinned. The API stores the flag on thread metadata;
+ * a flat `metadata.pinned` is accepted for older records.
+ *
+ * @param {Object} conversation A thread record from GET /conversations.
+ * @returns {boolean}
+ */
+function isConversationPinned(conversation) {
+  return Boolean(
+    conversation?.metadata?.thread_metadata?.pinned ??
+      conversation?.metadata?.pinned
+  );
+}
+
+function ConversationRow({
+  conversation,
+  isActive,
+  menuThreadId,
+  renamingThreadId,
+  renameDraft,
+  setMenuThreadId,
+  setRenamingThreadId,
+  setRenameDraft,
+  onSelectConversation,
+  pinConversation,
+  renameConversation,
+  shareConversation,
+  deleteConversation,
+}) {
+  const threadId = conversation.thread_id;
+  const isPlaceholder = threadId === NEW_CONVERSATION_ID;
+  const isPinned = isConversationPinned(conversation);
+
+  return (
+    <li className="relative">
+      {renamingThreadId === threadId ? (
+        <form
+          className="flex items-center gap-1 px-2 py-1"
+          onSubmit={async (event) => {
+            event.preventDefault();
+            try {
+              await renameConversation(threadId, renameDraft.trim());
+              setRenamingThreadId(null);
+            } catch (renameError) {
+              toast.error(
+                renameError.message || 'Could not rename that conversation.'
+              );
+            }
+          }}
+        >
+          <input
+            autoFocus
+            value={renameDraft}
+            onChange={(event) => setRenameDraft(event.target.value)}
+            className="flex-grow min-w-0 px-2 py-1 rounded-md bg-black/50 border border-white/10 text-sm text-neutral-200"
+          />
+          <button type="submit" className="text-xs text-amber-300 px-1">
+            Save
+          </button>
+          <button
+            type="button"
+            onClick={() => setRenamingThreadId(null)}
+            className="text-xs text-white/50 px-1"
+          >
+            Cancel
+          </button>
+        </form>
+      ) : (
+        <div className="flex items-center gap-0.5">
+          <button
+            onClick={() => onSelectConversation(threadId)}
+            aria-current={isActive ? 'true' : undefined}
+            className={`flex-grow min-w-0 text-left px-3 py-2 rounded-lg transition-colors truncate ${
+              isActive
+                ? 'bg-neutral-700/40 text-neutral-200 border border-neutral-400/40'
+                : 'text-white/70 hover:bg-white/10 hover:text-neutral-100 border border-transparent'
+            }`}
+            title={describeConversation(conversation)}
+          >
+            {isPinned && (
+              <Pin className="w-3 h-3 inline mr-1 text-amber-300" />
+            )}
+            {describeConversation(conversation)}
+          </button>
+          {!isPlaceholder && (
+            <button
+              type="button"
+              onClick={() =>
+                setMenuThreadId((current) =>
+                  current === threadId ? null : threadId
+                )
+              }
+              className="p-1.5 rounded-md text-white/40 hover:text-neutral-100 hover:bg-white/10"
+              aria-label="Conversation actions"
+            >
+              <MoreHorizontal className="w-4 h-4" />
+            </button>
+          )}
+        </div>
+      )}
+      {menuThreadId === threadId && !isPlaceholder && (
+        <div className="absolute right-1 top-10 z-20 w-44 rounded-lg bg-black/90 border border-white/10 py-1 shadow-xl">
+          <button
+            type="button"
+            className="w-full flex items-center gap-2 px-3 py-1.5 text-sm text-white/80 hover:bg-white/10"
+            onClick={async () => {
+              setMenuThreadId(null);
+              try {
+                await pinConversation(threadId, !isPinned);
+              } catch (pinError) {
+                toast.error(
+                  pinError.message || 'Could not pin that conversation.'
+                );
+              }
+            }}
+          >
+            <Pin className="w-3.5 h-3.5" />
+            {isPinned ? 'Unpin' : 'Pin'}
+          </button>
+          <button
+            type="button"
+            className="w-full flex items-center gap-2 px-3 py-1.5 text-sm text-white/80 hover:bg-white/10"
+            onClick={() => {
+              setMenuThreadId(null);
+              setRenamingThreadId(threadId);
+              setRenameDraft(describeConversation(conversation));
+            }}
+          >
+            <Pencil className="w-3.5 h-3.5" />
+            Rename
+          </button>
+          <button
+            type="button"
+            className="w-full flex items-center gap-2 px-3 py-1.5 text-sm text-white/80 hover:bg-white/10"
+            onClick={async () => {
+              setMenuThreadId(null);
+              try {
+                const shareUrl = await shareConversation(threadId);
+                await navigator.clipboard.writeText(shareUrl);
+                toast.success('Copied a read-only link to this conversation.');
+              } catch (shareError) {
+                toast.error(
+                  shareError.message || 'Could not share that conversation.'
+                );
+              }
+            }}
+          >
+            <Share2 className="w-3.5 h-3.5" />
+            Share
+          </button>
+          <button
+            type="button"
+            className="w-full flex items-center gap-2 px-3 py-1.5 text-sm text-red-300 hover:bg-red-900/40"
+            onClick={async () => {
+              setMenuThreadId(null);
+              if (
+                !window.confirm(
+                  'Delete this conversation? This cannot be undone.'
+                )
+              ) {
+                return;
+              }
+              try {
+                await deleteConversation(threadId);
+              } catch (deleteError) {
+                toast.error(
+                  deleteError.message || 'Could not delete that conversation.'
+                );
+              }
+            }}
+          >
+            <Trash2 className="w-3.5 h-3.5" />
+            Delete
+          </button>
+        </div>
+      )}
+    </li>
+  );
+}
+
 const ConversationSidebar = ({
   isOpen,
   onOpen,
@@ -74,6 +257,15 @@ const ConversationSidebar = ({
   const location = useLocation();
   const navigate = useNavigate();
   const { user, userPortrait } = useAuth();
+  const {
+    pinConversation,
+    renameConversation,
+    deleteConversation,
+    shareConversation,
+  } = useMedia();
+  const [menuThreadId, setMenuThreadId] = React.useState(null);
+  const [renamingThreadId, setRenamingThreadId] = React.useState(null);
+  const [renameDraft, setRenameDraft] = React.useState('');
 
   const openWelcomePage = () => {
     onClose?.();
@@ -90,9 +282,38 @@ const ConversationSidebar = ({
     activeConversationId === NEW_CONVERSATION_ID
       ? [{ thread_id: NEW_CONVERSATION_ID }, ...(conversations ?? [])]
       : (conversations ?? []);
+  const newConversationEntry = listedConversations.find(
+    (conversation) => conversation.thread_id === NEW_CONVERSATION_ID
+  );
+  // Each thread appears in one section. Pinning moves it into Pinned;
+  // unpinning returns it to Recent. Both lists stay newest-created first.
+  const storedConversations = sortConversationsChronologically(
+    listedConversations.filter(
+      (conversation) => conversation.thread_id !== NEW_CONVERSATION_ID
+    )
+  );
+  const pinnedConversations = storedConversations.filter((conversation) =>
+    isConversationPinned(conversation)
+  );
+  const recentConversations = storedConversations.filter(
+    (conversation) => !isConversationPinned(conversation)
+  );
+  const conversationRowProps = {
+    menuThreadId,
+    renamingThreadId,
+    renameDraft,
+    setMenuThreadId,
+    setRenamingThreadId,
+    setRenameDraft,
+    onSelectConversation,
+    pinConversation,
+    renameConversation,
+    shareConversation,
+    deleteConversation,
+  };
 
   return (
-    <>
+    <div data-app-chrome>
       {isOpen && (
         <div
           className="fixed inset-0 bg-black/60 backdrop-blur-sm z-40"
@@ -224,35 +445,60 @@ const ConversationSidebar = ({
                 New conversation
               </button>
 
-              <div className="flex-grow overflow-y-auto -mx-1 px-1">
-                {listedConversations.length === 0 ? (
-                  <p className="text-white/50 text-sm px-2 py-4">
-                    No conversations yet. Send a message to start one.
-                  </p>
-                ) : (
-                  <ul className="space-y-1">
-                    {listedConversations.map((conversation) => {
-                      const threadId = conversation.thread_id;
-                      const isActive = threadId === activeConversationId;
-                      return (
-                        <li key={threadId}>
-                          <button
-                            onClick={() => onSelectConversation(threadId)}
-                            aria-current={isActive ? 'true' : undefined}
-                            className={`w-full text-left px-3 py-2 rounded-lg transition-colors truncate ${
-                              isActive
-                                ? 'bg-neutral-700/40 text-neutral-200 border border-neutral-400/40'
-                                : 'text-white/70 hover:bg-white/10 hover:text-neutral-100 border border-transparent'
-                            }`}
-                            title={describeConversation(conversation)}
-                          >
-                            {describeConversation(conversation)}
-                          </button>
-                        </li>
-                      );
-                    })}
-                  </ul>
+              {newConversationEntry && (
+                <ul className="space-y-1 -mx-1 px-1">
+                  <ConversationRow
+                    conversation={newConversationEntry}
+                    isActive
+                    {...conversationRowProps}
+                  />
+                </ul>
+              )}
+
+              <div className="flex-grow min-h-0 overflow-y-auto -mx-1 px-1">
+                {pinnedConversations.length > 0 && (
+                  <section className="mb-4">
+                    <h2 className="text-sm font-semibold text-white/60 uppercase tracking-wide px-2 mb-2">
+                      Pinned conversations
+                    </h2>
+                    <ul className="space-y-1">
+                      {pinnedConversations.map((conversation) => (
+                        <ConversationRow
+                          key={conversation.thread_id}
+                          conversation={conversation}
+                          isActive={
+                            conversation.thread_id === activeConversationId
+                          }
+                          {...conversationRowProps}
+                        />
+                      ))}
+                    </ul>
+                  </section>
                 )}
+
+                <section>
+                  <h2 className="text-sm font-semibold text-white/60 uppercase tracking-wide px-2 mb-2">
+                    Recent conversations
+                  </h2>
+                  {recentConversations.length > 0 ? (
+                    <ul className="space-y-1">
+                      {recentConversations.map((conversation) => (
+                        <ConversationRow
+                          key={conversation.thread_id}
+                          conversation={conversation}
+                          isActive={
+                            conversation.thread_id === activeConversationId
+                          }
+                          {...conversationRowProps}
+                        />
+                      ))}
+                    </ul>
+                  ) : pinnedConversations.length === 0 ? (
+                    <p className="text-white/50 text-sm px-2 py-4">
+                      No conversations yet. Send a message to start one.
+                    </p>
+                  ) : null}
+                </section>
               </div>
             </>
           )}
@@ -284,7 +530,7 @@ const ConversationSidebar = ({
           </div>
         </div>
       </div>
-    </>
+    </div>
   );
 };
 

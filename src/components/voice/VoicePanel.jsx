@@ -18,9 +18,14 @@ import {
   getAvatarVoice,
   getAvatarVoiceVerification,
   retryAvatarProfessionalVoice,
+  streamMediaJobProgress,
   submitAvatarVoiceVerification,
+  uploadAvatarIdentityMedia,
 } from '../../services/avatarService';
-import { canCaptureMicrophone, recordOneTurn } from '../../services/voiceSession';
+import {
+  canCaptureMicrophone,
+  recordOneTurn,
+} from '../../services/voiceSession';
 import { showRequestFailureToast } from '../requestFailureToast';
 
 // About two minutes read at a conversational pace, with the calibration
@@ -61,11 +66,12 @@ const STATE_LABELS = {
 /**
  * The avatar's voice: record it, watch the corpus fill, verify the professional clone.
  *
- * Every avatar gets an instant clone once a minute of its speech is collected
- * (rebuilt at two minutes). The personal avatar keeps collecting — from this
- * recorder and from every audio or video uploaded of the owner — toward the
- * thirty minutes a professional clone needs; when that is reached the panel
- * shows the CAPTCHA the owner reads aloud, and training starts on submit.
+ * Every avatar gets a voice audio model (the instant clone) once a minute of
+ * its speech is collected (rebuilt at two minutes). The personal avatar keeps
+ * collecting — from this recorder and from every audio or video uploaded of
+ * the owner — toward the thirty minutes a professional clone needs; when that
+ * is reached the panel shows the CAPTCHA the owner reads aloud, and training
+ * starts on submit.
  *
  * @param {Object} parameters
  * @param {string} parameters.assistantId The avatar.
@@ -100,6 +106,7 @@ const VoicePanel = ({ assistantId, isPersonalAvatar, avatarName }) => {
   const submitRecording = async (file, description) => {
     setIsUploading(true);
     try {
+      const isFirstTake = (status?.collected_seconds ?? 0) === 0;
       const response = await addAvatarVoiceSample(assistantId, file);
       setStatus(response);
       const added = Math.round(response?.added_seconds ?? 0);
@@ -109,7 +116,16 @@ const VoicePanel = ({ assistantId, isPersonalAvatar, avatarName }) => {
           : `${description} added.`
       );
       if (response?.instant_voice_id && !status?.instant_voice_id) {
-        toast.success('Voice clone ready — the avatar can speak now.');
+        toast.success('Voice audio model ready — the avatar can speak now.');
+      }
+      // The first take is also the voice audio model the diarizer and instant
+      // clone are built from. Later takes only grow the clone corpus.
+      if (isFirstTake) {
+        uploadAvatarIdentityMedia({
+          assistantId,
+          files: [file],
+          isReferenceAudio: true,
+        }).catch(() => {});
       }
     } catch (uploadError) {
       showRequestFailureToast(uploadError, {
@@ -120,9 +136,43 @@ const VoicePanel = ({ assistantId, isPersonalAvatar, avatarName }) => {
     }
   };
 
+  /**
+   * Non-personal avatars accept uploaded speech as identity media that is also
+   * the voice reference — there is no live person to record from.
+   */
+  const submitReferenceUpload = async (file) => {
+    setIsUploading(true);
+    try {
+      const uploadResponse = await uploadAvatarIdentityMedia({
+        assistantId,
+        files: [file],
+        isReferenceAudio: true,
+      });
+      const jobId = uploadResponse?.job_id;
+      if (jobId) {
+        await streamMediaJobProgress(jobId, () => {});
+      }
+      try {
+        await addAvatarVoiceSample(assistantId, file);
+      } catch {
+        // The identity upload already stored the reference; clone corpus is extra.
+      }
+      await refresh();
+      toast.success(`${file.name} stored as the voice audio model.`);
+    } catch (uploadError) {
+      showRequestFailureToast(uploadError, {
+        fallbackMessage: `${file.name} could not be added.`,
+      });
+    } finally {
+      setIsUploading(false);
+    }
+  };
+
   const startRecording = async () => {
     if (!canCaptureMicrophone()) {
-      toast.error('This browser cannot record audio here (a secure connection is required).');
+      toast.error(
+        'This browser cannot record audio here (a secure connection is required).'
+      );
       return;
     }
     try {
@@ -144,7 +194,8 @@ const VoicePanel = ({ assistantId, isPersonalAvatar, avatarName }) => {
     recordingRef.current = null;
     setIsRecording(false);
     const file = await recording.stop();
-    const elapsedSeconds = (Date.now() - (recordingStartedAtRef.current ?? Date.now())) / 1000;
+    const elapsedSeconds =
+      (Date.now() - (recordingStartedAtRef.current ?? Date.now())) / 1000;
     if (elapsedSeconds < 2) {
       toast('Too short — read the whole line, then stop.', { icon: '🎙' });
       return;
@@ -156,6 +207,10 @@ const VoicePanel = ({ assistantId, isPersonalAvatar, avatarName }) => {
   const handleDrop = async (files) => {
     const [file] = files ?? [];
     if (!file) return;
+    if (!isPersonalAvatar) {
+      await submitReferenceUpload(file);
+      return;
+    }
     await submitRecording(file, file.name);
   };
 
@@ -165,15 +220,22 @@ const VoicePanel = ({ assistantId, isPersonalAvatar, avatarName }) => {
     try {
       const response = await retryAvatarProfessionalVoice(assistantId);
       if (response?.professional_state === 'plan_required') {
-        toast.error('ElevenLabs still reports the plan is too low for professional cloning.');
+        toast.error(
+          'ElevenLabs still reports the plan is too low for professional cloning.'
+        );
       } else if (response?.professional_state === 'failed') {
-        toast.error(response?.detail?.professional_error ?? 'Professional voice preparation failed again.');
+        toast.error(
+          response?.detail?.professional_error ??
+            'Professional voice preparation failed again.'
+        );
       } else {
         toast.success('Professional voice preparation resumed.');
       }
       await refresh();
     } catch (retryError) {
-      showRequestFailureToast(retryError, { fallbackMessage: 'Could not retry.' });
+      showRequestFailureToast(retryError, {
+        fallbackMessage: 'Could not retry.',
+      });
     } finally {
       setIsRetrying(false);
     }
@@ -207,7 +269,9 @@ const VoicePanel = ({ assistantId, isPersonalAvatar, avatarName }) => {
     setIsVerifying(true);
     try {
       await submitAvatarVoiceVerification(assistantId, file);
-      toast.success('Verified. Professional voice training has started (3–6 hours).');
+      toast.success(
+        'Verified. Professional voice training has started (3–6 hours).'
+      );
       setCaptcha(null);
       await refresh();
     } catch (verifyError) {
@@ -226,13 +290,26 @@ const VoicePanel = ({ assistantId, isPersonalAvatar, avatarName }) => {
   const professionalState = status?.professional_state ?? 'not_started';
   const barMax = isPersonalAvatar ? professionalMinimum : instantTarget;
   const milestones = [
-    { value: instantMinimum, label: `Instant clone at ${describeSeconds(instantMinimum)}` },
-    { value: instantTarget, label: `Better instant clone at ${describeSeconds(instantTarget)}` },
+    {
+      value: instantMinimum,
+      label: `Voice audio model at ${describeSeconds(instantMinimum)}`,
+    },
+    {
+      value: instantTarget,
+      label: `Better voice audio model at ${describeSeconds(instantTarget)}`,
+    },
     ...(isPersonalAvatar
-      ? [{ value: professionalMinimum, label: `Professional clone at ${describeSeconds(professionalMinimum)}` }]
+      ? [
+          {
+            value: professionalMinimum,
+            label: `Professional clone at ${describeSeconds(professionalMinimum)}`,
+          },
+        ]
       : []),
   ];
-  const nextMilestone = milestones.find((milestone) => collected < milestone.value);
+  const nextMilestone = milestones.find(
+    (milestone) => collected < milestone.value
+  );
   const captchaText =
     captcha?.captcha?.text ??
     captcha?.captcha?.captcha_text ??
@@ -250,11 +327,11 @@ const VoicePanel = ({ assistantId, isPersonalAvatar, avatarName }) => {
           {status?.instant_voice_id ? (
             <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-emerald-500/20 border border-emerald-500/30 text-emerald-300">
               <Check className="w-3.5 h-3.5" aria-hidden="true" />
-              Instant voice
+              Vocal audio model
             </span>
           ) : (
             <span className="px-2.5 py-1 rounded-full bg-white/10 border border-white/10 text-white/60">
-              No voice yet
+              No vocal audio model yet
             </span>
           )}
           {isPersonalAvatar && (
@@ -266,17 +343,21 @@ const VoicePanel = ({ assistantId, isPersonalAvatar, avatarName }) => {
                     ? 'bg-red-500/20 border-red-500/30 text-red-300'
                     : professionalState === 'plan_required'
                       ? 'bg-amber-400/15 border-amber-400/30 text-amber-300'
-                    : 'bg-white/10 border-white/10 text-white/60'
+                      : 'bg-white/10 border-white/10 text-white/60'
               }`}
             >
-              Professional: {STATE_LABELS[professionalState] ?? professionalState}
+              Professional:{' '}
+              {STATE_LABELS[professionalState] ?? professionalState}
             </span>
           )}
         </div>
       </div>
 
       <div className="mb-1 flex items-center justify-between text-xs text-white/60">
-        <span>{describeSeconds(collected)} of {avatarName ?? 'the avatar'} speaking collected</span>
+        <span>
+          {describeSeconds(collected)} of {avatarName ?? 'the avatar'} speaking
+          collected
+        </span>
         {nextMilestone && (
           <span className="text-white/40">
             {describeSeconds(Math.max(0, nextMilestone.value - collected))} to{' '}
@@ -293,75 +374,90 @@ const VoicePanel = ({ assistantId, isPersonalAvatar, avatarName }) => {
       />
 
       <div className="grid grid-cols-1 md:grid-cols-[1fr_auto] gap-4 items-start">
-        <div className="rounded-xl bg-black/50 border border-white/10 p-4">
-          <p className="text-white/50 text-xs mb-2">
-            Read this aloud, one line at a time ({scriptIndex + 1}/{RECORDING_SCRIPT.length}).
-            Hold the button while you speak.
-          </p>
-          <p className="text-neutral-200 leading-relaxed min-h-[3.5rem]">
-            {RECORDING_SCRIPT[scriptIndex]}
-          </p>
-          <div className="mt-3 flex items-center gap-3">
-            <button
-              type="button"
-              onMouseDown={startRecording}
-              onMouseUp={stopRecording}
-              onMouseLeave={() => isRecording && stopRecording()}
-              onTouchStart={(event) => {
-                event.preventDefault();
-                startRecording();
-              }}
-              onTouchEnd={(event) => {
-                event.preventDefault();
-                stopRecording();
-              }}
-              disabled={isUploading}
-              aria-label={isRecording ? 'Stop and save' : 'Hold to record'}
-              className={`w-14 h-14 rounded-full flex items-center justify-center transition-all disabled:opacity-40 ${
-                isRecording
-                  ? 'bg-red-500 scale-110 shadow-[0_0_24px_rgba(239,68,68,0.6)]'
-                  : 'bg-neutral-200 hover:bg-neutral-100'
-              }`}
-            >
-              {isRecording ? (
-                <Square className="w-5 h-5 text-neutral-100" />
-              ) : isUploading ? (
-                <Loader2 className="w-6 h-6 text-neutral-900 animate-spin" />
-              ) : (
-                <Mic className="w-6 h-6 text-neutral-900" />
-              )}
-            </button>
-            <div className="flex gap-2 text-xs">
+        {isPersonalAvatar && (
+          <div className="rounded-xl bg-black/50 border border-white/10 p-4">
+            <p className="text-white/50 text-xs mb-2">
+              Read this aloud, one line at a time ({scriptIndex + 1}/
+              {RECORDING_SCRIPT.length}). Hold the button while you speak.
+            </p>
+            <p className="text-neutral-200 leading-relaxed min-h-[3.5rem]">
+              {RECORDING_SCRIPT[scriptIndex]}
+            </p>
+            <div className="mt-3 flex items-center gap-3">
               <button
                 type="button"
-                onClick={() => setScriptIndex((index) => Math.max(0, index - 1))}
-                className="px-2 py-1 rounded-lg bg-white/5 hover:bg-white/10 text-white/60 border border-white/10"
+                onMouseDown={startRecording}
+                onMouseUp={stopRecording}
+                onMouseLeave={() => isRecording && stopRecording()}
+                onTouchStart={(event) => {
+                  event.preventDefault();
+                  startRecording();
+                }}
+                onTouchEnd={(event) => {
+                  event.preventDefault();
+                  stopRecording();
+                }}
+                disabled={isUploading}
+                aria-label={isRecording ? 'Stop and save' : 'Hold to record'}
+                className={`w-14 h-14 rounded-full flex items-center justify-center transition-all disabled:opacity-40 ${
+                  isRecording
+                    ? 'bg-red-500 scale-110 shadow-[0_0_24px_rgba(239,68,68,0.6)]'
+                    : 'bg-neutral-200 hover:bg-neutral-100'
+                }`}
               >
-                Previous line
+                {isRecording ? (
+                  <Square className="w-5 h-5 text-neutral-100" />
+                ) : isUploading ? (
+                  <Loader2 className="w-6 h-6 text-neutral-900 animate-spin" />
+                ) : (
+                  <Mic className="w-6 h-6 text-neutral-900" />
+                )}
               </button>
-              <button
-                type="button"
-                onClick={() =>
-                  setScriptIndex((index) => Math.min(RECORDING_SCRIPT.length - 1, index + 1))
-                }
-                className="px-2 py-1 rounded-lg bg-white/5 hover:bg-white/10 text-white/60 border border-white/10"
-              >
-                Next line
-              </button>
+              <div className="flex gap-2 text-xs">
+                <button
+                  type="button"
+                  onClick={() =>
+                    setScriptIndex((index) => Math.max(0, index - 1))
+                  }
+                  className="px-2 py-1 rounded-lg bg-white/5 hover:bg-white/10 text-white/60 border border-white/10"
+                >
+                  Previous line
+                </button>
+                <button
+                  type="button"
+                  onClick={() =>
+                    setScriptIndex((index) =>
+                      Math.min(RECORDING_SCRIPT.length - 1, index + 1)
+                    )
+                  }
+                  className="px-2 py-1 rounded-lg bg-white/5 hover:bg-white/10 text-white/60 border border-white/10"
+                >
+                  Next line
+                </button>
+              </div>
             </div>
           </div>
-        </div>
+        )}
 
-        <Dropzone onDrop={handleDrop} multiple={false} accept={{ 'audio/*': [], 'video/*': [] }} noDragEventsBubbling>
+        <Dropzone
+          onDrop={handleDrop}
+          multiple={false}
+          accept={{ 'audio/*': [], 'video/*': [] }}
+          noDragEventsBubbling
+        >
           {({ getRootProps, getInputProps }) => (
             <div
               {...getRootProps()}
-              className="w-full md:w-44 h-full min-h-[7rem] border-2 border-dashed border-white/20 hover:border-white/40 rounded-xl bg-black/40 flex flex-col items-center justify-center gap-1 p-3 text-center cursor-pointer transition-colors"
+              className={`h-full min-h-[7rem] border-2 border-dashed border-white/20 hover:border-white/40 rounded-xl bg-black/40 flex flex-col items-center justify-center gap-1 p-3 text-center cursor-pointer transition-colors ${
+                isPersonalAvatar ? 'w-full md:w-44' : 'w-full'
+              }`}
             >
               <input {...getInputProps()} />
               <Upload size={20} className="text-white/50" aria-hidden="true" />
               <span className="text-xs text-white/60">
-                Or drop a recording of {avatarName ?? 'the avatar'} speaking
+                {isPersonalAvatar
+                  ? `Or drop a recording of ${avatarName ?? 'the avatar'} speaking`
+                  : `Upload audio or video of ${avatarName ?? 'the avatar'} speaking`}
               </span>
             </div>
           )}
@@ -418,7 +514,10 @@ const VoicePanel = ({ assistantId, isPersonalAvatar, avatarName }) => {
                 }`}
               >
                 {isVerifying ? (
-                  <Loader2 className="w-4 h-4 animate-spin" aria-hidden="true" />
+                  <Loader2
+                    className="w-4 h-4 animate-spin"
+                    aria-hidden="true"
+                  />
                 ) : (
                   <Mic className="w-4 h-4" aria-hidden="true" />
                 )}
@@ -441,9 +540,11 @@ const VoicePanel = ({ assistantId, isPersonalAvatar, avatarName }) => {
           <p className="text-white/60 text-xs mb-3">
             ElevenLabs refused to create the professional voice:{' '}
             <span className="text-white/80">
-              {status?.detail?.professional_error ?? 'the account plan is too low.'}
+              {status?.detail?.professional_error ??
+                'the account plan is too low.'}
             </span>{' '}
-            The instant voice keeps working. Upgrade the ElevenLabs account, then retry.
+            The voice audio model keeps working. Upgrade the ElevenLabs account,
+            then retry.
           </p>
           <div className="flex flex-wrap items-center gap-2">
             <button
@@ -479,13 +580,14 @@ const VoicePanel = ({ assistantId, isPersonalAvatar, avatarName }) => {
           {status?.training_started_at
             ? ` ${new Date(status.training_started_at).toLocaleString()}`
             : ''}
-          . It takes three to six hours; the avatar keeps using the instant voice
-          until it finishes.
+          . It takes three to six hours; the avatar keeps using the voice audio
+          model until it finishes.
         </p>
       )}
       {status?.detail?.instant_error && (
         <p className="mt-3 text-red-300 text-xs">
-          The instant clone could not be created: {status.detail.instant_error}
+          The voice audio model could not be created:{' '}
+          {status.detail.instant_error}
         </p>
       )}
     </div>

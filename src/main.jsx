@@ -20,7 +20,7 @@ import InboxPanel from './components/inbox/InboxPanel';
 import BillingManagement from './components/BillingManagement';
 import SharedAvatarLayout from './components/SharedAvatarLayout';
 import SharedAvatarChat from './components/SharedAvatarChat';
-import { useAuth } from './context/AuthContext';
+import SharedThreadChat from './components/SharedThreadChat';
 import VantaBackground from './components/VantaBackground.jsx';
 import QrBadge from './components/QrBadge';
 
@@ -111,6 +111,10 @@ createRoot(document.getElementById('root')).render(
                 shared, so withdrawing it closes this door. */}
             <Route path="/share/:avatarId" element={<SharedAvatarLayout />}>
               <Route index element={<SharedAvatarChat />} />
+              <Route
+                path="c/:threadId"
+                element={<SharedThreadChat />}
+              />
               {/* Billing is offered to visitors too — the customer portal has
                   its own sign-in — so it cannot live behind the guard that
                   /billing sits behind. */}

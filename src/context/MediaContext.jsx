@@ -26,6 +26,7 @@ import {
 import {
   isSharedAvatarChatPath,
   resolveAssistantId,
+  buildSharedConversationUrl,
 } from '../components/utils';
 import {
   isBillingRefusal,
@@ -38,6 +39,19 @@ import {
   pruneExpiredAttachments,
   saveMessageAttachments,
 } from '../services/attachmentArchive';
+import {
+  deleteConversationThread,
+  updateConversationThread,
+} from '../services/avatarService';
+import {
+  overlayLocalPinState,
+  setConversationPinnedLocally,
+} from '../services/pinnedConversations';
+import {
+  isConversationSuggestionList,
+  localFollowUpSuggestions,
+  parseConversationSuggestionList,
+} from '../services/conversationSuggestions';
 
 const MediaContext = createContext();
 
@@ -220,6 +234,14 @@ function messageContentAsText(storedContent) {
     .join('\n\n');
 }
 
+/** Prefix of the hidden turn that asks the avatar for follow-up suggestions. */
+export const SUGGESTION_PROMPT_MARKER =
+  '[neural-nexus:conversation-suggestions]';
+
+/** Prefix of the hidden turn that asks the avatar to write its description. */
+export const DESCRIPTION_PROMPT_MARKER =
+  '[neural-nexus:generate-description]';
+
 /**
  * Turn stored thread history into the shape the message list renders.
  *
@@ -256,7 +278,39 @@ function normalizeThreadMessages(storedMessages) {
         // still beside the bubble. Absent on human turns and on replies made
         // before sentiment was recorded.
         sentiment: storedMessage.response_metadata?.sentiment ?? null,
+        usage:
+          storedMessage.usage ?? storedMessage.response_metadata?.usage ?? null,
+        request_id:
+          storedMessage.request_id ??
+          storedMessage.response_metadata?.request_id ??
+          null,
+        total_response_time_ms:
+          storedMessage.total_response_time_ms ??
+          storedMessage.response_metadata?.total_response_time_ms ??
+          null,
+        feedback: storedMessage.feedback ?? null,
       };
+    })
+    .filter((message, index, list) => {
+      if (
+        message.content?.startsWith?.(SUGGESTION_PROMPT_MARKER) ||
+        message.content?.startsWith?.(DESCRIPTION_PROMPT_MARKER)
+      ) {
+        return false;
+      }
+      const previous = list[index - 1];
+      if (
+        previous?.content &&
+        (previous.content.startsWith(SUGGESTION_PROMPT_MARKER) ||
+          previous.content.startsWith(DESCRIPTION_PROMPT_MARKER)) &&
+        message.type === 'ai'
+      ) {
+        return false;
+      }
+      if (message.type === 'ai' && isConversationSuggestionList(message.content)) {
+        return false;
+      }
+      return true;
     });
 }
 
@@ -378,7 +432,9 @@ export const MediaProvider = ({ children }) => {
       query: { assistant_id: resolveAssistantId(avatarForConversations) },
       asAnonymousIdentity: isSharedAvatarChatPath(),
     });
-    const threadList = Array.isArray(threads) ? threads : [];
+    const threadList = overlayLocalPinState(
+      Array.isArray(threads) ? threads : []
+    );
     setConversationList(threadList);
     return threadList;
   }
@@ -524,6 +580,36 @@ export const MediaProvider = ({ children }) => {
   }
 
   /**
+   * Send a user-visible turn. If the model answers with a follow-up JSON list
+   * instead of speech, ask once more on the same thread without adding another
+   * "hey mom" bubble.
+   */
+  async function sendVisibleAssistantTurn(
+    avatarForMessage,
+    threadId,
+    messageContent,
+    attachedFiles = []
+  ) {
+    const first = await sendMessageAwaitResponseUpdateMessages(
+      user,
+      avatarForMessage,
+      threadId,
+      messageContent,
+      attachedFiles
+    );
+    if (!first?.shouldRetryForSpokenReply && !first?.leakedSuggestions?.length) {
+      return first;
+    }
+    return sendMessageAwaitResponseUpdateMessages(
+      user,
+      avatarForMessage,
+      first.threadId || threadId,
+      messageContent,
+      []
+    );
+  }
+
+  /**
    * Stream one assistant turn — a new message or a resumed one — into the
    * messages array.
    *
@@ -544,6 +630,8 @@ export const MediaProvider = ({ children }) => {
    * @param {string} parameters.threadId Thread being continued, or null.
    * @param {string} parameters.path The endpoint to stream from.
    * @param {FormData} parameters.formData The request body.
+   * @param {boolean} [parameters.hideFromTranscript] Collect the reply without
+   *   painting a bubble (used for conversation-suggestion harvests).
    */
   async function runAssistantTurnStream({
     _user,
@@ -551,6 +639,7 @@ export const MediaProvider = ({ children }) => {
     threadId,
     path,
     formData,
+    hideFromTranscript = false,
   }) {
     const assistantId = resolveAssistantId(avatarForMessage);
     const streamingMessageId = `streaming-${Date.now()}`;
@@ -559,11 +648,13 @@ export const MediaProvider = ({ children }) => {
     const isStillOnScreen = () =>
       onScreenAssistantIdRef.current === assistantId;
     const updateMessagesIfStillOnScreen = (updater) => {
+      if (hideFromTranscript) return;
       if (isStillOnScreen()) {
         setMessages(updater);
       }
     };
     const setActivityIfStillOnScreen = (activity) => {
+      if (hideFromTranscript) return;
       if (isStillOnScreen()) {
         setAssistantActivity(activity);
       }
@@ -663,6 +754,15 @@ export const MediaProvider = ({ children }) => {
       },
     });
 
+    if (terminalFrame?.type === 'interrupt' && hideFromTranscript) {
+      // A hidden harvest must not steal the open conversation or raise a panel.
+      return {
+        success: false,
+        reply: '',
+        threadId: terminalFrame.thread_id ?? null,
+      };
+    }
+
     if (terminalFrame?.type === 'interrupt') {
       // Finalize the bubble the tokens were streaming into, exactly as the
       // `done` branch does. Without this the placeholder keeps `isLoading`
@@ -699,7 +799,7 @@ export const MediaProvider = ({ children }) => {
               (message.content ?? '').trim() !== ''
           )
       );
-      if (terminalFrame.thread_id) {
+      if (terminalFrame.thread_id && !hideFromTranscript) {
         // A turn can pause before the thread has ever been seen here — a first
         // message that immediately asks a question. Adopting the id now is what
         // lets the resume address the right thread.
@@ -714,26 +814,45 @@ export const MediaProvider = ({ children }) => {
         interrupt: terminalFrame.interrupt,
       });
     } else if (terminalFrame?.type === 'done') {
-      // Adopt the authoritative content and metadata from the terminal frame;
-      // the token stream is a preview, `done.content` is the record.
-      updateMessagesIfStillOnScreen((previousMessages) =>
-        previousMessages.map((message) =>
-          message.id === streamingMessageId
-            ? {
-                ...message,
-                isLoading: false,
-                content: terminalFrame.content ?? message.content,
-                usage: terminalFrame.usage,
-                response_metadata: terminalFrame.response_metadata ?? {},
-                // Classified once the whole reply is known; the chat swaps the
-                // avatar's icon to the matching emotion still, and voice mode
-                // picks the emotion's idle loop and lip-sync still from it.
-                sentiment: terminalFrame.response_metadata?.sentiment ?? null,
-              }
-            : message
-        )
+      const leakedSuggestions = parseConversationSuggestionList(
+        terminalFrame.content ?? ''
       );
-      if (terminalFrame.thread_id) {
+      const hideSuggestionReply =
+        !hideFromTranscript &&
+        (Boolean(leakedSuggestions) ||
+          String(terminalFrame.content ?? '').trim().startsWith('['));
+      // A harvest that landed on this turn answers with a JSON list. That list
+      // is chips, not something the avatar said — drop the bubble and let the
+      // caller ask again for a spoken reply.
+      if (hideSuggestionReply) {
+        updateMessagesIfStillOnScreen((previousMessages) =>
+          previousMessages.filter((message) => message.id !== streamingMessageId)
+        );
+      } else {
+        // Adopt the authoritative content and metadata from the terminal frame;
+        // the token stream is a preview, `done.content` is the record.
+        updateMessagesIfStillOnScreen((previousMessages) =>
+          previousMessages.map((message) =>
+            message.id === streamingMessageId
+              ? {
+                  ...message,
+                  isLoading: false,
+                  content: terminalFrame.content ?? message.content,
+                  usage: terminalFrame.usage,
+                  request_id: terminalFrame.request_id ?? null,
+                  total_response_time_ms:
+                    terminalFrame.total_response_time_ms ?? null,
+                  response_metadata: terminalFrame.response_metadata ?? {},
+                  // Classified once the whole reply is known; the chat swaps the
+                  // avatar's icon to the matching emotion still, and voice mode
+                  // picks the emotion's idle loop and lip-sync still from it.
+                  sentiment: terminalFrame.response_metadata?.sentiment ?? null,
+                }
+              : message
+          )
+        );
+      }
+      if (terminalFrame.thread_id && !hideFromTranscript) {
         const wasNewConversation = threadId !== terminalFrame.thread_id;
         setActiveConversation(terminalFrame.thread_id);
         if (wasNewConversation) {
@@ -764,11 +883,22 @@ export const MediaProvider = ({ children }) => {
     // `reply` is the authoritative text from the terminal frame — what live
     // mode speaks aloud. It is returned rather than read back off the messages
     // array, because that array may belong to a different conversation by now.
+    const leakedSuggestions = parseConversationSuggestionList(
+      terminalFrame?.content ?? ''
+    );
+    const hideSuggestionReply =
+      !hideFromTranscript &&
+      (Boolean(leakedSuggestions) ||
+        String(terminalFrame?.content ?? '').trim().startsWith('['));
     return {
       success: terminalFrame != null,
-      reply: terminalFrame?.content ?? '',
+      reply: hideSuggestionReply ? '' : (terminalFrame?.content ?? ''),
+      leakedSuggestions,
+      shouldRetryForSpokenReply: hideSuggestionReply,
       threadId: terminalFrame?.thread_id ?? null,
-      sentiment: terminalFrame?.response_metadata?.sentiment ?? null,
+      sentiment: hideSuggestionReply
+        ? null
+        : (terminalFrame?.response_metadata?.sentiment ?? null),
     };
   }
 
@@ -916,14 +1046,22 @@ export const MediaProvider = ({ children }) => {
    *
    * @param {string} [messageTextOverride] Text to send instead of the
    *   composer's contents.
+   * @param {File[]} [extraFiles] Stills from a live webcam or screen share,
+   *   captured at send so they travel with this turn.
    */
-  async function handleSendMessageMediaContext(messageTextOverride) {
+  async function handleSendMessageMediaContext(
+    messageTextOverride,
+    extraFiles = []
+  ) {
     const messageWasSuppliedByTheInterface =
       typeof messageTextOverride === 'string';
     const messageContent = messageWasSuppliedByTheInterface
       ? messageTextOverride
       : inputMessage;
-    const attachedFiles = messageWasSuppliedByTheInterface ? [] : mediaFiles;
+    const attachedFiles = [
+      ...(messageWasSuppliedByTheInterface ? [] : mediaFiles),
+      ...(Array.isArray(extraFiles) ? extraFiles : []),
+    ];
 
     if (!activeAvatar || (!messageContent.trim() && attachedFiles.length === 0)) {
       console.log('Missing required data for sending message');
@@ -940,6 +1078,7 @@ export const MediaProvider = ({ children }) => {
     ).length;
 
     try {
+      setPendingSendCount((count) => count + 1);
       // Optimistically render the user's message immediately.
       setMessages((previousMessages) => [
         ...previousMessages,
@@ -968,14 +1107,12 @@ export const MediaProvider = ({ children }) => {
       }
       setAttachmentsInFlight((current) => [...current, ...attachedFiles]);
       turnPausedForUserRef.current = false;
-      setPendingSendCount((count) => count + 1);
       // Say something from the moment the turn starts. The first stream frame
       // can be seconds away, and an unlabelled ellipsis for that long is what
       // makes a working avatar look like a stuck one.
       setAssistantActivity(ASSISTANT_ACTIVITY.thinking);
 
-      const turnResult = await sendMessageAwaitResponseUpdateMessages(
-        user,
+      const turnResult = await sendVisibleAssistantTurn(
         activeAvatar,
         activeConversation,
         messageContent,
@@ -1032,6 +1169,134 @@ export const MediaProvider = ({ children }) => {
   }
 
   /**
+   * Resend a user turn, replacing everything after it.
+   *
+   * Used by edit-accept, retry, and regenerate (which resends the user message
+   * immediately before the avatar reply).
+   *
+   * @param {string} userMessageId The human message to resend from.
+   * @param {string} [replacementText] Edited text; defaults to the original.
+   */
+  async function resendFromUserMessage(userMessageId, replacementText) {
+    const sourceMessage = messages.find(
+      (message) => message.id === userMessageId
+    );
+    if (!sourceMessage || !activeAvatar) return;
+    const text =
+      typeof replacementText === 'string'
+        ? replacementText
+        : sourceMessage.content ?? '';
+    if (!String(text).trim()) return;
+
+    const temporaryUserMessageId = `temp-${Date.now()}`;
+    // Lock the composer before rewriting the transcript. If the count rises
+    // after that rewrite, the suggestion harvest sees a new last avatar
+    // reply with pendingSendCount still 0 and starts a hidden turn on the
+    // same thread — which is how an edited message got a list of follow-ups
+    // as its "reply".
+    setPendingSendCount((count) => count + 1);
+    setMessages((previousMessages) => {
+      const cutIndex = previousMessages.findIndex(
+        (message) => message.id === userMessageId
+      );
+      if (cutIndex < 0) return previousMessages;
+      return [
+        ...previousMessages.slice(0, cutIndex),
+        {
+          id: temporaryUserMessageId,
+          content: text,
+          type: 'human',
+          timestamp: new Date().toISOString(),
+        },
+      ];
+    });
+
+    try {
+      turnPausedForUserRef.current = false;
+      setAssistantActivity(ASSISTANT_ACTIVITY.thinking);
+      await sendVisibleAssistantTurn(
+        activeAvatar,
+        activeConversation,
+        text,
+        []
+      );
+    } catch (resendError) {
+      reportTurnFailure(resendError, 'Could not resend that message.');
+    } finally {
+      setPendingSendCount((count) => Math.max(0, count - 1));
+      if (!turnPausedForUserRef.current) {
+        setAssistantActivity(null);
+      }
+    }
+  }
+
+  /**
+   * Regenerate an avatar reply by resending the user turn that produced it.
+   *
+   * @param {string} avatarMessageId The assistant message to replace.
+   */
+  async function regenerateAvatarReply(avatarMessageId) {
+    const avatarIndex = messages.findIndex(
+      (message) => message.id === avatarMessageId
+    );
+    if (avatarIndex < 0) return;
+    const precedingUser = [...messages.slice(0, avatarIndex)]
+      .reverse()
+      .find((message) => message.type === 'human' || message.type === 'user');
+    if (!precedingUser) return;
+    await resendFromUserMessage(precedingUser.id);
+  }
+
+  /**
+   * Record thumbs / written feedback on an avatar reply.
+   *
+   * The API currently accepts like/dislike as inert form fields on a new
+   * message; the rating is stored on the bubble so the UI is live even when
+   * persist is deferred. A dedicated persist call is attempted and ignored
+   * when the endpoint is absent.
+   *
+   * @param {string} messageId The assistant message.
+   * @param {Object} feedback `{ type: 'like'|'dislike', comment?: string }`
+   */
+  async function submitMessageFeedback(messageId, feedback) {
+    const rated = messages.find((message) => message.id === messageId);
+    setMessages((previousMessages) =>
+      previousMessages.map((message) =>
+        message.id === messageId ? { ...message, feedback } : message
+      )
+    );
+    if (!rated?.request_id || !activeAvatar) return;
+    try {
+      await requestJson('/message_feedback', {
+        method: 'POST',
+        body: {
+          request_id: rated.request_id,
+          assistant_id: resolveAssistantId(activeAvatar),
+          thread_id: activeConversation,
+          feedback_type: feedback.type,
+          comment: feedback.comment ?? null,
+        },
+      });
+    } catch {
+      // Persist is optional until the API wires FeedbackData; the UI already
+      // reflects the rating on this message.
+    }
+  }
+
+  /**
+   * Follow-up chips for the composer. These used to come from a hidden
+   * /message turn that asked for a JSON array; that turn is what made the
+   * avatar answer "hey mom" with the list instead of talking. Chips are
+   * derived from the last real reply so the graph is never asked to speak
+   * in that format.
+   *
+   * @returns {Promise<string[]>} Up to three suggestion strings.
+   */
+  async function fetchConversationSuggestions() {
+    return localFollowUpSuggestions(messages);
+  }
+
+  /**
    * Speak one turn: send recorded audio as the message and return what the
    * avatar said back.
    *
@@ -1073,8 +1338,7 @@ export const MediaProvider = ({ children }) => {
       ]);
       turnPausedForUserRef.current = false;
       setAssistantActivity(ASSISTANT_ACTIVITY.thinking);
-      const { reply, sentiment } = await sendMessageAwaitResponseUpdateMessages(
-        user,
+      const { reply, sentiment } = await sendVisibleAssistantTurn(
         activeAvatar,
         activeConversation,
         words,
@@ -1121,8 +1385,7 @@ export const MediaProvider = ({ children }) => {
       turnPausedForUserRef.current = false;
       setAssistantActivity(ASSISTANT_ACTIVITY.thinking);
 
-      const { reply } = await sendMessageAwaitResponseUpdateMessages(
-        user,
+      const { reply } = await sendVisibleAssistantTurn(
         activeAvatar,
         activeConversation,
         '',
@@ -1139,6 +1402,85 @@ export const MediaProvider = ({ children }) => {
         setAssistantActivity(null);
       }
     }
+  }
+
+  /**
+   * Pin, unpin, rename, or delete a conversation, then refresh the sidebar list.
+   */
+  async function pinConversation(threadId, pinned = true) {
+    if (!threadId || threadId === NEW_CONVERSATION_ID) return;
+    setConversationPinnedLocally(threadId, pinned);
+    setConversationList((current) =>
+      overlayLocalPinState(
+        (current ?? []).map((conversation) =>
+          conversation.thread_id === threadId
+            ? {
+                ...conversation,
+                metadata: { ...(conversation.metadata ?? {}), pinned },
+              }
+            : conversation
+        )
+      )
+    );
+    try {
+      // Top-level `pinned`, not inside `thread_metadata`, so a later message
+      // update that rewrites the nested object cannot drop the flag.
+      await updateConversationThread(threadId, { pinned });
+    } catch (pinError) {
+      console.error('Could not persist the pin on the server:', pinError);
+    }
+    try {
+      // Refresh metadata from the server, then overlay + chronological sort
+      // so the PATCH's updated_at cannot restack the list.
+      await getConversationList(user, activeAvatar);
+    } catch {
+      // The sidebar already kept the row from the local flag.
+    }
+  }
+
+  async function renameConversation(threadId, title) {
+    if (!threadId || threadId === NEW_CONVERSATION_ID) return;
+    await updateConversationThread(threadId, {
+      thread_metadata: { conversation_title: title },
+    });
+    await getConversationList(user, activeAvatar);
+  }
+
+  async function deleteConversation(threadId) {
+    if (!threadId || threadId === NEW_CONVERSATION_ID) return;
+    await deleteConversationThread(threadId);
+    if (activeConversation === threadId) {
+      setActiveConversation(NEW_CONVERSATION_ID);
+      setMessages([]);
+    }
+    await getConversationList(user, activeAvatar);
+  }
+
+  /**
+   * Mark the thread readable by anyone with the link, then return that URL.
+   *
+   * The messages endpoint still refuses a stranger's thread unless the owner
+   * has set `shared` on it. Copying the URL without that flag would look like
+   * a working share and 404 for everyone else.
+   *
+   * @param {string} threadId The conversation.
+   * @returns {Promise<string>} The read-only share URL.
+   */
+  async function shareConversation(threadId) {
+    if (!threadId || threadId === NEW_CONVERSATION_ID) {
+      throw new Error('Start a conversation before sharing it.');
+    }
+    await updateConversationThread(threadId, {
+      thread_metadata: { shared: true },
+    });
+    const shareUrl = buildSharedConversationUrl(
+      resolveAssistantId(activeAvatar),
+      threadId
+    );
+    if (!shareUrl) {
+      throw new Error('Could not build a share link for this conversation.');
+    }
+    return shareUrl;
   }
 
   /**
@@ -1240,6 +1582,14 @@ export const MediaProvider = ({ children }) => {
         sendSpokenTurn,
         pendingSendCount,
         attachmentsInFlight,
+        resendFromUserMessage,
+        regenerateAvatarReply,
+        submitMessageFeedback,
+        fetchConversationSuggestions,
+        pinConversation,
+        renameConversation,
+        deleteConversation,
+        shareConversation,
       }}
     >
       {children}

@@ -1,33 +1,24 @@
 // src/components/connections/NewConnectorPicker.jsx
 import React, { useMemo, useState } from 'react';
-import { Plus, Search } from 'lucide-react';
+import { Plus } from 'lucide-react';
 import ConnectorIcon from '../icons/ConnectorIcon';
-
-const CATEGORY_LABELS = {
-  mail: 'Mail',
-  calendar: 'Calendar',
-  social: 'Social',
-  messaging: 'Messaging',
-  device: 'Your machines',
-  custom: 'Custom',
-};
+import { isMcpConnectorProvider } from './mcpConnectors';
+import ConnectorBrowseControls from './ConnectorBrowseControls';
+import {
+  CONNECTOR_CATEGORY_LABELS,
+  connectorFilterOptions,
+  matchesConnectorCategory,
+  matchesConnectorSearch,
+} from './connectorSearch';
 
 /**
- * The "New Connector" picker: a search box, the Custom row first, then every
- * catalog provider grouped by category with an Add button (or a Coming soon
- * pill). Mirrors the reference design's picker one to one.
- *
- * Nothing here knows what a provider needs to connect; choosing one hands the
- * provider's card description back to the caller, which opens the connect card.
- *
- * @param {Object} parameters
- * @param {Object[]} parameters.providers Card descriptions from the catalog.
- * @param {Object[]} parameters.connections Current connections, to mark rows
- *   that already have an account connected.
- * @param {Function} parameters.onPick Called with the chosen provider card.
+ * The "New Connector" picker: search, category filters, the Custom row first,
+ * then every catalog provider grouped by category with an Add button (or a
+ * Coming soon pill).
  */
 const NewConnectorPicker = ({ providers = [], connections = [], onPick }) => {
   const [query, setQuery] = useState('');
+  const [category, setCategory] = useState('all');
 
   const connectedCountByProvider = useMemo(() => {
     const counts = {};
@@ -38,12 +29,9 @@ const NewConnectorPicker = ({ providers = [], connections = [], onPick }) => {
     return counts;
   }, [connections]);
 
-  const normalizedQuery = query.trim().toLowerCase();
   const matches = (provider) =>
-    !normalizedQuery ||
-    [provider.display_name, provider.summary, provider.category, provider.provider]
-      .filter(Boolean)
-      .some((text) => String(text).toLowerCase().includes(normalizedQuery));
+    matchesConnectorSearch(provider, query) &&
+    matchesConnectorCategory(provider, category);
 
   const customProvider = providers.find(
     (provider) => provider.provider === 'custom_mcp'
@@ -52,26 +40,20 @@ const NewConnectorPicker = ({ providers = [], connections = [], onPick }) => {
     (provider) => provider.provider !== 'custom_mcp' && matches(provider)
   );
   const categories = [...new Set(catalog.map((provider) => provider.category))];
+  const customMatches = Boolean(customProvider && matches(customProvider));
+  const filterOptions = connectorFilterOptions(providers);
 
   return (
     <div className="space-y-4">
-      <div className="relative">
-        <Search
-          size={16}
-          className="absolute left-3 top-1/2 -translate-y-1/2 text-white/40 pointer-events-none"
-          aria-hidden="true"
-        />
-        <input
-          type="search"
-          value={query}
-          onChange={(changeEvent) => setQuery(changeEvent.target.value)}
-          placeholder="Search"
-          aria-label="Search connectors"
-          className="w-full pl-9 pr-4 py-2.5 bg-black/50 border border-white/10 rounded-lg text-neutral-200 placeholder-white/40 focus:outline-none focus:ring-2 focus:ring-amber-400/50"
-        />
-      </div>
+      <ConnectorBrowseControls
+        query={query}
+        onQueryChange={setQuery}
+        category={category}
+        onCategoryChange={setCategory}
+        categories={filterOptions}
+      />
 
-      {customProvider && matches(customProvider) && (
+      {customMatches && (
         <button
           type="button"
           onClick={() => onPick?.(customProvider)}
@@ -89,16 +71,17 @@ const NewConnectorPicker = ({ providers = [], connections = [], onPick }) => {
         </button>
       )}
 
-      {categories.map((category) => (
-        <div key={category}>
+      {categories.map((catalogCategory) => (
+        <div key={catalogCategory}>
           <p className="text-white/50 text-xs uppercase tracking-wide mb-2">
-            {CATEGORY_LABELS[category] ?? category}
+            {CONNECTOR_CATEGORY_LABELS[catalogCategory] ?? catalogCategory}
           </p>
           <ul className="space-y-1">
             {catalog
-              .filter((provider) => provider.category === category)
+              .filter((provider) => provider.category === catalogCategory)
               .map((provider) => {
-                const connectedCount = connectedCountByProvider[provider.provider] ?? 0;
+                const connectedCount =
+                  connectedCountByProvider[provider.provider] ?? 0;
                 const isComingSoon = provider.availability === 'coming_soon';
                 return (
                   <li
@@ -111,9 +94,18 @@ const NewConnectorPicker = ({ providers = [], connections = [], onPick }) => {
                         {provider.display_name}
                       </p>
                       <p className="text-white/50 text-sm truncate">
-                        {connectedCount > 0
-                          ? `${connectedCount} connected · Connect another`
-                          : provider.summary || provider.card_description}
+                        {isMcpConnectorProvider(provider)
+                          ? connections.some(
+                              (connection) =>
+                                connection.source === 'device' &&
+                                (connection.platform === provider.platform ||
+                                  connection.pending)
+                            )
+                            ? 'On the list · Connect it under Connected'
+                            : provider.summary
+                          : connectedCount > 0
+                            ? `${connectedCount} connected · Connect another`
+                            : provider.summary || provider.card_description}
                       </p>
                     </div>
                     {isComingSoon ? (
@@ -136,7 +128,7 @@ const NewConnectorPicker = ({ providers = [], connections = [], onPick }) => {
         </div>
       ))}
 
-      {catalog.length === 0 && !customProvider && (
+      {catalog.length === 0 && !customMatches && (
         <p className="text-white/50 text-sm">No connectors match that search.</p>
       )}
     </div>

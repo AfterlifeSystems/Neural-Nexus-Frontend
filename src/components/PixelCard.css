@@ -13,7 +13,7 @@
   overflow: hidden;
   display: grid;
   place-items: center;
-  border: 1px solid var(--pixel-card-border, rgba(255, 255, 255, 0.1));
+  border: 1px solid var(--pixel-card-border, rgba(255, 255, 255, 0.25));
   background: var(--pixel-card-background, rgba(0, 0, 0, 0.6));
   border-radius: 1rem;
   isolation: isolate;

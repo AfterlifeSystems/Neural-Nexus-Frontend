@@ -776,12 +776,12 @@ const AvatarSelectionComponent = ({}) => {
           {/* The gallery is WebGL, so the Create Avatar entry it draws is a
               flat texture. When that entry is the one in front, a real card
               is laid over it at the same size — the gallery draws each card
-              60% of its height tall at a 7:9 aspect — so the pixel shimmer
-              and the click land on a live element. */}
+              60% of its height tall and square — so the pixel shimmer and
+              the click land on a live element. */}
           {authenticatedCards.some((card) => card.type === 'create') && (
             <div
               ref={createCardOverlayRef}
-              className="absolute left-1/2 top-1/2 h-[60%] aspect-[7/9] z-10"
+              className="absolute left-1/2 top-1/2 h-[60%] aspect-square z-10"
               style={{
                 transform: 'translate(-50%, -50%)',
                 visibility: 'hidden',

@@ -4,9 +4,9 @@ import React from 'react';
 /**
  * A thin progress bar in the house accent, with optional milestone ticks.
  *
- * The voice corpus fills toward several thresholds at once (an instant clone
- * at one minute, a better one at two, a professional one at thirty), so the
- * bar can mark each as a tick and the label names the next one to reach.
+ * The voice corpus fills toward several thresholds at once (a voice audio
+ * model at one minute, a better one at two, a professional clone at thirty),
+ * so the bar can mark each as a tick and the label names the next one to reach.
  *
  * @param {Object} parameters
  * @param {number} parameters.value Current amount.

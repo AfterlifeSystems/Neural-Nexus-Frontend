@@ -12,12 +12,16 @@
 // hide the captions; and Stop.
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import {
   AudioLines,
+  Camera,
+  CameraOff,
   Captions,
   Loader2,
   Mic,
   MicOff,
+  MonitorUp,
   Paperclip,
   Send,
   User,
@@ -26,10 +30,12 @@ import {
   Volume2,
   VolumeX,
 } from 'lucide-react';
+import { showVoiceNotReadyToast } from './showVoiceNotReadyToast';
 import { toast } from 'react-hot-toast';
 import { useLocation } from 'react-router-dom';
 
 import { useMedia } from '../context/MediaContext';
+import { useMediaShare } from '../context/MediaShareContext';
 import { useAuth } from '../context/AuthContext';
 import { isSharedAvatarChatPath, isValidImageUrl } from './utils';
 import LoopingVideo from './ui/LoopingVideo';
@@ -67,6 +73,14 @@ const ACTIVE_CONTROL_CLASSES = 'bg-white/15 text-neutral-100';
 
 const LiveVoiceMode = ({ assistantId, avatarName, avatarPortrait, onClose }) => {
   const { messages, sendSpokenTurn, handleFileChange } = useMedia();
+  const {
+    webcamStream,
+    screenStream,
+    webcamVideoRef,
+    screenVideoRef,
+    toggleWebcam,
+    toggleScreenShare,
+  } = useMediaShare();
   const { user } = useAuth();
   const location = useLocation();
   const readerIsAnonymous = isSharedAvatarChatPath(location.pathname);
@@ -97,7 +111,6 @@ const LiveVoiceMode = ({ assistantId, avatarName, avatarPortrait, onClose }) => 
   const [lipSyncClipUrl, setLipSyncClipUrl] = useState(null);
   const [isRenderingClip, setIsRenderingClip] = useState(false);
   const [micLevel, setMicLevel] = useState(0);
-
   const listenerRef = useRef(null);
   const dictationRef = useRef(null);
   const fileInputRef = useRef(null);
@@ -131,15 +144,22 @@ const LiveVoiceMode = ({ assistantId, avatarName, avatarPortrait, onClose }) => 
     []
   );
 
+  // Voice mode is a transparent stage over Vanta. Hide the chat chrome and
+  // sidebar so the waveform button and glass panels do not show through.
+  useEffect(() => {
+    document.documentElement.classList.add('voice-stage-open');
+    return () => document.documentElement.classList.remove('voice-stage-open');
+  }, []);
+
   useEffect(() => {
     if (speech.notReady) {
-      toast(
-        `${avatarName ?? 'This avatar'} has no voice yet — record about two minutes in settings. ` +
-          `${Math.round(speech.notReady.collectedSeconds)}s collected so far.`,
-        { icon: '🎙', duration: 6000 }
-      );
+      showVoiceNotReadyToast({
+        assistantId,
+        avatarName,
+        collectedSeconds: speech.notReady.collectedSeconds,
+      });
     }
-  }, [speech.notReady, avatarName]);
+  }, [speech.notReady, avatarName, assistantId]);
 
   // --- the stage --------------------------------------------------------------
   const stageStill = stillFor(manifest, currentEmotion) ?? avatarPortrait;
@@ -317,34 +337,67 @@ const LiveVoiceMode = ({ assistantId, avatarName, avatarPortrait, onClose }) => 
     return '';
   };
 
-  return (
-    <div className="fixed inset-0 z-[70] bg-black flex flex-col">
+  const isAvatarSpeaking = speech.isSpeaking || Boolean(lipSyncClipUrl);
+
+  return createPortal(
+    <div className="fixed inset-0 z-[70] bg-transparent flex flex-col">
       {/* The stage: the avatar's emotion loop, a lip-sync clip when one is
           ready, or the portrait. Behind everything. */}
-      <div className="absolute inset-0">
-        {lipSyncClipUrl ? (
-          <LoopingVideo
-            src={lipSyncClipUrl}
-            poster={stageStill}
-            alt={avatarName ?? 'Avatar'}
-            loop={false}
-            onEnded={() => setLipSyncClipUrl(null)}
-            className="w-full h-full"
-          />
-        ) : stageLoop || (stageStill && isValidImageUrl(stageStill)) ? (
-          <LoopingVideo
-            src={stageLoop}
-            poster={stageStill}
-            alt={avatarName ?? 'Avatar'}
-            className="w-full h-full"
-          />
-        ) : (
-          <div className="w-full h-full flex items-center justify-center">
-            <User className="w-32 h-32 text-white/20" />
+      <div className="absolute inset-0 flex items-center justify-center">
+        <div className="w-[min(92vmin,56rem)] aspect-square mx-auto">
+          <div
+            className={`w-full h-full rounded-2xl overflow-hidden bg-transparent ${
+              isAvatarSpeaking ? 'voice-speak-glow' : ''
+            }`}
+          >
+            {lipSyncClipUrl ? (
+              <LoopingVideo
+                src={lipSyncClipUrl}
+                poster={stageStill}
+                alt={avatarName ?? 'Avatar'}
+                loop={false}
+                onEnded={() => setLipSyncClipUrl(null)}
+                mediaClassName="w-full h-full object-contain"
+                className="w-full h-full bg-transparent"
+              />
+            ) : stageLoop || (stageStill && isValidImageUrl(stageStill)) ? (
+              <LoopingVideo
+                src={stageLoop}
+                poster={stageStill}
+                alt={avatarName ?? 'Avatar'}
+                pingPong="auto"
+                mediaClassName="w-full h-full object-contain"
+                className="w-full h-full bg-transparent"
+              />
+            ) : (
+              <div className="w-full h-full flex items-center justify-center">
+                <User className="w-32 h-32 text-white/20" />
+              </div>
+            )}
+          </div>
+        </div>
+        {(webcamStream || screenStream) && (
+          <div className="absolute bottom-28 right-4 z-20 flex flex-col gap-2">
+            {screenStream && (
+              <video
+                ref={screenVideoRef}
+                autoPlay
+                muted
+                playsInline
+                className="w-40 sm:w-56 rounded-lg border border-white/20 bg-black"
+              />
+            )}
+            {webcamStream && (
+              <video
+                ref={webcamVideoRef}
+                autoPlay
+                muted
+                playsInline
+                className="w-28 sm:w-36 rounded-lg border border-white/20 bg-black"
+              />
+            )}
           </div>
         )}
-        <div className="absolute inset-x-0 top-0 h-32 bg-gradient-to-b from-black/80 to-transparent" />
-        <div className="absolute inset-x-0 bottom-0 h-64 bg-gradient-to-t from-black/90 via-black/60 to-transparent" />
       </div>
 
       {/* Header */}
@@ -512,6 +565,28 @@ const LiveVoiceMode = ({ assistantId, avatarName, avatarPortrait, onClose }) => 
 
             <button
               type="button"
+              onClick={toggleWebcam}
+              title={webcamStream ? 'Turn off webcam' : 'Enable webcam'}
+              aria-label={webcamStream ? 'Turn off webcam' : 'Enable webcam'}
+              aria-pressed={Boolean(webcamStream)}
+              className={`${CONTROL_CLASSES} ${webcamStream ? ACTIVE_CONTROL_CLASSES : ''}`}
+            >
+              {webcamStream ? <Camera className="w-5 h-5" /> : <CameraOff className="w-5 h-5" />}
+            </button>
+
+            <button
+              type="button"
+              onClick={toggleScreenShare}
+              title={screenStream ? 'Stop sharing screen' : 'Share screen'}
+              aria-label={screenStream ? 'Stop sharing screen' : 'Share screen'}
+              aria-pressed={Boolean(screenStream)}
+              className={`${CONTROL_CLASSES} ${screenStream ? ACTIVE_CONTROL_CLASSES : ''}`}
+            >
+              <MonitorUp className="w-5 h-5" />
+            </button>
+
+            <button
+              type="button"
               onClick={() => setIsVideoEnabled((enabled) => !enabled)}
               title={isVideoEnabled ? 'Disable video replies' : 'Enable video replies'}
               aria-label={isVideoEnabled ? 'Disable video replies' : 'Enable video replies'}
@@ -564,7 +639,8 @@ const LiveVoiceMode = ({ assistantId, avatarName, avatarPortrait, onClose }) => 
           </p>
         )}
       </div>
-    </div>
+    </div>,
+    document.body
   );
 };
 

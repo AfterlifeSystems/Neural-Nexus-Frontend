@@ -74,7 +74,7 @@ export default function ProtectedRoute() {
   // credential still authenticates, render a spinner rather than bouncing a
   // signed-in user to /login on every page refresh.
   if (isRestoringSession) {
-    return <LoadingSpinner />;
+    return <LoadingSpinner fullscreen label="Loading…" />;
   }
 
   if (!user) {

@@ -1,7 +1,7 @@
 // src/components/connections/ComposerConnectorsMenu.jsx
 import React, { useCallback, useEffect, useState } from 'react';
 import { toast } from 'react-hot-toast';
-import { ChevronRight, Paperclip, Plug, Plus, Settings2 } from 'lucide-react';
+import { ChevronRight, Plug, Plus, Settings2 } from 'lucide-react';
 import MenuPanel, { MenuRow } from '../ui/MenuPanel';
 import Switch from '../ui/Switch';
 import Modal from '../ui/Modal';
@@ -9,18 +9,36 @@ import ConnectorIcon from '../icons/ConnectorIcon';
 import ConnectAccountCard from '../ConnectAccountCard';
 import NewConnectorPicker from './NewConnectorPicker';
 import {
+  deviceIdFromConnection,
+  disconnectDataServer,
+  isDeviceConnection,
   listConnectableProviders,
   listConnections,
+  listMcpConnections,
+  mergeMcpDevicesIntoConnections,
   setConnectionState,
+  unregisterMcpDevice,
 } from '../../services/avatarService';
 import { showRequestFailureToast } from '../requestFailureToast';
+import ConnectionPresence from './ConnectionPresence';
+import {
+  addPendingMcpConnection,
+  bindMcpConnection,
+  formatDeviceMetadata,
+  isMcpConnectorProvider,
+  mcpConnectorFromProvider,
+  mergePendingMcpConnections,
+  normalizePlatform,
+  removePendingMcpConnection,
+  withMcpConnectorProviders,
+} from './mcpConnectors';
 
 /**
- * The composer's "+" menu: attach a file, and — on the personal avatar — the
- * Connectors submenu from the reference design (each connected account with an
- * on/off switch, then "Add connector" and "Manage connectors").
+ * The composer's connectors menu on the personal avatar (each connected
+ * account with an on/off switch, then "Add connector" and "Manage
+ * connectors"). File attach lives on the paperclip beside this menu, not here.
  *
- * Connections are fetched when the submenu opens rather than on every render of
+ * Connections are fetched when the menu opens rather than on every render of
  * the composer, so an owner who never opens it costs nothing. The switch is a
  * disconnect (the credential is deleted after a confirmation); switching a
  * disconnected account back on opens its connect card here, in a modal.
@@ -28,7 +46,6 @@ import { showRequestFailureToast } from '../requestFailureToast';
  * @param {Object} parameters
  * @param {boolean} parameters.open Whether the menu is shown.
  * @param {Function} parameters.onClose Close the menu.
- * @param {Function} parameters.onAttachFile Open the file picker.
  * @param {boolean} parameters.showConnectors Whether the Connectors entry exists
  *   (personal avatar only).
  * @param {Function} parameters.onManageConnectors Navigate to the settings section.
@@ -36,7 +53,6 @@ import { showRequestFailureToast } from '../requestFailureToast';
 const ComposerConnectorsMenu = ({
   open,
   onClose,
-  onAttachFile,
   showConnectors,
   onManageConnectors,
 }) => {
@@ -48,15 +64,24 @@ const ComposerConnectorsMenu = ({
   const [cardBeingConnected, setCardBeingConnected] = useState(null);
 
   const refresh = useCallback(async () => {
-    try {
-      const [connectionsResponse, providersResponse] = await Promise.all([
-        listConnections(),
-        listConnectableProviders(),
-      ]);
-      setConnections(connectionsResponse?.connections ?? []);
-      setProviders(providersResponse?.providers ?? []);
-    } catch (loadError) {
-      console.debug('Connections could not be loaded:', loadError);
+    const [connectionsResult, providersResult, mcpResult] = await Promise.allSettled([
+      listConnections(),
+      listConnectableProviders(),
+      listMcpConnections(),
+    ]);
+    const listedConnections =
+      connectionsResult.status === 'fulfilled'
+        ? (connectionsResult.value?.connections ?? [])
+        : [];
+    const mcpDevices =
+      mcpResult.status === 'fulfilled' ? (mcpResult.value?.devices ?? []) : [];
+    setConnections(
+      mergePendingMcpConnections(
+        mergeMcpDevicesIntoConnections(listedConnections, mcpDevices)
+      )
+    );
+    if (providersResult.status === 'fulfilled') {
+      setProviders(providersResult.value?.providers ?? []);
     }
   }, []);
 
@@ -65,10 +90,36 @@ const ComposerConnectorsMenu = ({
     if (!open) setIsSubmenuOpen(false);
   }, [open, showConnectors, refresh]);
 
-  const openCardFor = (provider) => {
+  useEffect(() => {
+    if (!open || !showConnectors || !isSubmenuOpen) return undefined;
+    const poll = setInterval(refresh, 15_000);
+    return () => clearInterval(poll);
+  }, [open, showConnectors, isSubmenuOpen, refresh]);
+
+  const openCardFor = async (provider) => {
     if (!provider) return;
     setIsPickerOpen(false);
     onClose?.();
+    if (isMcpConnectorProvider(provider)) {
+      if (provider.availability === 'coming_soon') return;
+      const connector = mcpConnectorFromProvider(provider);
+      const alreadyListed = connections.find(
+        (row) =>
+          isDeviceConnection(row) &&
+          !row.pending &&
+          normalizePlatform(row.platform) === connector.platform
+      );
+      if (alreadyListed) {
+        await handleToggle(alreadyListed, true);
+        return;
+      }
+      const pending = addPendingMcpConnection(connector);
+      setConnections(
+        mergePendingMcpConnections(connections.filter((row) => !row.pending))
+      );
+      await handleToggle(pending, true);
+      return;
+    }
     setCardBeingConnected({
       ...provider,
       already_connected: connections
@@ -84,12 +135,38 @@ const ComposerConnectorsMenu = ({
   };
 
   const handleToggle = async (connection, next) => {
+    if (isDeviceConnection(connection)) {
+      setBusyKey(connection.connection_key);
+      try {
+        if (next) {
+          const response = await bindMcpConnection(connection);
+          const bound = Array.isArray(response?.connected_devices)
+            ? response.connected_devices[0]
+            : connection.display_label;
+          toast.success(`${bound} is connected.`);
+        } else {
+          const deviceId = deviceIdFromConnection(connection);
+          const confirmed = window.confirm(
+            `Disconnect ${connection.display_label}? You can remove it from the list in Manage connectors.`
+          );
+          if (!confirmed) return;
+          await disconnectDataServer(deviceId);
+          toast.success(`${connection.display_label} disconnected.`);
+        }
+        await refresh();
+      } catch (deviceError) {
+        showRequestFailureToast(
+          deviceError,
+          'Start the MCP server on that machine, sign in, then press Connect again.'
+        );
+      } finally {
+        setBusyKey(null);
+      }
+      return;
+    }
     if (!next) {
       const confirmed = window.confirm(
-        `Disconnect ${connection.display_label}? ` +
-          (connection.source === 'device'
-            ? 'The avatar stops using this machine until you connect it again.'
-            : 'The saved credential is deleted and the avatar can no longer reach this account.')
+        `Disconnect ${connection.display_label}? The saved credential is deleted and the avatar can no longer reach this account.`
       );
       if (!confirmed) return;
     }
@@ -102,7 +179,7 @@ const ComposerConnectorsMenu = ({
       } else {
         toast.success(
           next
-            ? `${connection.display_label} will connect on the next turn.`
+            ? `${connection.display_label} is connecting now.`
             : `${connection.display_label} disconnected.`
         );
       }
@@ -114,8 +191,43 @@ const ComposerConnectorsMenu = ({
     }
   };
 
+  const handleRemoveDevice = async (connection) => {
+    const confirmed = window.confirm(
+      `Remove ${connection.display_label} from this list?`
+    );
+    if (!confirmed) return;
+    if (connection.pending) {
+      removePendingMcpConnection(connection.connection_key);
+      setConnections((current) =>
+        current.filter((row) => row.connection_key !== connection.connection_key)
+      );
+      toast.success(`${connection.display_label} removed.`);
+      return;
+    }
+    const deviceId = deviceIdFromConnection(connection);
+    if (!deviceId) return;
+    setBusyKey(connection.connection_key);
+    try {
+      try {
+        await disconnectDataServer(deviceId);
+      } catch {
+        // Already unbound.
+      }
+      await unregisterMcpDevice(deviceId);
+      toast.success(`${connection.display_label} removed.`);
+      await refresh();
+    } catch (removeError) {
+      showRequestFailureToast(removeError, 'Could not remove that machine.');
+    } finally {
+      setBusyKey(null);
+    }
+  };
+
   const connectedRows = connections.filter(
-    (connection) => connection.connected || connection.status === 'needs_reconnect'
+    (connection) =>
+      isDeviceConnection(connection) ||
+      connection.connected ||
+      connection.status === 'needs_reconnect'
   );
 
   return (
@@ -124,16 +236,8 @@ const ComposerConnectorsMenu = ({
         open={open}
         onClose={onClose}
         id="composer-menu"
-        className="bottom-full mb-2 left-0 w-56"
+        className="bottom-full mb-2 left-0 w-72"
       >
-        <MenuRow
-          icon={<Paperclip className="w-4 h-4" aria-hidden="true" />}
-          label="Upload a file"
-          onClick={() => {
-            onClose?.();
-            onAttachFile?.();
-          }}
-        />
         {showConnectors && (
           <div className="relative">
             <MenuRow
@@ -160,23 +264,74 @@ const ComposerConnectorsMenu = ({
                     Nothing connected yet
                   </p>
                 )}
-                {connectedRows.map((connection) => (
+                {connectedRows.map((connection) => {
+                  const isDevice = isDeviceConnection(connection);
+                  const isOnline = Boolean(connection.online);
+                  const isBound =
+                    Boolean(connection.connected) && !connection.pending;
+                  return (
                   <div
                     key={connection.connection_key}
                     className="flex items-center gap-2 px-3 py-1.5 rounded-lg hover:bg-white/5"
                   >
                     <ConnectorIcon iconKey={connection.icon_key} size="sm" />
-                    <span className="flex-grow text-sm text-white/80 truncate">
+                    <span
+                      className="flex-grow min-w-0 text-sm text-white/80 truncate"
+                      title={
+                        isDevice
+                          ? formatDeviceMetadata(connection)
+                          : connection.display_label
+                      }
+                    >
                       {connection.display_label}
                     </span>
-                    <Switch
-                      checked={connection.connected && connection.status !== 'needs_reconnect'}
-                      busy={busyKey === connection.connection_key}
-                      label={`${connection.connected ? 'Disconnect' : 'Connect'} ${connection.display_label}`}
-                      onChange={(next) => handleToggle(connection, next)}
-                    />
+                    {isDevice ? (
+                      <>
+                        <ConnectionPresence online={isOnline} />
+                        {isBound && isOnline ? (
+                          <button
+                            type="button"
+                            disabled={busyKey === connection.connection_key}
+                            onClick={() => handleToggle(connection, false)}
+                            className="text-xs text-white/70 hover:text-neutral-100 shrink-0"
+                          >
+                            Disconnect
+                          </button>
+                        ) : (
+                          <>
+                            <button
+                              type="button"
+                              disabled={busyKey === connection.connection_key}
+                              onClick={() => handleToggle(connection, true)}
+                              className="text-xs text-amber-300 hover:text-amber-200 shrink-0"
+                            >
+                              Connect
+                            </button>
+                            <button
+                              type="button"
+                              disabled={busyKey === connection.connection_key}
+                              onClick={() => handleRemoveDevice(connection)}
+                              className="text-xs text-red-300 hover:text-red-200 shrink-0"
+                            >
+                              Remove
+                            </button>
+                          </>
+                        )}
+                      </>
+                    ) : (
+                      <Switch
+                        checked={connection.connected && connection.status !== 'needs_reconnect'}
+                        busy={busyKey === connection.connection_key}
+                        showLabel
+                        onLabel="Disconnect"
+                        offLabel="Connect"
+                        label={`${connection.connected ? 'Disconnect' : 'Connect'} ${connection.display_label}`}
+                        onChange={(next) => handleToggle(connection, next)}
+                      />
+                    )}
                   </div>
-                ))}
+                  );
+                })}
                 <div className="border-t border-white/10 my-1" />
                 <MenuRow
                   icon={<Plus className="w-4 h-4" aria-hidden="true" />}
@@ -206,7 +361,7 @@ const ComposerConnectorsMenu = ({
         title="New Connector"
       >
         <NewConnectorPicker
-          providers={providers}
+          providers={withMcpConnectorProviders(providers)}
           connections={connections}
           onPick={openCardFor}
         />

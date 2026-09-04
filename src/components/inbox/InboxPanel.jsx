@@ -207,12 +207,17 @@ const InboxItemCard = ({ item, onDecide, isBusy }) => {
  * The agent inbox: everything the personal avatar triaged on the owner's behalf
  * and is waiting on the owner to decide.
  *
- * Reached from the sidebar's "Agent Inbox" entry (with the pending badge).
- * Accept / Edit / Ignore / Reply deliver the same HumanResponse the avatar's
- * chat tools do, so a decision made here or in conversation resumes the same
- * paused triage and teaches the same preferences.
+ * Reached from the sidebar's "Agent Inbox" entry (with the pending badge)
+ * and from the Inbox tab on the personal avatar's header. Accept / Edit /
+ * Ignore / Reply deliver the same HumanResponse the avatar's chat tools do,
+ * so a decision made here or in conversation resumes the same paused triage
+ * and teaches the same preferences.
+ *
+ * @param {Object} [parameters]
+ * @param {boolean} [parameters.embedded] When true, drop the full-page padding
+ *   so this panel can sit in the avatar header tab.
  */
-const InboxPanel = () => {
+const InboxPanel = ({ embedded = false }) => {
   const [items, setItems] = useState([]);
   const [pendingCount, setPendingCount] = useState(0);
   const [view, setView] = useState('open');
@@ -280,7 +285,11 @@ const InboxPanel = () => {
   };
 
   return (
-    <div className="flex flex-col flex-grow p-2 sm:p-4 relative z-10 overflow-y-auto">
+    <div
+      className={`flex flex-col flex-grow relative z-10 overflow-y-auto ${
+        embedded ? '' : 'p-2 sm:p-4'
+      }`}
+    >
       <div className="max-w-3xl mx-auto w-full space-y-4">
         <header className="flex flex-wrap items-center gap-3">
           <h1 className="text-2xl font-semibold text-neutral-200 inline-flex items-center gap-2">

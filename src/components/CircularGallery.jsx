@@ -14,6 +14,15 @@ import {
   Texture,
   Transform,
 } from 'ogl';
+import {
+  attachIdleLoopCapture,
+  blitIdleLoopReverse,
+  disposeIdleLoopTape,
+  idleLoopUsesNativeLoop,
+  mountIdleLoopVideo,
+  stepIdleLoopPingPong,
+  unmountIdleLoopVideo,
+} from './ui/idleLoopSeam';
 function debounce(func, wait) {
   let timeout;
   return function (...args) {
@@ -204,6 +213,7 @@ class Media {
     // from the video every frame so the card breathes and blinks in place.
     this.video = video;
     this.videoElement = null;
+    this.loopDirection = 1;
     this.index = index;
     this.length = length;
     this.renderer = renderer;
@@ -258,23 +268,33 @@ class Media {
         }
         
         void main() {
-          vec2 ratio = vec2(
-            min((uPlaneSizes.x / uPlaneSizes.y) / (uImageSizes.x / uImageSizes.y), 1.0),
-            min((uPlaneSizes.y / uPlaneSizes.x) / (uImageSizes.y / uImageSizes.x), 1.0)
-          );
-          vec2 uv = vec2(
-            vUv.x * ratio.x + (1.0 - ratio.x) * 0.5,
-            vUv.y * ratio.y + (1.0 - ratio.y) * 0.5
-          );
-          vec4 color = texture2D(tMap, uv);
-          
+          float planeAspect = max(uPlaneSizes.x, 0.0001) / max(uPlaneSizes.y, 0.0001);
+          float imageAspect = max(uImageSizes.x, 0.0001) / max(uImageSizes.y, 0.0001);
+          // Contain on the same transparent-black glass as the Create Avatar card.
+          vec2 scale = imageAspect > planeAspect
+            ? vec2(1.0, planeAspect / imageAspect)
+            : vec2(imageAspect / planeAspect, 1.0);
+          vec2 uv = (vUv - 0.5) / scale + 0.5;
+
           float d = roundedBoxSDF(vUv - 0.5, vec2(0.5 - uBorderRadius), uBorderRadius);
-          
-          // Smooth antialiasing for edges
           float edgeSmooth = 0.002;
           float alpha = 1.0 - smoothstep(-edgeSmooth, edgeSmooth, d);
-          
-          gl_FragColor = vec4(color.rgb, alpha);
+          float strokeWidth = 0.0035;
+          float inner = roundedBoxSDF(
+            vUv - 0.5,
+            vec2(0.5 - uBorderRadius - strokeWidth),
+            max(uBorderRadius - strokeWidth, 0.0)
+          );
+          float stroke = smoothstep(-0.0015, 0.0015, inner) *
+            (1.0 - smoothstep(-0.0015, 0.0015, d));
+          vec3 frame = vec3(1.0);
+
+          if (uv.x < 0.0 || uv.x > 1.0 || uv.y < 0.0 || uv.y > 1.0) {
+            gl_FragColor = vec4(mix(vec3(0.0), frame, stroke * 0.25), alpha * 0.6);
+            return;
+          }
+          vec4 color = texture2D(tMap, uv);
+          gl_FragColor = vec4(mix(color.rgb, frame, stroke * 0.25), color.a * alpha);
         }
       `,
       uniforms: {
@@ -298,6 +318,7 @@ class Media {
       } = createPlaceholderTexture(this.gl, this.cardType, 512, 512);
       this.program.uniforms.tMap.value = placeholderTexture;
       this.program.uniforms.uImageSizes.value = [width, height];
+      this.startIdleLoop();
     } else {
       // Load actual image
       const img = new Image();
@@ -339,6 +360,8 @@ class Media {
       // A loop that will not play leaves the still in place; nothing else to do.
       this.videoElement = null;
     });
+    mountIdleLoopVideo(video);
+    attachIdleLoopCapture(video);
     video.play().catch(() => {
       // Autoplay refused (no user gesture yet): the still stays until the
       // page is interacted with, when the next update() tries again.
@@ -366,15 +389,18 @@ class Media {
     // Refresh the card's texture from the idle loop once it has frames.
     const video = this.videoElement;
     if (video && video.readyState >= 2 && this.texture) {
-      if (video.paused) {
-        video.play().catch(() => {});
+      this.loopDirection = stepIdleLoopPingPong(video, this.loopDirection);
+      video.loop = idleLoopUsesNativeLoop(video);
+      video._idleLoopAllowCapture = !(this.isBefore || this.isAfter);
+      const reverseSurface = blitIdleLoopReverse(video);
+      const textureSource = reverseSurface || video;
+      if (this.texture.image !== textureSource) {
+        this.texture.image = textureSource;
       }
-      if (this.texture.image !== video) {
-        this.texture.image = video;
-        this.program.uniforms.uImageSizes.value = [
-          video.videoWidth || 1,
-          video.videoHeight || 1,
-        ];
+      const sourceWidth = reverseSurface?.width || video.videoWidth;
+      const sourceHeight = reverseSurface?.height || video.videoHeight;
+      if (sourceWidth > 0 && sourceHeight > 0) {
+        this.program.uniforms.uImageSizes.value = [sourceWidth, sourceHeight];
       }
       this.texture.needsUpdate = true;
     }
@@ -425,10 +451,11 @@ class Media {
       }
     }
     this.scale = this.screen.height / 1500;
+    // Square: a 7:9 plane cropped the sides of square portraits and idle loops.
     this.plane.scale.y =
       (this.viewport.height * (900 * this.scale)) / this.screen.height;
     this.plane.scale.x =
-      (this.viewport.width * (700 * this.scale)) / this.screen.width;
+      (this.viewport.width * (900 * this.scale)) / this.screen.width;
     this.plane.program.uniforms.uPlaneSizes.value = [
       this.plane.scale.x,
       this.plane.scale.y,
@@ -685,6 +712,18 @@ class App {
   }
   destroy() {
     window.cancelAnimationFrame(this.raf);
+    if (this.medias) {
+      this.medias.forEach((media) => {
+        if (media.videoElement) {
+          disposeIdleLoopTape(media.videoElement);
+          media.videoElement.pause();
+          unmountIdleLoopVideo(media.videoElement);
+          media.videoElement.removeAttribute('src');
+          media.videoElement.load();
+          media.videoElement = null;
+        }
+      });
+    }
     window.removeEventListener('resize', this.boundOnResize);
     window.removeEventListener('mousewheel', this.boundOnWheel);
     window.removeEventListener('wheel', this.boundOnWheel);

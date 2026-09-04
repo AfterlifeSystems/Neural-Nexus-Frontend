@@ -346,6 +346,23 @@ export const disconnectDataServer = async (deviceId) => {
 };
 
 /**
+ * Drop one machine from the account's device list (registration record).
+ *
+ * Distinct from disconnect: that unbinds the avatar; this removes the machine
+ * so it no longer appears under Connected.
+ * POST /mcp/unregister
+ *
+ * @param {string} deviceId The machine to remove.
+ * @returns {Promise<Object>} The unregister result.
+ */
+export const unregisterMcpDevice = async (deviceId) => {
+  return requestJson('/mcp/unregister', {
+    method: 'POST',
+    body: { device_id: deviceId },
+  });
+};
+
+/**
  * Connect one of the owner's email accounts to their personal avatar.
  *
  * The credential is proved against the real mail server before anything is
@@ -487,6 +504,172 @@ export const setConnectionState = async (connectionKey, connected) => {
     method: 'POST',
     body: { connection_key: connectionKey, connected },
   });
+};
+
+/**
+ * Bind a reachable Neural Nexus machine to the personal avatar immediately.
+ *
+ * Adoption normally waits for the next graph turn. Connect-now cannot:
+ * the owner pressed a button that says the machine should be connected now.
+ * POST /connect_mcp
+ *
+ * @param {Object} [parameters]
+ * @param {string} [parameters.deviceId] Bind this machine only.
+ * @param {string} [parameters.deviceLabel] Bind by the name the card shows.
+ * @returns {Promise<Object>} `{connected, connected_devices, message}`.
+ */
+export const connectMcpDevice = async ({ deviceId, deviceLabel } = {}) => {
+  return requestJson('/connect_mcp', {
+    method: 'POST',
+    body: {
+      device_id: deviceId || undefined,
+      device_label: deviceLabel || undefined,
+    },
+  });
+};
+
+/**
+ * Every machine this account has registered, with live presence.
+ * GET /list_mcp_connections
+ *
+ * @returns {Promise<Object>} `{devices}` — label, platform, online, connected.
+ */
+export const listMcpConnections = async () => {
+  return requestJson('/list_mcp_connections');
+};
+
+const PLATFORM_ICON_KEYS = {
+  ubuntu: 'ubuntu',
+  linux: 'ubuntu',
+  macos: 'apple',
+  darwin: 'apple',
+  ios: 'ios',
+  iphone: 'ios',
+  mobile: 'ios',
+  android: 'android',
+  windows: 'windows',
+};
+
+/**
+ * Whether this connectors row is a machine (not a mailbox or custom URL).
+ *
+ * @param {Object} connection A `listConnections` row.
+ * @returns {boolean}
+ */
+export const isDeviceConnection = (connection) =>
+  connection?.source === 'device' ||
+  connection?.category === 'device' ||
+  connection?.provider === 'desktop_mcp' ||
+  connection?.provider === 'neural_nexus_desktop';
+
+/**
+ * Whether this catalog provider is "add a device", not a form-based account.
+ *
+ * @param {Object} provider A connectable-providers card.
+ * @returns {boolean}
+ */
+export const isDeviceProvider = (provider) =>
+  provider?.category === 'device' ||
+  String(provider?.provider ?? '').startsWith('desktop_mcp') ||
+  provider?.provider === 'neural_nexus_desktop' ||
+  provider?.credential_mechanism === 'device_pairing';
+
+/**
+ * The device identifier on a connectors row.
+ *
+ * @param {Object} connection A `listConnections` row.
+ * @returns {string|null}
+ */
+export const deviceIdFromConnection = (connection) => {
+  if (connection?.pending) return null;
+  if (connection?.device_id) return connection.device_id;
+  if (!isDeviceConnection(connection)) return null;
+  const identifier = String(connection.connection_key ?? '').replace(
+    /^device:/,
+    ''
+  );
+  if (!identifier || identifier.startsWith('pending:')) return null;
+  return identifier;
+};
+
+/**
+ * Shape a machine from GET /list_mcp_connections as a connectors-row.
+ *
+ * The settings/connectors screens speak one row shape for mailboxes and
+ * machines. The dedicated MCP listing is older and returns devices; mapping
+ * here is what lets a newly registered daemon appear in that same grid.
+ *
+ * Online/offline is the status of the machine. Listing it means it has been
+ * added; a separate "connected" pill is not shown.
+ *
+ * @param {Object} device A `/list_mcp_connections` device.
+ * @returns {Object} A `listConnections` row.
+ */
+export const connectionRowFromMcpDevice = (device) => {
+  const platform = String(device.platform || '').toLowerCase();
+  const online = Boolean(device.online);
+  const connected = Boolean(device.connected);
+  return {
+    connection_key: `device:${device.device_id}`,
+    source: 'device',
+    provider: device.provider || 'desktop_mcp',
+    category: 'device',
+    display_label: device.device_label || device.server_name || device.device_id,
+    sub_label: platform || 'machine',
+    connected,
+    online,
+    status: connected ? (online ? 'online' : 'offline') : 'registered',
+    icon_key: PLATFORM_ICON_KEYS[platform] || 'mcp',
+    device_id: device.device_id,
+    platform: device.platform,
+    server_name: device.server_name ?? null,
+    connection_mode: device.connection_mode ?? null,
+    last_seen_at: device.last_seen_at ?? null,
+    connected_at: device.connected_at ?? null,
+    bound_assistant_id: device.bound_assistant_id ?? null,
+    connect_endpoint: '/connect_mcp',
+    disconnect_endpoint: '/disconnect_mcp',
+  };
+};
+
+/**
+ * Fold registered machines into the connectors list so a newly paired daemon
+ * appears even when `/list_connections` has not caught up yet. Live presence
+ * from `/list_mcp_connections` overwrites stale online/offline on existing rows.
+ *
+ * @param {Array} connections Rows from `/list_connections`.
+ * @param {Array} mcpDevices Devices from `/list_mcp_connections`.
+ * @returns {Array} Connections plus any missing machines.
+ */
+export const mergeMcpDevicesIntoConnections = (connections, mcpDevices) => {
+  const deviceById = new Map();
+  for (const device of mcpDevices ?? []) {
+    if (device?.device_id) deviceById.set(device.device_id, device);
+  }
+
+  const rows = (connections ?? []).map((row) => {
+    const deviceId = deviceIdFromConnection(row);
+    const device = deviceId ? deviceById.get(deviceId) : null;
+    if (!device) return row;
+    const fromDevice = connectionRowFromMcpDevice(device);
+    return {
+      ...row,
+      ...fromDevice,
+      display_label: row.display_label || fromDevice.display_label,
+    };
+  });
+
+  const seenDeviceIds = new Set(
+    rows
+      .map((row) => deviceIdFromConnection(row))
+      .filter(Boolean)
+  );
+  for (const device of mcpDevices ?? []) {
+    if (!device?.device_id || seenDeviceIds.has(device.device_id)) continue;
+    rows.push(connectionRowFromMcpDevice(device));
+    seenDeviceIds.add(device.device_id);
+  }
+  return rows;
 };
 
 /**
@@ -808,4 +991,64 @@ export const decideInboxItem = async (itemId, decision) => {
  */
 export const pollInbox = async () => {
   return requestJson('/inbox/poll', { method: 'POST' });
+};
+
+/**
+ * Delete a conversation thread.
+ * DELETE /threads/{thread_id}
+ *
+ * @param {string} threadId The LangGraph thread.
+ * @returns {Promise<*>}
+ */
+export const deleteConversationThread = async (threadId) => {
+  return requestJson(`/threads/${encodeURIComponent(threadId)}`, {
+    method: 'DELETE',
+  });
+};
+
+/**
+ * Update a conversation thread (title, pin, and other metadata).
+ * PATCH /threads/{thread_id}
+ *
+ * LangGraph merges this payload at the top level of `metadata` only. Nested
+ * `thread_metadata` is replaced as a whole, so a patch that sends just
+ * `{ pinned: true }` inside it would drop `user_id` and `assistant_id` and
+ * hide the thread from GET /conversations. Existing nested keys are read and
+ * merged before the PATCH so rename/share/pin cannot wipe the rest.
+ *
+ * @param {string} threadId The LangGraph thread.
+ * @param {Object} metadata Metadata to merge onto the thread.
+ * @returns {Promise<*>}
+ */
+export const updateConversationThread = async (threadId, metadata) => {
+  let existingMetadata = {};
+  try {
+    const thread = await requestJson(
+      `/threads/${encodeURIComponent(threadId)}`
+    );
+    if (thread?.metadata && typeof thread.metadata === 'object') {
+      existingMetadata = thread.metadata;
+    }
+  } catch {
+    // The PATCH still goes out; a missing GET must not block pin or rename.
+  }
+  const existingNested =
+    existingMetadata.thread_metadata &&
+    typeof existingMetadata.thread_metadata === 'object'
+      ? existingMetadata.thread_metadata
+      : {};
+  const nextMetadata = {
+    ...existingMetadata,
+    ...metadata,
+  };
+  if (metadata?.thread_metadata) {
+    nextMetadata.thread_metadata = {
+      ...existingNested,
+      ...metadata.thread_metadata,
+    };
+  }
+  return requestJson(`/threads/${encodeURIComponent(threadId)}`, {
+    method: 'PATCH',
+    body: { metadata: nextMetadata },
+  });
 };

@@ -2,7 +2,8 @@
 import React, { useState } from 'react';
 import { Check, ExternalLink, Loader2 } from 'lucide-react';
 import ConnectorIcon from './icons/ConnectorIcon';
-import { connectAccount } from '../services/avatarService';
+import { connectAccount, isDeviceProvider } from '../services/avatarService';
+import AddDevicePanel from './connections/AddDevicePanel';
 
 /**
  * The connect card the avatar raises when it needs an account connected.
@@ -48,14 +49,13 @@ const ConnectAccountCard = ({
     connect_endpoint: connectEndpoint,
     availability,
     uses_form: usesForm = true,
-    pairing_instructions: pairingInstructions,
-    install_url: installUrl,
     fields = [],
     already_connected: alreadyConnected = [],
   } = interrupt ?? {};
 
   const isComingSoon = availability === 'coming_soon';
   const isMailbox = fields.some((field) => field.name === 'app_password');
+  const isDevice = isDeviceProvider(interrupt);
 
   // 'offer' → 'signing_in' → 'connected', or 'dismissed'. Held here rather than
   // derived from the turn, because the turn resumes the moment the account is
@@ -131,11 +131,13 @@ const ConnectAccountCard = ({
       <div className="flex items-center gap-3">
         <ConnectorIcon iconKey={iconKey} />
         <div className="min-w-0 flex-grow">
-          <p className="text-neutral-200 font-medium truncate">
-            {displayName ?? provider}
+          <p className="text-neutral-200 font-medium whitespace-normal break-words">
+            {isDevice ? 'Add a device' : (displayName ?? provider)}
           </p>
-          {cardDescription && (
-            <p className="text-white/60 text-sm truncate">{cardDescription}</p>
+          {cardDescription && !isDevice && (
+            <p className="text-white/60 text-sm whitespace-normal break-words">
+              {cardDescription}
+            </p>
           )}
           {Number.isFinite(toolCount) && toolCount > 0 && (
             <p className="text-white/40 text-xs">
@@ -167,22 +169,10 @@ const ConnectAccountCard = ({
         )}
       </div>
 
-      {/* A machine connects itself when the daemon runs; the card explains that
-          instead of offering a form it cannot honour. */}
-      {!usesForm && !isComingSoon && stage !== 'connected' && (
-        <div className="mt-3 space-y-2">
-          <p className="text-white/60 text-sm">{pairingInstructions}</p>
-          {installUrl && (
-            <a
-              href={installUrl}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="inline-flex items-center gap-1 text-neutral-300 hover:text-neutral-100 text-xs underline"
-            >
-              Get the Neural Nexus daemon
-              <ExternalLink className="w-3 h-3" aria-hidden="true" />
-            </a>
-          )}
+      {/* Adding a machine is installing the connector, not an MCP URL form. */}
+      {isDevice && stage !== 'connected' && (
+        <div className="mt-3">
+          <AddDevicePanel />
         </div>
       )}
 
@@ -201,7 +191,7 @@ const ConnectAccountCard = ({
           onClick={handleDismiss}
           className="mt-3 text-white/40 hover:text-white/70 text-xs underline transition-colors"
         >
-          {isComingSoon || !usesForm ? 'Close' : 'Not now'}
+          {isComingSoon || isDevice ? 'Close' : 'Not now'}
         </button>
       )}
 

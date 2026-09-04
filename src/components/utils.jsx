@@ -103,6 +103,23 @@ export const buildSharedAvatarUrl = (
     : '';
 
 /**
+ * Build the read-only link that shows one conversation's message window.
+ *
+ * @param {string} assistantId The avatar the thread belongs to.
+ * @param {string} threadId The conversation.
+ * @param {string} [origin] Override the origin.
+ * @returns {string} An absolute URL, or empty without both ids.
+ */
+export const buildSharedConversationUrl = (
+  assistantId,
+  threadId,
+  origin = typeof window === 'undefined' ? '' : window.location.origin
+) =>
+  assistantId && threadId
+    ? `${origin}${SHARED_AVATAR_ROUTE_PREFIX}/${encodeURIComponent(assistantId)}/c/${encodeURIComponent(threadId)}`
+    : '';
+
+/**
  * The chats this BROWSER has held with one shared avatar.
  *
  * The API scopes an anonymous visitor by network address: every guest chat from
@@ -175,12 +192,14 @@ const currentPathname = () =>
 /**
  * Whether this path is the public chat of a shared avatar link.
  *
- * True for the chat itself — `/share/<assistant id>` — and deliberately NOT for
- * the pages underneath it. It answers one question: is the person on this
- * screen talking to the avatar as an anonymous visitor? On the chat they are,
- * whether or not a session happens to be stored in this browser, because that
- * is what a shared link is. On `/share/<assistant id>/billing` they are not:
- * that screen signs a signed-in visitor into the customer portal with their own
+ * True for the public chat — `/share/<assistant id>` — and for a read-only
+ * shared conversation — `/share/<assistant id>/c/<thread id>`. Deliberately
+ * NOT for the pages underneath a share link that are not chats. It answers
+ * one question: is the person on this screen talking to (or reading) the
+ * avatar as an anonymous visitor? On those screens they are, whether or not
+ * a session happens to be stored in this browser, because that is what a
+ * shared link is. On `/share/<assistant id>/billing` they are not: that
+ * screen signs a signed-in visitor into the customer portal with their own
  * credential, and treating it as anonymous would take their own account away
  * from them.
  *
@@ -188,7 +207,8 @@ const currentPathname = () =>
  * @returns {boolean} Whether this is a shared avatar's public chat.
  */
 export const isSharedAvatarChatPath = (pathname = currentPathname()) =>
-  new RegExp(`^${SHARED_AVATAR_ROUTE_PREFIX}/[^/]+/?$`).test(pathname);
+  new RegExp(`^${SHARED_AVATAR_ROUTE_PREFIX}/[^/]+/?$`).test(pathname) ||
+  new RegExp(`^${SHARED_AVATAR_ROUTE_PREFIX}/[^/]+/c/[^/]+/?$`).test(pathname);
 
 /**
  * Whether the person reading this screen is acting as an anonymous visitor.

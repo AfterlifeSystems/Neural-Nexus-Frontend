@@ -2,15 +2,20 @@ import { useRef, useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   AudioLines,
+  Camera,
+  CameraOff,
   FileAudio,
   FileSpreadsheet,
   FileText,
   FileVideo,
   Image as ImageIcon,
+  MonitorUp,
+  Paperclip,
   Plus,
 } from 'lucide-react';
 import { useMedia } from '../context/MediaContext';
 import { useAuth } from '../context/AuthContext';
+import { useMediaShare } from '../context/MediaShareContext';
 import ComposerConnectorsMenu from './connections/ComposerConnectorsMenu';
 import Dock from './Dock';
 import { HiXMark } from 'react-icons/hi2';
@@ -128,6 +133,13 @@ const InputBar = ({ onActivateLiveChat, avatarId }) => {
     dataExchangeTypes,
     attachmentsInFlight,
   } = useMedia();
+  const {
+    webcamStream,
+    screenStream,
+    toggleWebcam,
+    toggleScreenShare,
+    captureShareStills,
+  } = useMediaShare();
 
   // One object URL per attached image, minted when the attachment list changes
   // and revoked when it changes again. These used to be created inline while
@@ -157,7 +169,9 @@ const InputBar = ({ onActivateLiveChat, avatarId }) => {
   // Files alone are a message worth sending, so the button must offer to send
   // them rather than reading an empty text box and offering live mode instead.
   const hasSomethingToSend =
-    inputMessage.trim().length > 0 || mediaFiles.length > 0;
+    inputMessage.trim().length > 0 ||
+    mediaFiles.length > 0 ||
+    Boolean(webcamStream || screenStream);
 
   const handleKeyDown = (e) => {
     e.stopPropagation();
@@ -209,15 +223,7 @@ const InputBar = ({ onActivateLiveChat, avatarId }) => {
     }
   };
 
-  const handleSendMessage = () => {
-    // handle live chat activation
-    // if (!inputMessage.trim() && mediaFiles.length === 0) {
-    //   if (isLiveChatView && onActivateLiveChat) {
-    //     onActivateLiveChat();
-    //   }
-    //   return;
-    // }
-
+  const handleSendMessage = async () => {
     console.log(`handle send message`);
     if (
       inputMessage.trim() &&
@@ -230,10 +236,8 @@ const InputBar = ({ onActivateLiveChat, avatarId }) => {
     setHistoryIndex(-1);
     setTempMessage('');
     setType('user');
-    // No arguments: the attachments and the text both come from the media
-    // context's own state, and the only caller that passes anything is a
-    // starter prompt supplying text the composer does not hold.
-    handleSendMessageMediaContext();
+    const shareStills = await captureShareStills();
+    handleSendMessageMediaContext(undefined, shareStills);
     setMediaFiles([]);
     setInputMessage('');
     setCaptions({});
@@ -386,40 +390,76 @@ const InputBar = ({ onActivateLiveChat, avatarId }) => {
             spellCheck={false}
           />
 
-          {/* The "+" menu: upload a file, and on the personal avatar the
-              Connectors submenu (each connected account with a switch, then
-              Add / Manage). The hidden file input below is what "Upload a
-              file" opens. */}
-          <div className="relative flex items-center px-3 pb-2">
+          <div className="relative flex items-center gap-1 px-3 pb-2">
             <button
               type="button"
-              onClick={() => setIsComposerMenuOpen((previous) => !previous)}
-              title="Add files or connectors"
-              aria-label="Add files or connectors"
-              aria-haspopup="menu"
-              aria-expanded={isComposerMenuOpen}
-              aria-controls="composer-menu"
+              onClick={() => fileInputRef.current?.click()}
+              title="Attach a file"
+              aria-label="Attach a file"
+              className="p-1.5 rounded-lg text-neutral-400 hover:text-neutral-100 hover:bg-white/10 transition-colors focus:outline-none focus:ring-2 focus:ring-amber-400/50"
+            >
+              <Paperclip className="w-5 h-5" />
+            </button>
+            <button
+              type="button"
+              onClick={toggleWebcam}
+              title={webcamStream ? 'Turn off webcam' : 'Share webcam'}
+              aria-label={webcamStream ? 'Turn off webcam' : 'Share webcam'}
+              aria-pressed={Boolean(webcamStream)}
               className={`p-1.5 rounded-lg text-neutral-400 hover:text-neutral-100 hover:bg-white/10 transition-colors focus:outline-none focus:ring-2 focus:ring-amber-400/50 ${
-                isComposerMenuOpen ? 'bg-white/10 text-neutral-100' : ''
+                webcamStream ? 'bg-white/10 text-neutral-100' : ''
               }`}
             >
-              <Plus
-                className={`w-5 h-5 transition-transform ${
-                  isComposerMenuOpen ? 'rotate-45' : ''
-                }`}
-              />
+              {webcamStream ? (
+                <Camera className="w-5 h-5" />
+              ) : (
+                <CameraOff className="w-5 h-5" />
+              )}
             </button>
-            <ComposerConnectorsMenu
-              open={isComposerMenuOpen}
-              onClose={() => setIsComposerMenuOpen(false)}
-              onAttachFile={() => fileInputRef.current?.click()}
-              showConnectors={isPersonalAvatar}
-              onManageConnectors={() =>
-                navigate(
-                  `/chat/${encodeURIComponent(avatarId)}?tab=settings&section=connections`
-                )
-              }
-            />
+            <button
+              type="button"
+              onClick={toggleScreenShare}
+              title={screenStream ? 'Stop sharing screen' : 'Share screen'}
+              aria-label={screenStream ? 'Stop sharing screen' : 'Share screen'}
+              aria-pressed={Boolean(screenStream)}
+              className={`p-1.5 rounded-lg text-neutral-400 hover:text-neutral-100 hover:bg-white/10 transition-colors focus:outline-none focus:ring-2 focus:ring-amber-400/50 ${
+                screenStream ? 'bg-white/10 text-neutral-100' : ''
+              }`}
+            >
+              <MonitorUp className="w-5 h-5" />
+            </button>
+            {isPersonalAvatar && (
+              <>
+                <button
+                  type="button"
+                  onClick={() => setIsComposerMenuOpen((previous) => !previous)}
+                  title="Connectors"
+                  aria-label="Connectors"
+                  aria-haspopup="menu"
+                  aria-expanded={isComposerMenuOpen}
+                  aria-controls="composer-menu"
+                  className={`p-1.5 rounded-lg text-neutral-400 hover:text-neutral-100 hover:bg-white/10 transition-colors focus:outline-none focus:ring-2 focus:ring-amber-400/50 ${
+                    isComposerMenuOpen ? 'bg-white/10 text-neutral-100' : ''
+                  }`}
+                >
+                  <Plus
+                    className={`w-5 h-5 transition-transform ${
+                      isComposerMenuOpen ? 'rotate-45' : ''
+                    }`}
+                  />
+                </button>
+                <ComposerConnectorsMenu
+                  open={isComposerMenuOpen}
+                  onClose={() => setIsComposerMenuOpen(false)}
+                  showConnectors
+                  onManageConnectors={() =>
+                    navigate(
+                      `/chat/${encodeURIComponent(avatarId)}?tab=settings&section=connections`
+                    )
+                  }
+                />
+              </>
+            )}
           </div>
 
           {historyIndex !== -1 && (

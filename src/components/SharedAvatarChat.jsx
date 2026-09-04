@@ -38,7 +38,10 @@ import {
 import LoadingSpinner from './LoadingSpinner';
 import LiveVoiceMode from './LiveVoiceMode';
 import MessageList from './MessageList';
+import ConversationSuggestions from './ConversationSuggestions';
 import InputBar from './InputBar';
+import MediaSharePreviews from './MediaSharePreviews';
+import { MediaShareProvider } from '../context/MediaShareContext';
 
 // The one-click opening question offered in an empty chat. It is the first
 // thing a visitor to the landing page's embedded demo sees inside the frame
@@ -221,7 +224,7 @@ const SharedAvatarChat = () => {
     pendingSendCount === 0;
 
   if (linkState === 'loading') {
-    return <LoadingSpinner />;
+    return <LoadingSpinner fullscreen label="Loading…" />;
   }
 
   if (linkState === 'unavailable') {
@@ -256,7 +259,7 @@ const SharedAvatarChat = () => {
   }
 
   return (
-    <>
+    <MediaShareProvider>
     {isLiveModeOpen && (
       <LiveVoiceMode
         assistantId={avatarId}
@@ -265,7 +268,7 @@ const SharedAvatarChat = () => {
         onClose={() => setIsLiveModeOpen(false)}
       />
     )}
-    <div className="h-full w-full p-2 sm:p-4">
+    <div className={`h-full w-full p-2 sm:p-4 ${isLiveModeOpen ? 'invisible pointer-events-none' : ''}`}>
       <div className="flex flex-col w-full h-full bg-black/60 backdrop-blur-lg rounded-2xl border border-white/10 overflow-hidden relative">
         {/* The header names the one avatar this link opens. There is nothing to
             switch to and nothing to administer, so it carries no tabs. */}
@@ -342,9 +345,11 @@ const SharedAvatarChat = () => {
                 </div>
               )}
             </div>
+            <MediaSharePreviews className="absolute bottom-3 right-3 sm:right-6 z-10" />
           </div>
 
           <div className="flex-shrink-0 items-center mt-2">
+            <ConversationSuggestions enabled={!isOfferingTheOpeningQuestion} />
             <InputBar
               avatar_id={avatarId}
               onActivateLiveChat={() => setIsLiveModeOpen(true)}
@@ -359,7 +364,7 @@ const SharedAvatarChat = () => {
         </div>
       </div>
     </div>
-    </>
+    </MediaShareProvider>
   );
 };
 

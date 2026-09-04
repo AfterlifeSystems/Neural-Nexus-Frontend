@@ -11,7 +11,7 @@ import {
   Twitch,
   Youtube,
 } from 'lucide-react';
-import { FaApple, FaDiscord, FaSlack, FaUbuntu, FaWindows } from 'react-icons/fa';
+import { FaAndroid, FaApple, FaDiscord, FaSlack, FaUbuntu, FaWindows } from 'react-icons/fa';
 import { FaXTwitter } from 'react-icons/fa6';
 import { VscMcp } from 'react-icons/vsc';
 
@@ -49,9 +49,11 @@ const CONNECTOR_ICONS = {
   slack: { Icon: FaSlack, tint: 'text-emerald-300', ring: 'border-emerald-300/30' },
   apple: { Icon: FaApple, tint: 'text-neutral-200', ring: 'border-white/20' },
   ios: { Icon: FaApple, tint: 'text-neutral-200', ring: 'border-white/20' },
+  android: { Icon: FaAndroid, tint: 'text-emerald-400', ring: 'border-emerald-400/30' },
   windows: { Icon: FaWindows, tint: 'text-sky-300', ring: 'border-sky-300/30' },
   ubuntu: { Icon: FaUbuntu, tint: 'text-orange-400', ring: 'border-orange-400/30' },
   mcp: { Icon: VscMcp, tint: 'text-neutral-200', ring: 'border-white/20' },
+  desktop: { Icon: VscMcp, tint: 'text-neutral-200', ring: 'border-white/20' },
   custom: { Icon: Plug, tint: 'text-amber-300', ring: 'border-amber-300/30' },
   url: { Icon: Globe, tint: 'text-neutral-300', ring: 'border-white/20' },
 };

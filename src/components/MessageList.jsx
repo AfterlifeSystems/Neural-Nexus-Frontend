@@ -1,6 +1,15 @@
 // src/components/MessageList.jsx
 import React, { useEffect } from 'react';
-import { User } from 'lucide-react';
+import {
+  Check,
+  Copy,
+  MessageSquare,
+  Pencil,
+  RefreshCw,
+  ThumbsDown,
+  ThumbsUp,
+  User,
+} from 'lucide-react';
 import SecureImage from './SecureImage';
 import InterruptPanel from './InterruptPanel';
 import { useLocation } from 'react-router-dom';
@@ -13,8 +22,9 @@ import BillingRefusalNotice, {
 import useEmotionMedia, { stillFor } from '../hooks/useEmotionMedia';
 import useSpeech from '../hooks/useSpeech';
 import SpeakButton from './media/SpeakButton';
-import { Copy, Check } from 'lucide-react';
+import { showVoiceNotReadyToast } from './showVoiceNotReadyToast';
 import { toast } from 'react-hot-toast';
+import { isConversationSuggestionList } from '../services/conversationSuggestions';
 
 /**
  * The face beside a message: whoever said it.
@@ -75,14 +85,58 @@ const findNearestScrollingAncestor = (descendantElement) => {
   return descendantElement.ownerDocument?.scrollingElement ?? null;
 };
 
+const ACTION_BUTTON_CLASSES =
+  'inline-flex items-center justify-center p-0.5 rounded text-neutral-400 hover:text-neutral-100 hover:bg-white/10 transition-colors focus:outline-none focus:ring-2 focus:ring-amber-400/50 disabled:opacity-40';
+
+/**
+ * Format the screenshot metrics line: `4.6s • 8.4k tokens • $0.0012`.
+ *
+ * @param {Object} message An avatar message that may carry usage metadata.
+ * @returns {string|null} The line, or null when nothing is known.
+ */
+const formatMessageMetrics = (message) => {
+  const parts = [];
+  const timeMs =
+    message?.total_response_time_ms ?? message?.usage?.latency_ms ?? null;
+  if (Number.isFinite(Number(timeMs)) && Number(timeMs) > 0) {
+    parts.push(`${(Number(timeMs) / 1000).toFixed(1)}s`);
+  }
+  const tokens = Number(
+    message?.usage?.total_tokens ??
+      message?.response_metadata?.token_usage?.total_tokens ??
+      0
+  );
+  if (tokens > 0) {
+    parts.push(
+      tokens >= 1000
+        ? `${(tokens / 1000).toFixed(tokens >= 10_000 ? 0 : 1)}k tokens`
+        : `${tokens} tokens`
+    );
+  }
+  const cost = Number(
+    message?.response_metadata?.total_cost ?? message?.usage?.cost_usd ?? NaN
+  );
+  if (Number.isFinite(cost) && cost > 0) {
+    parts.push(`$${cost < 0.01 ? cost.toFixed(4) : cost.toFixed(3)}`);
+  }
+  return parts.length ? parts.join(' • ') : null;
+};
+
 const MessageList = ({
   messages,
   messagesEndRef,
   avatarPortrait,
   avatarName,
   assistantId,
+  readOnly = false,
 }) => {
-  const { assistantActivity } = useMedia();
+  const {
+    assistantActivity,
+    resendFromUserMessage,
+    regenerateAvatarReply,
+    submitMessageFeedback,
+    pendingSendCount,
+  } = useMedia();
   const { userPortrait, activeAvatar } = useAuth();
   const location = useLocation();
   const readerIsAnonymous = isSharedAvatarChatPath(location.pathname);
@@ -97,16 +151,19 @@ const MessageList = ({
   const speech = useSpeech({ asAnonymousIdentity: readerIsAnonymous });
   const [loadingSpeechKey, setLoadingSpeechKey] = React.useState(null);
   const [copiedKey, setCopiedKey] = React.useState(null);
+  const [editingKey, setEditingKey] = React.useState(null);
+  const [editDraft, setEditDraft] = React.useState('');
+  const [feedbackKey, setFeedbackKey] = React.useState(null);
+  const [feedbackDraft, setFeedbackDraft] = React.useState('');
   useEffect(() => {
     if (speech.notReady) {
-      toast(
-        `${avatarName ?? 'This avatar'} has no voice yet. Record about two minutes of speech in settings to create one (${Math.round(
-          speech.notReady.collectedSeconds
-        )}s collected so far).`,
-        { icon: '🎙', duration: 6000 }
-      );
+      showVoiceNotReadyToast({
+        assistantId: resolvedAssistantId,
+        avatarName,
+        collectedSeconds: speech.notReady.collectedSeconds,
+      });
     }
-  }, [speech.notReady, avatarName]);
+  }, [speech.notReady, avatarName, resolvedAssistantId]);
 
   const toggleSpeech = async (messageKey, text) => {
     if (speech.speakingKey === messageKey) {
@@ -182,6 +239,9 @@ const MessageList = ({
           const isFromUser = type === 'user' || type === 'human';
           const isFromAvatar =
             type === 'ai' || type === 'assistant' || type === 'avatar';
+          if (isFromAvatar && isConversationSuggestionList(msg.content)) {
+            return null;
+          }
 
           return (
             <div
@@ -226,8 +286,39 @@ const MessageList = ({
                     </div>
                   ) : (
                     <>
-                      {msg.content && (
-                        <div className="whitespace-pre-wrap">{msg.content}</div>
+                      {isFromUser && editingKey === messageKey ? (
+                        <div className="space-y-2">
+                          <textarea
+                            value={editDraft}
+                            onChange={(event) => setEditDraft(event.target.value)}
+                            rows={3}
+                            className="w-full px-2 py-1.5 bg-black/50 border border-white/10 rounded-md text-neutral-200 text-sm focus:outline-none focus:ring-2 focus:ring-amber-400/50"
+                          />
+                          <div className="flex items-center gap-2">
+                            <button
+                              type="button"
+                              disabled={pendingSendCount > 0 || !editDraft.trim()}
+                              onClick={() => {
+                                resendFromUserMessage?.(messageKey, editDraft);
+                                setEditingKey(null);
+                              }}
+                              className="px-2 py-1 rounded-md bg-amber-400/15 text-amber-300 text-xs border border-amber-400/30"
+                            >
+                              Accept
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setEditingKey(null)}
+                              className="px-2 py-1 rounded-md bg-white/5 text-white/70 text-xs border border-white/10"
+                            >
+                              Cancel
+                            </button>
+                          </div>
+                        </div>
+                      ) : (
+                        msg.content && (
+                          <div className="whitespace-pre-wrap">{msg.content}</div>
+                        )
                       )}
 
                       {msg.media?.length > 0 &&
@@ -267,36 +358,144 @@ const MessageList = ({
                           </div>
                         ))}
 
-                      <div className="flex items-center justify-between gap-3 mt-1">
-                        {/* The first per-message actions: copy, and speak
-                            aloud in the avatar's cloned voice. Only replies
-                            get a speak button; a person's own words are not
-                            rendered in the avatar's voice. */}
+                      {isFromAvatar && formatMessageMetrics(msg) && (
+                        <p className="mt-2 text-xs text-white/40 text-right select-none">
+                          {formatMessageMetrics(msg)}
+                        </p>
+                      )}
+
+                      <div className="flex flex-wrap items-center justify-between gap-2 mt-1">
                         {isFromAvatar && msg.content ? (
-                          <div className="flex items-center gap-0.5">
+                          <div className="flex flex-wrap items-center gap-0.5">
                             <button
                               type="button"
                               onClick={() => copyMessage(messageKey, msg.content)}
                               title="Copy"
                               aria-label="Copy message"
-                              className="p-1 rounded-md text-neutral-400 hover:text-neutral-100 hover:bg-white/10 transition-colors focus:outline-none focus:ring-2 focus:ring-amber-400/50"
+                              className={ACTION_BUTTON_CLASSES}
                             >
                               {copiedKey === messageKey ? (
-                                <Check className="w-3.5 h-3.5" aria-hidden="true" />
+                                <Check className="w-3 h-3" aria-hidden="true" />
                               ) : (
-                                <Copy className="w-3.5 h-3.5" aria-hidden="true" />
+                                <Copy className="w-3 h-3" aria-hidden="true" />
                               )}
+                            </button>
+                            {!readOnly && (
+                              <>
+                            <button
+                              type="button"
+                              disabled={pendingSendCount > 0}
+                              onClick={() => regenerateAvatarReply?.(messageKey)}
+                              title="Regenerate"
+                              aria-label="Regenerate response"
+                              className={ACTION_BUTTON_CLASSES}
+                            >
+                              <RefreshCw className="w-3 h-3" aria-hidden="true" />
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() =>
+                                submitMessageFeedback?.(messageKey, {
+                                  type: 'like',
+                                  comment: msg.feedback?.comment,
+                                })
+                              }
+                              title="Good"
+                              aria-label="Good response"
+                              className={`${ACTION_BUTTON_CLASSES} ${
+                                msg.feedback?.type === 'like'
+                                  ? 'text-amber-300'
+                                  : ''
+                              }`}
+                            >
+                              <ThumbsUp className="w-3 h-3" aria-hidden="true" />
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() =>
+                                submitMessageFeedback?.(messageKey, {
+                                  type: 'dislike',
+                                  comment: msg.feedback?.comment,
+                                })
+                              }
+                              title="Bad"
+                              aria-label="Bad response"
+                              className={`${ACTION_BUTTON_CLASSES} ${
+                                msg.feedback?.type === 'dislike'
+                                  ? 'text-amber-300'
+                                  : ''
+                              }`}
+                            >
+                              <ThumbsDown className="w-3 h-3" aria-hidden="true" />
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setFeedbackKey((current) =>
+                                  current === messageKey ? null : messageKey
+                                );
+                                setFeedbackDraft(msg.feedback?.comment ?? '');
+                              }}
+                              title="Feedback"
+                              aria-label="Send feedback"
+                              className={`${ACTION_BUTTON_CLASSES} ${
+                                feedbackKey === messageKey
+                                  ? 'text-sky-300'
+                                  : ''
+                              }`}
+                            >
+                              <MessageSquare className="w-3 h-3" aria-hidden="true" />
                             </button>
                             <SpeakButton
                               isSpeaking={speech.speakingKey === messageKey}
                               isLoading={loadingSpeechKey === messageKey}
                               onToggle={() => toggleSpeech(messageKey, msg.content)}
                             />
+                              </>
+                            )}
+                          </div>
+                        ) : isFromUser && msg.content && editingKey !== messageKey && !readOnly ? (
+                          <div className="flex items-center gap-0.5">
+                            <button
+                              type="button"
+                              onClick={() => copyMessage(messageKey, msg.content)}
+                              title="Copy"
+                              aria-label="Copy message"
+                              className={ACTION_BUTTON_CLASSES}
+                            >
+                              {copiedKey === messageKey ? (
+                                <Check className="w-3 h-3" aria-hidden="true" />
+                              ) : (
+                                <Copy className="w-3 h-3" aria-hidden="true" />
+                              )}
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setEditingKey(messageKey);
+                                setEditDraft(msg.content);
+                              }}
+                              title="Edit"
+                              aria-label="Edit message"
+                              className={ACTION_BUTTON_CLASSES}
+                            >
+                              <Pencil className="w-3 h-3" aria-hidden="true" />
+                            </button>
+                            <button
+                              type="button"
+                              disabled={pendingSendCount > 0}
+                              onClick={() => resendFromUserMessage?.(messageKey)}
+                              title="Retry"
+                              aria-label="Resend message"
+                              className={ACTION_BUTTON_CLASSES}
+                            >
+                              <RefreshCw className="w-3 h-3" aria-hidden="true" />
+                            </button>
                           </div>
                         ) : (
                           <span />
                         )}
-                        <div className="text-xs text-neutral-400 text-right select-none">
+                        <div className="text-xs text-neutral-400 text-right select-none ml-auto">
                           {msg.timestamp &&
                             new Date(msg.timestamp).toLocaleTimeString(
                               undefined,
@@ -307,6 +506,38 @@ const MessageList = ({
                             )}
                         </div>
                       </div>
+                      {isFromAvatar && !readOnly && feedbackKey === messageKey && (
+                        <div className="mt-2 space-y-1">
+                          <textarea
+                            value={feedbackDraft}
+                            onChange={(event) =>
+                              setFeedbackDraft(event.target.value)
+                            }
+                            placeholder="Add feedback about this response..."
+                            rows={2}
+                            className="w-full px-2 py-1.5 bg-black/50 border border-white/10 rounded-md text-neutral-200 text-sm placeholder-white/40 focus:outline-none focus:ring-2 focus:ring-amber-400/50"
+                          />
+                          <p className="text-xs text-white/40">
+                            Select thumbs up or down before submitting
+                          </p>
+                          <button
+                            type="button"
+                            disabled={
+                              !msg.feedback?.type || !feedbackDraft.trim()
+                            }
+                            onClick={() => {
+                              submitMessageFeedback?.(messageKey, {
+                                type: msg.feedback.type,
+                                comment: feedbackDraft.trim(),
+                              });
+                              setFeedbackKey(null);
+                            }}
+                            className="px-2 py-1 rounded-md bg-sky-500/20 text-sky-200 text-xs border border-sky-400/30 disabled:opacity-40"
+                          >
+                            Submit feedback
+                          </button>
+                        </div>
+                      )}
                     </>
                   )}
                 </div>

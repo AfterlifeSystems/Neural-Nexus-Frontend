@@ -21,18 +21,18 @@ const SpeakButton = ({ isSpeaking, isLoading = false, onToggle }) => (
     title={isSpeaking ? 'Stop' : 'Speak aloud'}
     aria-label={isSpeaking ? 'Stop speaking' : 'Speak this message aloud'}
     aria-pressed={isSpeaking}
-    className={`p-1 rounded-md transition-colors focus:outline-none focus:ring-2 focus:ring-amber-400/50 ${
+    className={`p-0.5 rounded transition-colors focus:outline-none focus:ring-2 focus:ring-amber-400/50 ${
       isSpeaking
         ? 'text-amber-300 bg-amber-400/15'
         : 'text-neutral-400 hover:text-neutral-100 hover:bg-white/10'
     }`}
   >
     {isLoading ? (
-      <Loader2 className="w-3.5 h-3.5 animate-spin" aria-hidden="true" />
+      <Loader2 className="w-3 h-3 animate-spin" aria-hidden="true" />
     ) : isSpeaking ? (
-      <Square className="w-3.5 h-3.5" aria-hidden="true" />
+      <Square className="w-3 h-3" aria-hidden="true" />
     ) : (
-      <Volume2 className="w-3.5 h-3.5" aria-hidden="true" />
+      <Volume2 className="w-3 h-3" aria-hidden="true" />
     )}
   </button>
 );

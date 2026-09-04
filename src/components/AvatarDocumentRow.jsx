@@ -40,15 +40,58 @@ import {
 // rather than a link. Grouped by what the row can say about the upload, not by
 // format family: the row's job is to tell the user what they gave the avatar.
 const EXTENSIONS_BY_KIND = {
-  image: ['jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp', 'svg', 'heic', 'heif',
-          'avif', 'tif', 'tiff'],
-  audio: ['mp3', 'wav', 'm4a', 'aac', 'ogg', 'oga', 'flac', 'wma', 'opus',
-          'aiff', 'amr'],
-  video: ['mp4', 'mov', 'avi', 'mkv', 'webm', 'wmv', 'flv', 'm4v', 'mpg',
-          'mpeg'],
+  image: [
+    'jpg',
+    'jpeg',
+    'png',
+    'gif',
+    'webp',
+    'bmp',
+    'svg',
+    'heic',
+    'heif',
+    'avif',
+    'tif',
+    'tiff',
+  ],
+  audio: [
+    'mp3',
+    'wav',
+    'm4a',
+    'aac',
+    'ogg',
+    'oga',
+    'flac',
+    'wma',
+    'opus',
+    'aiff',
+    'amr',
+  ],
+  video: [
+    'mp4',
+    'mov',
+    'avi',
+    'mkv',
+    'webm',
+    'wmv',
+    'flv',
+    'm4v',
+    'mpg',
+    'mpeg',
+  ],
   document: ['pdf', 'doc', 'docx', 'odt', 'rtf'],
-  data: ['csv', 'tsv', 'json', 'jsonl', 'xml', 'xlsx', 'xls', 'parquet',
-         'yaml', 'yml'],
+  data: [
+    'csv',
+    'tsv',
+    'json',
+    'jsonl',
+    'xml',
+    'xlsx',
+    'xls',
+    'parquet',
+    'yaml',
+    'yml',
+  ],
   text: ['txt', 'md', 'markdown', 'html', 'htm', 'vtt', 'srt'],
 };
 
@@ -251,8 +294,8 @@ const AvatarDocumentRow = ({ documentEntry, portraitDataUri, onDelete }) => {
       ? {
           Icon: Mic,
           iconClassName: 'text-emerald-300',
-          label: 'Reference audio',
-          description: 'Voice sample this avatar is recognised by',
+          label: 'Reference Audio',
+          description: "Speech this avatar's voice is modelled from",
           badgeClassName:
             'bg-emerald-500/20 text-emerald-200 border-emerald-400/40',
         }
@@ -319,7 +362,11 @@ const AvatarDocumentRow = ({ documentEntry, portraitDataUri, onDelete }) => {
             {isPlayerOpen ? (
               <X size={22} className="text-neutral-200 drop-shadow" />
             ) : (
-              <Play size={22} className="text-neutral-200 drop-shadow" fill="white" />
+              <Play
+                size={22}
+                className="text-neutral-200 drop-shadow"
+                fill="white"
+              />
             )}
           </span>
         </button>
@@ -448,15 +495,15 @@ const AvatarDocumentRow = ({ documentEntry, portraitDataUri, onDelete }) => {
             </button>
           </div>
           <div className="aspect-video w-full rounded-lg overflow-hidden border border-white/10 bg-black">
-          <iframe
-            // youtube-nocookie serves the same player without YouTube's tracking
-            // cookies, which is the right default for a settings screen.
-            src={`https://www.youtube-nocookie.com/embed/${youTubeVideoId}?autoplay=1&rel=0`}
-            title={`Preview of ${documentEntry.label}`}
-            className="w-full h-full"
-            allow="accelerometer; autoplay; clipboard-write; encrypted-media; picture-in-picture"
-            allowFullScreen
-          />
+            <iframe
+              // youtube-nocookie serves the same player without YouTube's tracking
+              // cookies, which is the right default for a settings screen.
+              src={`https://www.youtube-nocookie.com/embed/${youTubeVideoId}?autoplay=1&rel=0`}
+              title={`Preview of ${documentEntry.label}`}
+              className="w-full h-full"
+              allow="accelerometer; autoplay; clipboard-write; encrypted-media; picture-in-picture"
+              allowFullScreen
+            />
           </div>
         </div>
       )}

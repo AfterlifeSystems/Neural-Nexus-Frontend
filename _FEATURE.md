@@ -1,4 +1,3 @@
-I am no longer using Firebase nor supabase.
 Please view the repositories but do not alter the codebase. Only use the following as reference.
 
 # API

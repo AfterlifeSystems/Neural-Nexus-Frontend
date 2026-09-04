@@ -26,12 +26,12 @@ export const describeMediaProgress = (progressEvent, description) => {
     expanding: 'Expanding the playlist',
     indexing: 'Adding to memory',
     // A reference image also becomes six emotion portraits and seven idle
-    // loops; a reference recording becomes voice-clone material.
+    // loops; a reference recording becomes the voice audio model.
     emotion_stills: 'Generating emotion portraits',
     idle_loops: 'Animating idle loops',
     emotion_media_complete: 'Emotion media ready',
     voice_clip_collected: 'Collecting your voice',
-    instant_clone_created: 'Voice clone ready',
+    instant_clone_created: 'Voice audio model ready',
   };
   const stageDescription =
     stageDescriptions[progressEvent.stage] ?? progressEvent.stage ?? 'Processing';

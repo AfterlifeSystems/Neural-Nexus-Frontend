@@ -155,8 +155,7 @@ export default function Product() {
 
           <div className="bg-black/60 border border-white/10 p-6 rounded-lg shadow-lg text-neutral-200">
             <h3 className="text-xl font-semibold mb-4 ">
-              <p>💬 Future Feature:</p>
-              <p>Conversation Suggestions</p>
+              <p>💬 Realtime Conversation Suggestions</p>
             </h3>
             <p>
               Get real-time suggestions to enhance your everyday interactions.

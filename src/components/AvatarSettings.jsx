@@ -1,4 +1,10 @@
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import React, {
+  useState,
+  useEffect,
+  useCallback,
+  useMemo,
+  useRef,
+} from 'react';
 import { toast } from 'react-hot-toast';
 import Dropzone from 'react-dropzone';
 import {
@@ -24,8 +30,15 @@ import {
   Lock,
   Copy,
   Search,
+  Sparkles,
+  Loader2,
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
+import {
+  DESCRIPTION_PROMPT_MARKER,
+  NEW_CONVERSATION_ID,
+  useMedia,
+} from '../context/MediaContext';
 import {
   deleteAvatarDocument,
   deleteAvatar,
@@ -37,6 +50,8 @@ import {
   getAvatarReferenceImage,
   shareAvatar,
 } from '../services/avatarService';
+import { streamServerSentEvents } from '../services/neuralNexusApiClient';
+import { showRequestFailureToast } from './requestFailureToast';
 import ConnectionsSection from './connections/ConnectionsSection';
 import EmotionMediaStatus from './media/EmotionMediaStatus';
 import VoicePanel from './voice/VoicePanel';
@@ -52,14 +67,13 @@ import {
   buildSharedAvatarUrl,
 } from './utils';
 import { isAdminAccount } from '../config/adminAccount';
-import { showRequestFailureToast } from './requestFailureToast';
 import { describeMediaProgress } from '../services/mediaJobProgress';
 import AvatarDocumentRow, {
   describeDocumentKind,
   describeUrlKind,
   parseDocumentSourceUrl,
 } from './AvatarDocumentRow';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 
 // Social Media Platform Configuration
 const SOCIAL_PLATFORMS = [
@@ -97,10 +111,14 @@ const AvatarSettings = ({ avatarId, onPortraitChanged }) => {
     refreshUserPortrait,
     isLoading,
   } = useAuth();
+  const { activeConversation } = useMedia();
   const navigate = useNavigate();
-
+  const [searchParams] = useSearchParams();
   const [editingDesc, setEditingDesc] = useState(false);
   const [updatedDesc, setUpdatedDesc] = useState('');
+  const [isGeneratingDescription, setIsGeneratingDescription] = useState(false);
+  const descriptionAbortRef = useRef(null);
+  const voiceSectionRef = useRef(null);
   const [updatedAvatarName, setUpdatedAvatarName] = useState('');
   const [editingName, setEditingName] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
@@ -244,7 +262,10 @@ const AvatarSettings = ({ avatarId, onPortraitChanged }) => {
   // A filter that no longer matches anything (its last item was deleted) falls
   // back to showing everything rather than an empty list with no explanation.
   useEffect(() => {
-    if (documentKindFilter !== 'all' && !documentBucketCounts[documentKindFilter]) {
+    if (
+      documentKindFilter !== 'all' &&
+      !documentBucketCounts[documentKindFilter]
+    ) {
       setDocumentKindFilter('all');
     }
   }, [documentBucketCounts, documentKindFilter]);
@@ -316,6 +337,15 @@ const AvatarSettings = ({ avatarId, onPortraitChanged }) => {
     setUpdatedAvatarName(activeAvatar?.name ?? '');
     setUpdatedDesc(activeAvatar?.description ?? '');
   }, [activeAvatar?.name, activeAvatar?.description]);
+
+  useEffect(() => {
+    if (searchParams.get('section') === 'voice' && voiceSectionRef.current) {
+      voiceSectionRef.current.scrollIntoView({
+        behavior: 'smooth',
+        block: 'start',
+      });
+    }
+  }, [searchParams]);
 
   // Global drag and drop handlers.
   //
@@ -411,6 +441,7 @@ const AvatarSettings = ({ avatarId, onPortraitChanged }) => {
     files = [],
     urls = [],
     isReferenceImage = false,
+    isReferenceAudio = false,
     description,
     confirmStored,
   }) => {
@@ -433,6 +464,7 @@ const AvatarSettings = ({ avatarId, onPortraitChanged }) => {
         files,
         urls,
         isReferenceImage,
+        isReferenceAudio,
       });
 
       // Per-item rejections ride along with an otherwise successful response:
@@ -461,7 +493,9 @@ const AvatarSettings = ({ avatarId, onPortraitChanged }) => {
        * @returns {Promise<boolean>} Whether the upload is considered successful.
        */
       const finishOnConfirmation = async () => {
-        const confirmationFailure = confirmStored ? await confirmStored() : null;
+        const confirmationFailure = confirmStored
+          ? await confirmStored()
+          : null;
         if (confirmationFailure) {
           toast.error(confirmationFailure, {
             id: progressToastId,
@@ -533,8 +567,14 @@ const AvatarSettings = ({ avatarId, onPortraitChanged }) => {
     const files = Array.from(filesList);
     if (files.length === 0) return;
 
+    const treatsAsReferenceAudio = files.some(
+      (file) =>
+        String(file.type ?? '').startsWith('audio/') ||
+        String(file.type ?? '').startsWith('video/')
+    );
     await uploadMediaAndFollowJob({
       files,
+      isReferenceAudio: treatsAsReferenceAudio,
       description: files.length === 1 ? files[0].name : `${files.length} files`,
     });
     if (e.target) {
@@ -791,6 +831,64 @@ const AvatarSettings = ({ avatarId, onPortraitChanged }) => {
           : candidate
       )
     );
+  };
+
+  const cancelDescriptionGeneration = () => {
+    descriptionAbortRef.current?.abort();
+    descriptionAbortRef.current = null;
+    setIsGeneratingDescription(false);
+  };
+
+  const generateDescription = async () => {
+    descriptionAbortRef.current?.abort();
+    const controller = new AbortController();
+    descriptionAbortRef.current = controller;
+    const previousDescription = updatedDesc || activeAvatar?.description || '';
+    setIsGeneratingDescription(true);
+    setEditingDesc(true);
+    setUpdatedDesc('');
+    try {
+      const formData = new FormData();
+      formData.append(
+        'message',
+        `${DESCRIPTION_PROMPT_MARKER} Describe yourself in first person from your own identity and uploaded media. Write a concise profile description. Reply with only that description.`
+      );
+      formData.append('stream', 'true');
+      if (activeConversation && activeConversation !== NEW_CONVERSATION_ID) {
+        formData.append('thread_id', activeConversation);
+      }
+      let collected = '';
+      await streamServerSentEvents(
+        `/message/${encodeURIComponent(assistantId)}`,
+        {
+          formData,
+          signal: controller.signal,
+          onEvent: (streamEvent) => {
+            if (streamEvent.type === 'assistant_token') {
+              collected += streamEvent.text ?? '';
+              setUpdatedDesc(collected);
+            } else if (streamEvent.type === 'done') {
+              collected = streamEvent.content ?? collected;
+              setUpdatedDesc(collected.trim());
+            }
+          },
+        }
+      );
+    } catch (generateError) {
+      if (generateError?.name === 'AbortError') {
+        setUpdatedDesc(previousDescription);
+        return;
+      }
+      setUpdatedDesc(previousDescription);
+      showRequestFailureToast(generateError, {
+        fallbackMessage: 'Could not generate a description.',
+      });
+    } finally {
+      setIsGeneratingDescription(false);
+      if (descriptionAbortRef.current === controller) {
+        descriptionAbortRef.current = null;
+      }
+    }
   };
 
   const handleDescSave = async (updatedDescription) => {
@@ -1245,22 +1343,33 @@ const AvatarSettings = ({ avatarId, onPortraitChanged }) => {
                     rows="3"
                     className="w-full px-4 py-2 bg-black/50 border border-white/10 rounded-lg text-neutral-200 placeholder-white/40 focus:outline-none focus:ring-2 focus:ring-amber-400/50 resize-none"
                   />
-                  <div className="flex gap-2">
+                  <div className="flex gap-2 flex-wrap">
                     <button
                       onClick={() => {
                         handleDescSave(updatedDesc);
                         setEditingDesc(false);
                       }}
-                      className="px-4 py-2 bg-amber-400/15 hover:bg-amber-400/25 text-amber-300 rounded-lg transition-all duration-300 border border-amber-400/30"
+                      disabled={isGeneratingDescription}
+                      className="px-4 py-2 bg-amber-400/15 hover:bg-amber-400/25 text-amber-300 rounded-lg transition-all duration-300 border border-amber-400/30 disabled:opacity-40"
                     >
                       Save
                     </button>
-                    <button
-                      onClick={() => setEditingDesc(false)}
-                      className="px-4 py-2 bg-black/50 hover:bg-white/10 text-neutral-200 rounded-lg transition-all duration-300 border border-white/10"
-                    >
-                      Cancel
-                    </button>
+                    {isGeneratingDescription ? (
+                      <button
+                        type="button"
+                        onClick={cancelDescriptionGeneration}
+                        className="px-4 py-2 bg-black/50 hover:bg-white/10 text-neutral-200 rounded-lg transition-all duration-300 border border-white/10"
+                      >
+                        Cancel generation
+                      </button>
+                    ) : (
+                      <button
+                        onClick={() => setEditingDesc(false)}
+                        className="px-4 py-2 bg-black/50 hover:bg-white/10 text-neutral-200 rounded-lg transition-all duration-300 border border-white/10"
+                      >
+                        Cancel
+                      </button>
+                    )}
                   </div>
                 </div>
               ) : (
@@ -1268,25 +1377,42 @@ const AvatarSettings = ({ avatarId, onPortraitChanged }) => {
                   <p className="text-white/80 flex-grow">
                     {activeAvatar?.description}
                   </p>
-                  <button
-                    onClick={() => setEditingDesc(true)}
-                    className="text-amber-300 hover:text-amber-200 transition-colors duration-300 ml-4"
-                  >
-                    Edit
-                  </button>
+                  <div className="flex items-center gap-3 ml-4 shrink-0">
+                    <button
+                      type="button"
+                      onClick={generateDescription}
+                      disabled={isGeneratingDescription}
+                      className="text-amber-300 hover:text-amber-200 transition-colors duration-300 inline-flex items-center gap-1 text-sm"
+                    >
+                      {isGeneratingDescription ? (
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                      ) : (
+                        <Sparkles className="w-4 h-4" />
+                      )}
+                      Generate
+                    </button>
+                    <button
+                      onClick={() => setEditingDesc(true)}
+                      className="text-amber-300 hover:text-amber-200 transition-colors duration-300"
+                    >
+                      Edit
+                    </button>
+                  </div>
                 </div>
               )}
             </div>
           </div>
         </div>
         {/* The avatar's voice: record it, watch the corpus fill, verify the
-            professional clone. Every avatar gets an instant clone from this;
+            professional clone. Every avatar gets a voice audio model from this;
             only the personal avatar continues to a professional one. */}
-        <VoicePanel
-          assistantId={assistantId}
-          isPersonalAvatar={isPersonalAvatar}
-          avatarName={activeAvatar?.name}
-        />
+        <div id="voice" ref={voiceSectionRef}>
+          <VoicePanel
+            assistantId={assistantId}
+            isPersonalAvatar={isPersonalAvatar}
+            avatarName={activeAvatar?.name}
+          />
+        </div>
       </div>
       {/* Social Media Section */}
       {/* <div className="bg-black/60 backdrop-blur-lg rounded-2xl border border-white/10 p-6">
@@ -1467,10 +1593,17 @@ const AvatarSettings = ({ avatarId, onPortraitChanged }) => {
                 className="w-full pl-9 pr-3 py-2 bg-black/50 border border-white/10 rounded-lg text-neutral-200 placeholder-white/40 focus:outline-none focus:ring-2 focus:ring-amber-400/50 text-sm"
               />
             </div>
-            <div className="flex flex-wrap gap-2" role="group" aria-label="Filter by type">
-              {['all', ...Object.keys(DOCUMENT_BUCKET_LABELS).filter(
-                (bucket) => bucket !== 'all' && documentBucketCounts[bucket]
-              )].map((bucket) => {
+            <div
+              className="flex flex-wrap gap-2"
+              role="group"
+              aria-label="Filter by type"
+            >
+              {[
+                'all',
+                ...Object.keys(DOCUMENT_BUCKET_LABELS).filter(
+                  (bucket) => bucket !== 'all' && documentBucketCounts[bucket]
+                ),
+              ].map((bucket) => {
                 const isSelected = documentKindFilter === bucket;
                 const count =
                   bucket === 'all'
