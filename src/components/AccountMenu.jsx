@@ -23,31 +23,62 @@ import { useAuth } from '../context/AuthContext';
 import { getPersonalAvatar } from '../services/avatarService';
 import useInboxCount from '../hooks/useInboxCount';
 
+const MENU_TONE = {
+  danger: 'text-red-400 hover:bg-red-900/40 hover:text-neutral-100',
+  current: 'bg-white/15 text-neutral-200',
+  rest: 'text-white/70 hover:bg-white/10 hover:text-neutral-100',
+};
+
 /**
- * One row of the account menu.
+ * One row of the account menu, or one icon on the collapsed rail.
  */
 export const AccountMenuItem = ({
   icon,
   label,
+  ariaLabel,
   onClick,
   isCurrent,
   isDanger,
-}) => (
-  <button
-    onClick={onClick}
-    aria-current={isCurrent ? 'page' : undefined}
-    className={`w-full text-left px-3 py-2 rounded-lg transition-colors flex items-center gap-2 ${
-      isDanger
-        ? 'text-red-400 hover:bg-red-900/40 hover:text-neutral-100'
-        : isCurrent
-          ? 'bg-white/15 text-neutral-200'
-          : 'text-white/70 hover:bg-white/10 hover:text-neutral-100'
-    }`}
-  >
-    {icon}
-    {label}
-  </button>
-);
+  iconOnly = false,
+  badgeCount = 0,
+}) => {
+  const tone = isDanger
+    ? MENU_TONE.danger
+    : isCurrent
+      ? MENU_TONE.current
+      : MENU_TONE.rest;
+  const accessibleName =
+    ariaLabel ?? (typeof label === 'string' ? label : undefined);
+
+  return (
+    <button
+      onClick={(clickEvent) => {
+        clickEvent.stopPropagation();
+        onClick?.(clickEvent);
+      }}
+      aria-current={isCurrent ? 'page' : undefined}
+      aria-label={iconOnly ? accessibleName : undefined}
+      title={iconOnly ? accessibleName : undefined}
+      className={
+        iconOnly
+          ? `relative p-1.5 rounded-lg transition-colors flex items-center justify-center ${tone}`
+          : `w-full text-left px-3 py-2 rounded-lg transition-colors flex items-center gap-2 ${tone}`
+      }
+    >
+      {icon}
+      {!iconOnly && label}
+      {iconOnly && badgeCount > 0 && (
+        <span
+          data-rail-badge
+          aria-label={`${badgeCount} items waiting`}
+          className="absolute -top-0.5 -right-0.5 min-w-[0.875rem] h-3.5 px-0.5 rounded-full bg-amber-400 text-neutral-900 text-[9px] font-semibold flex items-center justify-center"
+        >
+          {badgeCount > 9 ? '9+' : badgeCount}
+        </span>
+      )}
+    </button>
+  );
+};
 
 /**
  * Find the avatar that depicts the signed-in user.
@@ -119,11 +150,14 @@ export function usePersonalAvatarSettingsNavigation(onNavigate) {
  * @param {Function} options.onNavigate Called before navigating, to dismiss the
  *   panel or menu the items are rendered inside.
  * @param {string} options.currentPath The active route, for marking the current item.
+ * @param {'list'|'icons'} [options.variant] Labeled rows, or the same actions
+ *   as icons on the collapsed rail.
  */
 const AccountMenu = ({
   leadingAction = 'avatars',
   onNavigate,
   currentPath,
+  variant = 'list',
 }) => {
   const navigate = useNavigate();
   const { logOut } = useAuth();
@@ -132,59 +166,73 @@ const AccountMenu = ({
   // Pending agent-inbox items, polled in the background; the badge is the
   // owner's first sign that something needs them.
   const inboxCount = useInboxCount();
+  const iconOnly = variant === 'icons';
+  const iconClass = 'w-4 h-4 shrink-0';
 
   const goTo = (path) => {
     onNavigate?.();
     navigate(path);
   };
 
-  return (
+  const items = (
     <>
       {leadingAction === 'avatars' && (
         <AccountMenuItem
-          icon={<Users className="w-4 h-4 shrink-0" />}
+          iconOnly={iconOnly}
+          icon={<Users className={iconClass} />}
           label="Avatars"
           onClick={() => goTo('/avatars')}
           isCurrent={currentPath === '/avatars'}
         />
       )}
       <AccountMenuItem
-        icon={<UserCog className="w-4 h-4 shrink-0" />}
+        iconOnly={iconOnly}
+        icon={<UserCog className={iconClass} />}
         label="Your avatar's settings"
         onClick={openPersonalAvatarSettings}
       />
       <AccountMenuItem
-        icon={<Inbox className="w-4 h-4 shrink-0" />}
+        iconOnly={iconOnly}
+        icon={<Inbox className={iconClass} />}
         label={
-          <span className="flex items-center gap-2">
-            Agent Inbox
-            {inboxCount > 0 && (
-              <span
-                aria-label={`${inboxCount} items waiting`}
-                className="min-w-[1.25rem] h-5 px-1.5 rounded-full bg-amber-400 text-neutral-900 text-xs font-semibold flex items-center justify-center"
-              >
-                {inboxCount > 99 ? '99+' : inboxCount}
-              </span>
-            )}
-          </span>
+          iconOnly ? (
+            'Avatar Inbox'
+          ) : (
+            <span className="flex items-center gap-2">
+              Avatar Inbox
+              {inboxCount > 0 && (
+                <span
+                  aria-label={`${inboxCount} items waiting`}
+                  className="min-w-[1.25rem] h-5 px-1.5 rounded-full bg-amber-400 text-neutral-900 text-xs font-semibold flex items-center justify-center"
+                >
+                  {inboxCount > 99 ? '99+' : inboxCount}
+                </span>
+              )}
+            </span>
+          )
         }
+        ariaLabel="Avatar Inbox"
+        badgeCount={iconOnly ? inboxCount : 0}
         onClick={() => goTo('/inbox')}
         isCurrent={currentPath === '/inbox'}
       />
       <AccountMenuItem
-        icon={<Settings className="w-4 h-4 shrink-0" />}
+        iconOnly={iconOnly}
+        icon={<Settings className={iconClass} />}
         label="Account settings"
         onClick={() => goTo('/account')}
         isCurrent={currentPath === '/account'}
       />
       <AccountMenuItem
-        icon={<CreditCard className="w-4 h-4 shrink-0" />}
+        iconOnly={iconOnly}
+        icon={<CreditCard className={iconClass} />}
         label="Billing"
         onClick={() => goTo('/billing')}
         isCurrent={currentPath === '/billing'}
       />
       <AccountMenuItem
-        icon={<LogOut className="w-4 h-4 shrink-0" />}
+        iconOnly={iconOnly}
+        icon={<LogOut className={iconClass} />}
         label="Log out"
         isDanger
         onClick={() => {
@@ -199,6 +247,12 @@ const AccountMenu = ({
         }}
       />
     </>
+  );
+
+  return iconOnly ? (
+    <div className="flex flex-col items-center gap-0.5">{items}</div>
+  ) : (
+    items
   );
 };
 

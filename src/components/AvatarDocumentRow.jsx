@@ -20,6 +20,14 @@
 //     only the transcript is stored, so there is nothing to play back. The one
 //     exception is the reference audio, whose clip IS stored but has no endpoint
 //     serving it yet.
+//
+// Generated media is the other kind of row here. The emotion portraits and idle
+// loops derived from the reference image (see hooks/emotionMediaRows.js) arrive
+// with `source: 'emotion'` and a URL served by /avatar_emotion_media/{asset_id},
+// so they DO preview — an image for a portrait, a silent looping video for an
+// idle loop — and carry a "Generated" badge so nobody mistakes them for an
+// upload. Deleting one passes the whole row back, because there is no label
+// the document delete endpoint would recognise.
 
 import React, { useId, useState } from 'react';
 import {
@@ -32,9 +40,42 @@ import {
   Image as ImageIcon,
   Mic,
   Play,
+  Sparkles,
   Trash2,
   X,
 } from 'lucide-react';
+import LoopingVideo from './ui/LoopingVideo';
+import { titleCaseEmotion } from '../hooks/emotionMediaRows';
+
+// The badge every generated row wears, beside its kind chip. One colour that
+// no upload kind uses, so a glance down the list separates what the owner gave
+// the avatar from what the avatar's pipeline made.
+const GENERATED_MARK = {
+  Icon: Sparkles,
+  iconClassName: 'text-fuchsia-300',
+  label: 'Generated',
+  badgeClassName: 'bg-fuchsia-500/20 text-fuchsia-200 border-fuchsia-400/40',
+};
+
+/**
+ * The sentence under a generated row: what it was made from, and how long a
+ * loop runs.
+ *
+ * @param {Object} documentEntry A row with `source: 'emotion'`.
+ * @returns {string}
+ */
+export const describeGeneratedMedia = (documentEntry) => {
+  if (documentEntry.isReferenceStill) {
+    return 'The reference image, used as the neutral expression';
+  }
+  if (documentEntry.isEmotionLoop) {
+    const seconds = documentEntry.durationSeconds;
+    const duration =
+      seconds != null ? ` · ${Math.round(Number(seconds))} s looping video` : '';
+    return `Generated from the ${documentEntry.emotion} portrait${duration}`;
+  }
+  return 'Generated from the reference image';
+};
 
 // What each file extension means, for the rows whose label is a filename
 // rather than a link. Grouped by what the row can say about the upload, not by
@@ -266,9 +307,15 @@ export const summarizeUrlForDisplay = (sourceUrl) => {
  * @param {Object} props.documentEntry An entry from listAvatarDocuments.
  * @param {string|null} props.portraitDataUri The avatar's reference image, already
  *   loaded for the header, reused as the thumbnail of the reference-image row.
- * @param {Function} props.onDelete Called with the document's label.
+ * @param {Function} props.onDelete Called with the document's label for an
+ *   upload, and with the whole row for generated media (which has no label the
+ *   document delete endpoint would recognise — the caller deletes by asset id).
  */
 const AvatarDocumentRow = ({ documentEntry, portraitDataUri, onDelete }) => {
+  // Generated media (emotion portraits and idle loops) is marked and previewed
+  // differently from uploads; see the header comment.
+  const isGeneratedMedia = documentEntry.source === 'emotion';
+  const isGeneratedLoop = isGeneratedMedia && Boolean(documentEntry.isEmotionLoop);
   // Whether the YouTube player has replaced the thumbnail. The frame is only
   // mounted on demand: a settings screen listing twenty videos would otherwise
   // load twenty players, each of which is a third-party page.
@@ -282,7 +329,9 @@ const AvatarDocumentRow = ({ documentEntry, portraitDataUri, onDelete }) => {
   // avatar's portrait and which one is the voice sample: both are
   // ordinary-looking image / audio filenames in this list, and deleting the
   // wrong one costs the avatar its likeness or its speaker labelling.
-  const referenceMark = documentEntry.isReferenceImage
+  const referenceMark = isGeneratedMedia
+    ? null
+    : documentEntry.isReferenceImage
     ? {
         Icon: Camera,
         iconClassName: 'text-purple-300',
@@ -303,15 +352,28 @@ const AvatarDocumentRow = ({ documentEntry, portraitDataUri, onDelete }) => {
   // A reference mark says what the upload is FOR; the kind says what it IS.
   // The mark wins the icon when there is one, because which upload is the
   // portrait matters more to the user than that the portrait is a .jpg.
-  const documentKind = describeDocumentKind(documentEntry.label);
+  const documentKind = isGeneratedMedia
+    ? null
+    : describeDocumentKind(documentEntry.label);
   const kindPresentation = documentKind
     ? KIND_PRESENTATION[documentKind]
+    : null;
+  // Generated rows say what they are by asset kind, not by file extension.
+  const generatedKindChip = isGeneratedMedia
+    ? isGeneratedLoop
+      ? 'Video'
+      : 'Portrait'
     : null;
   const DocumentIcon =
     referenceMark?.Icon ?? kindPresentation?.Icon ?? FileText;
 
-  const sourceUrl = parseDocumentSourceUrl(documentEntry.label);
+  const sourceUrl = isGeneratedMedia
+    ? null
+    : parseDocumentSourceUrl(documentEntry.label);
   const youTubeVideoId = extractYouTubeVideoId(sourceUrl);
+  // Generated rows open a larger preview the same way a YouTube row opens its
+  // player: the thumbnail, or the row itself, toggles it.
+  const canOpenPreview = Boolean(youTubeVideoId) || isGeneratedMedia;
   // The portrait is fetched for the avatar as a whole, so the reference-image
   // row can show it without a second request. Ordinary image uploads are not
   // retained by the API and therefore have no thumbnail to show.
@@ -338,6 +400,44 @@ const AvatarDocumentRow = ({ documentEntry, portraitDataUri, onDelete }) => {
   };
 
   const renderLeadingVisual = () => {
+    if (isGeneratedMedia) {
+      return (
+        <button
+          type="button"
+          onClick={() => setIsPlayerOpen((wasOpen) => !wasOpen)}
+          aria-expanded={isPlayerOpen}
+          aria-controls={isPlayerOpen ? previewRegionId : undefined}
+          aria-label={
+            isPlayerOpen
+              ? 'Close this preview'
+              : `Preview the ${documentEntry.label.toLowerCase()}`
+          }
+          className="group relative shrink-0 w-16 h-16 rounded-md overflow-hidden border border-white/10 bg-black/30"
+        >
+          {isGeneratedLoop ? (
+            <LoopingVideo
+              src={documentEntry.url}
+              poster={documentEntry.posterUrl ?? undefined}
+              alt={documentEntry.label}
+              className="w-full h-full"
+            />
+          ) : (
+            <img
+              src={documentEntry.url}
+              alt={`Preview of ${documentEntry.label}`}
+              className="w-full h-full object-cover"
+              loading="lazy"
+            />
+          )}
+          <span className="absolute inset-0 flex items-center justify-center bg-black/0 group-hover:bg-black/30 transition-colors">
+            {isPlayerOpen && (
+              <X size={20} className="text-neutral-200 drop-shadow" />
+            )}
+          </span>
+        </button>
+      );
+    }
+
     if (youTubeVideoId) {
       return (
         <button
@@ -413,9 +513,9 @@ const AvatarDocumentRow = ({ documentEntry, portraitDataUri, onDelete }) => {
 
   return (
     <div
-      onClick={youTubeVideoId ? handleRowClick : undefined}
+      onClick={canOpenPreview ? handleRowClick : undefined}
       className={`p-3 bg-black/60 border border-white/10 rounded-lg hover:bg-white/10 transition-colors${
-        youTubeVideoId ? ' cursor-pointer' : ''
+        canOpenPreview ? ' cursor-pointer' : ''
       }`}
     >
       <div className="flex items-center justify-between gap-3">
@@ -442,12 +542,31 @@ const AvatarDocumentRow = ({ documentEntry, portraitDataUri, onDelete }) => {
                 <span className="px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wide rounded-full border bg-sky-500/20 text-sky-200 border-sky-400/40">
                   {describeUrlKind(sourceUrl)}
                 </span>
+              ) : generatedKindChip ? (
+                <span className="px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wide rounded-full border bg-black/50 text-white/70 border-white/10">
+                  {generatedKindChip}
+                </span>
               ) : (
                 kindPresentation && (
                   <span className="px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wide rounded-full border bg-black/50 text-white/70 border-white/10">
                     {kindPresentation.chip}
                   </span>
                 )
+              )}
+              {isGeneratedMedia && (
+                <>
+                  <span
+                    className={`inline-flex items-center gap-1 px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wide rounded-full border ${GENERATED_MARK.badgeClassName}`}
+                  >
+                    <GENERATED_MARK.Icon size={11} />
+                    {GENERATED_MARK.label}
+                  </span>
+                  {documentEntry.emotion && (
+                    <span className="px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wide rounded-full border bg-black/50 text-white/70 border-white/10">
+                      {titleCaseEmotion(documentEntry.emotion)}
+                    </span>
+                  )}
+                </>
               )}
               {referenceMark && (
                 <span
@@ -457,7 +576,11 @@ const AvatarDocumentRow = ({ documentEntry, portraitDataUri, onDelete }) => {
                 </span>
               )}
             </div>
-            {referenceMark ? (
+            {isGeneratedMedia ? (
+              <p className="text-white/50 text-xs mt-0.5">
+                {describeGeneratedMedia(documentEntry)}
+              </p>
+            ) : referenceMark ? (
               <p className="text-white/50 text-xs mt-0.5">
                 {referenceMark.description}
               </p>
@@ -474,13 +597,51 @@ const AvatarDocumentRow = ({ documentEntry, portraitDataUri, onDelete }) => {
 
         <div className="flex items-center gap-2">
           <button
-            onClick={() => onDelete(documentEntry.label)}
+            onClick={() =>
+              onDelete(isGeneratedMedia ? documentEntry : documentEntry.label)
+            }
+            title={isGeneratedMedia ? 'Delete this generated media' : 'Delete'}
+            aria-label={
+              isGeneratedMedia ? 'Delete this generated media' : 'Delete'
+            }
             className="text-red-400 hover:text-red-300 transition-colors"
           >
             <Trash2 size={20} />
           </button>
         </div>
       </div>
+
+      {isPlayerOpen && isGeneratedMedia && (
+        <div id={previewRegionId} data-video-preview className="mt-3 space-y-2">
+          <div className="flex justify-end">
+            <button
+              type="button"
+              onClick={() => setIsPlayerOpen(false)}
+              className="inline-flex items-center gap-1 px-2 py-1 rounded-md text-xs text-white/70 hover:text-neutral-100 hover:bg-white/10 transition-colors focus:outline-none focus:ring-2 focus:ring-teal-400"
+            >
+              <X size={14} />
+              Close preview
+            </button>
+          </div>
+          <div className="w-full max-w-sm mx-auto aspect-[9/16] max-h-[60vh] rounded-lg overflow-hidden border border-white/10 bg-black">
+            {isGeneratedLoop ? (
+              <LoopingVideo
+                src={documentEntry.url}
+                poster={documentEntry.posterUrl ?? undefined}
+                alt={documentEntry.label}
+                className="w-full h-full"
+                mediaClassName="w-full h-full object-contain"
+              />
+            ) : (
+              <img
+                src={documentEntry.url}
+                alt={`Preview of ${documentEntry.label}`}
+                className="w-full h-full object-contain"
+              />
+            )}
+          </div>
+        </div>
+      )}
 
       {isPlayerOpen && youTubeVideoId && (
         <div id={previewRegionId} data-video-preview className="mt-3 space-y-2">

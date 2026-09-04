@@ -63,7 +63,13 @@ function normalizeManifest(manifest) {
   for (const [emotion, entry] of Object.entries(manifest.emotions ?? {})) {
     emotions[emotion] = {
       still: entry?.still?.url ? absoluteMediaUrl(entry.still.url) : null,
+      stillId: entry?.still?.asset_id ?? null,
+      stillMimeType: entry?.still?.mime_type ?? null,
+      stillCreatedAt: entry?.still?.created_at ?? null,
       idleLoop: entry?.idle_loop?.url ? absoluteMediaUrl(entry.idle_loop.url) : null,
+      idleLoopId: entry?.idle_loop?.asset_id ?? null,
+      idleLoopMimeType: entry?.idle_loop?.mime_type ?? null,
+      idleLoopCreatedAt: entry?.idle_loop?.created_at ?? null,
       idleLoopDurationSeconds: entry?.idle_loop?.duration_seconds ?? null,
     };
   }
@@ -104,6 +110,24 @@ export function idleLoopFor(manifest, emotion) {
     manifest.emotions?.neutral?.idleLoop ??
     null
   );
+}
+
+/** Decode every still and idle loop so a later swap does not wait on the network. */
+export function preloadEmotionMedia(manifest) {
+  if (!manifest?.emotions || typeof document === 'undefined') return;
+  for (const entry of Object.values(manifest.emotions)) {
+    if (entry?.still) {
+      const image = new Image();
+      image.src = entry.still;
+    }
+    if (entry?.idleLoop) {
+      const video = document.createElement('video');
+      video.preload = 'auto';
+      video.muted = true;
+      video.playsInline = true;
+      video.src = entry.idleLoop;
+    }
+  }
 }
 
 /**

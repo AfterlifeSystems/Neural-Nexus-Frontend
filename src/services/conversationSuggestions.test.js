@@ -42,3 +42,17 @@ test('local follow-ups come from a real reply, not a harvest list', () => {
     'Can you tell me more?',
   ]);
 });
+
+test('a re-roll skips the prompts already on screen', () => {
+  const messages = [
+    { type: 'human', content: 'hey mom' },
+    { type: 'ai', content: 'Hey kiddo, what’s going on?' },
+  ];
+  const first = localFollowUpSuggestions(messages);
+  const rerolled = localFollowUpSuggestions(messages, { exclude: first });
+  assert.equal(rerolled.length, 3);
+  assert.equal(
+    rerolled.some((prompt) => first.includes(prompt)),
+    false
+  );
+});

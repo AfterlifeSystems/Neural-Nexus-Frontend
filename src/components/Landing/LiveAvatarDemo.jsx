@@ -64,7 +64,7 @@ export default function LiveAvatarDemo({ isEmbeddedInHero = false }) {
           <iframe
             src={sharedAvatarUrl}
             title="Neural Nexus live avatar demo"
-            allow="clipboard-write; microphone"
+            allow="clipboard-write; microphone; camera; display-capture; autoplay"
             referrerPolicy="no-referrer-when-downgrade"
             onLoad={() => setIsFrameLoaded(true)}
             className="w-full h-full border-0 bg-black"

@@ -38,10 +38,7 @@ import {
 import LoadingSpinner from './LoadingSpinner';
 import LiveVoiceMode from './LiveVoiceMode';
 import MessageList from './MessageList';
-import ConversationSuggestions from './ConversationSuggestions';
 import InputBar from './InputBar';
-import MediaSharePreviews from './MediaSharePreviews';
-import { MediaShareProvider } from '../context/MediaShareContext';
 
 // The one-click opening question offered in an empty chat. It is the first
 // thing a visitor to the landing page's embedded demo sees inside the frame
@@ -259,7 +256,7 @@ const SharedAvatarChat = () => {
   }
 
   return (
-    <MediaShareProvider>
+    <>
     {isLiveModeOpen && (
       <LiveVoiceMode
         assistantId={avatarId}
@@ -268,8 +265,8 @@ const SharedAvatarChat = () => {
         onClose={() => setIsLiveModeOpen(false)}
       />
     )}
-    <div className={`h-full w-full p-2 sm:p-4 ${isLiveModeOpen ? 'invisible pointer-events-none' : ''}`}>
-      <div className="flex flex-col w-full h-full bg-black/60 backdrop-blur-lg rounded-2xl border border-white/10 overflow-hidden relative">
+    <div className={`h-full w-full min-w-0 p-2 sm:p-4 ${isLiveModeOpen ? 'invisible pointer-events-none' : ''}`}>
+      <div className="flex flex-col w-full h-full min-w-0 bg-black/60 backdrop-blur-lg rounded-2xl border border-white/10 overflow-hidden relative">
         {/* The header names the one avatar this link opens. There is nothing to
             switch to and nothing to administer, so it carries no tabs. */}
         <div className="flex items-center justify-between gap-3 px-4 py-3 border-b border-white/10">
@@ -293,18 +290,19 @@ const SharedAvatarChat = () => {
           </div>
           <button
             onClick={() => openApplicationScreen('/signup')}
-            className="shrink-0 inline-flex items-center gap-2 px-3 py-2 rounded-lg bg-neutral-100/10 hover:bg-neutral-100/15 border border-neutral-700 text-neutral-200 text-sm font-semibold transition-colors"
+            className="shrink-0 inline-flex items-center gap-1.5 px-2 sm:px-3 py-1.5 rounded-lg bg-neutral-100/10 hover:bg-neutral-100/15 border border-neutral-700 text-neutral-200 text-xs sm:text-sm font-semibold transition-colors"
           >
             <Sparkles className="w-4 h-4 shrink-0" />
-            Create your own avatar
+            <span className="hidden sm:inline">Create your own avatar</span>
+            <span className="sm:hidden">Sign up</span>
           </button>
         </div>
 
-        <div className="flex flex-col flex-grow overflow-hidden">
-          <div className="flex-grow overflow-y-auto p-2 sm:p-4 relative">
+        <div className="flex flex-col flex-grow min-w-0 overflow-hidden">
+          <div className="flex-grow overflow-y-auto overflow-x-hidden p-2 sm:p-4 relative min-w-0">
             {/* Same width as the composer below, so the transcript and the input
                 share one column. */}
-            <div className="w-full max-w-3xl mx-auto">
+            <div className="w-full max-w-3xl mx-auto min-w-0">
               <MessageList
                 messages={messages}
                 messagesEndRef={messagesEndRef}
@@ -345,13 +343,12 @@ const SharedAvatarChat = () => {
                 </div>
               )}
             </div>
-            <MediaSharePreviews className="absolute bottom-3 right-3 sm:right-6 z-10" />
           </div>
 
-          <div className="flex-shrink-0 items-center mt-2">
-            <ConversationSuggestions enabled={!isOfferingTheOpeningQuestion} />
+          <div className="flex-shrink-0 min-w-0 mt-2">
             <InputBar
               avatar_id={avatarId}
+              suggestionsEnabled={!isOfferingTheOpeningQuestion}
               onActivateLiveChat={() => setIsLiveModeOpen(true)}
             />
           </div>
@@ -364,7 +361,7 @@ const SharedAvatarChat = () => {
         </div>
       </div>
     </div>
-    </MediaShareProvider>
+    </>
   );
 };
 

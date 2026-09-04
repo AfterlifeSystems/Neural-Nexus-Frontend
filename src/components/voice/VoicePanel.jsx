@@ -5,6 +5,7 @@ import { toast } from 'react-hot-toast';
 import {
   AudioLines,
   Check,
+  Link,
   Loader2,
   Mic,
   RefreshCw,
@@ -13,6 +14,7 @@ import {
   Upload,
 } from 'lucide-react';
 import ProgressBar from '../ui/ProgressBar';
+import UploadProcessPanel from '../media/UploadProcessPanel';
 import {
   addAvatarVoiceSample,
   getAvatarVoice,
@@ -22,6 +24,7 @@ import {
   submitAvatarVoiceVerification,
   uploadAvatarIdentityMedia,
 } from '../../services/avatarService';
+import { singleReferenceAudioUrl } from '../../services/referenceAudioUrl';
 import {
   canCaptureMicrophone,
   recordOneTurn,
@@ -77,11 +80,25 @@ const STATE_LABELS = {
  * @param {string} parameters.assistantId The avatar.
  * @param {boolean} parameters.isPersonalAvatar Whether the professional path applies.
  * @param {string} [parameters.avatarName] For labels.
+ * @param {Function} [parameters.startUpload] Identity-media job starter from
+ *   Settings. When set, a video URL uses the same checklist as other uploads.
+ * @param {Array<Object>} [parameters.voiceJobs] Voice-kind jobs to show here.
+ * @param {Function} [parameters.onCancelJob]
+ * @param {Function} [parameters.onDismissJob]
  */
-const VoicePanel = ({ assistantId, isPersonalAvatar, avatarName }) => {
+const VoicePanel = ({
+  assistantId,
+  isPersonalAvatar,
+  avatarName,
+  startUpload,
+  voiceJobs = [],
+  onCancelJob,
+  onDismissJob,
+}) => {
   const [status, setStatus] = useState(null);
   const [isRecording, setIsRecording] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
+  const [referenceUrl, setReferenceUrl] = useState('');
   const [scriptIndex, setScriptIndex] = useState(0);
   const [captcha, setCaptcha] = useState(null);
   const [isRecordingCaptcha, setIsRecordingCaptcha] = useState(false);
@@ -168,6 +185,51 @@ const VoicePanel = ({ assistantId, isPersonalAvatar, avatarName }) => {
     }
   };
 
+  /**
+   * A YouTube or direct video/audio URL as the voice reference. Files already
+   * go through submitReferenceUpload; a URL has no File for the clone corpus
+   * endpoint, so identity media with reference_audio is the whole path.
+   *
+   * @param {string} text Pasted or typed address(es).
+   */
+  const submitReferenceUrl = async (text) => {
+    const parsed = singleReferenceAudioUrl(text);
+    if (parsed.error) {
+      toast.error(parsed.error);
+      return;
+    }
+    const { url } = parsed;
+    setIsUploading(true);
+    setReferenceUrl('');
+    try {
+      if (startUpload) {
+        const stored = await startUpload({
+          urls: [url],
+          isReferenceAudio: true,
+        });
+        if (!stored) return;
+      } else {
+        const uploadResponse = await uploadAvatarIdentityMedia({
+          assistantId,
+          urls: [url],
+          isReferenceAudio: true,
+        });
+        const jobId = uploadResponse?.job_id;
+        if (jobId) {
+          await streamMediaJobProgress(jobId, () => {});
+        }
+      }
+      await refresh();
+      toast.success('Video stored as the voice audio model.');
+    } catch (uploadError) {
+      showRequestFailureToast(uploadError, {
+        fallbackMessage: 'That URL could not be used as reference audio.',
+      });
+    } finally {
+      setIsUploading(false);
+    }
+  };
+
   const startRecording = async () => {
     if (!canCaptureMicrophone()) {
       toast.error(
@@ -204,14 +266,23 @@ const VoicePanel = ({ assistantId, isPersonalAvatar, avatarName }) => {
     await submitRecording(file, 'Recording');
   };
 
-  const handleDrop = async (files) => {
+  const handleDrop = async (files, _fileRejections, dropEvent) => {
+    const droppedUrlText =
+      dropEvent?.dataTransfer?.getData('text/uri-list') ||
+      dropEvent?.dataTransfer?.getData('text/plain') ||
+      '';
     const [file] = files ?? [];
-    if (!file) return;
-    if (!isPersonalAvatar) {
-      await submitReferenceUpload(file);
+    if (file) {
+      if (!isPersonalAvatar) {
+        await submitReferenceUpload(file);
+        return;
+      }
+      await submitRecording(file, file.name);
       return;
     }
-    await submitRecording(file, file.name);
+    if (droppedUrlText.trim()) {
+      await submitReferenceUrl(droppedUrlText);
+    }
   };
 
   const [isRetrying, setIsRetrying] = useState(false);
@@ -448,6 +519,13 @@ const VoicePanel = ({ assistantId, isPersonalAvatar, avatarName }) => {
           {({ getRootProps, getInputProps }) => (
             <div
               {...getRootProps()}
+              onPaste={(event) => {
+                const text = event.clipboardData.getData('text/plain');
+                if (!singleReferenceAudioUrl(text).url) return;
+                event.preventDefault();
+                event.stopPropagation();
+                submitReferenceUrl(text);
+              }}
               className={`h-full min-h-[7rem] border-2 border-dashed border-white/20 hover:border-white/40 rounded-xl bg-black/40 flex flex-col items-center justify-center gap-1 p-3 text-center cursor-pointer transition-colors ${
                 isPersonalAvatar ? 'w-full md:w-44' : 'w-full'
               }`}
@@ -456,13 +534,64 @@ const VoicePanel = ({ assistantId, isPersonalAvatar, avatarName }) => {
               <Upload size={20} className="text-white/50" aria-hidden="true" />
               <span className="text-xs text-white/60">
                 {isPersonalAvatar
-                  ? `Or drop a recording of ${avatarName ?? 'the avatar'} speaking`
-                  : `Upload audio or video of ${avatarName ?? 'the avatar'} speaking`}
+                  ? `Or drop a recording or video URL of ${avatarName ?? 'the avatar'} speaking`
+                  : `Upload audio, video, or a video URL of ${avatarName ?? 'the avatar'} speaking`}
               </span>
             </div>
           )}
         </Dropzone>
       </div>
+
+      <div className="mt-3 flex flex-col sm:flex-row gap-2">
+        <input
+          type="url"
+          inputMode="url"
+          autoComplete="url"
+          spellCheck={false}
+          placeholder="https://youtube.com/watch?v=… or a direct video/audio URL"
+          value={referenceUrl}
+          disabled={isUploading}
+          onChange={(event) => setReferenceUrl(event.target.value)}
+          onKeyDown={(event) => {
+            if (event.key === 'Enter') {
+              event.preventDefault();
+              if (referenceUrl.trim()) submitReferenceUrl(referenceUrl);
+            }
+          }}
+          className="w-full min-w-0 sm:flex-1 px-3 py-2 bg-black/50 border border-white/10 rounded-lg text-sm text-neutral-200 placeholder-white/40 focus:outline-none focus:ring-2 focus:ring-amber-400/50 disabled:opacity-50"
+        />
+        <button
+          type="button"
+          onClick={() => submitReferenceUrl(referenceUrl)}
+          disabled={isUploading || !referenceUrl.trim()}
+          className="px-3 py-2 bg-amber-400/15 hover:bg-amber-400/25 text-amber-300 text-sm font-semibold rounded-lg transition-colors flex items-center justify-center gap-2 border border-amber-400/30 disabled:opacity-50 disabled:cursor-not-allowed"
+        >
+          {isUploading ? (
+            <Loader2 className="w-4 h-4 animate-spin" aria-hidden="true" />
+          ) : (
+            <Link size={16} aria-hidden="true" />
+          )}
+          Use as voice
+        </button>
+      </div>
+      <p className="mt-1.5 text-xs text-white/40">
+        A YouTube video or a direct video/audio link becomes the speech this
+        avatar is modelled from.
+      </p>
+
+      {voiceJobs.length > 0 && (
+        <div className="mt-3 space-y-3">
+          {voiceJobs.map((job) => (
+            <UploadProcessPanel
+              key={job.localId}
+              job={job}
+              onCancel={() => onCancelJob?.(job.localId)}
+              onCancelItem={(itemJobId) => onCancelJob?.(job.localId, itemJobId)}
+              onDismiss={() => onDismissJob?.(job.localId)}
+            />
+          ))}
+        </div>
+      )}
 
       {isPersonalAvatar && professionalState === 'awaiting_verification' && (
         <div className="mt-4 rounded-xl bg-amber-400/10 border border-amber-400/30 p-4">

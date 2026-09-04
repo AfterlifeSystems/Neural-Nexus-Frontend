@@ -32,6 +32,7 @@ import {
   Search,
   Sparkles,
   Loader2,
+  Plus,
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import {
@@ -43,19 +44,21 @@ import {
   deleteAvatarDocument,
   deleteAvatar,
   modifyAvatar,
-  uploadAvatarIdentityMedia,
-  streamMediaJobProgress,
   listAvatarDocuments,
   listUserAvatars,
   getAvatarReferenceImage,
   shareAvatar,
+  deleteAvatarEmotionMedia,
 } from '../services/avatarService';
 import { streamServerSentEvents } from '../services/neuralNexusApiClient';
-import { showRequestFailureToast } from './requestFailureToast';
+import { showRequestFailureToast, isBillingRefusal } from './requestFailureToast';
 import ConnectionsSection from './connections/ConnectionsSection';
 import EmotionMediaStatus from './media/EmotionMediaStatus';
+import UploadProcessPanel from './media/UploadProcessPanel';
 import VoicePanel from './voice/VoicePanel';
-import { forgetEmotionMedia } from '../hooks/useEmotionMedia';
+import useEmotionMedia, { forgetEmotionMedia } from '../hooks/useEmotionMedia';
+import { emotionMediaRows } from '../hooks/emotionMediaRows';
+import AvatarIdentityFacts from './AvatarIdentityFacts';
 import {
   forgetCachedAvatar,
   writeCachedAvatarIcon,
@@ -67,7 +70,9 @@ import {
   buildSharedAvatarUrl,
 } from './utils';
 import { isAdminAccount } from '../config/adminAccount';
-import { describeMediaProgress } from '../services/mediaJobProgress';
+import { parseHttpUrls } from '../services/parseHttpUrls';
+import { looksLikeReferenceAudioUrl } from '../services/referenceAudioUrl';
+import useIdentityMediaJobs from '../hooks/useIdentityMediaJobs';
 import AvatarDocumentRow, {
   describeDocumentKind,
   describeUrlKind,
@@ -140,6 +145,10 @@ const AvatarSettings = ({ avatarId, onPortraitChanged }) => {
     password: '',
   });
   const [manualUrl, setManualUrl] = useState('');
+  const [useUrlAsVoiceReference, setUseUrlAsVoiceReference] = useState(false);
+  const urlInputRef = useRef(null);
+  const uploadSectionRef = useRef(null);
+  const startSectionUploadRef = useRef(null);
   // Source documents already uploaded to this avatar, from
   // GET /list_avatar_documents. Each entry is
   // {label, referenceRole, isReferenceImage, isReferenceAudio}: `label` is both
@@ -164,6 +173,12 @@ const AvatarSettings = ({ avatarId, onPortraitChanged }) => {
     activeAvatar?.avatar_id ??
     activeAvatar?.metadata?.assistant_id ??
     avatarId;
+
+  // The emotion portraits and idle loops generated from the reference image,
+  // from GET /avatar_emotion_media (cached per avatar across screens). They are
+  // listed under Data Uploaded beside the uploads, marked as generated.
+  const { manifest: emotionManifest, refresh: refreshEmotionManifest } =
+    useEmotionMedia(assistantId);
 
   // The avatar's portrait from GET /avatar_reference_image (data URI or URL).
   // Seeded from what this browser already holds for the avatar, so the screen
@@ -202,6 +217,8 @@ const AvatarSettings = ({ avatarId, onPortraitChanged }) => {
    * else is bucketed by what it IS.
    */
   const describeDocumentBucket = (documentEntry) => {
+    // Generated media names its own bucket (portrait or idle loop).
+    if (documentEntry.source === 'emotion') return documentEntry.bucket;
     if (documentEntry.isReferenceImage) return 'reference_image';
     if (documentEntry.isReferenceAudio) return 'reference_audio';
     const sourceUrl = parseDocumentSourceUrl(documentEntry.label);
@@ -217,6 +234,8 @@ const AvatarSettings = ({ avatarId, onPortraitChanged }) => {
     all: 'All',
     reference_image: 'Reference image',
     reference_audio: 'Reference audio',
+    emotion_portrait: 'Generated portraits',
+    emotion_loop: 'Generated videos',
     image: 'Images',
     audio: 'Audio',
     video: 'Video',
@@ -232,20 +251,28 @@ const AvatarSettings = ({ avatarId, onPortraitChanged }) => {
     other: 'Other',
   };
 
+  // Everything the list shows: the uploads, then the generated portraits and
+  // idle loops. One array so search, the filter chips, and the counts treat
+  // both kinds the same way.
+  const allAvatarRows = useMemo(
+    () => [...avatarDocuments, ...emotionMediaRows(emotionManifest)],
+    [avatarDocuments, emotionManifest]
+  );
+
   // Only the buckets that actually hold something are offered, each with its
   // count, so the filter row never advertises an empty category.
   const documentBucketCounts = useMemo(() => {
     const counts = {};
-    for (const documentEntry of avatarDocuments) {
+    for (const documentEntry of allAvatarRows) {
       const bucket = describeDocumentBucket(documentEntry);
       counts[bucket] = (counts[bucket] ?? 0) + 1;
     }
     return counts;
-  }, [avatarDocuments]);
+  }, [allAvatarRows]);
 
   const visibleAvatarDocuments = useMemo(() => {
     const normalizedQuery = documentSearchQuery.trim().toLowerCase();
-    return avatarDocuments.filter((documentEntry) => {
+    return allAvatarRows.filter((documentEntry) => {
       if (
         documentKindFilter !== 'all' &&
         describeDocumentBucket(documentEntry) !== documentKindFilter
@@ -257,7 +284,7 @@ const AvatarSettings = ({ avatarId, onPortraitChanged }) => {
         (documentEntry.label ?? '').toLowerCase().includes(normalizedQuery)
       );
     });
-  }, [avatarDocuments, documentSearchQuery, documentKindFilter]);
+  }, [allAvatarRows, documentSearchQuery, documentKindFilter]);
 
   // A filter that no longer matches anything (its last item was deleted) falls
   // back to showing everything rather than an empty list with no explanation.
@@ -284,6 +311,72 @@ const AvatarSettings = ({ avatarId, onPortraitChanged }) => {
       );
     }
   }, [assistantId]);
+
+  // Progress lives in identityMediaJobs, not this screen's state, so leaving
+  // the avatar (Chat, Avatar Selection, a refresh) does not drop the card.
+  const {
+    jobs: sectionJobs,
+    startUpload,
+    cancelJob: cancelSectionJob,
+    dismissJob: dismissSectionJob,
+  } = useIdentityMediaJobs(assistantId, {
+    onDocumentsChanged: refreshAvatarDocuments,
+  });
+
+  /**
+   * Start an identity-media job from this Upload section. The checklist
+   * follows the job in the store so convert 1/N, indexing, and the rest stay
+   * on one card — including after this screen unmounts.
+   *
+   * @param {Object} options
+   * @param {File[]} [options.files]
+   * @param {string[]} [options.urls]
+   * @param {boolean} [options.isReferenceImage]
+   * @param {boolean} [options.isReferenceAudio]
+   * @param {Function} [options.confirmStored] After the job reports done, check
+   *   that what was uploaded is actually stored. Returns null when it is, or
+   *   the message the panel must end on instead of success.
+   * @returns {Promise<boolean>}
+   */
+  const startSectionUpload = useCallback(
+    async (options) => {
+      if (!user) {
+        toast.error('Not logged in');
+        return false;
+      }
+      if (!assistantId) {
+        toast.error('No active avatar');
+        return false;
+      }
+      if (options?.isReferenceImage) {
+        uploadSectionRef.current?.scrollIntoView({
+          behavior: 'smooth',
+          block: 'start',
+        });
+      } else if (options?.isReferenceAudio) {
+        voiceSectionRef.current?.scrollIntoView({
+          behavior: 'smooth',
+          block: 'start',
+        });
+      }
+      return startUpload(options);
+    },
+    [assistantId, startUpload, user]
+  );
+  startSectionUploadRef.current = startSectionUpload;
+
+  const voiceJobs = useMemo(
+    () => sectionJobs.filter((job) => job.kind === 'voice'),
+    [sectionJobs]
+  );
+  const uploadSectionJobs = useMemo(
+    () => sectionJobs.filter((job) => job.kind !== 'voice'),
+    [sectionJobs]
+  );
+  const typedUrlLooksLikeVoice = useMemo(() => {
+    const urls = parseHttpUrls(manualUrl);
+    return urls.length === 1 && looksLikeReferenceAudioUrl(urls[0]);
+  }, [manualUrl]);
 
   // The document endpoints name their avatar in the request, so opening this
   // screen is a plain read: there is no per-account "selected avatar" to
@@ -381,13 +474,27 @@ const AvatarSettings = ({ avatarId, onPortraitChanged }) => {
     const handleDrop = async (e) => {
       e.preventDefault();
       setIsDragging(false);
-      await handleFileUpload(e);
+      const droppedUrls = parseHttpUrls(
+        e.dataTransfer.getData('text/uri-list') ||
+          e.dataTransfer.getData('text/plain')
+      );
+      const files = Array.from(e.dataTransfer.files ?? []);
+      if (droppedUrls.length === 0 && files.length === 0) return;
+      await startSectionUploadRef.current?.({
+        files,
+        urls: droppedUrls,
+      });
     };
-    const handlePaste = async (e) => {
-      const text = e.clipboardData.getData('text/plain');
-      if (text.startsWith('http://') || text.startsWith('https://')) {
-        await handleUrlUpload(text);
-      }
+    const handlePaste = (e) => {
+      if (e.target === urlInputRef.current) return;
+      const typingInAnotherField =
+        e.target instanceof HTMLInputElement ||
+        e.target instanceof HTMLTextAreaElement;
+      if (typingInAnotherField) return;
+      const pastedUrls = parseHttpUrls(e.clipboardData.getData('text/plain'));
+      if (pastedUrls.length === 0) return;
+      e.preventDefault();
+      startSectionUploadRef.current?.({ urls: pastedUrls });
     };
     document.addEventListener('dragenter', handleDragEnter);
     document.addEventListener('dragover', handleDragOver);
@@ -403,165 +510,6 @@ const AvatarSettings = ({ avatarId, onPortraitChanged }) => {
     };
   }, [canAdministerAvatar]);
 
-  /**
-   * Send media to the avatar and follow the processing job to completion.
-   *
-   * The endpoint answers 202 the moment it has accepted the upload: nothing is
-   * labeled, converted or indexed yet, and the document list will not contain
-   * any of it. Announcing success there — which is what this screen used to do
-   * — is why an upload could look like it worked and change nothing. So the
-   * response is treated as the *start*: per-item rejections are reported, the
-   * job's progress stream drives the toast, and the document list is only
-   * re-read once the job says it is done.
-   *
-   * Everything goes in ONE request. Uploading file-by-file gave each file its
-   * own job and defeated the batch semantics the server is built around
-   * (a shared master job, URL manifests, playlist expansion).
-   *
-   * One upload is ONE toast from start to finish: the loading toast raised here
-   * is the same toast that later says the upload landed or says why it did not.
-   * Dismissing it and raising a fresh success toast — which is what this used to
-   * do — breaks a single upload into a chain of unrelated messages that arrive in
-   * different places in the stack, and lets a "finished" message stand beside a
-   * later message saying nothing was stored.
-   *
-   * @param {Object} options
-   * @param {File[]} [options.files] Files to send.
-   * @param {string[]} [options.urls] URLs to ingest.
-   * @param {boolean} [options.isReferenceImage] Send as the avatar's portrait.
-   * @param {string} options.description What is being uploaded, for the toasts.
-   * @param {Function} [options.confirmStored] Run after the job reports done, to
-   *   check that what was uploaded is actually stored. Returns null when it is,
-   *   or the message to show instead of the success message when it is not — so
-   *   the upload's single toast ends on the truth rather than being contradicted
-   *   by a second one.
-   * @returns {Promise<boolean>} Whether the job finished successfully.
-   */
-  const uploadMediaAndFollowJob = async ({
-    files = [],
-    urls = [],
-    isReferenceImage = false,
-    isReferenceAudio = false,
-    description,
-    confirmStored,
-  }) => {
-    if (!user) {
-      toast.error('Not logged in');
-      return false;
-    }
-    if (!assistantId) {
-      toast.error('No active avatar');
-      return false;
-    }
-
-    const progressToastId = toast.loading(`Uploading ${description}…`, {
-      position: 'top-right',
-    });
-
-    try {
-      const uploadResponse = await uploadAvatarIdentityMedia({
-        assistantId,
-        files,
-        urls,
-        isReferenceImage,
-        isReferenceAudio,
-      });
-
-      // Per-item rejections ride along with an otherwise successful response:
-      // the server skips what it cannot take and accepts the rest. Unreported,
-      // a rejected file is indistinguishable from an accepted one.
-      const rejectedItems =
-        uploadResponse?.rejected ?? uploadResponse?.items_rejected ?? [];
-      if (Array.isArray(rejectedItems) && rejectedItems.length > 0) {
-        toast.error(
-          `Not accepted: ${rejectedItems
-            .map(
-              (rejectedItem) =>
-                `${rejectedItem.filename ?? rejectedItem.url ?? 'item'}${
-                  rejectedItem.reason ? ` (${rejectedItem.reason})` : ''
-                }`
-            )
-            .join('; ')}`,
-          { duration: 9000, position: 'top-right' }
-        );
-      }
-
-      /**
-       * End this upload's toast on its verdict: the confirmation step, when
-       * there is one, has the last word.
-       *
-       * @returns {Promise<boolean>} Whether the upload is considered successful.
-       */
-      const finishOnConfirmation = async () => {
-        const confirmationFailure = confirmStored
-          ? await confirmStored()
-          : null;
-        if (confirmationFailure) {
-          toast.error(confirmationFailure, {
-            id: progressToastId,
-            duration: 9000,
-            position: 'top-right',
-          });
-          return false;
-        }
-        toast.success(`${description} added`, {
-          id: progressToastId,
-          position: 'top-right',
-        });
-        return true;
-      };
-
-      const jobId = uploadResponse?.job_id;
-      if (!jobId) {
-        // Nothing to follow — either everything was rejected, or this build of
-        // the API answered synchronously.
-        await refreshAvatarDocuments();
-        if (Array.isArray(rejectedItems) && rejectedItems.length > 0) {
-          // The rejection toast above already said what was refused; this one
-          // must not claim the upload landed.
-          toast.dismiss(progressToastId);
-          return false;
-        }
-        return finishOnConfirmation();
-      }
-
-      let jobFailure = null;
-      await streamMediaJobProgress(jobId, (progressEvent) => {
-        if (progressEvent.type === 'media_progress') {
-          toast.loading(describeMediaProgress(progressEvent, description), {
-            id: progressToastId,
-            position: 'top-right',
-          });
-        } else if (progressEvent.type === 'done') {
-          jobFailure = progressEvent.error ?? null;
-        }
-      });
-
-      if (jobFailure) {
-        toast.error(`Processing ${description} failed: ${jobFailure}`, {
-          id: progressToastId,
-          duration: 9000,
-          position: 'top-right',
-        });
-        return false;
-      }
-
-      await refreshAvatarDocuments();
-      return finishOnConfirmation();
-    } catch (uploadError) {
-      toast.dismiss(progressToastId);
-      console.error('Media upload failed:', uploadError);
-      // An upload is metered too, so it can be refused for a spent allotment
-      // exactly as a message can; reported through the shared path, that
-      // refusal arrives with a way to billing rather than as a dead end.
-      showRequestFailureToast(uploadError, {
-        fallbackMessage: 'Upload failed.',
-        position: 'top-right',
-      });
-      return false;
-    }
-  };
-
   const handleFileUpload = async (e) => {
     const filesList = e.dataTransfer?.files || e.target?.files || [];
     const files = Array.from(filesList);
@@ -572,20 +520,34 @@ const AvatarSettings = ({ avatarId, onPortraitChanged }) => {
         String(file.type ?? '').startsWith('audio/') ||
         String(file.type ?? '').startsWith('video/')
     );
-    await uploadMediaAndFollowJob({
+    await startSectionUpload({
       files,
       isReferenceAudio: treatsAsReferenceAudio,
-      description: files.length === 1 ? files[0].name : `${files.length} files`,
     });
     if (e.target) {
-      // Let the same file be chosen again after a failure.
       e.target.value = '';
     }
   };
 
-  const handleUrlUpload = async (url) => {
-    await uploadMediaAndFollowJob({ urls: [url], description: url });
+  const addManualUrls = () => {
+    const urls = parseHttpUrls(manualUrl);
+    if (urls.length === 0) {
+      toast.error('Enter one or more http:// or https:// URLs');
+      return;
+    }
+    if (useUrlAsVoiceReference) {
+      if (urls.length !== 1) {
+        toast.error('Voice reference needs a single URL');
+        return;
+      }
+      setManualUrl('');
+      startSectionUpload({ urls, isReferenceAudio: true });
+      return;
+    }
+    setManualUrl('');
+    startSectionUpload({ urls });
   };
+
   const handleSocialLogin = (platform) => {
     setSelectedPlatform(platform);
     setShowLoginModal(true);
@@ -626,7 +588,37 @@ const AvatarSettings = ({ avatarId, onPortraitChanged }) => {
    * source. The person confirms first, with the source named, so what is about
    * to be lost is unambiguous.
    */
-  const handleDeleteDocument = async (sourceDocumentName) => {
+  /**
+   * Delete one row of Data Uploaded. An upload arrives as its label (the string
+   * the document delete endpoint takes back); a generated portrait or idle loop
+   * arrives as the whole row, and is deleted by asset id instead.
+   */
+  const handleDeleteDocument = async (documentEntryOrLabel) => {
+    const documentEntry =
+      typeof documentEntryOrLabel === 'string'
+        ? { label: documentEntryOrLabel }
+        : documentEntryOrLabel;
+    if (documentEntry?.source === 'emotion') {
+      if (
+        !window.confirm(
+          `Delete the ${documentEntry.label}? The avatar stops using this ` +
+            'generated media. This cannot be undone.'
+        )
+      ) {
+        return;
+      }
+      try {
+        if (!user) throw new Error('Not logged in');
+        await deleteAvatarEmotionMedia(documentEntry.assetId);
+        toast.success('Generated media deleted');
+        forgetEmotionMedia(assistantId);
+        await refreshEmotionManifest({ force: true });
+      } catch (err) {
+        toast.error('Failed to delete: ' + err.message);
+      }
+      return;
+    }
+    const sourceDocumentName = documentEntry.label;
     if (
       !window.confirm(
         `Delete "${sourceDocumentName}" from this avatar? The upload and ` +
@@ -748,10 +740,9 @@ const AvatarSettings = ({ avatarId, onPortraitChanged }) => {
     const [chosenImage] = acceptedFiles ?? [];
     if (!chosenImage) return;
 
-    await uploadMediaAndFollowJob({
+    await startSectionUpload({
       files: [chosenImage],
       isReferenceImage: true,
-      description: 'the avatar portrait',
       confirmStored: confirmPortraitWasStored,
     });
   };
@@ -768,7 +759,7 @@ const AvatarSettings = ({ avatarId, onPortraitChanged }) => {
    * absence is reported as the failure it is.
    *
    * @returns {Promise<string|null>} Null when the portrait is stored, otherwise
-   *   the message the upload's toast must end on instead of "added".
+   *   the message the Upload card must end on instead of success.
    */
   const confirmPortraitWasStored = async () => {
     try {
@@ -791,6 +782,9 @@ const AvatarSettings = ({ avatarId, onPortraitChanged }) => {
       // portrait means a new set; drop the cached manifest so the chat, the
       // gallery, and the status strip below the portrait re-read it.
       forgetEmotionMedia(assistantId);
+      // Re-read it here too, so the generated rows under Data Uploaded show
+      // the new set without a reload.
+      refreshEmotionManifest({ force: true }).catch(() => {});
       if (storedPortrait) {
         // If this was the avatar that depicts the user, their icon changes
         // everywhere at once — the alternative is a stale face beside their
@@ -807,10 +801,6 @@ const AvatarSettings = ({ avatarId, onPortraitChanged }) => {
     }
   };
 
-  /**
-   * Set the avatar's portrait from an image URL. The API takes a reference
-   * image as a URL just as readily as a file, on the same endpoint.
-   */
   /**
    * Apply a change to the avatar record everywhere it is already on screen.
    *
@@ -1034,8 +1024,8 @@ const AvatarSettings = ({ avatarId, onPortraitChanged }) => {
           {isAvatarShared ? <Globe size={20} /> : <Lock size={20} />}
           Sharing
         </h3>
-        <div className="flex items-start justify-between gap-6">
-          <p className="text-white/60 text-sm">
+        <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
+          <p className="text-white/60 text-sm min-w-0 flex-1">
             {isAdministeringSomeoneElsesAvatar
               ? isAvatarShared
                 ? 'Another account created this avatar and it is listed publicly. As the administrator you can withdraw it from the public gallery. Its name, portrait and data stay with the account that created it.'
@@ -1047,7 +1037,7 @@ const AvatarSettings = ({ avatarId, onPortraitChanged }) => {
           <button
             onClick={handleToggleSharing}
             disabled={isUpdatingSharing}
-            className={`shrink-0 px-4 py-2 rounded-lg border transition-all duration-300 disabled:opacity-50 disabled:cursor-not-allowed ${
+            className={`self-start shrink-0 rounded-lg border transition-all duration-300 disabled:opacity-50 disabled:cursor-not-allowed ${
               isAvatarShared
                 ? 'bg-black/50 hover:bg-white/10 text-neutral-200 border-white/10'
                 : 'bg-amber-400 hover:bg-amber-300 text-neutral-900 border-amber-400 font-semibold'
@@ -1108,7 +1098,7 @@ const AvatarSettings = ({ avatarId, onPortraitChanged }) => {
   if (!canAdministerAvatar) {
     if (canChangeSharing) {
       return (
-        <div className="flex flex-col gap-6 w-full max-w-4xl mx-auto">
+        <div className="avatar-settings flex flex-col gap-4 sm:gap-6 w-full max-w-4xl mx-auto min-w-0">
           {renderSharingCard()}
           <p className="text-white/50 text-sm px-1">
             Another account created this avatar, so its name, portrait, source
@@ -1126,7 +1116,7 @@ const AvatarSettings = ({ avatarId, onPortraitChanged }) => {
   }
 
   return (
-    <div className="flex flex-col gap-6 w-full max-w-4xl mx-auto">
+    <div className="avatar-settings flex flex-col gap-4 sm:gap-6 w-full max-w-4xl mx-auto min-w-0">
       {/* Drag Overlay */}
       {isDragging && (
         <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm flex items-center justify-center">
@@ -1199,23 +1189,25 @@ const AvatarSettings = ({ avatarId, onPortraitChanged }) => {
         </div>
       )}
       {/* Header with Delete Button */}
-      <div className="flex justify-between items-center">
-        <h2 className="text-2xl font-bold text-neutral-200">Avatar Settings</h2>
+      <div className="flex flex-wrap justify-between items-center gap-2">
+        <h2 className="text-xl sm:text-2xl font-bold text-neutral-200">
+          Avatar Settings
+        </h2>
         <button
           onClick={handleDeleteAvatar}
           disabled={isDeleting}
-          className="px-4 py-2 bg-red-500/20 hover:bg-red-500/30 text-red-400 hover:text-red-300 rounded-lg transition-all duration-300 border border-red-500/30 flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+          className="bg-red-500/20 hover:bg-red-500/30 text-red-400 hover:text-red-300 rounded-lg transition-all duration-300 border border-red-500/30 flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
         >
           <Trash2 size={16} />
-          {isDeleting ? 'Deleting...' : 'Delete Avatar'}
+          {isDeleting ? 'Deleting...' : 'Delete'}
         </button>
       </div>
       {/* Avatar Profile Section */}
-      <div className="bg-black/60 backdrop-blur-lg rounded-2xl border border-white/10 p-6">
+      <div className="bg-black/60 backdrop-blur-lg rounded-2xl border border-white/10 p-4 sm:p-6 min-w-0">
         <h3 className="text-lg font-semibold text-neutral-200 mb-4">
           Profile Information
         </h3>
-        <div className="flex gap-6 items-start">
+        <div className="flex flex-col sm:flex-row gap-4 sm:gap-6 items-center sm:items-start">
           {/* Icon Upload */}
           <div className="flex flex-col gap-3">
             {avatarIcon ? (
@@ -1229,7 +1221,7 @@ const AvatarSettings = ({ avatarId, onPortraitChanged }) => {
                 // image dropped HERE is the portrait and nothing else: without
                 // this the one drop ran both handlers and uploaded the same file
                 // twice — once as the portrait, once as an ordinary document —
-                // with two independent sets of progress toasts to match.
+                // with two independent progress cards to match.
                 noDragEventsBubbling
               >
                 {({ getRootProps, getInputProps, open }) => (
@@ -1284,45 +1276,47 @@ const AvatarSettings = ({ avatarId, onPortraitChanged }) => {
             />
           </div>
           {/* Name and Description */}
-          <div className="flex-grow space-y-4">
+          <div className="w-full min-w-0 flex-grow space-y-4">
             {/* Name Field */}
             <div>
               <label className="block text-sm font-medium text-white/70 mb-2">
                 Name
               </label>
               {editingName ? (
-                <div className="flex gap-2">
+                <div className="flex flex-col sm:flex-row gap-2">
                   <input
                     type="text"
                     value={updatedAvatarName}
                     onChange={(e) => setUpdatedAvatarName(e.target.value)}
                     placeholder="Enter avatar name"
-                    className="flex-grow px-4 py-2 bg-black/50 border border-white/10 rounded-lg text-neutral-200 placeholder-white/40 focus:outline-none focus:ring-2 focus:ring-amber-400/50"
+                    className="w-full min-w-0 sm:flex-grow px-4 py-2 bg-black/50 border border-white/10 rounded-lg text-neutral-200 placeholder-white/40 focus:outline-none focus:ring-2 focus:ring-amber-400/50"
                   />
-                  <button
-                    onClick={() => {
-                      handleUpdateName(updatedAvatarName);
-                      setEditingName(false);
-                    }}
-                    className="px-4 py-2 bg-amber-400/15 hover:bg-amber-400/25 text-amber-300 rounded-lg transition-all duration-300 border border-amber-400/30"
-                  >
-                    Save
-                  </button>
-                  <button
-                    onClick={() => setEditingName(false)}
-                    className="px-4 py-2 bg-black/50 hover:bg-white/10 text-neutral-200 rounded-lg transition-all duration-300 border border-white/10"
-                  >
-                    Cancel
-                  </button>
+                  <div className="flex gap-2 shrink-0">
+                    <button
+                      onClick={() => {
+                        handleUpdateName(updatedAvatarName);
+                        setEditingName(false);
+                      }}
+                      className="bg-amber-400/15 hover:bg-amber-400/25 text-amber-300 rounded-lg transition-all duration-300 border border-amber-400/30"
+                    >
+                      Save
+                    </button>
+                    <button
+                      onClick={() => setEditingName(false)}
+                      className="bg-black/50 hover:bg-white/10 text-neutral-200 rounded-lg transition-all duration-300 border border-white/10"
+                    >
+                      Cancel
+                    </button>
+                  </div>
                 </div>
               ) : (
-                <div className="flex justify-between items-center px-4 py-2 bg-black/60 border border-white/10 rounded-lg">
-                  <span className="text-neutral-200 font-medium">
+                <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-2 px-3 py-2 bg-black/60 border border-white/10 rounded-lg min-w-0">
+                  <span className="text-neutral-200 font-medium min-w-0 break-words">
                     {activeAvatar?.name}
                   </span>
                   <button
                     onClick={() => setEditingName(true)}
-                    className="text-amber-300 hover:text-amber-200 transition-colors duration-300"
+                    className="self-start sm:self-auto text-amber-300 hover:text-amber-200 transition-colors duration-300"
                   >
                     Edit
                   </button>
@@ -1373,11 +1367,11 @@ const AvatarSettings = ({ avatarId, onPortraitChanged }) => {
                   </div>
                 </div>
               ) : (
-                <div className="flex justify-between items-start px-4 py-2 bg-black/60 border border-white/10 rounded-lg min-h-[80px]">
-                  <p className="text-white/80 flex-grow">
+                <div className="flex flex-col sm:flex-row sm:justify-between sm:items-start gap-2 px-3 py-2 bg-black/60 border border-white/10 rounded-lg min-h-[80px] min-w-0">
+                  <p className="text-white/80 min-w-0 flex-1 break-words">
                     {activeAvatar?.description}
                   </p>
-                  <div className="flex items-center gap-3 ml-4 shrink-0">
+                  <div className="flex items-center gap-3 shrink-0">
                     <button
                       type="button"
                       onClick={generateDescription}
@@ -1411,6 +1405,10 @@ const AvatarSettings = ({ avatarId, onPortraitChanged }) => {
             assistantId={assistantId}
             isPersonalAvatar={isPersonalAvatar}
             avatarName={activeAvatar?.name}
+            startUpload={startSectionUpload}
+            voiceJobs={voiceJobs}
+            onCancelJob={cancelSectionJob}
+            onDismissJob={dismissSectionJob}
           />
         </div>
       </div>
@@ -1495,54 +1493,85 @@ const AvatarSettings = ({ avatarId, onPortraitChanged }) => {
         </div>
       </div> */}
       {/* Upload Section */}
-      <div className="bg-black/60 backdrop-blur-lg rounded-2xl border border-white/10 p-6">
-        <h2 className="text-2xl font-semibold text-neutral-200 mb-4 flex items-center gap-2">
-          <Upload size={24} />
+      <div
+        ref={uploadSectionRef}
+        className="bg-black/60 backdrop-blur-lg rounded-2xl border border-white/10 p-4 sm:p-6 min-w-0"
+      >
+        <h2 className="text-xl sm:text-2xl font-semibold text-neutral-200 mb-4 flex items-center gap-2">
+          <Upload size={22} />
           Upload
         </h2>
-        {/* Manual URL Input */}
+        {/* URLs start processing as soon as Add is pressed. */}
         <div className="mb-6">
           <label className="block text-sm font-medium text-white/70 mb-2">
-            Add URL
+            Add URLs
           </label>
-          <div className="flex gap-2">
+          <div className="flex flex-col sm:flex-row gap-2">
             <input
-              type="url"
-              placeholder="https://example.com or paste any URL"
+              ref={urlInputRef}
+              type="text"
+              inputMode="url"
+              autoComplete="url"
+              spellCheck={false}
+              placeholder="https://example.com — paste several, separated by spaces or lines"
               value={manualUrl}
               onChange={(e) => setManualUrl(e.target.value)}
-              onKeyPress={(e) => {
-                if (e.key === 'Enter' && manualUrl) {
-                  handleUrlUpload(manualUrl);
-                  setManualUrl('');
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') {
+                  e.preventDefault();
+                  if (manualUrl.trim()) addManualUrls();
                 }
               }}
-              className="flex-1 px-4 py-3 bg-black/50 border border-white/10 rounded-lg text-neutral-200 placeholder-white/40 focus:outline-none focus:ring-2 focus:ring-amber-400/50"
+              onPaste={(e) => {
+                const pastedUrls = parseHttpUrls(
+                  e.clipboardData.getData('text/plain')
+                );
+                if (pastedUrls.length > 1) {
+                  e.preventDefault();
+                  if (useUrlAsVoiceReference) {
+                    toast.error('Voice reference needs a single URL');
+                    return;
+                  }
+                  startSectionUpload({ urls: pastedUrls });
+                }
+              }}
+              className="w-full min-w-0 sm:flex-1 px-4 py-3 bg-black/50 border border-white/10 rounded-lg text-neutral-200 placeholder-white/40 focus:outline-none focus:ring-2 focus:ring-amber-400/50"
             />
             <button
-              onClick={() => {
-                if (manualUrl) {
-                  handleUrlUpload(manualUrl);
-                  setManualUrl('');
-                }
-              }}
-              disabled={!manualUrl || isLoading}
-              className="px-6 py-3 bg-amber-400/15 hover:bg-amber-400/25 text-amber-300 font-semibold rounded-lg transition-all duration-300 flex items-center gap-2 border border-amber-400/30 disabled:opacity-50 disabled:cursor-not-allowed"
+              type="button"
+              onClick={addManualUrls}
+              disabled={!manualUrl.trim()}
+              className="px-4 py-3 bg-amber-400/15 hover:bg-amber-400/25 text-amber-300 font-semibold rounded-lg transition-all duration-300 flex items-center justify-center gap-2 border border-amber-400/30 disabled:opacity-50 disabled:cursor-not-allowed"
             >
-              <Upload size={20} />
+              <Plus size={18} />
               Add
             </button>
           </div>
+          <label className="mt-2 inline-flex items-center gap-2 text-xs text-white/60">
+            <input
+              type="checkbox"
+              checked={useUrlAsVoiceReference}
+              onChange={(e) => setUseUrlAsVoiceReference(e.target.checked)}
+              className="rounded border-white/30 bg-black/50 text-amber-400 focus:ring-amber-400/50"
+            />
+            Use as voice reference
+          </label>
+          {typedUrlLooksLikeVoice && !useUrlAsVoiceReference ? (
+            <p className="mt-1 text-xs text-white/40">
+              This looks like a video or audio link. Check the box to use it as
+              the avatar's voice.
+            </p>
+          ) : null}
         </div>
-        <div className="border-2 border-dashed border-white/30 rounded-xl p-8 text-center hover:border-white/50 transition-all duration-300 bg-black/60">
-          <Upload className="mx-auto mb-4 text-white/60" size={48} />
-          <p className="text-neutral-200 text-lg mb-2">
+        <div className="border-2 border-dashed border-white/30 rounded-xl p-4 sm:p-8 text-center hover:border-white/50 transition-all duration-300 bg-black/60">
+          <Upload className="mx-auto mb-3 sm:mb-4 text-white/60" size={36} />
+          <p className="text-neutral-200 mb-2">
             Drag & drop anywhere on the page
           </p>
           <p className="text-white/60 text-sm mb-4">
-            or paste URLs with Ctrl+V / Cmd+V
+            or paste URLs with Ctrl+V / Cmd+V to start processing
           </p>
-          <label className="inline-block px-6 py-3 bg-amber-400/15 hover:bg-amber-400/25 text-amber-300 font-semibold rounded-lg cursor-pointer transition-all duration-300 border border-amber-400/30">
+          <label className="inline-block px-5 py-2.5 bg-amber-400/15 hover:bg-amber-400/25 text-amber-300 font-semibold rounded-lg cursor-pointer transition-all duration-300 border border-amber-400/30">
             Choose Files
             <input
               type="file"
@@ -1557,6 +1586,21 @@ const AvatarSettings = ({ avatarId, onPortraitChanged }) => {
             Images • Videos • Audio • PDFs • Text • URLs
           </p>
         </div>
+        {uploadSectionJobs.length > 0 && (
+          <div className="mt-4 space-y-3">
+            {uploadSectionJobs.map((job) => (
+              <UploadProcessPanel
+                key={job.localId}
+                job={job}
+                onCancel={() => cancelSectionJob(job.localId)}
+                onCancelItem={(itemJobId) =>
+                  cancelSectionJob(job.localId, itemJobId)
+                }
+                onDismiss={() => dismissSectionJob(job.localId)}
+              />
+            ))}
+          </div>
+        )}
       </div>
       {/* Sharing. Publishing is for your own likeness, so this is the personal
           avatar's control — except for the administrator, who may publish any
@@ -1569,6 +1613,14 @@ const AvatarSettings = ({ avatarId, onPortraitChanged }) => {
           are read from the API so a new provider needs no change here. */}
       {isPersonalAvatar && <ConnectionsSection />}
 
+      {/* What the avatar has learned about itself. Creator-only by
+          construction (this whole return is behind canAdministerAvatar) and
+          by the API, which answers 403 for anyone else. */}
+      <AvatarIdentityFacts
+        assistantId={assistantId}
+        avatarName={activeAvatar?.name}
+      />
+
       {/* Documents Section */}
 
       <div className="bg-black/60 backdrop-blur-lg rounded-2xl border border-white/10 p-6">
@@ -1577,7 +1629,7 @@ const AvatarSettings = ({ avatarId, onPortraitChanged }) => {
           Data Uploaded for {activeAvatar?.name}
         </h3>
 
-        {avatarDocuments.length > 0 && (
+        {allAvatarRows.length > 0 && (
           <div className="mb-4 space-y-3">
             <div className="relative">
               <Search
@@ -1607,7 +1659,7 @@ const AvatarSettings = ({ avatarId, onPortraitChanged }) => {
                 const isSelected = documentKindFilter === bucket;
                 const count =
                   bucket === 'all'
-                    ? avatarDocuments.length
+                    ? allAvatarRows.length
                     : documentBucketCounts[bucket];
                 return (
                   <button
@@ -1634,11 +1686,11 @@ const AvatarSettings = ({ avatarId, onPortraitChanged }) => {
             does not push the rest of the settings off the bottom of the page,
             and the search and filters above it stay in reach. */}
         <div className="space-y-2 max-h-[60vh] overflow-y-auto pr-1">
-          {avatarDocuments.length > 0 ? (
+          {allAvatarRows.length > 0 ? (
             visibleAvatarDocuments.length > 0 ? (
               visibleAvatarDocuments.map((documentEntry) => (
                 <AvatarDocumentRow
-                  key={documentEntry.label}
+                  key={documentEntry.assetId ?? documentEntry.label}
                   documentEntry={documentEntry}
                   portraitDataUri={avatarIcon}
                   onDelete={handleDeleteDocument}

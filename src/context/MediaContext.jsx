@@ -33,16 +33,18 @@ import {
   showRequestFailureToast,
 } from '../components/requestFailureToast';
 import { buildBillingRefusalMessage } from '../components/BillingRefusalNotice';
-import { followMediaJobWithToast } from '../services/mediaJobProgress';
+import { followMediaJobWithToast } from '../services/mediaJobProgress.jsx';
 import {
   loadThreadAttachments,
   pruneExpiredAttachments,
   saveMessageAttachments,
 } from '../services/attachmentArchive';
 import {
+  buildAmbientMessageRequest,
   deleteConversationThread,
   updateConversationThread,
 } from '../services/avatarService';
+import { notifyAmbientObservation } from '../services/desktopNotifications';
 import {
   overlayLocalPinState,
   setConversationPinnedLocally,
@@ -261,11 +263,18 @@ function normalizeThreadMessages(storedMessages) {
   }
   return storedMessages
     .filter((storedMessage) => ['human', 'ai'].includes(storedMessage?.type))
+    // A hidden turn is context the avatar was given, never something the
+    // person typed: an ambient webcam / screen observation. The API already
+    // drops these; this keeps a transcript honest if one ever slips through.
+    .filter((storedMessage) => !storedMessage?.additional_kwargs?.hidden)
     .map((storedMessage) => {
       const messageText = messageContentAsText(storedMessage.content);
       return {
         id: storedMessage.id,
         type: storedMessage.type,
+        // The triage record of an ambient observation this reply answers
+        // (`decision` of respond or notify); a notify reply renders as a card.
+        ambient: storedMessage.response_metadata?.ambient ?? null,
         // Only a person's own turn is trimmed. The account of the attachments
         // is appended to what the person sent, so an avatar that writes those
         // same words is quoting, and its reply is shown whole.
@@ -349,6 +358,9 @@ export const MediaProvider = ({ children }) => {
   // How many turns are in flight, so the interface can say that something is
   // still being sent after the user has moved on.
   const [pendingSendCount, setPendingSendCount] = useState(0);
+  // Voice mode raises this while the person is speaking or the avatar is, so
+  // ambient capture never sends a snapshot into the middle of an exchange.
+  const [ambientHold, setAmbientHold] = useState(false);
   // Attachments belonging to a turn that is still in flight. Clearing
   // `mediaFiles` the moment a message is sent took the only sign that a file
   // was involved off the screen, leaving the user watching an empty composer
@@ -625,21 +637,30 @@ export const MediaProvider = ({ children }) => {
    * for human approval.
    *
    * @param {Object} parameters
-   * @param {Object} parameters._user Unused; kept for the existing signature.
    * @param {Object} parameters.avatarForMessage The avatar being streamed.
    * @param {string} parameters.threadId Thread being continued, or null.
    * @param {string} parameters.path The endpoint to stream from.
    * @param {FormData} parameters.formData The request body.
    * @param {boolean} [parameters.hideFromTranscript] Collect the reply without
    *   painting a bubble (used for conversation-suggestion harvests).
+   * @param {boolean} [parameters.deferBubbleUntilFirstToken] Paint the reply
+   *   bubble only once a token arrives, so a turn that ends without a reply (an
+   *   ambient observation the avatar ignored) leaves no trace on screen.
+   * @param {Function} [parameters.onExtraEvent] Receives every stream event the
+   *   lifecycle here does not handle itself (for example `ambient_decision`).
+   * @param {Function} [parameters.bubbleDecorator] Given the bubble about to
+   *   be painted, returns extra fields for it (for example the ambient triage
+   *   record that turns the bubble into a notification card).
    */
   async function runAssistantTurnStream({
-    _user,
     avatarForMessage,
     threadId,
     path,
     formData,
     hideFromTranscript = false,
+    deferBubbleUntilFirstToken = false,
+    onExtraEvent = null,
+    bubbleDecorator = null,
   }) {
     const assistantId = resolveAssistantId(avatarForMessage);
     const streamingMessageId = `streaming-${Date.now()}`;
@@ -662,16 +683,32 @@ export const MediaProvider = ({ children }) => {
 
     // The assistant message that the token stream grows. isLoading drives the
     // MessageList's typing indicator until the first token lands.
-    updateMessagesIfStillOnScreen((previousMessages) => [
-      ...previousMessages,
-      {
-        id: streamingMessageId,
-        type: 'ai',
-        content: '',
-        isLoading: true,
-        timestamp: new Date().toISOString(),
-      },
-    ]);
+    let bubblePainted = false;
+    const paintBubble = () => {
+      if (bubblePainted) return;
+      bubblePainted = true;
+      const decoration = bubbleDecorator ? bubbleDecorator() : null;
+      updateMessagesIfStillOnScreen((previousMessages) => [
+        ...previousMessages,
+        {
+          id: streamingMessageId,
+          type: 'ai',
+          content: '',
+          isLoading: true,
+          timestamp: new Date().toISOString(),
+          ...(decoration ?? {}),
+        },
+      ]);
+    };
+    if (!deferBubbleUntilFirstToken) {
+      paintBubble();
+    }
+    // A deferred turn stays silent until it has something to say: no bubble
+    // and no "Thinking…" status while the server decides whether to reply.
+    const setActivityUnlessDeferred = (activity) => {
+      if (deferBubbleUntilFirstToken && !bubblePainted) return;
+      setActivityIfStillOnScreen(activity);
+    };
 
     // Everything streamed so far, whether or not it was shown. The suppression
     // test reads the accumulated text rather than each fragment: the structured
@@ -693,6 +730,7 @@ export const MediaProvider = ({ children }) => {
         setActivityIfStillOnScreen(ASSISTANT_ACTIVITY.suggestingEdits);
         return;
       }
+      paintBubble();
       updateMessagesIfStillOnScreen((previousMessages) =>
         previousMessages.map((message) =>
           message.id === streamingMessageId
@@ -727,7 +765,7 @@ export const MediaProvider = ({ children }) => {
         } else if (streamEvent.type === 'usage_estimate') {
           // The first frame of a turn: the request has been costed and the
           // model has not started speaking yet.
-          setActivityIfStillOnScreen(ASSISTANT_ACTIVITY.thinking);
+          setActivityUnlessDeferred(ASSISTANT_ACTIVITY.thinking);
         } else if (streamEvent.type === 'media_job_started') {
           // The avatar called update_avatar_identity_with_media: the media is
           // processed in the background, and its progress gets the same toast
@@ -738,8 +776,14 @@ export const MediaProvider = ({ children }) => {
         } else if (streamEvent.type === 'keepalive_comment') {
           // Tokens have stopped but the turn has not: the server keeps this
           // line open while it runs its post-reply analysis.
-          setActivityIfStillOnScreen(ASSISTANT_ACTIVITY.analyzing);
+          setActivityUnlessDeferred(ASSISTANT_ACTIVITY.analyzing);
         } else if (
+          streamEvent.type !== 'done' &&
+          streamEvent.type !== 'interrupt'
+        ) {
+          onExtraEvent?.(streamEvent);
+        }
+        if (
           streamEvent.type === 'done' ||
           streamEvent.type === 'interrupt'
         ) {
@@ -829,6 +873,11 @@ export const MediaProvider = ({ children }) => {
           previousMessages.filter((message) => message.id !== streamingMessageId)
         );
       } else {
+        // A deferred turn that produced a reply without streaming tokens still
+        // gets its bubble now; one that produced nothing leaves no trace.
+        if (String(terminalFrame.content ?? '').trim()) {
+          paintBubble();
+        }
         // Adopt the authoritative content and metadata from the terminal frame;
         // the token stream is a preview, `done.content` is the record.
         updateMessagesIfStillOnScreen((previousMessages) =>
@@ -843,6 +892,10 @@ export const MediaProvider = ({ children }) => {
                   total_response_time_ms:
                     terminalFrame.total_response_time_ms ?? null,
                   response_metadata: terminalFrame.response_metadata ?? {},
+                  ambient:
+                    terminalFrame.response_metadata?.ambient ??
+                    message.ambient ??
+                    null,
                   // Classified once the whole reply is known; the chat swaps the
                   // avatar's icon to the matching emotion still, and voice mode
                   // picks the emotion's idle loop and lip-sync still from it.
@@ -1290,10 +1343,12 @@ export const MediaProvider = ({ children }) => {
    * derived from the last real reply so the graph is never asked to speak
    * in that format.
    *
+   * @param {Object} [options]
+   * @param {string[]} [options.exclude] Prompts already on screen; skip on a re-roll.
    * @returns {Promise<string[]>} Up to three suggestion strings.
    */
-  async function fetchConversationSuggestions() {
-    return localFollowUpSuggestions(messages);
+  async function fetchConversationSuggestions({ exclude = [] } = {}) {
+    return localFollowUpSuggestions(messages, { exclude });
   }
 
   /**
@@ -1320,6 +1375,95 @@ export const MediaProvider = ({ children }) => {
    * @param {string} text The recognized words.
    * @returns {Promise<{reply: string, sentiment: Object|null}>}
    */
+  /**
+   * Send one ambient observation — webcam / screen snapshots taken on the
+   * capture timer — as a hidden turn on the current conversation.
+   *
+   * Nothing is painted for the person's side: the avatar was handed context,
+   * not a message. The server's triage decides what happens next. `ignore`
+   * ends the turn silently; `respond` streams a reply into an ordinary bubble;
+   * `notify` streams a heads-up that renders as a notification card. A thread
+   * minted by an observation is adopted exactly like one minted by a typed
+   * turn, so the conversation appears in the sidebar.
+   *
+   * @param {File[]} files The snapshots.
+   * @param {Object} options
+   * @param {boolean} [options.voiceMode] The person is in voice mode.
+   * @returns {Promise<{decision: string|null, summary: string|null, reply: string, sentiment: Object|null, threadId: string|null, observationId: string|null}>}
+   */
+  async function sendAmbientObservation(files, { voiceMode = false } = {}) {
+    if (!activeAvatar || !files?.length) {
+      return {
+        decision: null,
+        summary: null,
+        reply: '',
+        sentiment: null,
+        threadId: null,
+        observationId: null,
+      };
+    }
+    const threadId =
+      activeConversation && activeConversation !== NEW_CONVERSATION_ID
+        ? activeConversation
+        : null;
+    const userTimezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+    const { path, formData } = buildAmbientMessageRequest(
+      resolveAssistantId(activeAvatar),
+      files,
+      {
+        threadId,
+        capturedAt: new Date().toISOString(),
+        voiceMode,
+        userTimezone,
+      }
+    );
+    let decision = null;
+    // A first observation mints the conversation. Counting it as a pending send
+    // keeps the composer from minting a second thread in the same moment.
+    const mintsThread = threadId == null;
+    if (mintsThread) setPendingSendCount((count) => count + 1);
+    try {
+      const outcome = await runAssistantTurnStream({
+        _user: user,
+        avatarForMessage: activeAvatar,
+        threadId,
+        path,
+        formData,
+        deferBubbleUntilFirstToken: true,
+        onExtraEvent: (streamEvent) => {
+          if (streamEvent.type === 'ambient_decision') {
+            decision = streamEvent;
+            if (streamEvent.decision === 'notify') {
+              notifyAmbientObservation(activeAvatar?.name, streamEvent.summary);
+            }
+          }
+        },
+        bubbleDecorator: () =>
+          decision
+            ? {
+                ambient: {
+                  decision: decision.decision,
+                  observation_id: decision.observation_id,
+                  observation_kind: decision.observation_kind,
+                  summary: decision.summary,
+                  reason: decision.reason,
+                },
+              }
+            : {},
+      });
+      return {
+        decision: decision?.decision ?? null,
+        summary: decision?.summary ?? null,
+        reply: outcome?.reply ?? '',
+        sentiment: outcome?.sentiment ?? null,
+        threadId: outcome?.threadId ?? null,
+        observationId: decision?.observation_id ?? null,
+      };
+    } finally {
+      if (mintsThread) setPendingSendCount((count) => Math.max(0, count - 1));
+    }
+  }
+
   async function sendSpokenTurn(text) {
     const words = String(text ?? '').trim();
     if (!activeAvatar || !words) {
@@ -1580,6 +1724,9 @@ export const MediaProvider = ({ children }) => {
         assistantActivity,
         sendVoiceTurn,
         sendSpokenTurn,
+        sendAmbientObservation,
+        ambientHold,
+        setAmbientHold,
         pendingSendCount,
         attachmentsInFlight,
         resendFromUserMessage,

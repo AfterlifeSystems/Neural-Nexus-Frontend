@@ -2,18 +2,15 @@
 
 import React, { useEffect, useRef, useState } from 'react';
 import { toast } from 'react-hot-toast';
-import { User } from 'lucide-react';
 import MessageList from './MessageList';
 import InputBar from './InputBar';
-import ConversationSuggestions from './ConversationSuggestions';
-import MediaSharePreviews from './MediaSharePreviews';
-import { MediaShareProvider } from '../context/MediaShareContext';
 import { useAuth } from '../context/AuthContext';
 import { useMedia, NEW_CONVERSATION_ID } from '../context/MediaContext';
 import AvatarSettings from './AvatarSettings';
+import AvatarWorkspaceHeader from './AvatarWorkspaceHeader';
 import InboxPanel from './inbox/InboxPanel';
 import LiveVoiceMode from './LiveVoiceMode';
-import { isAvatarOwnedByUser, canShareAvatar, isValidImageUrl } from './utils';
+import { isAvatarOwnedByUser, canShareAvatar } from './utils';
 import useInboxCount from '../hooks/useInboxCount';
 import {
   listUserAvatars,
@@ -21,6 +18,11 @@ import {
 } from '../services/avatarService';
 import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import useEmotionMedia, { stillFor } from '../hooks/useEmotionMedia';
+import {
+  readVoiceModePreference,
+  voiceModeIsOpen,
+  writeVoiceModePreference,
+} from '../services/voiceModePreference';
 
 const ChatArea = ({ onActivateLiveChat, onEndLiveChat, className }) => {
   const { activeAvatar, setActiveAvatar, userAvatars, user, setContext } =
@@ -39,13 +41,27 @@ const ChatArea = ({ onActivateLiveChat, onEndLiveChat, className }) => {
   // imagery, so it comes from GET /avatar_reference_image like everywhere else.
   const [avatarPortrait, setAvatarPortrait] = useState(null);
   // Live mode is a different way into the same conversation, so it opens over
-  // this screen rather than navigating away from it.
-  const [isLiveModeOpen, setIsLiveModeOpen] = useState(false);
+  // this screen rather than navigating away from it. The choice is a browser
+  // preference: settings and inbox are other tabs on this workspace, and
+  // returning to Chat should still be talking if that is how they left it.
+  const [prefersVoiceMode, setPrefersVoiceMode] = useState(
+    readVoiceModePreference
+  );
+  const rememberVoiceModePreference = (preferred) => {
+    setPrefersVoiceMode(preferred);
+    writeVoiceModePreference(preferred);
+  };
   const { avatarId } = useParams(); // from /chat/:avatarId
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   // const [activeTab, setActiveTab] = useState('avatar-settings');
-  const [activeTab, setActiveTab] = useState('chat');
+  const [activeTab, setActiveTab] = useState(() => {
+    const requestedTab = searchParams.get('tab');
+    if (requestedTab === 'settings') return 'avatar-settings';
+    if (requestedTab === 'inbox') return 'inbox';
+    return 'chat';
+  });
+  const isLiveModeOpen = voiceModeIsOpen(prefersVoiceMode, activeTab);
 
   // Settings administer the avatar — rename, portrait, documents, sharing,
   // deletion — and every one of those is refused by the API for an avatar the
@@ -296,107 +312,46 @@ const ChatArea = ({ onActivateLiveChat, onEndLiveChat, className }) => {
   }, [user, activeAvatar, avatarId]);
 
   return (
-    <MediaShareProvider>
+    <>
       {isLiveModeOpen && (
         <LiveVoiceMode
           assistantId={activeAvatar?.assistant_id ?? avatarId}
           avatarName={activeAvatar?.name}
           avatarPortrait={avatarPortrait}
-          onClose={() => setIsLiveModeOpen(false)}
+          onClose={() => rememberVoiceModePreference(false)}
+          onNavigateTab={handleTabChange}
         />
       )}
       <div
-        className={`flex flex-row flex-grow w-full h-full bg-black/60 backdrop-blur-lg rounded-2xl border border-white/10 overflow-hidden relative ${
+        className={`flex flex-row flex-grow w-full h-full min-w-0 bg-black/60 backdrop-blur-lg rounded-2xl border border-white/10 overflow-hidden relative ${
           isLiveModeOpen ? 'invisible pointer-events-none' : ''
         } ${className}`}
       >
         {/* Main Chat Section */}
-        <div className="flex flex-col flex-grow p-2 sm:p-4 relative z-10">
+        <div className="flex flex-col flex-grow min-w-0 p-2 sm:p-4 relative z-10">
           {/* Tabs */}
           {/* On a phone the three tabs plus the avatar's name do not fit in one
             row, so the row scrolls sideways and the labels drop their
             prefixes rather than wrapping the name over four lines. */}
-          <div className="flex items-center shrink-0 mb-2 border-b border-white/10 gap-1 sm:gap-4 sm:justify-center overflow-x-auto overflow-y-hidden scrollbar-none">
-            {/* The avatar's face, or a placeholder standing in for one. It
-              follows the last reply's emotion when a still exists for it. */}
-            <div className="w-9 h-9 shrink-0 rounded-full bg-black/50 border border-white/10 flex items-center justify-center overflow-hidden">
-              {headerFace && isValidImageUrl(headerFace) ? (
-                <img
-                  src={headerFace}
-                  alt={activeAvatar?.name ?? 'Avatar'}
-                  className="w-full h-full object-cover"
-                  onError={() => setAvatarPortrait(null)}
-                />
-              ) : (
-                <User className="w-5 h-5 text-white/40" />
-              )}
-            </div>
-            <button
-              className={`px-3 sm:px-4 py-2 whitespace-nowrap text-sm sm:text-base ${
-                activeTab === 'chat'
-                  ? 'border-b-2 border-amber-400 font-semibold'
-                  : ''
-              } text-neutral-200`}
-              onClick={() => handleTabChange('chat')}
-            >
-              <span className="hidden sm:inline">
-                {activeAvatar?.name ? `A.I. ${activeAvatar.name} ` : 'A.I. '}
-              </span>
-              Chat
-            </button>
-            {isPersonalAvatar && (
-              <button
-                className={`px-3 sm:px-4 py-2 whitespace-nowrap text-sm sm:text-base inline-flex items-center gap-2 ${
-                  activeTab === 'inbox'
-                    ? 'border-b-2 border-amber-400 font-semibold'
-                    : ''
-                } text-neutral-200`}
-                onClick={() => handleTabChange('inbox')}
-              >
-                Inbox
-                {inboxCount > 0 && (
-                  <span
-                    aria-label={`${inboxCount} items waiting`}
-                    className="min-w-[1.25rem] h-5 px-1.5 rounded-full bg-amber-400 text-neutral-900 text-xs font-semibold flex items-center justify-center"
-                  >
-                    {inboxCount > 99 ? '99+' : inboxCount}
-                  </span>
-                )}
-              </button>
-            )}
-            {canOpenAvatarSettings && (
-              <button
-                className={`px-3 sm:px-4 py-2 whitespace-nowrap text-sm sm:text-base ${
-                  activeTab === 'avatar-settings'
-                    ? 'border-b-2 border-amber-400 font-semibold'
-                    : ''
-                } text-neutral-200`}
-                onClick={() => handleTabChange('avatar-settings')}
-              >
-                <span className="hidden sm:inline">Avatar </span>Settings
-              </button>
-            )}
-
-            <button
-              className={`px-3 sm:px-4 py-2 whitespace-nowrap text-sm sm:text-base ${
-                activeTab === 'avatar-selection'
-                  ? 'border-b-2 border-amber-400 font-semibold'
-                  : ''
-              } text-neutral-200`}
-              onClick={() => navigate('/avatars')}
-            >
-              <span className="hidden sm:inline">Avatar Selection</span>
-              <span className="sm:hidden">Avatars</span>
-            </button>
-          </div>
+          <AvatarWorkspaceHeader
+            className="mb-2"
+            avatarName={activeAvatar?.name}
+            headerFace={headerFace}
+            onPortraitError={() => setAvatarPortrait(null)}
+            activeTab={activeTab}
+            isPersonalAvatar={isPersonalAvatar}
+            canOpenAvatarSettings={canOpenAvatarSettings}
+            inboxCount={inboxCount}
+            onTabChange={handleTabChange}
+          />
 
           {activeTab === 'chat' && (
-            <div className="flex flex-col flex-grow overflow-hidden">
-              <div className="flex-grow overflow-y-auto p-2 sm:p-4 relative">
+            <div className="flex flex-col flex-grow min-w-0 overflow-hidden">
+              <div className="flex-grow overflow-y-auto overflow-x-hidden p-2 sm:p-4 relative min-w-0">
                 {/* Same width as the composer below (InputBar is max-w-3xl
                   mx-auto). Without it the transcript ran the full width of the
                   window while the input sat centred beneath it. */}
-                <div className="w-full max-w-3xl mx-auto">
+                <div className="w-full max-w-3xl mx-auto min-w-0">
                   <MessageList
                     messages={messages} // Pass messages array directly
                     messagesEndRef={messagesEndRef}
@@ -405,14 +360,12 @@ const ChatArea = ({ onActivateLiveChat, onEndLiveChat, className }) => {
                     assistantId={activeAvatar?.assistant_id ?? avatarId}
                   />
                 </div>
-                <MediaSharePreviews className="absolute bottom-3 right-3 sm:right-6 z-10" />
               </div>
 
-              <div className="flex-shrink-0 items-center mt-2">
-                <ConversationSuggestions />
+              <div className="flex-shrink-0 min-w-0 mt-2">
                 <InputBar
                   avatarId={activeAvatar?.assistant_id ?? avatarId}
-                  onActivateLiveChat={() => setIsLiveModeOpen(true)}
+                  onActivateLiveChat={() => rememberVoiceModePreference(true)}
                 />
               </div>
             </div>
@@ -442,7 +395,7 @@ const ChatArea = ({ onActivateLiveChat, onEndLiveChat, className }) => {
           )}
         </div>
       </div>
-    </MediaShareProvider>
+    </>
   );
 };
 

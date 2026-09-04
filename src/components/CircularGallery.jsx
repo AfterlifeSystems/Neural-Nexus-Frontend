@@ -15,13 +15,9 @@ import {
   Transform,
 } from 'ogl';
 import {
-  attachIdleLoopCapture,
-  blitIdleLoopReverse,
-  disposeIdleLoopTape,
-  idleLoopUsesNativeLoop,
-  mountIdleLoopVideo,
-  stepIdleLoopPingPong,
-  unmountIdleLoopVideo,
+  createIdleLoopVideo,
+  disposeIdleLoopVideo,
+  stepIdleLoopMedia,
 } from './ui/idleLoopSeam';
 function debounce(func, wait) {
   let timeout;
@@ -234,7 +230,7 @@ class Media {
   }
   createShader() {
     const texture = new Texture(this.gl, {
-      generateMipmaps: true,
+      generateMipmaps: false,
     });
     this.program = new Program(this.gl, {
       depthTest: false,
@@ -308,63 +304,85 @@ class Media {
       transparent: true,
     });
     this.texture = texture;
-    // Handle null/invalid images
-    if (!this.image) {
-      // Create placeholder texture
-      const {
-        texture: placeholderTexture,
-        width,
-        height,
-      } = createPlaceholderTexture(this.gl, this.cardType, 512, 512);
-      this.program.uniforms.tMap.value = placeholderTexture;
-      this.program.uniforms.uImageSizes.value = [width, height];
-      this.startIdleLoop();
-    } else {
-      // Load actual image
+    this.stillImage = null;
+    this.stillReady = !this.image;
+    this.loopReady = !this.video;
+    this.mediaRevealed = false;
+    this.applyPlaceholder();
+    if (this.image) {
       const img = new Image();
       img.crossOrigin = 'anonymous';
       img.decoding = 'async';
       img.src = this.image;
       img.onload = () => {
-        texture.image = img;
-        this.program.uniforms.uImageSizes.value = [
-          img.naturalWidth,
-          img.naturalHeight,
-        ];
-        this.startIdleLoop();
+        this.stillImage = img;
+        this.stillReady = true;
+        this.tryRevealMedia();
       };
       img.onerror = () => {
-        // Fallback to placeholder if image fails to load
         console.warn(`Failed to load image: ${this.image}, using placeholder`);
-        const {
-          texture: placeholderTexture,
-          width,
-          height,
-        } = createPlaceholderTexture(this.gl, this.cardType, 512, 512);
-        this.program.uniforms.tMap.value = placeholderTexture;
-        this.program.uniforms.uImageSizes.value = [width, height];
+        this.stillReady = true;
+        this.tryRevealMedia();
       };
+    }
+    this.startIdleLoop();
+    this.tryRevealMedia();
+  }
+  applyPlaceholder() {
+    const {
+      texture: placeholderTexture,
+      width,
+      height,
+    } = createPlaceholderTexture(this.gl, this.cardType, 512, 512);
+    this.program.uniforms.tMap.value = placeholderTexture;
+    this.program.uniforms.uImageSizes.value = [width, height];
+  }
+  tryRevealMedia() {
+    if (this.mediaRevealed) return;
+    if (!this.stillReady || !this.loopReady) return;
+    this.mediaRevealed = true;
+    const video = this.videoElement;
+    if (video && video.readyState >= 2) {
+      this.program.uniforms.tMap.value = this.texture;
+      this.texture.image = video;
+      const width = video.videoWidth;
+      const height = video.videoHeight;
+      if (width > 0 && height > 0) {
+        this.program.uniforms.uImageSizes.value = [width, height];
+      } else if (this.stillImage) {
+        this.program.uniforms.uImageSizes.value = [
+          this.stillImage.naturalWidth,
+          this.stillImage.naturalHeight,
+        ];
+      }
+      this.texture.needsUpdate = true;
+      return;
+    }
+    if (this.stillImage) {
+      this.program.uniforms.tMap.value = this.texture;
+      this.texture.image = this.stillImage;
+      this.program.uniforms.uImageSizes.value = [
+        this.stillImage.naturalWidth,
+        this.stillImage.naturalHeight,
+      ];
+      this.texture.needsUpdate = true;
     }
   }
   startIdleLoop() {
     if (!this.video || this.videoElement) return;
-    const video = document.createElement('video');
-    video.crossOrigin = 'anonymous';
-    video.muted = true;
-    video.loop = true;
-    video.playsInline = true;
-    video.autoplay = true;
-    video.preload = 'auto';
-    video.src = this.video;
-    video.addEventListener('error', () => {
-      // A loop that will not play leaves the still in place; nothing else to do.
-      this.videoElement = null;
-    });
-    mountIdleLoopVideo(video);
-    attachIdleLoopCapture(video);
-    video.play().catch(() => {
-      // Autoplay refused (no user gesture yet): the still stays until the
-      // page is interacted with, when the next update() tries again.
+    const video = createIdleLoopVideo(this.video, {
+      repeat: true,
+      maxEdge: 512,
+      onLoaded: () => {
+        this.loopReady = true;
+        this.tryRevealMedia();
+      },
+      onError: () => {
+        disposeIdleLoopVideo(video);
+        if (this.videoElement === video) this.videoElement = null;
+        this.loopReady = true;
+        this.tryRevealMedia();
+      },
     });
     this.videoElement = video;
   }
@@ -386,21 +404,33 @@ class Media {
     });
   }
   update(scroll, direction) {
-    // Refresh the card's texture from the idle loop once it has frames.
+    // Refresh the card's texture from the idle loop once the still and the
+    // loop have both decoded. Painting the still first, then popping the
+    // video in, is the jump this waits to avoid.
     const video = this.videoElement;
-    if (video && video.readyState >= 2 && this.texture) {
-      this.loopDirection = stepIdleLoopPingPong(video, this.loopDirection);
-      video.loop = idleLoopUsesNativeLoop(video);
+    if (!this.mediaRevealed && video?.readyState >= 2) {
+      this.loopReady = true;
+      this.tryRevealMedia();
+    }
+    if (this.mediaRevealed && video && video.readyState >= 2 && this.texture) {
+      video._idleLoopMaxEdge = 512;
       video._idleLoopAllowCapture = !(this.isBefore || this.isAfter);
-      const reverseSurface = blitIdleLoopReverse(video);
-      const textureSource = reverseSurface || video;
-      if (this.texture.image !== textureSource) {
-        this.texture.image = textureSource;
+      const stepped = stepIdleLoopMedia(
+        video,
+        this.loopDirection,
+        performance.now(),
+        { repeat: true }
+      );
+      this.loopDirection = stepped.direction;
+      if (this.texture.image !== stepped.source) {
+        this.texture.image = stepped.source;
       }
-      const sourceWidth = reverseSurface?.width || video.videoWidth;
-      const sourceHeight = reverseSurface?.height || video.videoHeight;
-      if (sourceWidth > 0 && sourceHeight > 0) {
-        this.program.uniforms.uImageSizes.value = [sourceWidth, sourceHeight];
+      if (stepped.source === video) {
+        const width = video.videoWidth;
+        const height = video.videoHeight;
+        if (width > 0 && height > 0) {
+          this.program.uniforms.uImageSizes.value = [width, height];
+        }
       }
       this.texture.needsUpdate = true;
     }
@@ -715,11 +745,7 @@ class App {
     if (this.medias) {
       this.medias.forEach((media) => {
         if (media.videoElement) {
-          disposeIdleLoopTape(media.videoElement);
-          media.videoElement.pause();
-          unmountIdleLoopVideo(media.videoElement);
-          media.videoElement.removeAttribute('src');
-          media.videoElement.load();
+          disposeIdleLoopVideo(media.videoElement);
           media.videoElement = null;
         }
       });

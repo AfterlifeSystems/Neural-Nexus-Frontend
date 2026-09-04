@@ -21,6 +21,8 @@ import AccountMenu, {
 import qrCode from '../assets/qr-neuralnexus.png';
 import { toast } from 'react-hot-toast';
 import { sortConversationsChronologically } from '../services/pinnedConversations';
+import SharePreviewSlot from './SharePreviewSlot';
+import SidebarShareControls from './SidebarShareControls';
 
 /**
  * Name a conversation the way the user would recognize it.
@@ -253,6 +255,7 @@ const ConversationSidebar = ({
   onStartNewConversation,
   avatarName,
   showConversations = true,
+  showShareControls = false,
 }) => {
   const location = useLocation();
   const navigate = useNavigate();
@@ -322,54 +325,78 @@ const ConversationSidebar = ({
         />
       )}
 
-      {/* Collapsed, the sidebar is a slim rail rather than a lone button: the
-          panel is always present down the edge of the window, showing what it
-          contains as icons, and widens into the full panel when opened. A rail
-          is a place; a floating button is a thing to hunt for. */}
-      {/* Collapsed, the sidebar is a slim rail down the edge of the window
-          rather than a floating button — a place rather than something to hunt
-          for. It carries one control: the one that opens it. */}
+      {/* Collapsed, the sidebar is a slim rail of the same actions the open
+          panel holds — as icons — so the place stays put in voice mode. */}
       {!isOpen && (
         <div
+          data-sidebar-rail
           onClick={onOpen}
           title="Open the sidebar"
-          className="fixed top-0 left-0 h-full w-14 z-40 bg-black/60 backdrop-blur-lg border-r border-white/10 flex flex-col items-center py-4 cursor-pointer hover:bg-black/70 transition-colors"
+          className="fixed top-0 left-0 h-full w-[var(--app-rail-width)] z-40 bg-black/60 backdrop-blur-lg border-r border-white/10 flex flex-col items-center py-3 gap-0.5 overflow-y-auto overscroll-contain cursor-pointer hover:bg-black/70 transition-colors"
         >
           <button
             onClick={(clickEvent) => {
               clickEvent.stopPropagation();
               onOpen();
             }}
-            className="p-2 rounded-lg text-white/70 hover:text-neutral-100 hover:bg-white/10 transition-colors"
+            className="p-1.5 rounded-lg text-white/70 hover:text-neutral-100 hover:bg-white/10 transition-colors"
             aria-label="Show conversations"
             title="Open the sidebar"
           >
-            <PanelLeftOpen className="w-5 h-5" />
+            <PanelLeftOpen className="w-4 h-4" />
           </button>
+          {showConversations && (
+            <button
+              onClick={(clickEvent) => {
+                clickEvent.stopPropagation();
+                onStartNewConversation?.();
+              }}
+              className="p-1.5 rounded-lg text-white/70 hover:text-neutral-100 hover:bg-white/10 transition-colors"
+              aria-label="New conversation"
+              title="New conversation"
+            >
+              <MessageSquarePlus className="w-4 h-4" />
+            </button>
+          )}
+          {showShareControls && <SidebarShareControls />}
+          <AccountMenu
+            variant="icons"
+            leadingAction="avatars"
+            onNavigate={onClose}
+            currentPath={location.pathname}
+          />
 
-          {/* The code stays reachable while the sidebar is collapsed: `mt-auto`
-              seats it at the foot of the rail, which is the one part of the
-              edge nothing else occupies. It used to float over the page here,
-              where on a narrow window it covered the composer's send button. */}
-          <button
-            onClick={(clickEvent) => {
-              clickEvent.stopPropagation();
-              openWelcomePage();
-            }}
-            className="mt-auto shrink-0 p-0! border-0! rounded-md! opacity-70 hover:opacity-100 hover:ring-2 hover:ring-white/40 transition-[opacity,box-shadow] duration-300 focus:outline-none focus:ring-2 focus:ring-amber-400/50 focus:opacity-100"
+          <div className="mt-auto shrink-0 w-full flex flex-col items-center gap-1">
+            <SharePreviewSlot
+              name="rail"
+              isolateClicks
+              className="w-full px-1 empty:hidden"
+            />
+            {/* The code stays reachable while the sidebar is collapsed. Sized
+                as an icon so it still fits beside the voice portrait. */}
+            <button
+              onClick={(clickEvent) => {
+                clickEvent.stopPropagation();
+                openWelcomePage();
+              }}
+              className="shrink-0 p-0! border-0! rounded-md! opacity-70 hover:opacity-100 hover:ring-2 hover:ring-white/40 transition-[opacity,box-shadow] duration-300 focus:outline-none focus:ring-2 focus:ring-amber-400/50 focus:opacity-100"
             aria-label="Neural Nexus — scan or open the welcome page"
             title="Scan to share Neural Nexus, or press to open the welcome page"
           >
-            <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-md bg-white p-1">
+            <span
+              data-sidebar-qr
+              className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-white p-0.5"
+            >
               <img
                 src={qrCode}
                 alt="QR code linking to Neural Nexus"
-                width={36}
-                height={36}
-                className="block h-9 w-9 max-w-none shrink-0"
+                width={28}
+                height={28}
+                className="block h-7 w-7 max-w-none shrink-0"
               />
             </span>
           </button>
+          </div>
         </div>
       )}
 
@@ -377,7 +404,7 @@ const ConversationSidebar = ({
         className={`
           fixed top-0 left-0
           w-80 sm:w-96 lg:w-80
-          h-full
+          h-dvh
           z-50
           bg-black/60 backdrop-blur-lg
           border-r border-white/10 lg:rounded-2xl lg:border
@@ -386,10 +413,10 @@ const ConversationSidebar = ({
           shadow-lg
         `}
       >
-        <div className="flex flex-col h-full p-4 gap-4">
+        <div className="flex flex-col h-full min-h-0 p-4 gap-4">
           {/* Who is signed in. The portrait is the personal avatar's, the same
               face that appears beside this person's messages. */}
-          <div className="flex justify-between items-center gap-2">
+          <div className="shrink-0 flex justify-between items-center gap-2">
             <button
               type="button"
               onClick={openPersonalAvatarSettings}
@@ -421,6 +448,11 @@ const ConversationSidebar = ({
             </button>
           </div>
 
+          {/* One column below the header, same as the guest sidebar. Sharing
+              tiles, the conversation list, and the QR code all have to live
+              in this scroller: a phone is too short to pin the tiles and the
+              code and still have a list that can move. */}
+          <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain -mx-1 px-1 flex flex-col gap-4">
           <div className="space-y-1 border-b border-white/10 pb-4">
             <AccountMenu
               leadingAction="avatars"
@@ -428,6 +460,13 @@ const ConversationSidebar = ({
               currentPath={location.pathname}
             />
           </div>
+
+          {showShareControls && (
+            <div className="space-y-2">
+              <SidebarShareControls variant="rows" />
+              <SharePreviewSlot name="panel" className="empty:hidden" />
+            </div>
+          )}
 
           {showConversations && (
             <>
@@ -455,7 +494,7 @@ const ConversationSidebar = ({
                 </ul>
               )}
 
-              <div className="flex-grow min-h-0 overflow-y-auto -mx-1 px-1">
+              <div className="shrink-0 -mx-1 px-1">
                 {pinnedConversations.length > 0 && (
                   <section className="mb-4">
                     <h2 className="text-sm font-semibold text-white/60 uppercase tracking-wide px-2 mb-2">
@@ -527,6 +566,7 @@ const ConversationSidebar = ({
             <span className="text-xs text-white/40">
               Scan to share Neural Nexus
             </span>
+          </div>
           </div>
         </div>
       </div>

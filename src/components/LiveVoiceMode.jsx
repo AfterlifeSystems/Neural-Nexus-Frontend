@@ -4,24 +4,31 @@
 // medium: every spoken turn lands in the same thread and is readable afterwards
 // in the transcript.
 //
-// The stage is the avatar: its emotion still or idle loop fills the screen, and
-// when video is enabled a lip-synced clip of the reply plays between the loops.
+// The stage is the avatar: its emotion still or idle loop fills the content
+// well beside the application sidebar, and when video is enabled a lip-synced
+// clip of the reply plays between the loops.
 // Along the bottom sits the composer pill from the reference design — type, or
 // attach; live audio (turn-based, with voice activity detection and barge-in)
 // or one-shot dictation; mute the avatar; mute the mic; enable video; show or
-// hide the captions; and Stop.
+// hide the captions; and leave for the message view.
 
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
 import { createPortal } from 'react-dom';
 import {
   AudioLines,
-  Camera,
-  CameraOff,
   Captions,
+  Eye,
+  EyeOff,
   Loader2,
   Mic,
   MicOff,
-  MonitorUp,
   Paperclip,
   Send,
   User,
@@ -30,17 +37,27 @@ import {
   Volume2,
   VolumeX,
 } from 'lucide-react';
-import { showVoiceNotReadyToast } from './showVoiceNotReadyToast';
 import { toast } from 'react-hot-toast';
 import { useLocation } from 'react-router-dom';
 
 import { useMedia } from '../context/MediaContext';
 import { useMediaShare } from '../context/MediaShareContext';
+import { describeAmbientStatus } from '../services/ambientCaptureScheduler';
 import { useAuth } from '../context/AuthContext';
-import { isSharedAvatarChatPath, isValidImageUrl } from './utils';
+import {
+  canShareAvatar,
+  isAvatarOwnedByUser,
+  isSharedAvatarChatPath,
+  isValidImageUrl,
+} from './utils';
+import AvatarWorkspaceHeader from './AvatarWorkspaceHeader';
+import useInboxCount from '../hooks/useInboxCount';
 import LoopingVideo from './ui/LoopingVideo';
-import useEmotionMedia, { idleLoopFor, stillFor } from '../hooks/useEmotionMedia';
-import useSpeech from '../hooks/useSpeech';
+import useEmotionMedia, { preloadEmotionMedia } from '../hooks/useEmotionMedia';
+import { voiceStageEmotion } from '../hooks/voiceStageEmotion';
+import useMessageActions from '../hooks/useMessageActions';
+import MessageActionBar from './media/MessageActionBar';
+import ConversationSuggestions from './ConversationSuggestions';
 import { canCaptureMicrophone, recordOneTurn } from '../services/voiceSession';
 import { startVoiceActivityListening } from '../services/voiceActivity';
 import {
@@ -48,6 +65,7 @@ import {
   transcribeRecording,
 } from '../services/avatarService';
 import { showRequestFailureToast } from './requestFailureToast';
+import { isConversationSuggestionList } from '../services/conversationSuggestions';
 
 const PREFERENCES_KEY = 'voice_mode_preferences';
 
@@ -68,29 +86,90 @@ const writePreferences = (preferences) => {
 };
 
 const CONTROL_CLASSES =
-  'p-2 rounded-full text-white/70 hover:text-neutral-100 hover:bg-white/10 transition-colors focus:outline-none focus:ring-2 focus:ring-amber-400/50 disabled:opacity-40 disabled:hover:bg-transparent';
+  'rounded-full text-white/70 hover:text-neutral-100 hover:bg-white/10 transition-colors focus:outline-none focus:ring-2 focus:ring-amber-400/50 disabled:opacity-40 disabled:hover:bg-transparent shrink-0';
 const ACTIVE_CONTROL_CLASSES = 'bg-white/15 text-neutral-100';
+const CLOSE_BUTTON_CLASSES =
+  'voice-action shrink-0 rounded-full bg-neutral-200 hover:bg-neutral-100 text-neutral-900 inline-flex items-center justify-center gap-1 transition-colors';
+const SEND_BUTTON_CLASSES =
+  'voice-action shrink-0 rounded-full bg-neutral-200 hover:bg-neutral-100 text-neutral-900 inline-flex items-center gap-1 transition-colors';
 
-const LiveVoiceMode = ({ assistantId, avatarName, avatarPortrait, onClose }) => {
-  const { messages, sendSpokenTurn, handleFileChange } = useMedia();
+// Inverse of the composer’s AudioLines “talk out loud” control: same
+// waveform, struck through, so leaving voice mode is the obvious pair.
+const AudioLinesOffIcon = ({ className }) => (
+  <svg
+    xmlns="http://www.w3.org/2000/svg"
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="2"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+    className={className}
+    aria-hidden="true"
+  >
+    <path d="M2 10v3" />
+    <path d="M6 6v11" />
+    <path d="M10 3v18" />
+    <path d="M14 8v7" />
+    <path d="M18 5v13" />
+    <path d="M22 10v3" />
+    <path d="M2 2l20 20" />
+  </svg>
+);
+
+const isHumanMessage = (message) => {
+  const type = message?.type || message?.sender;
+  return type === 'human' || type === 'user';
+};
+
+const isAvatarMessage = (message) => {
+  const type = message?.type || message?.sender;
+  return type === 'ai' || type === 'assistant' || type === 'avatar';
+};
+
+const LiveVoiceMode = ({
+  assistantId,
+  avatarName,
+  avatarPortrait,
+  onClose,
+  onNavigateTab,
+}) => {
+  const { messages, sendSpokenTurn, handleFileChange, setAmbientHold } =
+    useMedia();
   const {
+    ambientAllowed,
+    ambientEnabled,
+    setAmbientEnabled,
+    ambientStatus,
+    ambientNextInMs,
     webcamStream,
     screenStream,
-    webcamVideoRef,
-    screenVideoRef,
-    toggleWebcam,
-    toggleScreenShare,
+    setAmbientVoiceMode,
+    registerAmbientReplyHandler,
   } = useMediaShare();
-  const { user } = useAuth();
+  const { user, activeAvatar } = useAuth();
   const location = useLocation();
   const readerIsAnonymous = isSharedAvatarChatPath(location.pathname);
+  const inboxCount = useInboxCount();
+  const canOpenAvatarSettings =
+    isAvatarOwnedByUser(activeAvatar, user) ||
+    canShareAvatar(activeAvatar, user);
+  const isPersonalAvatar = Boolean(
+    activeAvatar?.metadata?.is_personal_avatar_of_creator
+  );
+  const showWorkspaceTabs =
+    typeof onNavigateTab === 'function' && !readerIsAnonymous;
 
   const preferences = useMemo(readPreferences, []);
-  const [isAvatarMuted, setIsAvatarMuted] = useState(Boolean(preferences.avatarMuted));
+  const [isAvatarMuted, setIsAvatarMuted] = useState(
+    Boolean(preferences.avatarMuted)
+  );
   const [isMicMuted, setIsMicMuted] = useState(Boolean(preferences.micMuted));
-  const [isVideoEnabled, setIsVideoEnabled] = useState(Boolean(preferences.videoEnabled));
+  const [isVideoEnabled, setIsVideoEnabled] = useState(
+    Boolean(preferences.videoEnabled)
+  );
   const [showCaptions, setShowCaptions] = useState(
-    preferences.showCaptions ?? window.matchMedia('(min-width: 768px)').matches
+    preferences.showCaptions ?? true
   );
   useEffect(() => {
     writePreferences({
@@ -116,22 +195,97 @@ const LiveVoiceMode = ({ assistantId, avatarName, avatarPortrait, onClose }) => 
   const fileInputRef = useRef(null);
   const turnInFlightRef = useRef(false);
   const transcriptEndRef = useRef(null);
+  const composerDockRef = useRef(null);
+  const [composerDockHeight, setComposerDockHeight] = useState(120);
 
   const { manifest } = useEmotionMedia(assistantId, {
     asAnonymousIdentity: readerIsAnonymous,
   });
-  const speech = useSpeech({ asAnonymousIdentity: readerIsAnonymous });
+  const [holdNewCaptions, setHoldNewCaptions] = useState(false);
+  const [captionGeneration, setCaptionGeneration] = useState(0);
+  const holdNewCaptionsRef = useRef(false);
+  const revealedCaptionIdsRef = useRef(new Set());
+  const stagePresentedWaiterRef = useRef(null);
+  const stageStillRef = useRef(null);
+  const stageLoopRef = useRef(null);
+  const messagesRef = useRef(messages);
+  messagesRef.current = messages;
+  const {
+    speech,
+    pendingSendCount,
+    loadingSpeechKey,
+    copiedKey,
+    editingKey,
+    setEditingKey,
+    editDraft,
+    setEditDraft,
+    feedbackKey,
+    setFeedbackKey,
+    feedbackDraft,
+    setFeedbackDraft,
+    toggleSpeech,
+    copyMessage,
+    resendFromUserMessage,
+    regenerateAvatarReply,
+    submitMessageFeedback,
+  } = useMessageActions({
+    assistantId,
+    avatarName,
+    asAnonymousIdentity: readerIsAnonymous,
+  });
 
-  const spokenExchange = messages.filter((message) =>
-    ['human', 'ai'].includes(message.type)
-  );
+  const spokenExchange = messages.filter((message) => {
+    if (
+      isAvatarMessage(message) &&
+      isConversationSuggestionList(message.content)
+    ) {
+      return false;
+    }
+    return isHumanMessage(message) || isAvatarMessage(message);
+  });
   const lastAvatarMessage = [...spokenExchange]
     .reverse()
-    .find((message) => message.type === 'ai');
+    .find((message) => isAvatarMessage(message));
+  const visibleExchange = spokenExchange.filter((message) => {
+    if (!isAvatarMessage(message)) return true;
+    if (message.isLoading || message.isPending) return false;
+    return Boolean(message.id) && revealedCaptionIdsRef.current.has(message.id);
+  });
 
   useEffect(() => {
-    transcriptEndRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' });
-  }, [spokenExchange.length, showCaptions]);
+    transcriptEndRef.current?.scrollIntoView({
+      behavior: 'smooth',
+      block: 'end',
+    });
+  }, [visibleExchange.length, showCaptions]);
+
+  useEffect(() => {
+    preloadEmotionMedia(manifest);
+  }, [manifest]);
+
+  useEffect(() => {
+    if (holdNewCaptions) return;
+    let added = false;
+    for (const message of spokenExchange) {
+      if (!isAvatarMessage(message) || !message.id) continue;
+      if (revealedCaptionIdsRef.current.has(message.id)) continue;
+      revealedCaptionIdsRef.current.add(message.id);
+      added = true;
+    }
+    if (added) setCaptionGeneration((generation) => generation + 1);
+  }, [spokenExchange, holdNewCaptions, captionGeneration]);
+
+  useLayoutEffect(() => {
+    const dock = composerDockRef.current;
+    if (!dock || typeof ResizeObserver === 'undefined') return undefined;
+    const update = () => {
+      setComposerDockHeight(dock.getBoundingClientRect().height);
+    };
+    update();
+    const observer = new ResizeObserver(update);
+    observer.observe(dock);
+    return () => observer.disconnect();
+  }, []);
 
   // Leaving the screen stops everything: speech, listening, dictation.
   useEffect(
@@ -139,40 +293,106 @@ const LiveVoiceMode = ({ assistantId, avatarName, avatarPortrait, onClose }) => 
       speech.stop();
       listenerRef.current?.stop();
       dictationRef.current?.cancel();
+      stagePresentedWaiterRef.current?.();
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps
     []
   );
 
-  // Voice mode is a transparent stage over Vanta. Hide the chat chrome and
-  // sidebar so the waveform button and glass panels do not show through.
+  // Voice mode is a transparent stage over Vanta. The sidebar stays up as a
+  // compact icon rail (`html.voice-stage-open` narrows `--app-rail-width`).
   useEffect(() => {
     document.documentElement.classList.add('voice-stage-open');
     return () => document.documentElement.classList.remove('voice-stage-open');
   }, []);
 
+  // Emotion clips without their own idle stay on a still, then return to
+  // the cyclic neutral loop. An emotion that has a loop keeps ping-ponging
+  // the same way the carousel does — these files are not cyclic.
   useEffect(() => {
-    if (speech.notReady) {
-      showVoiceNotReadyToast({
-        assistantId,
-        avatarName,
-        collectedSeconds: speech.notReady.collectedSeconds,
-      });
-    }
-  }, [speech.notReady, avatarName, assistantId]);
+    if (currentEmotion === 'neutral') return;
+    if (speech.isSpeaking || lipSyncClipUrl || isRenderingClip) return;
+    if (manifest?.emotions?.[currentEmotion]?.idleLoop) return;
+    setCurrentEmotion('neutral');
+  }, [
+    currentEmotion,
+    speech.isSpeaking,
+    lipSyncClipUrl,
+    isRenderingClip,
+    manifest,
+  ]);
 
   // --- the stage --------------------------------------------------------------
-  const stageStill = stillFor(manifest, currentEmotion) ?? avatarPortrait;
-  const stageLoop = idleLoopFor(manifest, currentEmotion);
+  // The still and loop of one emotion, never a still of one mixed with the
+  // loop of another — that painted two faces.
+  const emotionAssets = manifest?.emotions?.[currentEmotion];
+  const stageStill =
+    emotionAssets?.still ??
+    (currentEmotion === 'neutral' ? avatarPortrait : null);
+  const stageLoop = emotionAssets?.idleLoop ?? null;
+  stageStillRef.current = stageStill;
+  stageLoopRef.current = stageLoop;
+  // Only freeze on a still when this emotion has no loop of its own.
+  // Replacing a playing loop with a still was why voice mode never reversed.
+  const holdEmotionStill =
+    currentEmotion !== 'neutral' &&
+    !stageLoop &&
+    (speech.isSpeaking || Boolean(lipSyncClipUrl) || isRenderingClip);
+
+  const waitForStagePresented = useCallback((timeoutMs = 4000) => {
+    return new Promise((resolve) => {
+      let settled = false;
+      const finish = () => {
+        if (settled) return;
+        settled = true;
+        if (stagePresentedWaiterRef.current === finish) {
+          stagePresentedWaiterRef.current = null;
+        }
+        resolve();
+      };
+      stagePresentedWaiterRef.current = finish;
+      window.setTimeout(finish, timeoutMs);
+    });
+  }, []);
+
+  const revealHeldCaptions = useCallback(() => {
+    holdNewCaptionsRef.current = false;
+    for (const message of messagesRef.current) {
+      if (isAvatarMessage(message) && message.id) {
+        revealedCaptionIdsRef.current.add(message.id);
+      }
+    }
+    setHoldNewCaptions(false);
+    setCaptionGeneration((generation) => generation + 1);
+  }, []);
+
+  const handleStagePresented = useCallback(() => {
+    stagePresentedWaiterRef.current?.();
+    if (holdNewCaptionsRef.current) {
+      revealHeldCaptions();
+    }
+  }, [revealHeldCaptions]);
 
   const handleReply = useCallback(
     async (reply, sentiment) => {
-      const emotion = sentiment?.base_emotion ?? 'neutral';
+      const emotion = voiceStageEmotion(sentiment);
+      const nextAssets = manifest?.emotions?.[emotion];
+      const nextStill =
+        nextAssets?.still ?? (emotion === 'neutral' ? avatarPortrait : null);
+      const nextLoop = nextAssets?.idleLoop ?? null;
+      const mediaChanged =
+        nextStill !== stageStillRef.current ||
+        nextLoop !== stageLoopRef.current;
       setCurrentEmotion(emotion);
       setLipSyncClipUrl(null);
+      if (mediaChanged && (nextStill || nextLoop)) {
+        await waitForStagePresented();
+      }
+      revealHeldCaptions();
       if (!reply?.trim() || isAvatarMuted) return;
 
-      const wantsVideo = isVideoEnabled && Boolean(stillFor(manifest, emotion));
+      const wantsVideo =
+        isVideoEnabled && Boolean(manifest?.emotions?.[emotion]?.still);
       if (wantsVideo) {
         // The clip renders in the background while the emotion loop and the
         // spoken audio play; when it is ready it takes over the stage.
@@ -205,7 +425,18 @@ const LiveVoiceMode = ({ assistantId, avatarName, avatarPortrait, onClose }) => 
         },
       });
     },
-    [assistantId, isAvatarMuted, isMicMuted, isVideoEnabled, manifest, readerIsAnonymous, speech]
+    [
+      assistantId,
+      avatarPortrait,
+      isAvatarMuted,
+      isMicMuted,
+      isVideoEnabled,
+      manifest,
+      readerIsAnonymous,
+      revealHeldCaptions,
+      speech,
+      waitForStagePresented,
+    ]
   );
 
   const submitTurn = useCallback(
@@ -213,17 +444,62 @@ const LiveVoiceMode = ({ assistantId, avatarName, avatarPortrait, onClose }) => 
       const words = text?.trim();
       if (!words || turnInFlightRef.current) return;
       turnInFlightRef.current = true;
+      holdNewCaptionsRef.current = true;
+      setHoldNewCaptions(true);
       setIsWaitingForReply(true);
       try {
         const { reply, sentiment } = await sendSpokenTurn(words);
         await handleReply(reply, sentiment);
       } finally {
+        holdNewCaptionsRef.current = false;
+        setHoldNewCaptions(false);
         turnInFlightRef.current = false;
         setIsWaitingForReply(false);
       }
     },
     [handleReply, sendSpokenTurn]
   );
+
+  // Ambient vision inside voice mode. A reply the avatar volunteers after a
+  // look at the webcam or the screen is spoken like any other reply, and no
+  // snapshot is sent while either side is talking: the hold is raised while
+  // the person speaks or dictates, while speech is being understood, while a
+  // reply is awaited, and while the avatar speaks.
+  useEffect(() => {
+    setAmbientVoiceMode(true);
+    const unregister = registerAmbientReplyHandler(async (reply, sentiment) => {
+      if (turnInFlightRef.current) return;
+      turnInFlightRef.current = true;
+      try {
+        await handleReply(reply, sentiment);
+      } finally {
+        turnInFlightRef.current = false;
+      }
+    });
+    return () => {
+      unregister();
+      setAmbientVoiceMode(false);
+    };
+  }, [handleReply, registerAmbientReplyHandler, setAmbientVoiceMode]);
+
+  useEffect(() => {
+    setAmbientHold(
+      isHearingSpeech ||
+        isDictating ||
+        isTranscribing ||
+        isWaitingForReply ||
+        speech.isSpeaking
+    );
+  }, [
+    isHearingSpeech,
+    isDictating,
+    isTranscribing,
+    isWaitingForReply,
+    speech.isSpeaking,
+    setAmbientHold,
+  ]);
+
+  useEffect(() => () => setAmbientHold(false), [setAmbientHold]);
 
   const transcribe = useCallback(
     async (file) => {
@@ -256,7 +532,9 @@ const LiveVoiceMode = ({ assistantId, avatarName, avatarPortrait, onClose }) => 
 
   const startLiveListening = useCallback(async () => {
     if (!canCaptureMicrophone()) {
-      toast.error('This browser cannot record audio here (a secure connection is required).');
+      toast.error(
+        'This browser cannot record audio here (a secure connection is required).'
+      );
       return;
     }
     try {
@@ -298,7 +576,9 @@ const LiveVoiceMode = ({ assistantId, avatarName, avatarPortrait, onClose }) => 
   // --- dictation (one utterance into the text box) ---------------------------------
   const startDictation = async () => {
     if (!canCaptureMicrophone()) {
-      toast.error('This browser cannot record audio here (a secure connection is required).');
+      toast.error(
+        'This browser cannot record audio here (a secure connection is required).'
+      );
       return;
     }
     try {
@@ -316,15 +596,15 @@ const LiveVoiceMode = ({ assistantId, avatarName, avatarPortrait, onClose }) => 
     setIsDictating(false);
     const file = await recording.stop();
     const words = await transcribe(file);
-    if (words) setDraft((previous) => (previous ? `${previous} ${words}` : words));
+    if (words)
+      setDraft((previous) => (previous ? `${previous} ${words}` : words));
   };
 
-  const handleStop = () => {
-    if (speech.isSpeaking || isWaitingForReply || isTranscribing) {
-      speech.stop();
-      setLipSyncClipUrl(null);
-      return;
-    }
+  const leaveVoiceMode = () => {
+    speech.stop();
+    setLipSyncClipUrl(null);
+    stopLiveListening();
+    dictationRef.current?.cancel?.();
     onClose?.();
   };
 
@@ -333,129 +613,275 @@ const LiveVoiceMode = ({ assistantId, avatarName, avatarPortrait, onClose }) => 
     if (isTranscribing) return 'Understanding…';
     if (isWaitingForReply) return `${avatarName ?? 'The avatar'} is thinking…`;
     if (speech.isSpeaking) return `${avatarName ?? 'The avatar'} is speaking…`;
-    if (isLiveListening) return isMicMuted ? 'Mic muted' : 'Live — say something';
+    if (ambientEnabled && ambientStatus?.inFlight) {
+      return `${avatarName ?? 'The avatar'} is looking…`;
+    }
+    if (isLiveListening)
+      return isMicMuted ? 'Mic muted' : 'Live — say something';
+    if (ambientEnabled)
+      return describeAmbientStatus(ambientStatus, ambientNextInMs);
     return '';
   };
 
   const isAvatarSpeaking = speech.isSpeaking || Boolean(lipSyncClipUrl);
+  const headerFace =
+    (currentEmotion && currentEmotion !== 'neutral' ? stageStill : null) ??
+    avatarPortrait;
+
+  const leaveLabel = 'Switch to messages';
+
+  const renderLeaveVoiceButton = () => (
+    <button
+      type="button"
+      onClick={leaveVoiceMode}
+      title={leaveLabel}
+      aria-label={leaveLabel}
+      className={`${CLOSE_BUTTON_CLASSES} shrink-0`}
+    >
+      <AudioLinesOffIcon />
+    </button>
+  );
+
+  const statusLine = [describeState(), isRenderingClip ? 'rendering video' : '']
+    .filter(Boolean)
+    .join(' · ');
 
   return createPortal(
-    <div className="fixed inset-0 z-[70] bg-transparent flex flex-col">
-      {/* The stage: the avatar's emotion loop, a lip-sync clip when one is
-          ready, or the portrait. Behind everything. */}
-      <div className="absolute inset-0 flex items-center justify-center">
-        <div className="w-[min(92vmin,56rem)] aspect-square mx-auto">
+    // `--app-rail-width` is the collapsed icon rail; `z-30` sits above the
+    // page (z-10) and under the sidebar (rail 40, panel 50).
+    <div className="voice-stage fixed top-0 right-0 bottom-0 left-[var(--app-rail-width)] z-30 bg-transparent overflow-hidden">
+      {/* Portrait fills the stage and does not reflow when chrome toggles. */}
+      <div className="absolute inset-0 flex items-center justify-center pointer-events-none overflow-hidden">
+        <div className="w-[min(100vw,100dvh)] h-[min(100vw,100dvh)] max-w-full max-h-full">
           <div
             className={`w-full h-full rounded-2xl overflow-hidden bg-transparent ${
               isAvatarSpeaking ? 'voice-speak-glow' : ''
             }`}
           >
-            {lipSyncClipUrl ? (
+            {lipSyncClipUrl ||
+            stageLoop ||
+            (stageStill && isValidImageUrl(stageStill)) ? (
               <LoopingVideo
-                src={lipSyncClipUrl}
+                src={
+                  lipSyncClipUrl ?? (holdEmotionStill ? undefined : stageLoop)
+                }
                 poster={stageStill}
                 alt={avatarName ?? 'Avatar'}
-                loop={false}
-                onEnded={() => setLipSyncClipUrl(null)}
-                mediaClassName="w-full h-full object-contain"
-                className="w-full h-full bg-transparent"
-              />
-            ) : stageLoop || (stageStill && isValidImageUrl(stageStill)) ? (
-              <LoopingVideo
-                src={stageLoop}
-                poster={stageStill}
-                alt={avatarName ?? 'Avatar'}
-                pingPong="auto"
+                loop={!lipSyncClipUrl}
+                pingPong={lipSyncClipUrl ? false : 'auto'}
+                onEnded={() => {
+                  if (lipSyncClipUrl) {
+                    setLipSyncClipUrl(null);
+                  }
+                }}
+                onPresented={handleStagePresented}
                 mediaClassName="w-full h-full object-contain"
                 className="w-full h-full bg-transparent"
               />
             ) : (
               <div className="w-full h-full flex items-center justify-center">
-                <User className="w-32 h-32 text-white/20" />
+                <User className="w-[40%] h-[40%] max-w-64 max-h-64 text-white/20" />
               </div>
             )}
           </div>
         </div>
-        {(webcamStream || screenStream) && (
-          <div className="absolute bottom-28 right-4 z-20 flex flex-col gap-2">
-            {screenStream && (
-              <video
-                ref={screenVideoRef}
-                autoPlay
-                muted
-                playsInline
-                className="w-40 sm:w-56 rounded-lg border border-white/20 bg-black"
-              />
-            )}
-            {webcamStream && (
-              <video
-                ref={webcamVideoRef}
-                autoPlay
-                muted
-                playsInline
-                className="w-28 sm:w-36 rounded-lg border border-white/20 bg-black"
-              />
-            )}
+      </div>
+
+      {/* Same workspace tabs as chat / inbox / settings, so those places stay
+          reachable while talking. A shared-link visitor has none of those. */}
+      <div className="absolute top-0 left-0 right-0 z-20 bg-black/45 backdrop-blur-md">
+        {showWorkspaceTabs ? (
+          <>
+            <AvatarWorkspaceHeader
+              className="px-3 pt-[max(0.5rem,env(safe-area-inset-top))]"
+              avatarName={avatarName}
+              headerFace={headerFace}
+              activeTab="chat"
+              isPersonalAvatar={isPersonalAvatar}
+              canOpenAvatarSettings={canOpenAvatarSettings}
+              inboxCount={inboxCount}
+              onTabChange={onNavigateTab}
+            />
+            {statusLine ? (
+              <p className="px-3 pb-1.5 text-white/50 text-xs truncate sm:text-center">
+                {statusLine}
+              </p>
+            ) : null}
+          </>
+        ) : (
+          <div className="flex items-center justify-between gap-2 px-3 pt-[max(0.5rem,env(safe-area-inset-top))] pb-2">
+            <div className="flex items-center gap-2 min-w-0">
+              <div className="w-7 h-7 shrink-0 rounded-full overflow-hidden bg-black/50 border border-white/10 flex items-center justify-center">
+                {avatarPortrait && isValidImageUrl(avatarPortrait) ? (
+                  <img
+                    src={avatarPortrait}
+                    alt=""
+                    className="w-full h-full object-cover"
+                  />
+                ) : (
+                  <User className="w-4 h-4 text-white/40" />
+                )}
+              </div>
+              <div className="min-w-0">
+                <p className="text-neutral-200 font-semibold leading-tight truncate">
+                  {avatarName ?? 'Your avatar'}
+                </p>
+                <p className="text-white/50 text-xs h-4 truncate">
+                  {statusLine}
+                </p>
+              </div>
+            </div>
           </div>
         )}
       </div>
 
-      {/* Header */}
-      <div className="relative z-10 flex items-center justify-between p-4">
-        <div className="flex items-center gap-3">
-          <div className="w-9 h-9 rounded-full overflow-hidden bg-black/50 border border-white/10 flex items-center justify-center">
-            {avatarPortrait && isValidImageUrl(avatarPortrait) ? (
-              <img src={avatarPortrait} alt="" className="w-full h-full object-cover" />
-            ) : (
-              <User className="w-4 h-4 text-white/40" />
-            )}
-          </div>
-          <div>
-            <p className="text-neutral-200 font-semibold leading-tight">
-              {avatarName ?? 'Your avatar'}
-            </p>
-            <p className="text-white/50 text-xs h-4">
-              {describeState()}
-              {isRenderingClip ? ' · rendering video' : ''}
-            </p>
-          </div>
-        </div>
-        <span className="text-white/40 text-xs">
-          {currentEmotion !== 'neutral' ? currentEmotion : ''}
-        </span>
-      </div>
-
-      {/* Transcript overlay */}
-      <div className="relative z-10 flex-grow overflow-y-auto px-4 sm:px-10">
-        {showCaptions && (
-          <div className="mx-auto max-w-3xl flex flex-col gap-3 pb-4">
-            {spokenExchange.map((message) => {
-              const isHuman = message.type === 'human';
-              const isCurrent =
-                !isHuman && message.id === lastAvatarMessage?.id && speech.isSpeaking;
+      {/* Captions overlay the lower stage. The message bar is a separate
+          dock on the bottom edge so toggling captions never lifts it. */}
+      {showCaptions && (
+        <div
+          className="absolute left-0 right-0 z-20 pointer-events-auto max-h-[min(28vh,16rem)] overflow-y-auto px-3 sm:px-6 pb-2"
+          style={{ bottom: composerDockHeight }}
+        >
+          <div className="mx-auto max-w-3xl flex flex-col gap-3 py-2">
+            {visibleExchange.map((message) => {
+              const messageKey =
+                message.id || `temp-${message.timestamp || Date.now()}`;
+              const isHuman = isHumanMessage(message);
+              const isFromAvatar = isAvatarMessage(message);
+              const isLoading = message.isLoading || message.isPending;
+              const isCurrentReply =
+                isFromAvatar && message.id === lastAvatarMessage?.id;
+              const isSpeakingThis =
+                speech.speakingKey === messageKey ||
+                (isCurrentReply && speech.speakingKey === 'live-reply');
               return (
                 <div
-                  key={message.id ?? message.timestamp}
-                  className={`max-w-[85%] ${
+                  key={messageKey}
+                  className={`max-w-[min(100%,28rem)] sm:max-w-[85%] px-4 py-2 rounded-2xl text-[15px] leading-relaxed ${
                     isHuman
-                      ? 'self-end px-4 py-2 rounded-2xl bg-neutral-800/80 text-neutral-200'
-                      : `self-start text-neutral-100 text-[15px] leading-relaxed drop-shadow ${
-                          isCurrent ? 'text-amber-100' : ''
+                      ? 'self-end bg-neutral-800/80 text-neutral-200'
+                      : `self-start bg-black/55 backdrop-blur-md border border-white/15 text-neutral-100 ${
+                          isSpeakingThis
+                            ? 'ring-1 ring-amber-400/70 border-amber-400/30'
+                            : ''
                         }`
                   }`}
                 >
-                  {message.content || '…'}
+                  {isLoading ? (
+                    '…'
+                  ) : isHuman && editingKey === messageKey ? (
+                    <div className="space-y-2 caption-actions">
+                      <textarea
+                        value={editDraft}
+                        onChange={(event) => setEditDraft(event.target.value)}
+                        rows={3}
+                        className="w-full px-2 py-1.5 bg-black/50 border border-white/10 rounded-md text-neutral-200 text-sm focus:outline-none focus:ring-2 focus:ring-amber-400/50"
+                      />
+                      <div className="flex items-center gap-2">
+                        <button
+                          type="button"
+                          disabled={pendingSendCount > 0 || !editDraft.trim()}
+                          onClick={() => {
+                            resendFromUserMessage?.(messageKey, editDraft);
+                            setEditingKey(null);
+                          }}
+                          className="voice-text-btn px-2 py-1 rounded-md bg-amber-400/15 text-amber-300 text-xs border border-amber-400/30"
+                        >
+                          Accept
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setEditingKey(null)}
+                          className="voice-text-btn px-2 py-1 rounded-md bg-white/5 text-white/70 text-xs border border-white/10"
+                        >
+                          Cancel
+                        </button>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="whitespace-pre-wrap">
+                      {message.content || '…'}
+                    </div>
+                  )}
+                  {!isLoading && (
+                    <MessageActionBar
+                      message={message}
+                      messageKey={messageKey}
+                      isFromAvatar={isFromAvatar}
+                      isFromUser={isHuman}
+                      overlay={false}
+                      isSpeaking={isSpeakingThis}
+                      isSpeechLoading={loadingSpeechKey === messageKey}
+                      copiedKey={copiedKey}
+                      feedbackKey={feedbackKey}
+                      feedbackDraft={feedbackDraft}
+                      editingKey={editingKey}
+                      pendingSendCount={pendingSendCount}
+                      onCopy={copyMessage}
+                      onToggleSpeech={() => {
+                        listenerRef.current?.pause?.();
+                        if (!isCurrentReply) setLipSyncClipUrl(null);
+                        toggleSpeech(messageKey, message.content, {
+                          alsoStopKeys: isCurrentReply ? ['live-reply'] : [],
+                        }).then(() => {
+                          if (!isMicMuted) listenerRef.current?.resume?.();
+                        });
+                      }}
+                      onRegenerate={(key) => regenerateAvatarReply?.(key)}
+                      onLike={() =>
+                        submitMessageFeedback?.(messageKey, {
+                          type: 'like',
+                          comment: message.feedback?.comment,
+                        })
+                      }
+                      onDislike={() =>
+                        submitMessageFeedback?.(messageKey, {
+                          type: 'dislike',
+                          comment: message.feedback?.comment,
+                        })
+                      }
+                      onToggleFeedback={() => {
+                        setFeedbackKey((current) =>
+                          current === messageKey ? null : messageKey
+                        );
+                        setFeedbackDraft(message.feedback?.comment ?? '');
+                      }}
+                      onFeedbackDraftChange={setFeedbackDraft}
+                      onSubmitFeedback={() => {
+                        submitMessageFeedback?.(messageKey, {
+                          type: message.feedback.type,
+                          comment: feedbackDraft.trim(),
+                        });
+                        setFeedbackKey(null);
+                      }}
+                      onStartEdit={() => {
+                        setEditingKey(messageKey);
+                        setEditDraft(message.content);
+                      }}
+                      onRetry={(key) => resendFromUserMessage?.(key)}
+                    />
+                  )}
                 </div>
               );
             })}
             <div ref={transcriptEndRef} />
           </div>
-        )}
-      </div>
+        </div>
+      )}
 
-      {/* Composer pill */}
-      <div className="relative z-10 p-3 sm:p-5">
-        <div className="mx-auto max-w-3xl bg-black/60 backdrop-blur-lg rounded-2xl border border-white/10 p-3">
+      {/* Message bar: always the bottom of the viewport. */}
+      <div
+        ref={composerDockRef}
+        className="absolute bottom-0 left-0 right-0 z-30 pointer-events-auto px-2 pt-1 pb-[max(0.5rem,env(safe-area-inset-bottom))] sm:px-5 sm:pt-3 sm:pb-5"
+      >
+        <div className="mx-auto max-w-3xl bg-black/60 backdrop-blur-lg rounded-xl border border-white/10 p-2 sm:p-3 overflow-visible">
+          <ConversationSuggestions
+            overlay
+            onSend={(suggestion) => {
+              setDraft('');
+              submitTurn(suggestion);
+            }}
+          />
           <form
             onSubmit={(event) => {
               event.preventDefault();
@@ -469,145 +895,184 @@ const LiveVoiceMode = ({ assistantId, avatarName, avatarPortrait, onClose }) => 
               value={draft}
               onChange={(event) => setDraft(event.target.value)}
               placeholder={`Message ${avatarName ?? 'the avatar'}…`}
-              className="w-full bg-transparent px-2 py-2 text-neutral-200 placeholder-white/40 focus:outline-none"
+              className="w-full bg-transparent px-2 py-1.5 text-sm text-neutral-200 placeholder-white/40 focus:outline-none"
             />
           </form>
-          <div className="flex items-center gap-1.5 mt-1">
-            <input
-              ref={fileInputRef}
-              type="file"
-              multiple
-              hidden
-              onChange={(event) => {
-                handleFileChange?.(event);
-                toast('Attached to the next message.', { icon: '📎' });
-              }}
-            />
-            <button
-              type="button"
-              onClick={() => fileInputRef.current?.click()}
-              title="Attach a file"
-              aria-label="Attach a file"
-              className={CONTROL_CLASSES}
-            >
-              <Paperclip className="w-5 h-5" />
-            </button>
-
-            <div className="flex items-center rounded-full bg-white/5 border border-white/10">
+          <div className="flex items-center gap-1 mt-1 min-w-0">
+            <div className="flex items-center gap-0.5 min-w-0 overflow-x-auto scrollbar-none flex-1">
+              <input
+                ref={fileInputRef}
+                type="file"
+                multiple
+                hidden
+                onChange={(event) => {
+                  handleFileChange?.(event);
+                  toast('Attached to the next message.', { icon: '📎' });
+                }}
+              />
               <button
                 type="button"
-                onClick={() => (isLiveListening ? stopLiveListening() : startLiveListening())}
-                title={isLiveListening ? 'Stop live audio' : 'Live audio (hands-free)'}
-                aria-label={isLiveListening ? 'Stop live audio' : 'Start live audio'}
-                aria-pressed={isLiveListening}
-                className={`${CONTROL_CLASSES} ${isLiveListening ? ACTIVE_CONTROL_CLASSES : ''}`}
+                onClick={() => fileInputRef.current?.click()}
+                title="Attach a file"
+                aria-label="Attach a file"
+                className={CONTROL_CLASSES}
               >
-                <span className="relative inline-flex">
-                  <AudioLines className="w-5 h-5" />
-                  {isLiveListening && (
-                    <span
-                      aria-hidden="true"
-                      className="absolute -right-1 -top-1 w-2 h-2 rounded-full bg-emerald-400"
-                      style={{ transform: `scale(${1 + Math.min(micLevel * 12, 1.5)})` }}
-                    />
-                  )}
-                </span>
+                <Paperclip className="w-5 h-5" />
               </button>
+
+              <div className="flex items-center rounded-full bg-white/5 border border-white/10">
+                <button
+                  type="button"
+                  onClick={() =>
+                    isLiveListening ? stopLiveListening() : startLiveListening()
+                  }
+                  title={
+                    isLiveListening
+                      ? 'Stop live audio'
+                      : 'Live audio (hands-free)'
+                  }
+                  aria-label={
+                    isLiveListening ? 'Stop live audio' : 'Start live audio'
+                  }
+                  aria-pressed={isLiveListening}
+                  className={`${CONTROL_CLASSES} ${isLiveListening ? ACTIVE_CONTROL_CLASSES : ''}`}
+                >
+                  <span className="relative inline-flex">
+                    <AudioLines className="w-5 h-5" />
+                    {isLiveListening && (
+                      <span
+                        aria-hidden="true"
+                        className="absolute -right-1 -top-1 w-2 h-2 rounded-full bg-emerald-400"
+                        style={{
+                          transform: `scale(${1 + Math.min(micLevel * 12, 1.5)})`,
+                        }}
+                      />
+                    )}
+                  </span>
+                </button>
+                <button
+                  type="button"
+                  onMouseDown={startDictation}
+                  onMouseUp={stopDictation}
+                  onMouseLeave={() => isDictating && stopDictation()}
+                  onTouchStart={(event) => {
+                    event.preventDefault();
+                    startDictation();
+                  }}
+                  onTouchEnd={(event) => {
+                    event.preventDefault();
+                    stopDictation();
+                  }}
+                  title="Hold to dictate into the message"
+                  aria-label="Hold to dictate"
+                  className={`${CONTROL_CLASSES} ${isDictating ? 'bg-red-500/30 text-red-200' : ''}`}
+                >
+                  {isTranscribing && !isLiveListening ? (
+                    <Loader2 className="w-5 h-5 animate-spin" />
+                  ) : (
+                    <Mic className="w-5 h-5" />
+                  )}
+                </button>
+              </div>
+
               <button
                 type="button"
-                onMouseDown={startDictation}
-                onMouseUp={stopDictation}
-                onMouseLeave={() => isDictating && stopDictation()}
-                onTouchStart={(event) => {
-                  event.preventDefault();
-                  startDictation();
+                onClick={() => {
+                  if (!isAvatarMuted) speech.stop();
+                  setIsAvatarMuted((muted) => !muted);
                 }}
-                onTouchEnd={(event) => {
-                  event.preventDefault();
-                  stopDictation();
-                }}
-                title="Hold to dictate into the message"
-                aria-label="Hold to dictate"
-                className={`${CONTROL_CLASSES} ${isDictating ? 'bg-red-500/30 text-red-200' : ''}`}
+                title={isAvatarMuted ? 'Unmute the avatar' : 'Mute the avatar'}
+                aria-label={
+                  isAvatarMuted ? 'Unmute the avatar' : 'Mute the avatar'
+                }
+                aria-pressed={isAvatarMuted}
+                className={`${CONTROL_CLASSES} ${isAvatarMuted ? ACTIVE_CONTROL_CLASSES : ''}`}
               >
-                {isTranscribing && !isLiveListening ? (
-                  <Loader2 className="w-5 h-5 animate-spin" />
+                {isAvatarMuted ? (
+                  <VolumeX className="w-5 h-5" />
+                ) : (
+                  <Volume2 className="w-5 h-5" />
+                )}
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setIsMicMuted((muted) => !muted)}
+                title={
+                  isMicMuted ? 'Unmute your microphone' : 'Mute your microphone'
+                }
+                aria-label={
+                  isMicMuted ? 'Unmute your microphone' : 'Mute your microphone'
+                }
+                aria-pressed={isMicMuted}
+                className={`${CONTROL_CLASSES} ${isMicMuted ? ACTIVE_CONTROL_CLASSES : ''}`}
+              >
+                {isMicMuted ? (
+                  <MicOff className="w-5 h-5" />
                 ) : (
                   <Mic className="w-5 h-5" />
                 )}
               </button>
+
+              <button
+                type="button"
+                onClick={() => setIsVideoEnabled((enabled) => !enabled)}
+                title={
+                  isVideoEnabled
+                    ? 'Disable generative video replies'
+                    : 'Enable generative video replies'
+                }
+                aria-label={
+                  isVideoEnabled
+                    ? 'Disable generative video replies'
+                    : 'Enable generative video replies'
+                }
+                aria-pressed={isVideoEnabled}
+                className={`${CONTROL_CLASSES} ${isVideoEnabled ? ACTIVE_CONTROL_CLASSES : ''}`}
+              >
+                {isVideoEnabled ? (
+                  <Video className="w-5 h-5" />
+                ) : (
+                  <VideoOff className="w-5 h-5" />
+                )}
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setShowCaptions((shown) => !shown)}
+                title={showCaptions ? 'Hide captions' : 'Show captions'}
+                aria-label={showCaptions ? 'Hide captions' : 'Show captions'}
+                aria-pressed={showCaptions}
+                className={`${CONTROL_CLASSES} ${showCaptions ? ACTIVE_CONTROL_CLASSES : ''}`}
+              >
+                <Captions className="w-5 h-5" />
+              </button>
+
+              {ambientAllowed && Boolean(webcamStream || screenStream) && (
+                <button
+                  type="button"
+                  onClick={() => setAmbientEnabled((enabled) => !enabled)}
+                  title={
+                    ambientEnabled
+                      ? 'Stop ambient vision'
+                      : 'Ambient vision: let the avatar look at your webcam and screen'
+                  }
+                  aria-label={
+                    ambientEnabled
+                      ? 'Stop ambient vision'
+                      : 'Start ambient vision'
+                  }
+                  aria-pressed={ambientEnabled}
+                  className={`${CONTROL_CLASSES} ${ambientEnabled ? ACTIVE_CONTROL_CLASSES : ''}`}
+                >
+                  {ambientEnabled ? (
+                    <Eye className="w-5 h-5" />
+                  ) : (
+                    <EyeOff className="w-5 h-5" />
+                  )}
+                </button>
+              )}
             </div>
-
-            <button
-              type="button"
-              onClick={() => {
-                if (!isAvatarMuted) speech.stop();
-                setIsAvatarMuted((muted) => !muted);
-              }}
-              title={isAvatarMuted ? 'Unmute the avatar' : 'Mute the avatar'}
-              aria-label={isAvatarMuted ? 'Unmute the avatar' : 'Mute the avatar'}
-              aria-pressed={isAvatarMuted}
-              className={`${CONTROL_CLASSES} ${isAvatarMuted ? ACTIVE_CONTROL_CLASSES : ''}`}
-            >
-              {isAvatarMuted ? <VolumeX className="w-5 h-5" /> : <Volume2 className="w-5 h-5" />}
-            </button>
-
-            <button
-              type="button"
-              onClick={() => setIsMicMuted((muted) => !muted)}
-              title={isMicMuted ? 'Unmute your microphone' : 'Mute your microphone'}
-              aria-label={isMicMuted ? 'Unmute your microphone' : 'Mute your microphone'}
-              aria-pressed={isMicMuted}
-              className={`${CONTROL_CLASSES} ${isMicMuted ? ACTIVE_CONTROL_CLASSES : ''}`}
-            >
-              {isMicMuted ? <MicOff className="w-5 h-5" /> : <Mic className="w-5 h-5" />}
-            </button>
-
-            <button
-              type="button"
-              onClick={toggleWebcam}
-              title={webcamStream ? 'Turn off webcam' : 'Enable webcam'}
-              aria-label={webcamStream ? 'Turn off webcam' : 'Enable webcam'}
-              aria-pressed={Boolean(webcamStream)}
-              className={`${CONTROL_CLASSES} ${webcamStream ? ACTIVE_CONTROL_CLASSES : ''}`}
-            >
-              {webcamStream ? <Camera className="w-5 h-5" /> : <CameraOff className="w-5 h-5" />}
-            </button>
-
-            <button
-              type="button"
-              onClick={toggleScreenShare}
-              title={screenStream ? 'Stop sharing screen' : 'Share screen'}
-              aria-label={screenStream ? 'Stop sharing screen' : 'Share screen'}
-              aria-pressed={Boolean(screenStream)}
-              className={`${CONTROL_CLASSES} ${screenStream ? ACTIVE_CONTROL_CLASSES : ''}`}
-            >
-              <MonitorUp className="w-5 h-5" />
-            </button>
-
-            <button
-              type="button"
-              onClick={() => setIsVideoEnabled((enabled) => !enabled)}
-              title={isVideoEnabled ? 'Disable video replies' : 'Enable video replies'}
-              aria-label={isVideoEnabled ? 'Disable video replies' : 'Enable video replies'}
-              aria-pressed={isVideoEnabled}
-              className={`${CONTROL_CLASSES} ${isVideoEnabled ? ACTIVE_CONTROL_CLASSES : ''}`}
-            >
-              {isVideoEnabled ? <Video className="w-5 h-5" /> : <VideoOff className="w-5 h-5" />}
-            </button>
-
-            <button
-              type="button"
-              onClick={() => setShowCaptions((shown) => !shown)}
-              title={showCaptions ? 'Hide captions' : 'Show captions'}
-              aria-label={showCaptions ? 'Hide captions' : 'Show captions'}
-              aria-pressed={showCaptions}
-              className={`${CONTROL_CLASSES} ${showCaptions ? ACTIVE_CONTROL_CLASSES : ''}`}
-            >
-              <Captions className="w-5 h-5" />
-            </button>
-
-            <div className="flex-grow" />
 
             {draft.trim() ? (
               <button
@@ -617,25 +1082,20 @@ const LiveVoiceMode = ({ assistantId, avatarName, avatarPortrait, onClose }) => 
                   setDraft('');
                   submitTurn(words);
                 }}
-                className="px-4 py-2 rounded-full bg-neutral-200 hover:bg-neutral-100 text-neutral-900 text-sm font-medium inline-flex items-center gap-1.5 transition-colors"
+                className={SEND_BUTTON_CLASSES}
               >
                 <Send className="w-4 h-4" />
                 Send
               </button>
             ) : (
-              <button
-                type="button"
-                onClick={handleStop}
-                className="px-4 py-2 rounded-full bg-neutral-200 hover:bg-neutral-100 text-neutral-900 text-sm font-medium transition-colors"
-              >
-                {speech.isSpeaking || isWaitingForReply || isTranscribing ? 'Stop' : 'Close'}
-              </button>
+              renderLeaveVoiceButton()
             )}
           </div>
         </div>
         {!user && (
           <p className="text-center text-white/30 text-xs mt-2">
-            Your words are transcribed by the server and kept in this conversation.
+            Your words are transcribed by the server and kept in this
+            conversation.
           </p>
         )}
       </div>

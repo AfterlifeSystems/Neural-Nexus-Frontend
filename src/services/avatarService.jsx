@@ -254,6 +254,7 @@ export const deleteAvatarDocument = async (assistantId, sourceDocumentName) => {
  * @param {string[]} [options.urls] URLs to ingest (YouTube videos, playlists, articles).
  * @param {boolean} [options.isReferenceAudio] Treat the upload as the voice reference.
  * @param {boolean} [options.isReferenceImage] Treat the upload as the portrait reference.
+ * @param {AbortSignal} [options.signal] Abort the POST if the owner cancels before a job id exists.
  * @returns {Promise<Object>} `{job_id}` for the background processing job.
  */
 export const uploadAvatarIdentityMedia = async ({
@@ -262,6 +263,7 @@ export const uploadAvatarIdentityMedia = async ({
   urls = [],
   isReferenceAudio = false,
   isReferenceImage = false,
+  signal,
 }) => {
   const formData = new FormData();
   for (const file of files) {
@@ -279,6 +281,7 @@ export const uploadAvatarIdentityMedia = async ({
   return requestJson('/update_avatar_identity_with_media', {
     method: 'POST',
     formData,
+    signal,
   });
 };
 
@@ -311,6 +314,43 @@ export const cancelMediaJob = async (jobId) => {
   return requestJson(`/media_job/${encodeURIComponent(jobId)}/cancel`, {
     method: 'POST',
   });
+};
+
+/**
+ * List the caller's media-processing jobs, newest first.
+ * GET /media_jobs
+ *
+ * Active jobs (`queued` / `running`) are returned by default. Finished jobs
+ * linger briefly in the registry and are included when `includeFinished` is
+ * set, which is how Settings can show a just-completed upload after the
+ * owner left the avatar and came back.
+ *
+ * @param {Object} [options]
+ * @param {string} [options.assistantId] Limit the list to one avatar.
+ * @param {boolean} [options.includeFinished] Also return recently finished jobs.
+ * @returns {Promise<Object|Array>} The listing the API returned.
+ */
+export const listMediaJobs = async ({
+  assistantId,
+  includeFinished = false,
+} = {}) => {
+  return requestJson('/media_jobs', {
+    query: {
+      assistant_id: assistantId,
+      include_finished: includeFinished,
+    },
+  });
+};
+
+/**
+ * Point-in-time snapshot of one media-processing job, including children.
+ * GET /media_job/{job_id}
+ *
+ * @param {string} jobId The master or child job.
+ * @returns {Promise<Object>} Status, children, and any last progress.
+ */
+export const getMediaJob = async (jobId) => {
+  return requestJson(`/media_job/${encodeURIComponent(jobId)}`);
 };
 
 /**
@@ -695,6 +735,84 @@ export const importMailboxWritingSamples = async ({
 };
 
 /**
+ * Shape one learned-fact row from the API into the camelCase entry the
+ * settings card renders. `namespace` and `key` are the pair the delete and
+ * update calls take back.
+ */
+const normalizeIdentityFact = (row) => ({
+  factId: row.fact_id ?? row.key ?? null,
+  fact: row.fact ?? '',
+  context: row.context ?? null,
+  learnedFrom: row.learned_from ?? 'conversation',
+  feature: row.feature ?? null,
+  sourceLabel: row.source_label ?? null,
+  namespace: Array.isArray(row.namespace) ? row.namespace : [],
+  key: row.key ?? null,
+  createdAt: row.created_at ?? null,
+  correctedFrom: row.corrected_from ?? null,
+});
+
+/**
+ * Everything the avatar has learned about its own identity, newest first:
+ * facts the owner told it in chat, first-person facts extracted from uploads,
+ * traits derived by analysis, and episodic memories. Creator-only — the API
+ * answers 403 for anyone else.
+ * GET /avatar_identity_facts
+ *
+ * @param {string} assistantId The avatar.
+ * @returns {Promise<{facts: Array<Object>, counts: Object}>} Normalized rows and
+ *   a per-group count (`conversation`, `media`, `analysis`, `memory`).
+ */
+export const listAvatarIdentityFacts = async (assistantId) => {
+  const response = await requestJson('/avatar_identity_facts', {
+    query: { assistant_id: assistantId },
+  });
+  const facts = Array.isArray(response?.facts) ? response.facts : [];
+  return {
+    facts: facts.map(normalizeIdentityFact),
+    counts: response?.counts ?? {},
+  };
+};
+
+/**
+ * Forget one learned fact.
+ * DELETE /avatar_identity_facts (204)
+ *
+ * @param {string} assistantId The avatar.
+ * @param {Object} fact A row from listAvatarIdentityFacts (`namespace`, `key`).
+ * @returns {Promise<void>}
+ */
+export const deleteAvatarIdentityFact = async (assistantId, { namespace, key }) => {
+  await requestJson('/avatar_identity_facts', {
+    method: 'DELETE',
+    query: { assistant_id: assistantId },
+    body: { namespace, key },
+  });
+};
+
+/**
+ * Rewrite one learned fact in place. The stored format and the row's key are
+ * kept, so the avatar reads the corrected wording on its next turn.
+ * PUT /avatar_identity_facts
+ *
+ * @param {string} assistantId The avatar.
+ * @param {Object} edit `namespace` and `key` from the listing, the new `fact`,
+ *   and optionally a new `context`.
+ * @returns {Promise<Object>} The updated row, normalized.
+ */
+export const updateAvatarIdentityFact = async (
+  assistantId,
+  { namespace, key, fact, context }
+) => {
+  const updated = await requestJson('/avatar_identity_facts', {
+    method: 'PUT',
+    query: { assistant_id: assistantId },
+    body: { namespace, key, fact, context },
+  });
+  return normalizeIdentityFact(updated ?? {});
+};
+
+/**
  * The avatar's emotion media manifest: one still and one idle loop per emotion.
  *
  * `emotions[emotion].still.url` / `.idle_loop.url` are API paths served by
@@ -736,6 +854,21 @@ export const regenerateAvatarEmotionMedia = async (
   return requestJson('/avatar_emotion_media/regenerate', {
     method: 'POST',
     body: { assistant_id: assistantId, only_missing: onlyMissing },
+  });
+};
+
+/**
+ * Delete one generated emotion still or idle loop. Creator-only; the row is
+ * gone from the manifest on the next read, so callers forget the cached
+ * manifest and re-read it.
+ * DELETE /avatar_emotion_media/{asset_id} (204)
+ *
+ * @param {string} assetId The asset, from the manifest.
+ * @returns {Promise<void>}
+ */
+export const deleteAvatarEmotionMedia = async (assetId) => {
+  await requestJson(`/avatar_emotion_media/${encodeURIComponent(assetId)}`, {
+    method: 'DELETE',
   });
 };
 
@@ -967,7 +1100,7 @@ export const getInboxCount = async () => {
 /**
  * Deliver the owner's decision on a pending inbox item.
  *
- * `type` is `accept`, `edit`, `ignore`, or `response` (the Agent Inbox
+ * `type` is `accept`, `edit`, `ignore`, or `response` (the Avatar Inbox
  * HumanResponse); `edit` carries `{action:'send_reply', args:{subject, body}}`,
  * `response` carries free text.
  * POST /inbox/items/{item_id}/decide
@@ -1050,5 +1183,86 @@ export const updateConversationThread = async (threadId, metadata) => {
   return requestJson(`/threads/${encodeURIComponent(threadId)}`, {
     method: 'PATCH',
     body: { metadata: nextMetadata },
+  });
+};
+
+const AMBIENT_SOURCE_BY_FILENAME = {
+  'webcam.jpg': 'webcam',
+  'screen.jpg': 'screen',
+  'microphone.webm': 'microphone',
+};
+
+/**
+ * Build the request that sends one ambient observation.
+ *
+ * An observation is an ordinary turn on `POST /message/{assistant_id}` with
+ * `ambient=true`: the attached snapshots are described into text on the
+ * server, kept in the thread as hidden context, and triaged by the graph as
+ * ignore / respond / notify. The same call will carry a microphone clip later,
+ * so the avatar always receives one message per capture tick.
+ *
+ * @param {string} assistantId The avatar that is watching.
+ * @param {File[]} files The snapshots (`webcam.jpg`, `screen.jpg`).
+ * @param {Object} options
+ * @param {string|null} options.threadId The conversation, or null to start one.
+ * @param {string} options.capturedAt ISO-8601 time of the capture.
+ * @param {boolean} options.voiceMode Whether the person is in voice mode.
+ * @param {string} [options.userTimezone] The browser's IANA zone.
+ * @returns {{path: string, formData: FormData}}
+ */
+export const buildAmbientMessageRequest = (
+  assistantId,
+  files,
+  { threadId, capturedAt, voiceMode, userTimezone } = {}
+) => {
+  const formData = new FormData();
+  formData.append('message', '');
+  formData.append('stream', 'true');
+  formData.append('ambient', 'true');
+  formData.append('voice_mode', voiceMode ? 'true' : 'false');
+  formData.append('captured_at', capturedAt ?? new Date().toISOString());
+  const sources = [];
+  for (const file of files ?? []) {
+    formData.append('files', file);
+    sources.push(AMBIENT_SOURCE_BY_FILENAME[file.name] ?? 'image');
+  }
+  formData.append('sources', JSON.stringify(sources));
+  if (threadId) {
+    formData.append('thread_id', threadId);
+  }
+  if (userTimezone) {
+    formData.append('user_timezone', userTimezone);
+  }
+  return {
+    path: `/message/${encodeURIComponent(assistantId)}`,
+    formData,
+  };
+};
+
+/**
+ * Record the person's decision on an ambient notification card.
+ * POST /ambient_preferences/{assistant_id}
+ *
+ * `type` is `ignore`, `response`, or `accept` (the Agent Inbox HumanResponse);
+ * `args` carries the free-text note of a `response`. The decision is stored as
+ * a preference the next triage of a similar scene reads as precedent.
+ *
+ * @param {string} assistantId The avatar that noticed.
+ * @param {Object} decision `{observationId, observationKind, summary, type, args}`.
+ * @returns {Promise<Object>} `{recorded, observation_id, preference}`.
+ */
+export const recordAmbientPreference = async (
+  assistantId,
+  { observationId, observationKind, summary, type, args }
+) => {
+  return requestJson(`/ambient_preferences/${encodeURIComponent(assistantId)}`, {
+    method: 'POST',
+    body: {
+      observation_id: observationId ?? null,
+      observation_kind: observationKind ?? 'other',
+      summary: summary ?? '',
+      type,
+      args: args ?? null,
+    },
   });
 };

@@ -1,14 +1,17 @@
 const HOLD_START_MS = 80;
+const REVERSE_OVERLAY_DELAY_SECONDS = 1 / 30;
+const FORWARD_PRESENT_FRAMES = 2;
 const TARGET_FPS = 30;
-const MIN_TAPE_FRAMES = 16;
-const MIN_TAPE_FPS = 12;
-const MAX_TAPE_FRAMES = 96;
-const MAX_TAPE_EDGE = 320;
+const MIN_TAPE_FRAMES = 4;
+const MAX_TAPE_FRAMES = 240;
+const MAX_TAPE_EDGE = 512;
 const MIN_CAPTURE_INTERVAL = 1 / 30;
-const MIN_TAPE_SPAN_SECONDS = 0.25;
+const MIN_TAPE_SPAN_SECONDS = 0.2;
 const TAPE_FIELD = '_idleLoopTape';
 const REVERSE_FIELD = '_idleLoopReverseImage';
 const CAPTURE_FIELD = '_idleLoopCaptureAttached';
+const REPEAT_FIELD = '_idleLoopRepeat';
+const MAX_EDGE_FIELD = '_idleLoopMaxEdge';
 const VIDEO_HOST_ID = 'idle-loop-video-host';
 
 const DEFAULT_TAPE = {
@@ -16,10 +19,15 @@ const DEFAULT_TAPE = {
   capturing: true,
   complete: false,
   decided: false,
+  armed: false,
+  wrapped: false,
   pingPongActive: false,
   pingPongRejected: false,
   reverseStartedAt: null,
+  reverseFromTime: null,
   holdingStart: false,
+  waitingForForward: false,
+  forwardPresentCount: 0,
   seekStarted: false,
   scratch: null,
   output: null,
@@ -76,6 +84,10 @@ export function tapeSpanSeconds(frames) {
   return Math.max(0, frames[frames.length - 1].time - frames[0].time);
 }
 
+function tapeHasDuration(durationSeconds) {
+  return Number.isFinite(durationSeconds) && durationSeconds > 0;
+}
+
 export function tapeIsUsable(frames, durationSeconds) {
   if (!frames || frames.length < MIN_TAPE_FRAMES) {
     return false;
@@ -84,13 +96,12 @@ export function tapeIsUsable(frames, durationSeconds) {
   if (span < MIN_TAPE_SPAN_SECONDS) {
     return false;
   }
-  if (frames.length / span < MIN_TAPE_FPS) {
+  // Duration is often NaN on the first samples. Treating that as "usable"
+  // closed the tape after a fraction of a second and reversed a stub.
+  if (!tapeHasDuration(durationSeconds)) {
     return false;
   }
-  if (!Number.isFinite(durationSeconds) || durationSeconds <= 0) {
-    return true;
-  }
-  return span >= Math.min(durationSeconds * 0.75, Math.max(0, durationSeconds - 0.06));
+  return span >= Math.min(durationSeconds * 0.7, Math.max(0, durationSeconds - 0.12));
 }
 
 export function reverseFrameIndex(elapsedSeconds, spanSeconds, frameCount) {
@@ -102,7 +113,7 @@ export function reverseFrameIndex(elapsedSeconds, spanSeconds, frameCount) {
   return Math.min(frameCount - 1, Math.floor((1 - progress) * (frameCount - 1) + 1e-6));
 }
 
-export function reverseFrameAtElapsed(frames, elapsedSeconds) {
+export function reverseFrameAtElapsed(frames, elapsedSeconds, fromTime) {
   if (!frames || frames.length === 0) {
     return 0;
   }
@@ -110,7 +121,9 @@ export function reverseFrameAtElapsed(frames, elapsedSeconds) {
     return 0;
   }
   const start = frames[0].time;
-  const end = frames[frames.length - 1].time;
+  const recordedEnd = frames[frames.length - 1].time;
+  const end =
+    Number.isFinite(fromTime) && fromTime > start ? fromTime : recordedEnd;
   const span = Math.max(1 / 30, end - start);
   const target = end - Math.min(span, Math.max(0, elapsedSeconds));
   let best = 0;
@@ -125,8 +138,30 @@ export function reverseFrameAtElapsed(frames, elapsedSeconds) {
   return best;
 }
 
+export function tapeShouldClose(frames, durationSeconds, time) {
+  if (!tapeIsUsable(frames, durationSeconds)) {
+    return false;
+  }
+  return durationSeconds > 0 && time >= durationSeconds - 0.05;
+}
+
 export function idleLoopUsesNativeLoop(video) {
-  return !video?.[TAPE_FIELD]?.pingPongActive;
+  const tape = video?.[TAPE_FIELD];
+  if (!tape || tape.pingPongRejected) {
+    return true;
+  }
+  return !tape.armed && !tape.pingPongActive;
+}
+
+// Carousel and voice mode share this so React cannot put `loop` back on a
+// video the tape has already armed. That wrap wiped the short tape and
+// voice mode never reversed.
+export function syncIdleLoopPlayback(video, { repeat = true } = {}) {
+  if (!video) {
+    return;
+  }
+  video[REPEAT_FIELD] = repeat !== false;
+  video.loop = idleLoopUsesNativeLoop(video);
 }
 
 export function idleLoopReverseImage(video) {
@@ -137,6 +172,9 @@ export function blitIdleLoopReverse(video) {
   const frame = idleLoopReverseImage(video);
   if (!frame) {
     return null;
+  }
+  if (typeof document === 'undefined') {
+    return frame;
   }
   const tape = tapeFor(video);
   if (!tape.output) {
@@ -151,6 +189,8 @@ export function blitIdleLoopReverse(video) {
   if (!ctx) {
     return frame;
   }
+  ctx.imageSmoothingEnabled = true;
+  ctx.imageSmoothingQuality = 'high';
   ctx.drawImage(frame, 0, 0);
   return output;
 }
@@ -204,6 +244,98 @@ export function disposeIdleLoopTape(video) {
   delete video[REVERSE_FIELD];
 }
 
+export function handleIdleLoopEnded(video) {
+  const tape = video?.[TAPE_FIELD];
+  if (tape && !tape.decided && tapeIsUsable(tape.frames, video.duration)) {
+    tape.complete = true;
+    tape.wrapped = true;
+    return;
+  }
+  if (tape && !tape.decided) {
+    const playAttempt = video.play();
+    if (playAttempt && typeof playAttempt.catch === 'function') {
+      playAttempt.catch(() => {});
+    }
+  }
+}
+
+export function createIdleLoopVideo(
+  src,
+  { repeat = true, maxEdge = MAX_TAPE_EDGE, onLoaded, onError } = {},
+) {
+  const video = document.createElement('video');
+  video.crossOrigin = 'anonymous';
+  video.muted = true;
+  video.loop = true;
+  video.playsInline = true;
+  video.autoplay = true;
+  video.preload = 'auto';
+  video[REPEAT_FIELD] = repeat !== false;
+  video[MAX_EDGE_FIELD] = maxEdge;
+  video.src = src;
+  if (onLoaded) {
+    video.addEventListener('loadeddata', onLoaded);
+  }
+  if (onError) {
+    video.addEventListener('error', onError);
+  }
+  video.addEventListener('ended', () => handleIdleLoopEnded(video));
+  mountIdleLoopVideo(video);
+  attachIdleLoopCapture(video);
+  const playAttempt = video.play();
+  if (playAttempt && typeof playAttempt.catch === 'function') {
+    playAttempt.catch(() => {});
+  }
+  return video;
+}
+
+export function disposeIdleLoopVideo(video) {
+  if (!video) {
+    return;
+  }
+  video.pause();
+  disposeIdleLoopTape(video);
+  unmountIdleLoopVideo(video);
+  video.removeAttribute('src');
+  video.load();
+}
+
+export function stepIdleLoopMedia(video, direction, now, { repeat = true } = {}) {
+  const nextDirection = stepIdleLoopPingPong(video, direction, now);
+  syncIdleLoopPlayback(video, { repeat });
+  const tape = video?.[TAPE_FIELD];
+  const cycleEnded = Boolean(tape?.cycleEnded);
+  if (cycleEnded) {
+    tape.cycleEnded = false;
+  }
+  return {
+    direction: nextDirection,
+    source: blitIdleLoopReverse(video) || video,
+    cycleEnded,
+  };
+}
+
+export function paintIdleLoopFrame(canvas, video) {
+  if (!canvas || !video || video.readyState < 2 || video.videoWidth === 0) {
+    return false;
+  }
+  const source = blitIdleLoopReverse(video) || video;
+  const width = video.videoWidth;
+  const height = video.videoHeight;
+  if (canvas.width !== width || canvas.height !== height) {
+    canvas.width = width;
+    canvas.height = height;
+  }
+  const context = canvas.getContext('2d', { alpha: false });
+  if (!context) {
+    return false;
+  }
+  context.imageSmoothingEnabled = true;
+  context.imageSmoothingQuality = 'high';
+  context.drawImage(source, 0, 0, width, height);
+  return true;
+}
+
 export function idleLoopNeedsPingPong(video) {
   if (!video || !Number.isFinite(video.duration) || video.duration <= 0) {
     return Promise.resolve(false);
@@ -227,8 +359,10 @@ export function stepIdleLoopPingPong(video, _direction, now) {
     return 1;
   }
 
-  if (!video[CAPTURE_FIELD]) {
-    recordPresentedFrame(video, video.currentTime);
+  recordPresentedFrame(video, video.currentTime);
+
+  if (tape.complete && !tape.decided) {
+    decidePingPong(video, tape);
   }
 
   if (tape.pingPongActive) {
@@ -236,16 +370,29 @@ export function stepIdleLoopPingPong(video, _direction, now) {
       holdStartFrame(video, tape);
       return 1;
     }
-    if (video.ended || video.currentTime >= video.duration - 0.03) {
+    if (tape.waitingForForward) {
+      return holdForwardSeam(video, tape);
+    }
+    const atStart = video.currentTime < 0.05;
+    const atEnd =
+      Number.isFinite(video.duration) &&
+      video.duration > 0 &&
+      video.currentTime >= video.duration - 0.03;
+    // Native wrap used to land on frame 0 before reverse started. Play the
+    // tape backward from that wrap instead of running the clip forward again.
+    if (tape.wrapped) {
+      tape.wrapped = false;
+      return beginReverse(video, tape, clock);
+    }
+    // `ended` stays true across a seek-to-zero on some browsers; reversing
+    // from the first frame made the loop look a fraction of a second long.
+    if (tape.reverseStartedAt != null || (video.ended && !atStart) || atEnd) {
       return beginReverse(video, tape, clock);
     }
     video[REVERSE_FIELD] = null;
     return 1;
   }
 
-  if (tape.complete && !tape.decided) {
-    decidePingPong(video, tape);
-  }
   return 1;
 }
 
@@ -271,46 +418,76 @@ function recordPresentedFrame(video, mediaTime) {
     return;
   }
 
-  const time = Number.isFinite(mediaTime) ? mediaTime : video.currentTime;
+  // rVFC `mediaTime` and `currentTime` drift by a few frames. Mixing them
+  // looked like a wrap and wiped the tape every few samples — voice mode
+  // never reached a usable reverse. The playhead is the tape clock.
+  const time = Number.isFinite(video.currentTime)
+    ? video.currentTime
+    : mediaTime;
   if (!Number.isFinite(time) || time < 0) {
     return;
   }
 
   const last = tape.frames[tape.frames.length - 1];
-  if (last && time + 0.05 < last.time) {
-    tape.complete = true;
-    tape.capturing = false;
-    return;
-  }
-  if (last && time - last.time < MIN_CAPTURE_INTERVAL) {
+  const duration = Number.isFinite(video.duration) ? video.duration : 0;
+  if (last && time + 0.2 < last.time) {
+    if (tapeIsUsable(tape.frames, duration)) {
+      tape.complete = true;
+      tape.capturing = false;
+      tape.wrapped = true;
+      armPingPong(video, tape);
+    } else {
+      // A seek back to the start before a full play is not a finished cycle.
+      tape.frames = [];
+      tape.armed = false;
+    }
     return;
   }
 
-  const duration = Number.isFinite(video.duration) ? video.duration : 0;
+  const maxFrames = pingPongMaxFrames(duration);
+  const interval = pingPongCaptureInterval(duration, maxFrames);
   const nearEnd = duration > 0 && time >= duration - 0.05;
-  if (tape.frames.length >= pingPongMaxFrames(duration) && !nearEnd) {
-    thinTape(tape);
+  // `ended` can stay true after a seek-to-zero. Only skip when the playhead
+  // itself is frozen on the same sample, or we flood the tape with one frame.
+  if (last && time - last.time < 0.001) {
+    if (nearEnd && tapeIsUsable(tape.frames, duration)) {
+      tape.complete = true;
+      tape.capturing = false;
+      tape.wrapped = true;
+      armPingPong(video, tape);
+    }
+    return;
+  }
+  if (last && time - last.time < interval) {
+    return;
+  }
+  if (tape.frames.length >= maxFrames) {
+    return;
   }
 
   if (!drawPresentedFrame(video, tape, time)) {
     return;
   }
 
-  if (nearEnd || (duration > 0 && tape.frames.length >= pingPongMaxFrames(duration) && time >= duration * 0.85)) {
+  if (tapeCanArm(tape.frames, duration)) {
+    armPingPong(video, tape);
+  }
+  if (tapeShouldClose(tape.frames, duration, time)) {
     tape.complete = true;
     tape.capturing = false;
   }
 }
 
-function thinTape(tape) {
-  if (tape.frames.length < 4) {
-    return;
+function tapeEdge(video) {
+  const requested = Number(video?.[MAX_EDGE_FIELD]);
+  if (Number.isFinite(requested) && requested >= 64) {
+    return Math.min(1024, requested);
   }
-  tape.frames = tape.frames.filter((_, index) => index % 2 === 0 || index === tape.frames.length - 1);
+  return MAX_TAPE_EDGE;
 }
 
 function drawPresentedFrame(video, tape, time) {
-  const edge = Math.min(MAX_TAPE_EDGE, Math.max(video.videoWidth, video.videoHeight) || MAX_TAPE_EDGE);
+  const edge = Math.min(tapeEdge(video), Math.max(video.videoWidth, video.videoHeight) || MAX_TAPE_EDGE);
   const scale = edge / Math.max(video.videoWidth, video.videoHeight);
   const width = Math.max(2, Math.round(video.videoWidth * scale));
   const height = Math.max(2, Math.round(video.videoHeight * scale));
@@ -321,22 +498,17 @@ function drawPresentedFrame(video, tape, time) {
     tape.scratch.height = height;
   }
 
-  const context = tape.scratch.getContext('2d', { willReadFrequently: true, alpha: false });
+  const context = tape.scratch.getContext('2d', { alpha: false });
   if (!context) {
     return false;
   }
 
   try {
+    context.imageSmoothingEnabled = true;
+    context.imageSmoothingQuality = 'high';
     context.drawImage(video, 0, 0, width, height);
   } catch {
     return false;
-  }
-
-  const signature = frameSignature(context, width, height);
-  const last = tape.frames[tape.frames.length - 1];
-  if (last && last.signature != null && signature != null && last.signature === signature) {
-    last.time = time;
-    return true;
   }
 
   const frame = document.createElement('canvas');
@@ -347,24 +519,22 @@ function drawPresentedFrame(video, tape, time) {
     return false;
   }
   frameContext.drawImage(tape.scratch, 0, 0);
-  tape.frames.push({ canvas: frame, time, signature });
+  tape.frames.push({ canvas: frame, time });
   return true;
 }
 
-function frameSignature(context, width, height) {
-  try {
-    const sampleWidth = Math.min(width, 48);
-    const sampleHeight = Math.min(height, 48);
-    const { data } = context.getImageData(0, 0, sampleWidth, sampleHeight);
-    let hash = 2166136261;
-    for (let i = 0; i < data.length; i += 12) {
-      hash ^= data[i] + data[i + 1] * 3 + data[i + 2] * 5;
-      hash = Math.imul(hash, 16777619);
-    }
-    return hash;
-  } catch {
-    return null;
+function tapeCanArm(frames, durationSeconds) {
+  // Arming sets loop=false. Doing that at 35% ended the clip early, the
+  // wrap cleared the short tape, and voice mode never reversed.
+  return tapeIsUsable(frames, durationSeconds);
+}
+
+function armPingPong(video, tape) {
+  if (tape.armed || tape.pingPongRejected) {
+    return;
   }
+  tape.armed = true;
+  video.loop = false;
 }
 
 function decidePingPong(video, tape) {
@@ -375,26 +545,30 @@ function decidePingPong(video, tape) {
     return;
   }
 
+  // Always reverse after the last frame. Native wrap-to-start is a jump even
+  // when the ends are close, and a matching seam still looks better played
+  // forward then back than snapped to frame 0.
   const first = pixelsOf(tape.frames[0].canvas);
   const last = pixelsOf(tape.frames[tape.frames.length - 1].canvas);
-  const distance = first && last ? meanRgbDistance(first, last) : null;
-  tape.seamDistance = distance;
-  if (!first || !last || distance <= 8) {
-    tape.rejectReason = first && last ? `seam:${distance}` : 'pixels';
-    rejectPingPong(video, tape);
-    return;
-  }
-
+  tape.seamDistance = first && last ? meanRgbDistance(first, last) : null;
   tape.pingPongActive = true;
+  armPingPong(video, tape);
   video.loop = false;
 }
 
 function rejectPingPong(video, tape) {
   tape.pingPongRejected = true;
   tape.pingPongActive = false;
+  tape.armed = false;
   tape.capturing = false;
-  video.loop = true;
+  video.loop = video[REPEAT_FIELD] !== false;
   video[REVERSE_FIELD] = null;
+  if (video.loop) {
+    const playAttempt = video.play();
+    if (playAttempt && typeof playAttempt.catch === 'function') {
+      playAttempt.catch(() => {});
+    }
+  }
 }
 
 function frameImage(frame) {
@@ -405,14 +579,43 @@ function beginReverse(video, tape, now) {
   if (tape.reverseStartedAt == null) {
     tape.reverseStartedAt = now;
     video.pause();
+    // Exact last presented pixels, so the first reverse overlay matches the
+    // paused video instead of a tape frame from a few ticks ago.
+    freezePresentedFrame(video, tape);
+    const lastTime = tape.frames[tape.frames.length - 1]?.time ?? 0;
+    const liveTime = Number.isFinite(video.currentTime) ? video.currentTime : 0;
+    const duration = Number.isFinite(video.duration) ? video.duration : 0;
+    tape.reverseFromTime = Math.max(lastTime, liveTime);
+    if (duration > 0 && liveTime >= duration - 0.08) {
+      tape.reverseFromTime = Math.max(tape.reverseFromTime, duration);
+    }
   }
 
   const elapsed = (now - tape.reverseStartedAt) / 1000;
-  const index = reverseFrameAtElapsed(tape.frames, elapsed);
+  // Keep the paused live frame on screen for one tick so the swap onto the
+  // reverse tape is not a resolution/color pop.
+  if (elapsed < REVERSE_OVERLAY_DELAY_SECONDS) {
+    video[REVERSE_FIELD] = null;
+    return -1;
+  }
+  const index = reverseFrameAtElapsed(
+    tape.frames,
+    elapsed,
+    tape.reverseFromTime,
+  );
   video[REVERSE_FIELD] = frameImage(tape.frames[index]);
 
   if (index > 0) {
     return -1;
+  }
+
+  // A one-shot emotion clip: one forward play plus this reverse, then stop.
+  // Neutral idle keeps repeating via beginHoldStart.
+  if (video[REPEAT_FIELD] === false) {
+    tape.cycleEnded = true;
+    tape.reverseStartedAt = null;
+    video.pause();
+    return 1;
   }
 
   beginHoldStart(video, tape);
@@ -444,10 +647,19 @@ function holdStartFrame(video, tape) {
       finishHoldStart(video, tape);
       return;
     }
-    window.setTimeout(() => {
-      if (tape.holdingStart) {
-        finishHoldStart(video, tape);
+    globalThis.setTimeout(() => {
+      if (!tape.holdingStart) {
+        return;
       }
+      if (video.currentTime >= 0.08) {
+        try {
+          video.currentTime = 0;
+        } catch {
+          finishHoldStart(video, tape);
+        }
+        return;
+      }
+      finishHoldStart(video, tape);
     }, HOLD_START_MS);
   }
 }
@@ -459,11 +671,45 @@ function finishHoldStart(video, tape) {
   tape.holdingStart = false;
   tape.reverseStartedAt = null;
   tape.seekStarted = false;
-  video[REVERSE_FIELD] = null;
+  tape.waitingForForward = true;
+  tape.forwardPresentCount = 0;
+  video[REVERSE_FIELD] = frameImage(tape.frames[0]);
   const playAttempt = video.play();
   if (playAttempt && typeof playAttempt.catch === 'function') {
     playAttempt.catch(() => {});
   }
+}
+
+function holdForwardSeam(video, tape) {
+  video[REVERSE_FIELD] = frameImage(tape.frames[0]);
+  const atStart = video.currentTime < 0.08;
+  const playing = !video.paused && video.readyState >= 2;
+  if (atStart && playing) {
+    tape.forwardPresentCount += 1;
+    if (tape.forwardPresentCount >= FORWARD_PRESENT_FRAMES) {
+      tape.waitingForForward = false;
+      tape.forwardPresentCount = 0;
+      video[REVERSE_FIELD] = null;
+    }
+  }
+  return 1;
+}
+
+function freezePresentedFrame(video, tape) {
+  if (typeof document === 'undefined') {
+    return;
+  }
+  if (video.readyState < 2 || video.videoWidth === 0) {
+    return;
+  }
+  const last = tape.frames[tape.frames.length - 1];
+  const time = Number.isFinite(video.currentTime)
+    ? video.currentTime
+    : last?.time ?? 0;
+  if (last && Math.abs(time - last.time) < MIN_CAPTURE_INTERVAL) {
+    return;
+  }
+  drawPresentedFrame(video, tape, time);
 }
 
 function pixelsOf(canvas) {

@@ -4,10 +4,40 @@
 // settings so the owner can record or upload speech; Close dismisses
 // it. A plain toast would dismiss on press (see main.jsx) and never take the
 // reader where they need to go.
+//
+// Shown at most once per avatar per tab session. Speak is retried from the
+// transcript and from voice mode, each with its own hook, and every retry is
+// another 409 — without this the same sentence stacked on every press.
 
 import React from 'react';
 import { toast } from 'react-hot-toast';
 import { AudioLines } from 'lucide-react';
+
+const shownThisSession = new Set();
+
+function voiceNotReadyStorageKey(assistantId) {
+  return `voice-not-ready-shown:${assistantId || 'avatar'}`;
+}
+
+function voiceNotReadyAlreadyShown(assistantId) {
+  const key = voiceNotReadyStorageKey(assistantId);
+  if (shownThisSession.has(key)) return true;
+  try {
+    return sessionStorage.getItem(key) === '1';
+  } catch {
+    return false;
+  }
+}
+
+function rememberVoiceNotReadyShown(assistantId) {
+  const key = voiceNotReadyStorageKey(assistantId);
+  shownThisSession.add(key);
+  try {
+    sessionStorage.setItem(key, '1');
+  } catch {
+    // Private mode can refuse storage; the in-memory set still covers this tab.
+  }
+}
 
 /**
  * Show a two-pane toast: left opens settings, right dismisses.
@@ -22,12 +52,16 @@ export function showVoiceNotReadyToast({
   avatarName,
   collectedSeconds = 0,
 }) {
+  if (voiceNotReadyAlreadyShown(assistantId)) return;
+  rememberVoiceNotReadyShown(assistantId);
+
   const settingsPath = assistantId
     ? `/chat/${encodeURIComponent(assistantId)}?tab=settings&section=voice`
     : '/avatars';
   const collected = Math.round(collectedSeconds);
+  const toastId = voiceNotReadyStorageKey(assistantId);
 
-  const openSettings = (toastId) => {
+  const openSettings = () => {
     toast.dismiss(toastId);
     window.location.assign(settingsPath);
   };
@@ -44,11 +78,11 @@ export function showVoiceNotReadyToast({
         <div
           role="button"
           tabIndex={0}
-          onClick={() => openSettings(voiceToast.id)}
+          onClick={openSettings}
           onKeyDown={(keyboardEvent) => {
             if (keyboardEvent.key === 'Enter' || keyboardEvent.key === ' ') {
               keyboardEvent.preventDefault();
-              openSettings(voiceToast.id);
+              openSettings();
             }
           }}
           className="flex-1 w-0 p-4 cursor-pointer hover:bg-white/5 rounded-l-lg"
@@ -78,6 +112,6 @@ export function showVoiceNotReadyToast({
         </div>
       </div>
     ),
-    { duration: Infinity }
+    { id: toastId, duration: Infinity }
   );
 }

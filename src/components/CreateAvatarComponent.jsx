@@ -7,9 +7,10 @@ import PixelCard from './PixelCard';
  *
  * Fills the box the gallery gives it, so it can stand exactly where the WebGL
  * card for the same entry is drawn. Hovering or focusing the card fills its
- * surface with shimmering off-white and gold pixels.
+ * surface with shimmering off-white and gold pixels. On a phone there is no
+ * hover, so the same fill plays while this card is the one in front.
  */
-const CreateAvatarComponent = ({ onCardClick }) => {
+const CreateAvatarComponent = ({ onCardClick, active = false }) => {
   // The gallery scrolls by dragging anywhere, this card included. A drag that
   // starts or ends on the card must not open the create dialog, so a press is
   // only a click when the pointer has barely moved.
@@ -30,6 +31,7 @@ const CreateAvatarComponent = ({ onCardClick }) => {
   return (
     <PixelCard
       variant="gold"
+      active={active}
       className="w-full h-full cursor-pointer"
       role="button"
       aria-label="Create Avatar"

@@ -22,7 +22,8 @@
 }
 
 .pixel-card:hover,
-.pixel-card:focus-within {
+.pixel-card:focus-within,
+.pixel-card.is-active {
   border-color: var(--pixel-card-active-border, rgba(251, 191, 36, 0.5));
 }
 
@@ -38,7 +39,8 @@
 }
 
 .pixel-card:hover::before,
-.pixel-card:focus-within::before {
+.pixel-card:focus-within::before,
+.pixel-card.is-active::before {
   opacity: 1;
 }
 

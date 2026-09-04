@@ -1,15 +1,6 @@
 // src/components/MessageList.jsx
 import React, { useEffect } from 'react';
-import {
-  Check,
-  Copy,
-  MessageSquare,
-  Pencil,
-  RefreshCw,
-  ThumbsDown,
-  ThumbsUp,
-  User,
-} from 'lucide-react';
+import { User } from 'lucide-react';
 import SecureImage from './SecureImage';
 import InterruptPanel from './InterruptPanel';
 import { useLocation } from 'react-router-dom';
@@ -20,11 +11,10 @@ import BillingRefusalNotice, {
   BILLING_REFUSAL_MESSAGE_TYPE,
 } from './BillingRefusalNotice';
 import useEmotionMedia, { stillFor } from '../hooks/useEmotionMedia';
-import useSpeech from '../hooks/useSpeech';
-import SpeakButton from './media/SpeakButton';
-import { showVoiceNotReadyToast } from './showVoiceNotReadyToast';
-import { toast } from 'react-hot-toast';
+import useMessageActions from '../hooks/useMessageActions';
+import MessageActionBar from './media/MessageActionBar';
 import { isConversationSuggestionList } from '../services/conversationSuggestions';
+import AmbientNotificationCard from './AmbientNotificationCard';
 
 /**
  * The face beside a message: whoever said it.
@@ -85,43 +75,6 @@ const findNearestScrollingAncestor = (descendantElement) => {
   return descendantElement.ownerDocument?.scrollingElement ?? null;
 };
 
-const ACTION_BUTTON_CLASSES =
-  'inline-flex items-center justify-center p-0.5 rounded text-neutral-400 hover:text-neutral-100 hover:bg-white/10 transition-colors focus:outline-none focus:ring-2 focus:ring-amber-400/50 disabled:opacity-40';
-
-/**
- * Format the screenshot metrics line: `4.6s • 8.4k tokens • $0.0012`.
- *
- * @param {Object} message An avatar message that may carry usage metadata.
- * @returns {string|null} The line, or null when nothing is known.
- */
-const formatMessageMetrics = (message) => {
-  const parts = [];
-  const timeMs =
-    message?.total_response_time_ms ?? message?.usage?.latency_ms ?? null;
-  if (Number.isFinite(Number(timeMs)) && Number(timeMs) > 0) {
-    parts.push(`${(Number(timeMs) / 1000).toFixed(1)}s`);
-  }
-  const tokens = Number(
-    message?.usage?.total_tokens ??
-      message?.response_metadata?.token_usage?.total_tokens ??
-      0
-  );
-  if (tokens > 0) {
-    parts.push(
-      tokens >= 1000
-        ? `${(tokens / 1000).toFixed(tokens >= 10_000 ? 0 : 1)}k tokens`
-        : `${tokens} tokens`
-    );
-  }
-  const cost = Number(
-    message?.response_metadata?.total_cost ?? message?.usage?.cost_usd ?? NaN
-  );
-  if (Number.isFinite(cost) && cost > 0) {
-    parts.push(`$${cost < 0.01 ? cost.toFixed(4) : cost.toFixed(3)}`);
-  }
-  return parts.length ? parts.join(' • ') : null;
-};
-
 const MessageList = ({
   messages,
   messagesEndRef,
@@ -130,13 +83,7 @@ const MessageList = ({
   assistantId,
   readOnly = false,
 }) => {
-  const {
-    assistantActivity,
-    resendFromUserMessage,
-    regenerateAvatarReply,
-    submitMessageFeedback,
-    pendingSendCount,
-  } = useMedia();
+  const { assistantActivity } = useMedia();
   const { userPortrait, activeAvatar } = useAuth();
   const location = useLocation();
   const readerIsAnonymous = isSharedAvatarChatPath(location.pathname);
@@ -146,47 +93,29 @@ const MessageList = ({
     asAnonymousIdentity: readerIsAnonymous,
   });
 
-  // One voice at a time across the whole transcript: the speak buttons share
-  // this session, so starting one message stops another.
-  const speech = useSpeech({ asAnonymousIdentity: readerIsAnonymous });
-  const [loadingSpeechKey, setLoadingSpeechKey] = React.useState(null);
-  const [copiedKey, setCopiedKey] = React.useState(null);
-  const [editingKey, setEditingKey] = React.useState(null);
-  const [editDraft, setEditDraft] = React.useState('');
-  const [feedbackKey, setFeedbackKey] = React.useState(null);
-  const [feedbackDraft, setFeedbackDraft] = React.useState('');
-  useEffect(() => {
-    if (speech.notReady) {
-      showVoiceNotReadyToast({
-        assistantId: resolvedAssistantId,
-        avatarName,
-        collectedSeconds: speech.notReady.collectedSeconds,
-      });
-    }
-  }, [speech.notReady, avatarName, resolvedAssistantId]);
-
-  const toggleSpeech = async (messageKey, text) => {
-    if (speech.speakingKey === messageKey) {
-      speech.stop();
-      return;
-    }
-    setLoadingSpeechKey(messageKey);
-    try {
-      await speech.speak(resolvedAssistantId, text, { key: messageKey });
-    } finally {
-      setLoadingSpeechKey(null);
-    }
-  };
-
-  const copyMessage = async (messageKey, text) => {
-    try {
-      await navigator.clipboard.writeText(text);
-      setCopiedKey(messageKey);
-      setTimeout(() => setCopiedKey(null), 1500);
-    } catch {
-      toast.error('Could not copy.');
-    }
-  };
+  const {
+    speech,
+    pendingSendCount,
+    loadingSpeechKey,
+    copiedKey,
+    editingKey,
+    setEditingKey,
+    editDraft,
+    setEditDraft,
+    feedbackKey,
+    setFeedbackKey,
+    feedbackDraft,
+    setFeedbackDraft,
+    toggleSpeech,
+    copyMessage,
+    resendFromUserMessage,
+    regenerateAvatarReply,
+    submitMessageFeedback,
+  } = useMessageActions({
+    assistantId: resolvedAssistantId,
+    avatarName,
+    asAnonymousIdentity: readerIsAnonymous,
+  });
 
   // Who the reader is on THIS screen, which is not always who this browser has
   // a session for. Every turn on a shared avatar's public chat is sent as the
@@ -217,7 +146,7 @@ const MessageList = ({
   }, [messages, messagesEndRef]);
 
   return (
-    <div className="flex-grow mb-4 space-y-2 px-2 flex flex-col">
+    <div className="flex-grow mb-4 space-y-2 px-2 flex flex-col min-w-0 w-full">
       {messages
         // Temporary relaxed filter – helps debug missing assistant messages
         // .filter((msg) => msg?.type || msg?.sender || msg?.isLoading)
@@ -243,10 +172,34 @@ const MessageList = ({
             return null;
           }
 
+          // Something the avatar noticed through ambient vision and decided
+          // the person should hear about. It is the avatar's own message, but
+          // it renders as a card with the Agent Inbox choices — dismiss or
+          // reply — rather than as a bubble in the exchange.
+          if (isFromAvatar && msg.ambient?.decision === 'notify') {
+            return (
+              <div key={messageKey} className="self-start w-full max-w-[85%] min-w-0">
+                <AmbientNotificationCard
+                  message={msg}
+                  assistantId={resolvedAssistantId}
+                  avatarName={avatarName}
+                  readOnly={readOnly}
+                  onReply={() => {
+                    document
+                      .querySelector('[data-composer-input], textarea')
+                      ?.focus();
+                  }}
+                />
+              </div>
+            );
+          }
+          const noticedAmbiently =
+            isFromAvatar && msg.ambient?.decision === 'respond';
+
           return (
             <div
               key={messageKey}
-              className={`flex items-end gap-2 max-w-[85%] ${
+              className={`flex items-end gap-2 max-w-[85%] min-w-0 ${
                   isFromUser ? 'self-end flex-row-reverse' : 'self-start'
                 }`}
               >
@@ -259,7 +212,7 @@ const MessageList = ({
                   />
                 )}
                 <div
-                  className={`p-2 rounded-lg break-words transition-all duration-150 ${
+                  className={`p-2 rounded-lg min-w-0 break-words [overflow-wrap:anywhere] transition-all duration-150 ${
                     isFromUser
                       ? 'bg-neutral-900 border border-white/10 text-neutral-200'
                       : isFromAvatar
@@ -286,6 +239,11 @@ const MessageList = ({
                     </div>
                   ) : (
                     <>
+                      {noticedAmbiently && (
+                        <div className="mb-1 text-[11px] uppercase tracking-wide text-amber-300/80">
+                          Noticed on your webcam or screen
+                        </div>
+                      )}
                       {isFromUser && editingKey === messageKey ? (
                         <div className="space-y-2">
                           <textarea
@@ -358,186 +316,56 @@ const MessageList = ({
                           </div>
                         ))}
 
-                      {isFromAvatar && formatMessageMetrics(msg) && (
-                        <p className="mt-2 text-xs text-white/40 text-right select-none">
-                          {formatMessageMetrics(msg)}
-                        </p>
-                      )}
-
-                      <div className="flex flex-wrap items-center justify-between gap-2 mt-1">
-                        {isFromAvatar && msg.content ? (
-                          <div className="flex flex-wrap items-center gap-0.5">
-                            <button
-                              type="button"
-                              onClick={() => copyMessage(messageKey, msg.content)}
-                              title="Copy"
-                              aria-label="Copy message"
-                              className={ACTION_BUTTON_CLASSES}
-                            >
-                              {copiedKey === messageKey ? (
-                                <Check className="w-3 h-3" aria-hidden="true" />
-                              ) : (
-                                <Copy className="w-3 h-3" aria-hidden="true" />
-                              )}
-                            </button>
-                            {!readOnly && (
-                              <>
-                            <button
-                              type="button"
-                              disabled={pendingSendCount > 0}
-                              onClick={() => regenerateAvatarReply?.(messageKey)}
-                              title="Regenerate"
-                              aria-label="Regenerate response"
-                              className={ACTION_BUTTON_CLASSES}
-                            >
-                              <RefreshCw className="w-3 h-3" aria-hidden="true" />
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() =>
-                                submitMessageFeedback?.(messageKey, {
-                                  type: 'like',
-                                  comment: msg.feedback?.comment,
-                                })
-                              }
-                              title="Good"
-                              aria-label="Good response"
-                              className={`${ACTION_BUTTON_CLASSES} ${
-                                msg.feedback?.type === 'like'
-                                  ? 'text-amber-300'
-                                  : ''
-                              }`}
-                            >
-                              <ThumbsUp className="w-3 h-3" aria-hidden="true" />
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() =>
-                                submitMessageFeedback?.(messageKey, {
-                                  type: 'dislike',
-                                  comment: msg.feedback?.comment,
-                                })
-                              }
-                              title="Bad"
-                              aria-label="Bad response"
-                              className={`${ACTION_BUTTON_CLASSES} ${
-                                msg.feedback?.type === 'dislike'
-                                  ? 'text-amber-300'
-                                  : ''
-                              }`}
-                            >
-                              <ThumbsDown className="w-3 h-3" aria-hidden="true" />
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => {
-                                setFeedbackKey((current) =>
-                                  current === messageKey ? null : messageKey
-                                );
-                                setFeedbackDraft(msg.feedback?.comment ?? '');
-                              }}
-                              title="Feedback"
-                              aria-label="Send feedback"
-                              className={`${ACTION_BUTTON_CLASSES} ${
-                                feedbackKey === messageKey
-                                  ? 'text-sky-300'
-                                  : ''
-                              }`}
-                            >
-                              <MessageSquare className="w-3 h-3" aria-hidden="true" />
-                            </button>
-                            <SpeakButton
-                              isSpeaking={speech.speakingKey === messageKey}
-                              isLoading={loadingSpeechKey === messageKey}
-                              onToggle={() => toggleSpeech(messageKey, msg.content)}
-                            />
-                              </>
-                            )}
-                          </div>
-                        ) : isFromUser && msg.content && editingKey !== messageKey && !readOnly ? (
-                          <div className="flex items-center gap-0.5">
-                            <button
-                              type="button"
-                              onClick={() => copyMessage(messageKey, msg.content)}
-                              title="Copy"
-                              aria-label="Copy message"
-                              className={ACTION_BUTTON_CLASSES}
-                            >
-                              {copiedKey === messageKey ? (
-                                <Check className="w-3 h-3" aria-hidden="true" />
-                              ) : (
-                                <Copy className="w-3 h-3" aria-hidden="true" />
-                              )}
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => {
-                                setEditingKey(messageKey);
-                                setEditDraft(msg.content);
-                              }}
-                              title="Edit"
-                              aria-label="Edit message"
-                              className={ACTION_BUTTON_CLASSES}
-                            >
-                              <Pencil className="w-3 h-3" aria-hidden="true" />
-                            </button>
-                            <button
-                              type="button"
-                              disabled={pendingSendCount > 0}
-                              onClick={() => resendFromUserMessage?.(messageKey)}
-                              title="Retry"
-                              aria-label="Resend message"
-                              className={ACTION_BUTTON_CLASSES}
-                            >
-                              <RefreshCw className="w-3 h-3" aria-hidden="true" />
-                            </button>
-                          </div>
-                        ) : (
-                          <span />
-                        )}
-                        <div className="text-xs text-neutral-400 text-right select-none ml-auto">
-                          {msg.timestamp &&
-                            new Date(msg.timestamp).toLocaleTimeString(
-                              undefined,
-                              {
-                                hour: '2-digit',
-                                minute: '2-digit',
-                              }
-                            )}
-                        </div>
-                      </div>
-                      {isFromAvatar && !readOnly && feedbackKey === messageKey && (
-                        <div className="mt-2 space-y-1">
-                          <textarea
-                            value={feedbackDraft}
-                            onChange={(event) =>
-                              setFeedbackDraft(event.target.value)
-                            }
-                            placeholder="Add feedback about this response..."
-                            rows={2}
-                            className="w-full px-2 py-1.5 bg-black/50 border border-white/10 rounded-md text-neutral-200 text-sm placeholder-white/40 focus:outline-none focus:ring-2 focus:ring-amber-400/50"
-                          />
-                          <p className="text-xs text-white/40">
-                            Select thumbs up or down before submitting
-                          </p>
-                          <button
-                            type="button"
-                            disabled={
-                              !msg.feedback?.type || !feedbackDraft.trim()
-                            }
-                            onClick={() => {
-                              submitMessageFeedback?.(messageKey, {
-                                type: msg.feedback.type,
-                                comment: feedbackDraft.trim(),
-                              });
-                              setFeedbackKey(null);
-                            }}
-                            className="px-2 py-1 rounded-md bg-sky-500/20 text-sky-200 text-xs border border-sky-400/30 disabled:opacity-40"
-                          >
-                            Submit feedback
-                          </button>
-                        </div>
-                      )}
+                      <MessageActionBar
+                        message={msg}
+                        messageKey={messageKey}
+                        isFromAvatar={isFromAvatar}
+                        isFromUser={isFromUser}
+                        readOnly={readOnly}
+                        isSpeaking={speech.speakingKey === messageKey}
+                        isSpeechLoading={loadingSpeechKey === messageKey}
+                        copiedKey={copiedKey}
+                        feedbackKey={feedbackKey}
+                        feedbackDraft={feedbackDraft}
+                        editingKey={editingKey}
+                        pendingSendCount={pendingSendCount}
+                        onCopy={copyMessage}
+                        onToggleSpeech={() =>
+                          toggleSpeech(messageKey, msg.content)
+                        }
+                        onRegenerate={(key) => regenerateAvatarReply?.(key)}
+                        onLike={() =>
+                          submitMessageFeedback?.(messageKey, {
+                            type: 'like',
+                            comment: msg.feedback?.comment,
+                          })
+                        }
+                        onDislike={() =>
+                          submitMessageFeedback?.(messageKey, {
+                            type: 'dislike',
+                            comment: msg.feedback?.comment,
+                          })
+                        }
+                        onToggleFeedback={() => {
+                          setFeedbackKey((current) =>
+                            current === messageKey ? null : messageKey
+                          );
+                          setFeedbackDraft(msg.feedback?.comment ?? '');
+                        }}
+                        onFeedbackDraftChange={setFeedbackDraft}
+                        onSubmitFeedback={() => {
+                          submitMessageFeedback?.(messageKey, {
+                            type: msg.feedback.type,
+                            comment: feedbackDraft.trim(),
+                          });
+                          setFeedbackKey(null);
+                        }}
+                        onStartEdit={() => {
+                          setEditingKey(messageKey);
+                          setEditDraft(msg.content);
+                        }}
+                        onRetry={(key) => resendFromUserMessage?.(key)}
+                      />
                     </>
                   )}
                 </div>

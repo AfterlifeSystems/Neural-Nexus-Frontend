@@ -147,6 +147,9 @@ export default function PixelCard({
   className = '',
   children,
   onClick,
+  // Phones have no hover. The gallery sets this while the card is in front
+  // so the pixels still expand from the centre the way a hover does.
+  active = false,
   ...rest
 }) {
   const containerRef = useRef(null);
@@ -154,9 +157,12 @@ export default function PixelCard({
   const pixelsRef = useRef([]);
   const animationRef = useRef(null);
   const timePreviousRef = useRef(performance.now());
+  const activeRef = useRef(active);
+  const hoveringRef = useRef(false);
   const reducedMotion = useRef(
     typeof window !== 'undefined' && window.matchMedia('(prefers-reduced-motion: reduce)').matches
   ).current;
+  activeRef.current = active;
 
   const variantCfg = VARIANTS[variant] || VARIANTS.default;
   const finalGap = gap ?? variantCfg.gap;
@@ -192,6 +198,9 @@ export default function PixelCard({
       }
     }
     pixelsRef.current = pxs;
+    if (activeRef.current || hoveringRef.current) {
+      handleAnimation('appear');
+    }
   };
 
   const doAnimate = fnName => {
@@ -226,14 +235,22 @@ export default function PixelCard({
     animationRef.current = requestAnimationFrame(() => doAnimate(name));
   };
 
-  const onMouseEnter = () => handleAnimation('appear');
-  const onMouseLeave = () => handleAnimation('disappear');
+  const onMouseEnter = () => {
+    hoveringRef.current = true;
+    handleAnimation('appear');
+  };
+  const onMouseLeave = () => {
+    hoveringRef.current = false;
+    if (activeRef.current) return;
+    handleAnimation('disappear');
+  };
   const onFocus = e => {
     if (e.currentTarget.contains(e.relatedTarget)) return;
     handleAnimation('appear');
   };
   const onBlur = e => {
     if (e.currentTarget.contains(e.relatedTarget)) return;
+    if (activeRef.current || hoveringRef.current) return;
     handleAnimation('disappear');
   };
 
@@ -252,10 +269,19 @@ export default function PixelCard({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [finalGap, finalSpeed, finalColors, finalNoFocus]);
 
+  useEffect(() => {
+    if (active || hoveringRef.current) {
+      handleAnimation('appear');
+      return undefined;
+    }
+    handleAnimation('disappear');
+    return undefined;
+  }, [active]);
+
   return (
     <div
       ref={containerRef}
-      className={`pixel-card ${className}`}
+      className={`pixel-card ${active ? 'is-active' : ''} ${className}`}
       onMouseEnter={onMouseEnter}
       onMouseLeave={onMouseLeave}
       onFocus={finalNoFocus ? undefined : onFocus}

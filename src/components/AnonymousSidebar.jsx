@@ -44,6 +44,8 @@ import { AccountMenuItem } from './AccountMenu';
 import { describeConversation } from './ConversationSidebar';
 import qrCode from '../assets/qr-neuralnexus.png';
 import { followPathInTopWindow } from './utils';
+import SharePreviewSlot from './SharePreviewSlot';
+import SidebarShareControls from './SidebarShareControls';
 
 /**
  * @param {Object} props
@@ -75,6 +77,7 @@ const AnonymousSidebar = ({
   onSelectConversation,
   onStartNewConversation,
   showConversations = true,
+  showShareControls = false,
 }) => {
   const navigate = useNavigate();
   // A shared link is public, so a signed-in person can follow one too. Offering
@@ -111,40 +114,108 @@ const AnonymousSidebar = ({
 
       {!isOpen && (
         <div
+          data-sidebar-rail
           onClick={onOpen}
           title="Open the sidebar"
-          className="fixed top-0 left-0 h-full w-14 z-40 bg-black/60 backdrop-blur-lg border-r border-white/10 flex flex-col items-center py-4 cursor-pointer hover:bg-black/70 transition-colors"
+          className="fixed top-0 left-0 h-full w-[var(--app-rail-width)] z-40 bg-black/60 backdrop-blur-lg border-r border-white/10 flex flex-col items-center py-3 gap-0.5 overflow-y-auto overscroll-contain cursor-pointer hover:bg-black/70 transition-colors"
         >
           <button
             onClick={(clickEvent) => {
               clickEvent.stopPropagation();
               onOpen();
             }}
-            className="p-2 rounded-lg text-white/70 hover:text-neutral-100 hover:bg-white/10 transition-colors"
+            className="p-1.5 rounded-lg text-white/70 hover:text-neutral-100 hover:bg-white/10 transition-colors"
             aria-label="Open the sidebar"
             title="Open the sidebar"
           >
-            <PanelLeftOpen className="w-5 h-5" />
+            <PanelLeftOpen className="w-4 h-4" />
           </button>
-          <button
-            onClick={(clickEvent) => {
-              clickEvent.stopPropagation();
-              goTo('/welcome');
-            }}
-            className="mt-auto shrink-0 p-0! border-0! rounded-md! opacity-70 hover:opacity-100 hover:ring-2 hover:ring-white/40 transition-[opacity,box-shadow] duration-300 focus:outline-none focus:ring-2 focus:ring-amber-400/50 focus:opacity-100"
-            aria-label="Neural Nexus — scan or open the welcome page"
-            title="Scan to share Neural Nexus, or press to open the welcome page"
-          >
-            <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-md bg-white p-1">
-              <img
-                src={qrCode}
-                alt="QR code linking to Neural Nexus"
-                width={36}
-                height={36}
-                className="block h-9 w-9 max-w-none shrink-0"
+          {showConversations && (
+            <button
+              onClick={(clickEvent) => {
+                clickEvent.stopPropagation();
+                onStartNewConversation?.();
+              }}
+              className="p-1.5 rounded-lg text-white/70 hover:text-neutral-100 hover:bg-white/10 transition-colors"
+              aria-label="New conversation"
+              title="New conversation"
+            >
+              <MessageSquarePlus className="w-4 h-4" />
+            </button>
+          )}
+          {showShareControls && <SidebarShareControls />}
+          {user ? (
+            <>
+              <AccountMenuItem
+                iconOnly
+                icon={<Sparkles className="w-4 h-4 shrink-0" />}
+                label="Open Neural Nexus"
+                onClick={() => goTo('/avatars')}
               />
-            </span>
-          </button>
+              <AccountMenuItem
+                iconOnly
+                icon={<CreditCard className="w-4 h-4 shrink-0" />}
+                label="Billing"
+                onClick={() => goTo(billingPath)}
+              />
+            </>
+          ) : (
+            <>
+              <AccountMenuItem
+                iconOnly
+                icon={<Sparkles className="w-4 h-4 shrink-0" />}
+                label="Create your own avatar"
+                onClick={() => goTo('/signup')}
+              />
+              <AccountMenuItem
+                iconOnly
+                icon={<UserPlus className="w-4 h-4 shrink-0" />}
+                label="Sign up"
+                onClick={() => goTo('/signup')}
+              />
+              <AccountMenuItem
+                iconOnly
+                icon={<LogIn className="w-4 h-4 shrink-0" />}
+                label="Log in"
+                onClick={() => goTo('/login')}
+              />
+              <AccountMenuItem
+                iconOnly
+                icon={<CreditCard className="w-4 h-4 shrink-0" />}
+                label="Billing"
+                onClick={() => goTo(billingPath)}
+              />
+            </>
+          )}
+          <div className="mt-auto shrink-0 w-full flex flex-col items-center gap-1">
+            <SharePreviewSlot
+              name="rail"
+              isolateClicks
+              className="w-full px-1 empty:hidden"
+            />
+            <button
+              onClick={(clickEvent) => {
+                clickEvent.stopPropagation();
+                goTo('/welcome');
+              }}
+              className="shrink-0 p-0! border-0! rounded-md! opacity-70 hover:opacity-100 hover:ring-2 hover:ring-white/40 transition-[opacity,box-shadow] duration-300 focus:outline-none focus:ring-2 focus:ring-amber-400/50 focus:opacity-100"
+              aria-label="Neural Nexus — scan or open the welcome page"
+              title="Scan to share Neural Nexus, or press to open the welcome page"
+            >
+              <span
+                data-sidebar-qr
+                className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-white p-0.5"
+              >
+                <img
+                  src={qrCode}
+                  alt="QR code linking to Neural Nexus"
+                  width={28}
+                  height={28}
+                  className="block h-7 w-7 max-w-none shrink-0"
+                />
+              </span>
+            </button>
+          </div>
         </div>
       )}
 
@@ -152,7 +223,7 @@ const AnonymousSidebar = ({
         className={`
           fixed top-0 left-0
           w-80 sm:w-96 lg:w-80
-          h-full
+          h-dvh
           z-50
           bg-black/60 backdrop-blur-lg
           border-r border-white/10 lg:rounded-2xl lg:border
@@ -241,6 +312,13 @@ const AnonymousSidebar = ({
                 </>
               )}
             </div>
+
+            {showShareControls && (
+              <div className="space-y-2">
+                <SidebarShareControls variant="rows" />
+                <SharePreviewSlot name="panel" className="empty:hidden" />
+              </div>
+            )}
 
             {/* The chats held with this avatar. Same shape as the signed-in
                 sidebar's list, so a visitor who later signs up finds the panel

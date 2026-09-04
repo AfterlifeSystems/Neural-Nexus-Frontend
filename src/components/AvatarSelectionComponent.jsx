@@ -299,13 +299,15 @@ const AvatarSelectionComponent = ({}) => {
     }
   };
 
-  // https://claude.ai/chat/8e125e85-be01-4541-a4f4-da3590f996c1
   // Each avatar's neutral idle loop, when its emotion media has been
-  // generated. Loaded once per avatar through the shared manifest cache; a
-  // card without one shows its portrait, exactly as before.
+  // generated. Loaded once per avatar through the shared manifest cache.
+  // The still and the loop are handed to the gallery in the same items
+  // update, so a card never paints the portrait and then pops the video in.
   const [neutralLoopsById, setNeutralLoopsById] = useState({});
+  const [loopLookupDone, setLoopLookupDone] = useState(false);
   useEffect(() => {
     let cancelled = false;
+    setLoopLookupDone(false);
     (async () => {
       const entries = await Promise.all(
         (userAvatars ?? []).map(async (avatar) => {
@@ -318,6 +320,7 @@ const AvatarSelectionComponent = ({}) => {
         setNeutralLoopsById(
           Object.fromEntries(entries.filter(([, loopUrl]) => Boolean(loopUrl)))
         );
+        setLoopLookupDone(true);
       }
     })();
     return () => {
@@ -330,6 +333,7 @@ const AvatarSelectionComponent = ({}) => {
       userAvatars?.map((avatar) => {
         const assistantId = avatar.assistant_id ?? avatar.avatar_id;
         const iconSource = avatarIconsById[assistantId];
+        const pairReady = loopLookupDone;
         return {
           id: assistantId,
           component: (
@@ -341,8 +345,11 @@ const AvatarSelectionComponent = ({}) => {
           ),
           type: 'avatar',
           text: avatar.name,
-          image: iconSource && isValidImageUrl(iconSource) ? iconSource : null,
-          video: neutralLoopsById[assistantId] ?? null,
+          image:
+            pairReady && iconSource && isValidImageUrl(iconSource)
+              ? iconSource
+              : null,
+          video: pairReady ? (neutralLoopsById[assistantId] ?? null) : null,
           avatar_data: avatar,
         };
       }) || [];
@@ -356,7 +363,7 @@ const AvatarSelectionComponent = ({}) => {
     });
 
     return avatarCards;
-  }, [userAvatars, avatarIconsById, neutralLoopsById]);
+  }, [userAvatars, avatarIconsById, neutralLoopsById, loopLookupDone]);
 
   const getCachedAvatarPosition = (avatarId = null) => {
     try {
@@ -787,7 +794,10 @@ const AvatarSelectionComponent = ({}) => {
                 visibility: 'hidden',
               }}
             >
-              <CreateAvatarComponent onCardClick={handleClick} />
+              <CreateAvatarComponent
+                onCardClick={handleClick}
+                active={authenticatedCards[currentCardIndex]?.type === 'create'}
+              />
             </div>
           )}
           <CircularGallery

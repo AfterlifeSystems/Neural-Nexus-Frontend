@@ -18,6 +18,8 @@ import { toast } from 'react-hot-toast';
 import { useAuth } from '../context/AuthContext';
 import { useMedia, NEW_CONVERSATION_ID } from '../context/MediaContext';
 import AnonymousSidebar from './AnonymousSidebar';
+import SharePreviewOutlet from './SharePreviewOutlet';
+import { MediaShareProvider } from '../context/MediaShareContext';
 import { listRememberedSharedAvatarThreadIds } from './utils';
 
 const SharedAvatarLayout = () => {
@@ -101,7 +103,8 @@ const SharedAvatarLayout = () => {
   };
 
   return (
-    <>
+    <MediaShareProvider ambientAllowed={false}>
+      <SharePreviewOutlet />
       <AnonymousSidebar
         isOpen={isSidebarOpen}
         onOpen={() => setIsSidebarOpen(true)}
@@ -113,11 +116,12 @@ const SharedAvatarLayout = () => {
         onSelectConversation={handleSelectConversation}
         onStartNewConversation={handleStartNewConversation}
         showConversations={isViewingSharedChat}
+        showShareControls={isViewingSharedChat}
       />
-      <div className="pl-14 h-full w-full relative z-10 overflow-y-auto">
+      <div className="pl-[var(--app-rail-width)] h-full w-full min-w-0 relative z-10 overflow-y-auto overflow-x-hidden">
         <Outlet />
       </div>
-    </>
+    </MediaShareProvider>
   );
 };
 

@@ -207,7 +207,7 @@ const InboxItemCard = ({ item, onDecide, isBusy }) => {
  * The agent inbox: everything the personal avatar triaged on the owner's behalf
  * and is waiting on the owner to decide.
  *
- * Reached from the sidebar's "Agent Inbox" entry (with the pending badge)
+ * Reached from the sidebar's "Avatar Inbox" entry (with the pending badge)
  * and from the Inbox tab on the personal avatar's header. Accept / Edit /
  * Ignore / Reply deliver the same HumanResponse the avatar's chat tools do,
  * so a decision made here or in conversation resumes the same paused triage
@@ -294,7 +294,7 @@ const InboxPanel = ({ embedded = false }) => {
         <header className="flex flex-wrap items-center gap-3">
           <h1 className="text-2xl font-semibold text-neutral-200 inline-flex items-center gap-2">
             <Inbox className="w-6 h-6" aria-hidden="true" />
-            Agent Inbox
+            Avatar Inbox
             {pendingCount > 0 && (
               <span className="min-w-[1.5rem] h-6 px-2 rounded-full bg-amber-400 text-neutral-900 text-sm font-semibold flex items-center justify-center">
                 {pendingCount}

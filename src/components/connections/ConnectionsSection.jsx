@@ -322,57 +322,61 @@ const ConnectionsSection = ({ onConnectionsChanged }) => {
     return (
       <div
         key={connection.connection_key}
-        className="flex items-center gap-3 p-3 bg-black/60 border border-white/10 rounded-xl"
+        className="flex flex-col sm:flex-row sm:items-center gap-3 p-3 bg-black/60 border border-white/10 rounded-xl min-w-0"
       >
-        <ConnectorIcon iconKey={connection.icon_key} />
-        <div className="min-w-0 flex-grow">
-          <p className="text-neutral-200 whitespace-normal break-words">
-            {connection.display_label}
-          </p>
-          <p className="text-xs text-white/50 whitespace-normal break-words">
-            {formatDeviceMetadata(connection)}
-          </p>
-          {connection.pending && connection.downloadHref && (
-            <a
-              href={connection.downloadHref}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="text-xs text-white/40 hover:text-white/70 underline"
+        <div className="flex items-center gap-3 min-w-0 flex-1">
+          <ConnectorIcon iconKey={connection.icon_key} />
+          <div className="min-w-0 flex-1">
+            <p className="text-neutral-200 truncate">
+              {connection.display_label}
+            </p>
+            <p className="text-xs text-white/50 truncate">
+              {formatDeviceMetadata(connection)}
+            </p>
+            {connection.pending && connection.downloadHref && (
+              <a
+                href={connection.downloadHref}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-xs text-white/40 hover:text-white/70 underline"
+              >
+                Download the MCP server
+              </a>
+            )}
+          </div>
+        </div>
+        <div className="flex items-center justify-end gap-2 shrink-0 flex-wrap">
+          <ConnectionPresence online={isOnline} />
+          {isBound && isOnline ? (
+            <button
+              type="button"
+              onClick={() => handleDeviceDisconnect(connection)}
+              disabled={isBusy}
+              className="shrink-0 px-3 py-1.5 text-sm bg-white/10 hover:bg-white/15 text-neutral-200 rounded-lg border border-white/15 transition-colors disabled:opacity-50"
             >
-              Download the MCP server
-            </a>
+              Disconnect
+            </button>
+          ) : (
+            <>
+              <button
+                type="button"
+                onClick={() => handleDeviceConnect(connection)}
+                disabled={isBusy}
+                className="shrink-0 px-3 py-1.5 text-sm bg-neutral-200 hover:bg-neutral-100 text-neutral-900 rounded-lg transition-colors disabled:opacity-50"
+              >
+                Connect
+              </button>
+              <button
+                type="button"
+                onClick={() => handleRemoveDevice(connection)}
+                disabled={isBusy}
+                className="shrink-0 px-3 py-1.5 text-sm bg-red-500/20 hover:bg-red-500/30 text-red-300 rounded-lg border border-red-500/30 transition-colors disabled:opacity-50"
+              >
+                Remove
+              </button>
+            </>
           )}
         </div>
-        <ConnectionPresence online={isOnline} />
-        {isBound && isOnline ? (
-          <button
-            type="button"
-            onClick={() => handleDeviceDisconnect(connection)}
-            disabled={isBusy}
-            className="shrink-0 px-3 py-1.5 text-sm bg-white/10 hover:bg-white/15 text-neutral-200 rounded-lg border border-white/15 transition-colors disabled:opacity-50"
-          >
-            Disconnect
-          </button>
-        ) : (
-          <>
-            <button
-              type="button"
-              onClick={() => handleDeviceConnect(connection)}
-              disabled={isBusy}
-              className="shrink-0 px-3 py-1.5 text-sm bg-neutral-200 hover:bg-neutral-100 text-neutral-900 rounded-lg transition-colors disabled:opacity-50"
-            >
-              Connect
-            </button>
-            <button
-              type="button"
-              onClick={() => handleRemoveDevice(connection)}
-              disabled={isBusy}
-              className="shrink-0 px-3 py-1.5 text-sm bg-red-500/20 hover:bg-red-500/30 text-red-300 rounded-lg border border-red-500/30 transition-colors disabled:opacity-50"
-            >
-              Remove
-            </button>
-          </>
-        )}
       </div>
     );
   };
@@ -385,44 +389,48 @@ const ConnectionsSection = ({ onConnectionsChanged }) => {
     return (
       <div
         key={connection.connection_key}
-        className="flex items-center gap-3 p-3 bg-black/60 border border-white/10 rounded-xl"
+        className="flex flex-col sm:flex-row sm:items-center gap-3 p-3 bg-black/60 border border-white/10 rounded-xl min-w-0"
       >
-        <ConnectorIcon iconKey={connection.icon_key} />
-        <div className="min-w-0 flex-grow">
-          <p className="text-neutral-200 whitespace-normal break-words">
-            {connection.display_label}
-          </p>
-          <p
-            className={`text-xs whitespace-normal break-words ${
-              needsReconnect ? 'text-amber-300' : 'text-white/50'
-            }`}
-          >
-            {needsReconnect
-              ? 'The saved credential stopped working — reconnect'
-              : connection.sub_label}
-          </p>
+        <div className="flex items-center gap-3 min-w-0 flex-1">
+          <ConnectorIcon iconKey={connection.icon_key} />
+          <div className="min-w-0 flex-1">
+            <p className="text-neutral-200 truncate">
+              {connection.display_label}
+            </p>
+            <p
+              className={`text-xs truncate ${
+                needsReconnect ? 'text-amber-300' : 'text-white/50'
+              }`}
+            >
+              {needsReconnect
+                ? 'The saved credential stopped working — reconnect'
+                : connection.sub_label}
+            </p>
+          </div>
         </div>
-        {isMailbox && isOn && (
-          <button
-            type="button"
-            onClick={() => handleImportWritingSamples(connection)}
-            disabled={importingAccountKey !== null}
-            title="Read your sent mail so the avatar learns how you write"
-            className="hidden md:inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-neutral-100/10 hover:bg-neutral-100/15 border border-neutral-700 text-neutral-300 text-xs transition-colors disabled:opacity-50"
-          >
-            <Sparkles className="w-3.5 h-3.5" aria-hidden="true" />
-            Learn my voice
-          </button>
-        )}
-        <Switch
-          checked={isOn}
-          busy={isBusy}
-          showLabel
-          onLabel="Disconnect"
-          offLabel="Connect"
-          label={`${isOn ? 'Disconnect' : 'Connect'} ${connection.display_label}`}
-          onChange={(next) => handleToggle(connection, next)}
-        />
+        <div className="flex items-center justify-end gap-2 shrink-0">
+          {isMailbox && isOn && (
+            <button
+              type="button"
+              onClick={() => handleImportWritingSamples(connection)}
+              disabled={importingAccountKey !== null}
+              title="Read your sent mail so the avatar learns how you write"
+              className="hidden md:inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-neutral-100/10 hover:bg-neutral-100/15 border border-neutral-700 text-neutral-300 text-xs transition-colors disabled:opacity-50"
+            >
+              <Sparkles className="w-3.5 h-3.5" aria-hidden="true" />
+              Learn my voice
+            </button>
+          )}
+          <Switch
+            checked={isOn}
+            busy={isBusy}
+            showLabel
+            onLabel="Disconnect"
+            offLabel="Connect"
+            label={`${isOn ? 'Disconnect' : 'Connect'} ${connection.display_label}`}
+            onChange={(next) => handleToggle(connection, next)}
+          />
+        </div>
       </div>
     );
   };
@@ -431,7 +439,7 @@ const ConnectionsSection = ({ onConnectionsChanged }) => {
     <div
       ref={sectionRef}
       id="connections"
-      className="bg-black/60 backdrop-blur-lg rounded-2xl border border-white/10 p-6"
+      className="bg-black/60 backdrop-blur-lg rounded-2xl border border-white/10 p-4 sm:p-6 min-w-0"
     >
       <div className="flex flex-wrap items-center gap-3 mb-3">
         <span className="px-3 py-1.5 rounded-full bg-white/15 text-neutral-200 text-sm font-medium inline-flex items-center gap-2">
@@ -507,30 +515,32 @@ const ConnectionsSection = ({ onConnectionsChanged }) => {
                 return (
                   <div
                     key={provider.provider}
-                    className="flex items-center gap-3 px-3 py-2.5 rounded-xl hover:bg-white/5 transition-colors"
+                    className="flex flex-col sm:flex-row sm:items-center gap-3 px-3 py-2.5 rounded-xl hover:bg-white/5 transition-colors min-w-0"
                   >
-                    <ConnectorIcon iconKey={provider.icon_key} />
-                    <div className="min-w-0 flex-grow">
-                      <p className="text-neutral-200 whitespace-normal break-words">
-                        {provider.display_name}
-                      </p>
-                      <p className="text-white/50 text-sm whitespace-normal break-words">
-                        {connectedCount > 0
-                          ? isDevice
-                            ? 'On the list · Connect it above'
-                            : `${connectedCount} connected · Connect another`
-                          : provider.summary || provider.card_description}
-                      </p>
+                    <div className="flex items-center gap-3 min-w-0 flex-1">
+                      <ConnectorIcon iconKey={provider.icon_key} />
+                      <div className="min-w-0 flex-1">
+                        <p className="text-neutral-200 truncate">
+                          {provider.display_name}
+                        </p>
+                        <p className="text-white/50 text-sm line-clamp-2">
+                          {connectedCount > 0
+                            ? isDevice
+                              ? 'On the list · Connect it above'
+                              : `${connectedCount} connected · Connect another`
+                            : provider.summary || provider.card_description}
+                        </p>
+                      </div>
                     </div>
                     {isComingSoon ? (
-                      <span className="shrink-0 px-3 py-1 rounded-full bg-white/10 border border-white/10 text-white/60 text-xs">
+                      <span className="shrink-0 self-end sm:self-auto px-3 py-1 rounded-full bg-white/10 border border-white/10 text-white/60 text-xs">
                         Coming soon
                       </span>
                     ) : (
                       <button
                         type="button"
                         onClick={() => openCardFor(provider)}
-                        className="shrink-0 px-3 py-1.5 rounded-full bg-neutral-200 hover:bg-neutral-100 text-neutral-900 text-sm font-medium transition-colors focus:outline-none focus:ring-2 focus:ring-amber-400/50"
+                        className="shrink-0 self-end sm:self-auto px-3 py-1.5 rounded-full bg-neutral-200 hover:bg-neutral-100 text-neutral-900 text-sm font-medium transition-colors focus:outline-none focus:ring-2 focus:ring-amber-400/50"
                       >
                         Add
                       </button>

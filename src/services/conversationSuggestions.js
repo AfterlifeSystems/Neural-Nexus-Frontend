@@ -34,10 +34,56 @@ export function isConversationSuggestionList(text) {
  * turn. A second turn on the same assistant is what replaced the reply with
  * a JSON list.
  *
+ * The first draw is a stable default. Passing `exclude` (the set already on
+ * screen) picks three different prompts from the same pool, which is how
+ * "Re-roll" refreshes the list without asking the avatar to speak JSON.
+ *
  * @param {Array} messages The open transcript.
+ * @param {Object} [options]
+ * @param {string[]} [options.exclude] Prompts already shown; skip these on a re-roll.
  * @returns {string[]} Up to three short prompts the person might send next.
  */
-export function localFollowUpSuggestions(messages) {
+export const QUESTION_FOLLOW_UPS = [
+  'Yes',
+  'Not really',
+  'Can you tell me more?',
+  'Tell me why',
+  'What do you think I should do?',
+  'Say more about that',
+  'That makes sense',
+  'Can we talk about something else?',
+  'I need a minute',
+];
+
+export const STATEMENT_FOLLOW_UPS = [
+  'Tell me more',
+  'How do you feel about that?',
+  'What happened next?',
+  'Why do you say that?',
+  'Remind me of a story',
+  'What should we talk about?',
+  'What would you do?',
+  'Can we go deeper?',
+  'That reminds me of something',
+];
+
+const pickThree = (pool, exclude) => {
+  const skipped = new Set(
+    (exclude ?? []).map((entry) => String(entry).trim().toLowerCase())
+  );
+  const remaining = pool.filter(
+    (entry) => !skipped.has(entry.toLowerCase())
+  );
+  const source = remaining.length >= 3 ? remaining : pool;
+  const shuffled = [...source];
+  for (let index = shuffled.length - 1; index > 0; index -= 1) {
+    const swapWith = Math.floor(Math.random() * (index + 1));
+    [shuffled[index], shuffled[swapWith]] = [shuffled[swapWith], shuffled[index]];
+  }
+  return shuffled.slice(0, 3);
+};
+
+export function localFollowUpSuggestions(messages, { exclude = [] } = {}) {
   const lastAvatar = [...(messages ?? [])].reverse().find((message) => {
     if (message.type !== 'ai' || message.isLoading || !message.content) {
       return false;
@@ -47,8 +93,11 @@ export function localFollowUpSuggestions(messages) {
   if (!lastAvatar) {
     return [];
   }
-  if (/\?/.test(String(lastAvatar.content))) {
-    return ['Yes', 'Not really', 'Can you tell me more?'];
+  const pool = /\?/.test(String(lastAvatar.content))
+    ? QUESTION_FOLLOW_UPS
+    : STATEMENT_FOLLOW_UPS;
+  if (exclude.length === 0) {
+    return pool.slice(0, 3);
   }
-  return ['Tell me more', 'How do you feel about that?', 'What happened next?'];
+  return pickThree(pool, exclude);
 }

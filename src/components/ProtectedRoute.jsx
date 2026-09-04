@@ -5,6 +5,8 @@ import { useAuth } from '../context/AuthContext';
 import { useMedia, NEW_CONVERSATION_ID } from '../context/MediaContext';
 import LoadingSpinner from './LoadingSpinner';
 import ConversationSidebar from './ConversationSidebar';
+import SharePreviewOutlet from './SharePreviewOutlet';
+import { MediaShareProvider } from '../context/MediaShareContext';
 import { toast } from 'react-hot-toast';
 
 export default function ProtectedRoute() {
@@ -82,7 +84,8 @@ export default function ProtectedRoute() {
   }
 
   return (
-    <>
+    <MediaShareProvider ambientAllowed>
+      <SharePreviewOutlet />
       <ConversationSidebar
         isOpen={isSidebarOpen}
         onOpen={() => setIsSidebarOpen(true)}
@@ -93,10 +96,12 @@ export default function ProtectedRoute() {
         onStartNewConversation={handleStartNewConversation}
         avatarName={activeAvatar?.name}
         showConversations={isViewingAChat}
+        showShareControls={isOnChatScreen}
       />
       {/* The frame every signed-in screen renders into.
-          `pl-14` reserves the collapsed rail's width, so left-aligned controls
-          do not slide underneath it as the window narrows.
+          `pl-[var(--app-rail-width)]` reserves the collapsed rail's width, so
+          left-aligned controls do not slide underneath it as the window
+          narrows. Voice mode shortens that variable so the icon rail fits.
           `h-full` is load-bearing: screens size themselves against this parent,
           and a wrapper of automatic height collapses the chat panel to the
           height of its messages.
@@ -107,9 +112,9 @@ export default function ProtectedRoute() {
           which looks exactly like a page that failed to load.
           `overflow-y-auto` lets a page taller than the window scroll inside the
           frame rather than pushing the fixed rail around. */}
-      <div className="pl-14 h-full relative z-10 overflow-y-auto">
+      <div className="pl-[var(--app-rail-width)] h-full min-w-0 relative z-10 overflow-y-auto overflow-x-hidden">
         <Outlet />
       </div>
-    </>
+    </MediaShareProvider>
   );
 }

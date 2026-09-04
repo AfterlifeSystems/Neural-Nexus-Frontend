@@ -1,18 +1,31 @@
 // src/components/ConversationSuggestions.jsx
 //
-// Clickable follow-up bubbles populated by the avatar from the current thread.
-// They sit in the message area above the composer; pressing one sends that
-// text as the next user turn.
+// Follow-up prompts from the current thread, offered as a sheet above the
+// composer. The handle raises and lowers the list; pressing a prompt sends it
+// as the next user turn. Voice mode and message mode share the open/closed
+// flag, so switching medium does not put the list away.
 
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
+import { ChevronDown, ChevronUp, RefreshCw } from 'lucide-react';
 import { useMedia } from '../context/MediaContext';
+import {
+  getSuggestionSheetOpen,
+  setSuggestionSheetOpen,
+  shouldShowConversationSuggestions,
+  subscribeSuggestionSheetOpen,
+} from './conversationSuggestionSheet';
 
 /**
  * @param {Object} parameters
  * @param {boolean} [parameters.enabled] When false, render nothing (shared
  *   opening-question screens already offer a starter).
+ * @param {Function} [parameters.onSend] Send a prompt. Voice mode supplies this
+ *   so a suggestion is spoken as a turn rather than typed into the chat
+ *   composer.
+ * @param {boolean} [parameters.overlay] Open the list upward over the parent
+ *   instead of pushing layout (voice mode: the portrait must not jump).
  */
-const ConversationSuggestions = ({ enabled = true }) => {
+const ConversationSuggestions = ({ enabled = true, onSend, overlay = false }) => {
   const {
     messages,
     pendingSendCount,
@@ -22,7 +35,15 @@ const ConversationSuggestions = ({ enabled = true }) => {
   } = useMedia();
   const [suggestions, setSuggestions] = useState([]);
   const [isLoading, setIsLoading] = useState(false);
+  const [isOpen, setIsOpenState] = useState(getSuggestionSheetOpen);
   const requestGeneration = useRef(0);
+  const sheetRef = useRef(null);
+  const dragStartY = useRef(null);
+
+  useEffect(() => {
+    setIsOpenState(getSuggestionSheetOpen());
+    return subscribeSuggestionSheetOpen(setIsOpenState);
+  }, []);
 
   const lastAvatarMessage = [...(messages ?? [])]
     .reverse()
@@ -36,54 +57,171 @@ const ConversationSuggestions = ({ enabled = true }) => {
     });
   const suggestionKey = `${activeConversation ?? 'new'}:${lastAvatarMessage?.id ?? 'empty'}`;
 
+  const loadSuggestions = useCallback(
+    async ({ exclude = [] } = {}) => {
+      const thisGeneration = ++requestGeneration.current;
+      setIsLoading(true);
+      try {
+        const next = await fetchConversationSuggestions?.({ exclude });
+        if (requestGeneration.current !== thisGeneration) return;
+        setSuggestions(Array.isArray(next) ? next : []);
+      } finally {
+        if (requestGeneration.current === thisGeneration) {
+          setIsLoading(false);
+        }
+      }
+    },
+    [fetchConversationSuggestions]
+  );
+
   useEffect(() => {
     if (!enabled) return undefined;
-    if (pendingSendCount > 0) return undefined;
     if (!lastAvatarMessage) {
       setSuggestions([]);
       setIsLoading(false);
       return undefined;
     }
-    const thisGeneration = ++requestGeneration.current;
-    let cancelled = false;
-    (async () => {
-      setIsLoading(true);
-      setSuggestions([]);
-      try {
-        const next = await fetchConversationSuggestions?.();
-        if (cancelled || requestGeneration.current !== thisGeneration) return;
-        setSuggestions(Array.isArray(next) ? next : []);
-      } finally {
-        if (!cancelled && requestGeneration.current === thisGeneration) {
-          setIsLoading(false);
-        }
-      }
-    })();
+    const thisGeneration = requestGeneration.current;
+    loadSuggestions();
     return () => {
-      cancelled = true;
+      if (requestGeneration.current === thisGeneration) {
+        requestGeneration.current += 1;
+      }
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [enabled, suggestionKey, pendingSendCount]);
+  }, [enabled, suggestionKey]);
 
-  if (!enabled || pendingSendCount > 0) return null;
-  if (!isLoading && suggestions.length === 0) return null;
+  useEffect(() => {
+    if (!isOpen) return undefined;
+    const handleEscape = (keyEvent) => {
+      if (keyEvent.key === 'Escape') setSuggestionSheetOpen(false);
+    };
+    document.addEventListener('keydown', handleEscape);
+    return () => {
+      document.removeEventListener('keydown', handleEscape);
+    };
+  }, [isOpen]);
+
+  const turnInFlight = pendingSendCount > 0;
+  if (
+    !shouldShowConversationSuggestions({
+      enabled,
+      isLoading,
+      suggestionCount: suggestions.length,
+      pendingSendCount,
+    })
+  ) {
+    return null;
+  }
+
+  const sendSuggestion = (suggestion) => {
+    if (turnInFlight) return;
+    if (onSend) {
+      onSend(suggestion);
+      return;
+    }
+    handleSendMessageMediaContext(suggestion);
+  };
+
+  const toggleOpen = () => setSuggestionSheetOpen((open) => !open);
+
+  const rerollSuggestions = (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    setSuggestionSheetOpen(true);
+    loadSuggestions({ exclude: suggestions });
+  };
+
+  const menuId = overlay
+    ? 'conversation-suggestions-menu-voice'
+    : 'conversation-suggestions-menu';
 
   return (
-    <div className="flex flex-wrap gap-2 px-2 pb-3 justify-center">
-      {isLoading && suggestions.length === 0 ? (
-        <p className="text-xs text-white/40 italic">Suggestions…</p>
-      ) : (
-        suggestions.map((suggestion) => (
-          <button
-            key={suggestion}
-            type="button"
-            onClick={() => handleSendMessageMediaContext(suggestion)}
-            className="max-w-full text-left px-3 py-2 rounded-full bg-white/5 hover:bg-white/10 border border-white/15 text-neutral-200 text-sm transition-colors"
-          >
-            {suggestion}
-          </button>
-        ))
-      )}
+    <div
+      ref={sheetRef}
+      className={`conversation-suggestions w-full overflow-visible ${overlay ? 'relative mb-1' : 'mb-1'}`}
+    >
+      <div
+        id={menuId}
+        role="menu"
+        hidden={!isOpen}
+        className={`overflow-hidden rounded-xl border border-white/10 bg-black/70 backdrop-blur-lg p-1.5 ${
+          overlay
+            ? 'absolute bottom-full left-0 right-0 mb-1 z-30'
+            : 'mb-1'
+        }`}
+      >
+        {isLoading && suggestions.length === 0 ? (
+          <p className="px-3 py-2 text-sm text-white/40 italic">Suggestions…</p>
+        ) : (
+          suggestions.map((suggestion) => (
+            <button
+              key={suggestion}
+              type="button"
+              role="menuitem"
+              disabled={turnInFlight}
+              onClick={() => sendSuggestion(suggestion)}
+              className="voice-text-btn w-full text-left px-3 py-2 rounded-lg text-sm text-white/80 hover:bg-white/10 hover:text-neutral-100 transition-colors disabled:opacity-40"
+            >
+              {suggestion}
+            </button>
+          ))
+        )}
+      </div>
+      <div className="flex items-center gap-1">
+        <button
+          type="button"
+          onPointerDown={(pointerEvent) => {
+            dragStartY.current = pointerEvent.clientY;
+          }}
+          onPointerUp={(pointerEvent) => {
+            const startY = dragStartY.current;
+            dragStartY.current = null;
+            if (startY == null) return;
+            const deltaY = pointerEvent.clientY - startY;
+            if (deltaY < -24) {
+              setSuggestionSheetOpen(true);
+              return;
+            }
+            if (deltaY > 24) {
+              setSuggestionSheetOpen(false);
+              return;
+            }
+            toggleOpen();
+          }}
+          onClick={(clickEvent) => {
+            // Keyboard activation has no pointer coordinates to swipe with.
+            if (clickEvent.detail === 0) toggleOpen();
+          }}
+          title={isOpen ? 'Hide suggested replies' : 'Show suggested replies'}
+          aria-label={isOpen ? 'Hide suggested replies' : 'Show suggested replies'}
+          aria-expanded={isOpen}
+          aria-controls={menuId}
+          className="suggestions-handle voice-text-btn min-w-0 flex-1 flex items-center justify-center gap-1.5 py-1.5 rounded-lg text-white/50 hover:text-neutral-200 hover:bg-white/5 transition-colors focus:outline-none focus:ring-2 focus:ring-amber-400/50"
+        >
+          {isOpen ? (
+            <ChevronDown className="w-4 h-4" aria-hidden="true" />
+          ) : (
+            <ChevronUp className="w-4 h-4" aria-hidden="true" />
+          )}
+          <span className="text-xs">Suggested replies</span>
+        </button>
+        <button
+          type="button"
+          onClick={rerollSuggestions}
+          onPointerDown={(event) => event.stopPropagation()}
+          disabled={isLoading || !lastAvatarMessage}
+          title="Re-roll suggested replies"
+          aria-label="Re-roll suggested replies"
+          className="voice-text-btn shrink-0 inline-flex items-center justify-center gap-1 px-2 py-1.5 rounded-lg text-white/50 hover:text-neutral-200 hover:bg-white/5 transition-colors focus:outline-none focus:ring-2 focus:ring-amber-400/50 disabled:opacity-40"
+        >
+          <RefreshCw
+            className={`w-4 h-4 ${isLoading ? 'animate-spin' : ''}`}
+            aria-hidden="true"
+          />
+          <span className="text-xs hidden sm:inline">Re-roll</span>
+        </button>
+      </div>
     </div>
   );
 };

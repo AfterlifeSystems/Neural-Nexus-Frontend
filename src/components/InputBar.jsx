@@ -2,14 +2,11 @@ import { useRef, useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   AudioLines,
-  Camera,
-  CameraOff,
   FileAudio,
   FileSpreadsheet,
   FileText,
   FileVideo,
   Image as ImageIcon,
-  MonitorUp,
   Paperclip,
   Plus,
 } from 'lucide-react';
@@ -17,6 +14,8 @@ import { useMedia } from '../context/MediaContext';
 import { useAuth } from '../context/AuthContext';
 import { useMediaShare } from '../context/MediaShareContext';
 import ComposerConnectorsMenu from './connections/ComposerConnectorsMenu';
+import { composerHasSendableDraft } from './composerSendState';
+import ConversationSuggestions from './ConversationSuggestions';
 import Dock from './Dock';
 import { HiXMark } from 'react-icons/hi2';
 import { describeDocumentKind } from './AvatarDocumentRow';
@@ -58,7 +57,11 @@ const describeAttachment = (attachedFile) => {
   return ATTACHMENT_PRESENTATION[kind] ?? ATTACHMENT_PRESENTATION.document;
 };
 
-const InputBar = ({ onActivateLiveChat, avatarId }) => {
+const InputBar = ({
+  onActivateLiveChat,
+  avatarId,
+  suggestionsEnabled = true,
+}) => {
   const fileInputRef = useRef(null);
   const textareaRef = useRef(null);
   const navigate = useNavigate();
@@ -133,13 +136,7 @@ const InputBar = ({ onActivateLiveChat, avatarId }) => {
     dataExchangeTypes,
     attachmentsInFlight,
   } = useMedia();
-  const {
-    webcamStream,
-    screenStream,
-    toggleWebcam,
-    toggleScreenShare,
-    captureShareStills,
-  } = useMediaShare();
+  const { captureShareStills } = useMediaShare();
 
   // One object URL per attached image, minted when the attachment list changes
   // and revoked when it changes again. These used to be created inline while
@@ -166,12 +163,13 @@ const InputBar = ({ onActivateLiveChat, avatarId }) => {
     };
   }, [mediaFiles, attachmentsInFlight]);
 
-  // Files alone are a message worth sending, so the button must offer to send
-  // them rather than reading an empty text box and offering live mode instead.
-  const hasSomethingToSend =
-    inputMessage.trim().length > 0 ||
-    mediaFiles.length > 0 ||
-    Boolean(webcamStream || screenStream);
+  // Typed text or an attached file is a message. A live webcam or screen
+  // share is not: those stay on while talking, so an empty box still offers
+  // voice mode.
+  const hasSomethingToSend = composerHasSendableDraft(
+    inputMessage,
+    mediaFiles.length
+  );
 
   const handleKeyDown = (e) => {
     e.stopPropagation();
@@ -282,19 +280,27 @@ const InputBar = ({ onActivateLiveChat, avatarId }) => {
   //   };
   // }, [mediaFiles.length]);
 
+  const submitComposer = () => {
+    if (!hasSomethingToSend) {
+      onActivateLiveChat?.();
+    } else {
+      handleSendMessage();
+    }
+  };
+
   return (
     <div
-      className="w-full max-w-3xl mx-auto rounded-xl flex flex-col"
+      className="chat-composer w-full max-w-3xl mx-auto min-w-0 rounded-xl flex flex-col"
       onDragOver={(e) => e.preventDefault()}
       onDrop={(e) => {
         e.preventDefault();
         handleFileSelect(e);
       }}
     >
-      {/* Input Bar + Send Button on Same Row */}
-      <div className="flex flex-row items-center gap-2 flex-col mb-2">
+      <ConversationSuggestions enabled={suggestionsEnabled} />
+      <div className="flex flex-row items-end gap-2 mb-2 min-w-0">
         {/* Input Container */}
-        <div className="flex-1 relative border border-neutral-700 rounded-lg bg-black/60 focus-within:border-neutral-300 transition-colors">
+        <div className="flex-1 min-w-0 relative border border-neutral-700 rounded-lg bg-black/60 focus-within:border-neutral-300 transition-colors">
           {composerAttachments.length > 0 && (
             <div className="p-3 border-b border-neutral-700/50">
               <div className="flex gap-3 overflow-x-auto scrollbar-thin scrollbar-thumb-neutral-600">
@@ -377,7 +383,7 @@ const InputBar = ({ onActivateLiveChat, avatarId }) => {
             ref={textareaRef}
             rows={1}
             style={{ lineHeight: '1.5rem', maxHeight: '9rem' }}
-            className="w-full resize-none overflow-y-auto max-h-40 px-4 py-3 text-neutral-200 bg-transparent placeholder-neutral-400 scrollbar-thin scrollbar-thumb-neutral-600 focus:outline-none border-none"
+            className="w-full min-w-0 resize-none overflow-y-auto max-h-40 px-3 py-2 text-neutral-200 bg-transparent placeholder-neutral-400 scrollbar-thin scrollbar-thumb-neutral-600 focus:outline-none border-none"
             placeholder={
               isNarrowViewport
                 ? 'Type your message…'
@@ -390,7 +396,7 @@ const InputBar = ({ onActivateLiveChat, avatarId }) => {
             spellCheck={false}
           />
 
-          <div className="relative flex items-center gap-1 px-3 pb-2">
+          <div className="relative flex items-center gap-0.5 sm:gap-1 px-2 sm:px-3 pb-2 min-w-0">
             <button
               type="button"
               onClick={() => fileInputRef.current?.click()}
@@ -399,34 +405,6 @@ const InputBar = ({ onActivateLiveChat, avatarId }) => {
               className="p-1.5 rounded-lg text-neutral-400 hover:text-neutral-100 hover:bg-white/10 transition-colors focus:outline-none focus:ring-2 focus:ring-amber-400/50"
             >
               <Paperclip className="w-5 h-5" />
-            </button>
-            <button
-              type="button"
-              onClick={toggleWebcam}
-              title={webcamStream ? 'Turn off webcam' : 'Share webcam'}
-              aria-label={webcamStream ? 'Turn off webcam' : 'Share webcam'}
-              aria-pressed={Boolean(webcamStream)}
-              className={`p-1.5 rounded-lg text-neutral-400 hover:text-neutral-100 hover:bg-white/10 transition-colors focus:outline-none focus:ring-2 focus:ring-amber-400/50 ${
-                webcamStream ? 'bg-white/10 text-neutral-100' : ''
-              }`}
-            >
-              {webcamStream ? (
-                <Camera className="w-5 h-5" />
-              ) : (
-                <CameraOff className="w-5 h-5" />
-              )}
-            </button>
-            <button
-              type="button"
-              onClick={toggleScreenShare}
-              title={screenStream ? 'Stop sharing screen' : 'Share screen'}
-              aria-label={screenStream ? 'Stop sharing screen' : 'Share screen'}
-              aria-pressed={Boolean(screenStream)}
-              className={`p-1.5 rounded-lg text-neutral-400 hover:text-neutral-100 hover:bg-white/10 transition-colors focus:outline-none focus:ring-2 focus:ring-amber-400/50 ${
-                screenStream ? 'bg-white/10 text-neutral-100' : ''
-              }`}
-            >
-              <MonitorUp className="w-5 h-5" />
             </button>
             {isPersonalAvatar && (
               <>
@@ -460,6 +438,15 @@ const InputBar = ({ onActivateLiveChat, avatarId }) => {
                 />
               </>
             )}
+            <button
+              type="button"
+              onClick={submitComposer}
+              title={hasSomethingToSend ? 'Send message' : 'Talk out loud'}
+              aria-label={hasSomethingToSend ? 'Send message' : 'Enter live mode'}
+              className="chat-send ml-auto sm:hidden shrink-0 rounded-lg text-neutral-200 bg-black/60 border border-neutral-700"
+            >
+              {hasSomethingToSend ? 'Send' : <AudioLines className="w-4 h-4" />}
+            </button>
           </div>
 
           {historyIndex !== -1 && (
@@ -484,16 +471,11 @@ const InputBar = ({ onActivateLiveChat, avatarId }) => {
             nothing to send — switch to talking. The waveform icon is what the
             button already showed in that state; now it does something. */}
         <button
-          onClick={() => {
-            if (!hasSomethingToSend) {
-              onActivateLiveChat?.();
-            } else {
-              handleSendMessage();
-            }
-          }}
+          type="button"
+          onClick={submitComposer}
           title={hasSomethingToSend ? 'Send message' : 'Talk out loud'}
           aria-label={hasSomethingToSend ? 'Send message' : 'Enter live mode'}
-          className="transition-transform duration-300 hover:scale-105 px-6 rounded-xl text-neutral-200 bg-black/60 border border-neutral-700 hover:border-neutral-200 flex items-center justify-center gap-2 whitespace-nowrap self-stretch"
+          className="chat-send hidden sm:flex shrink-0 rounded-xl text-neutral-200 bg-black/60 border border-neutral-700 hover:border-neutral-200 items-center justify-center gap-2 whitespace-nowrap self-stretch"
         >
           {hasSomethingToSend ? (
             'Send'

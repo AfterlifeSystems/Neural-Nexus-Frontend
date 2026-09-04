@@ -2,6 +2,10 @@
 import { useEffect, useRef, useState } from 'react';
 import { getInboxCount } from '../services/avatarService';
 import { useAuth } from '../context/AuthContext';
+import {
+  notifyDesktopIfHidden,
+  requestDesktopNotificationPermission,
+} from '../services/desktopNotifications';
 
 const POLL_MILLISECONDS = 60_000;
 
@@ -37,17 +41,11 @@ async function refreshSharedCount() {
 }
 
 function notifyDesktop(count) {
-  try {
-    if (typeof Notification === 'undefined') return;
-    if (Notification.permission !== 'granted') return;
-    if (document.visibilityState === 'visible' && document.hasFocus()) return;
-    new Notification('Neural Nexus', {
-      body: `${count} ${count === 1 ? 'message needs' : 'messages need'} your attention in the agent inbox.`,
-      tag: 'neural-nexus-inbox',
-    });
-  } catch {
-    // Notifications are a convenience; a browser that refuses them changes nothing else.
-  }
+  notifyDesktopIfHidden({
+    title: 'Neural Nexus',
+    body: `${count} ${count === 1 ? 'message needs' : 'messages need'} your attention in the avatar inbox.`,
+    tag: 'neural-nexus-inbox',
+  });
 }
 
 /**
@@ -56,15 +54,7 @@ function notifyDesktop(count) {
  * @returns {Promise<string>} The resulting permission.
  */
 export async function requestInboxNotifications() {
-  try {
-    if (typeof Notification === 'undefined') return 'unsupported';
-    if (Notification.permission === 'default') {
-      return Notification.requestPermission();
-    }
-    return Notification.permission;
-  } catch {
-    return 'unsupported';
-  }
+  return requestDesktopNotificationPermission();
 }
 
 /**
