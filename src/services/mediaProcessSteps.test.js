@@ -5,9 +5,11 @@ import {
   PORTRAIT_STILL_TOTAL,
   applyMediaProgress,
   finalizePipelineSteps,
+  isGenericMediaLabel,
   mergeUploadItems,
   pipelineProgress,
   stepsForMediaKind,
+  titleFromUploadItems,
 } from './mediaProcessSteps.js';
 
 const portrait = () => stepsForMediaKind('portrait');
@@ -136,6 +138,32 @@ test('mergeUploadItems stamps child job ids and appends playlist children', () =
     filename: 'https://youtu.be/list',
   });
   assert.equal(stamped[0].itemJobId, 'item-9');
+});
+
+test('titleFromUploadItems prefers a real filename over Media upload', () => {
+  assert.equal(isGenericMediaLabel('Media upload'), true);
+  assert.equal(isGenericMediaLabel('notes.pdf'), false);
+  assert.equal(
+    titleFromUploadItems(
+      [{ label: 'Media upload' }, { label: 'notes.pdf' }],
+      'Media upload'
+    ),
+    'notes.pdf'
+  );
+});
+
+test('mergeUploadItems replaces a generic Media upload placeholder', () => {
+  const started = [
+    { id: 'job-1', label: 'Media upload', itemJobId: null, state: 'running' },
+  ];
+  const named = mergeUploadItems(started, {
+    stage: 'converting',
+    item_job_id: 'child-1',
+    item_filename: 'notes.pdf',
+  });
+  assert.equal(named.length, 1);
+  assert.equal(named[0].label, 'notes.pdf');
+  assert.equal(named[0].itemJobId, 'child-1');
 });
 
 test('voice pipeline collects speech, then indexes the transcript', () => {

@@ -8,7 +8,17 @@
 // account links buried on another.
 
 import React from 'react';
-import { MessageSquarePlus, MoreHorizontal, Pin, Share2, Trash2, Pencil, X, PanelLeftOpen, User } from 'lucide-react';
+import {
+  MessageSquarePlus,
+  MoreHorizontal,
+  Pin,
+  Share2,
+  Trash2,
+  Pencil,
+  X,
+  PanelLeftOpen,
+  User,
+} from 'lucide-react';
 import { useLocation, useNavigate } from 'react-router-dom';
 
 import { NEW_CONVERSATION_ID } from '../context/MediaContext';
@@ -23,6 +33,7 @@ import { toast } from 'react-hot-toast';
 import { sortConversationsChronologically } from '../services/pinnedConversations';
 import SharePreviewSlot from './SharePreviewSlot';
 import SidebarShareControls from './SidebarShareControls';
+import EvanAssistLauncher from './evanAssist/EvanAssistLauncher';
 
 /**
  * Name a conversation the way the user would recognize it.
@@ -75,7 +86,7 @@ export function describeConversation(conversation) {
 function isConversationPinned(conversation) {
   return Boolean(
     conversation?.metadata?.thread_metadata?.pinned ??
-      conversation?.metadata?.pinned
+    conversation?.metadata?.pinned
   );
 }
 
@@ -144,9 +155,7 @@ function ConversationRow({
             }`}
             title={describeConversation(conversation)}
           >
-            {isPinned && (
-              <Pin className="w-3 h-3 inline mr-1 text-amber-300" />
-            )}
+            {isPinned && <Pin className="w-3 h-3 inline mr-1 text-amber-300" />}
             {describeConversation(conversation)}
           </button>
           {!isPlaceholder && (
@@ -381,22 +390,22 @@ const ConversationSidebar = ({
                 openWelcomePage();
               }}
               className="shrink-0 p-0! border-0! rounded-md! opacity-70 hover:opacity-100 hover:ring-2 hover:ring-white/40 transition-[opacity,box-shadow] duration-300 focus:outline-none focus:ring-2 focus:ring-amber-400/50 focus:opacity-100"
-            aria-label="Neural Nexus — scan or open the welcome page"
-            title="Scan to share Neural Nexus, or press to open the welcome page"
-          >
-            <span
-              data-sidebar-qr
-              className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-white p-0.5"
+              aria-label="Neural Nexus — scan or open the welcome page"
+              title="Scan to share Neural Nexus, or press to open the welcome page"
             >
-              <img
-                src={qrCode}
-                alt="QR code linking to Neural Nexus"
-                width={28}
-                height={28}
-                className="block h-7 w-7 max-w-none shrink-0"
-              />
-            </span>
-          </button>
+              <span
+                data-sidebar-qr
+                className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-white p-0.5"
+              >
+                <img
+                  src={qrCode}
+                  alt="QR code linking to Neural Nexus"
+                  width={28}
+                  height={28}
+                  className="block h-7 w-7 max-w-none shrink-0"
+                />
+              </span>
+            </button>
           </div>
         </div>
       )}
@@ -454,120 +463,120 @@ const ConversationSidebar = ({
               in this scroller: a phone is too short to pin the tiles and the
               code and still have a list that can move. */}
           <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain -mx-1 px-1 flex flex-col gap-4">
-          <div className="space-y-1 border-b border-white/10 pb-4">
-            <AccountMenu
-              leadingAction="avatars"
-              onNavigate={onClose}
-              currentPath={location.pathname}
-            />
-          </div>
-
-          {showShareControls && (
-            <div className="space-y-2">
-              <SidebarShareControls variant="rows" />
-              <SharePreviewSlot name="panel" className="empty:hidden" />
+            <div className="space-y-1 border-b border-white/10 pb-4">
+              <AccountMenu
+                leadingAction="avatars"
+                onNavigate={onClose}
+                currentPath={location.pathname}
+              />
             </div>
-          )}
 
-          {showConversations && (
-            <>
-              <div className="flex items-center justify-between">
-                <h2 className="text-sm font-semibold text-white/60 uppercase tracking-wide">
-                  {avatarName ? `Chats with ${avatarName}` : 'Conversations'}
-                </h2>
+            {showShareControls && (
+              <div className="space-y-2">
+                <SidebarShareControls variant="rows" />
+                <SharePreviewSlot name="panel" className="empty:hidden" />
               </div>
+            )}
 
-              <button
-                onClick={onStartNewConversation}
-                className="px-4 py-2 rounded-lg border border-white/10 bg-black/60 hover:bg-neutral-900 text-neutral-200 font-semibold flex items-center justify-center gap-2 transition-colors focus:outline-none focus:ring-2 focus:ring-amber-400/50"
-              >
-                <MessageSquarePlus className="w-5 h-5" />
-                New conversation
-              </button>
+            {showConversations && (
+              <>
+                <div className="flex items-center justify-between">
+                  <h2 className="text-sm font-semibold text-white/60 uppercase tracking-wide">
+                    {avatarName ? `Chats with ${avatarName}` : 'Conversations'}
+                  </h2>
+                </div>
 
-              {newConversationEntry && (
-                <ul className="space-y-1 -mx-1 px-1">
-                  <ConversationRow
-                    conversation={newConversationEntry}
-                    isActive
-                    {...conversationRowProps}
-                  />
-                </ul>
-              )}
+                <button
+                  onClick={onStartNewConversation}
+                  className="px-4 py-2 rounded-lg border border-white/10 bg-black/60 hover:bg-neutral-900 text-neutral-200 font-semibold flex items-center justify-center gap-2 transition-colors focus:outline-none focus:ring-2 focus:ring-amber-400/50"
+                >
+                  <MessageSquarePlus className="w-5 h-5" />
+                  New conversation
+                </button>
 
-              <div className="shrink-0 -mx-1 px-1">
-                {pinnedConversations.length > 0 && (
-                  <section className="mb-4">
-                    <h2 className="text-sm font-semibold text-white/60 uppercase tracking-wide px-2 mb-2">
-                      Pinned conversations
-                    </h2>
-                    <ul className="space-y-1">
-                      {pinnedConversations.map((conversation) => (
-                        <ConversationRow
-                          key={conversation.thread_id}
-                          conversation={conversation}
-                          isActive={
-                            conversation.thread_id === activeConversationId
-                          }
-                          {...conversationRowProps}
-                        />
-                      ))}
-                    </ul>
-                  </section>
+                {newConversationEntry && (
+                  <ul className="space-y-1 -mx-1 px-1">
+                    <ConversationRow
+                      conversation={newConversationEntry}
+                      isActive
+                      {...conversationRowProps}
+                    />
+                  </ul>
                 )}
 
-                <section>
-                  <h2 className="text-sm font-semibold text-white/60 uppercase tracking-wide px-2 mb-2">
-                    Recent conversations
-                  </h2>
-                  {recentConversations.length > 0 ? (
-                    <ul className="space-y-1">
-                      {recentConversations.map((conversation) => (
-                        <ConversationRow
-                          key={conversation.thread_id}
-                          conversation={conversation}
-                          isActive={
-                            conversation.thread_id === activeConversationId
-                          }
-                          {...conversationRowProps}
-                        />
-                      ))}
-                    </ul>
-                  ) : pinnedConversations.length === 0 ? (
-                    <p className="text-white/50 text-sm px-2 py-4">
-                      No conversations yet. Send a message to start one.
-                    </p>
-                  ) : null}
-                </section>
-              </div>
-            </>
-          )}
+                <div className="shrink-0 -mx-1 px-1">
+                  {pinnedConversations.length > 0 && (
+                    <section className="mb-4">
+                      <h2 className="text-sm font-semibold text-white/60 uppercase tracking-wide px-2 mb-2">
+                        Pinned conversations
+                      </h2>
+                      <ul className="space-y-1">
+                        {pinnedConversations.map((conversation) => (
+                          <ConversationRow
+                            key={conversation.thread_id}
+                            conversation={conversation}
+                            isActive={
+                              conversation.thread_id === activeConversationId
+                            }
+                            {...conversationRowProps}
+                          />
+                        ))}
+                      </ul>
+                    </section>
+                  )}
 
-          {/* Opened, the code is shown at a size worth pointing a phone at.
+                  <section>
+                    <h2 className="text-sm font-semibold text-white/60 uppercase tracking-wide px-2 mb-2">
+                      Recent conversations
+                    </h2>
+                    {recentConversations.length > 0 ? (
+                      <ul className="space-y-1">
+                        {recentConversations.map((conversation) => (
+                          <ConversationRow
+                            key={conversation.thread_id}
+                            conversation={conversation}
+                            isActive={
+                              conversation.thread_id === activeConversationId
+                            }
+                            {...conversationRowProps}
+                          />
+                        ))}
+                      </ul>
+                    ) : pinnedConversations.length === 0 ? (
+                      <p className="text-white/50 text-sm px-2 py-4">
+                        No conversations yet. Send a message to start one.
+                      </p>
+                    ) : null}
+                  </section>
+                </div>
+              </>
+            )}
+
+            {/* Opened, the code is shown at a size worth pointing a phone at.
               `mt-auto` holds it at the foot of the panel on the screens that
               list no conversations — account settings, billing, the gallery —
               where nothing above it grows to fill the space. */}
-          <div className="mt-auto shrink-0 pt-4 border-t border-white/10 flex flex-col items-center gap-2">
-            <button
-              onClick={openWelcomePage}
-              className="p-0! border-0! rounded-lg! overflow-hidden ring-1 ring-white/10 hover:ring-2 hover:ring-neutral-300/60 transition-shadow focus:outline-none focus:ring-2 focus:ring-amber-400/50"
-              aria-label="Neural Nexus — scan or open the welcome page"
-              title="Scan to share Neural Nexus, or press to open the welcome page"
-            >
-              <span className="flex h-32 w-32 shrink-0 items-center justify-center rounded-lg bg-white p-2">
-                <img
-                  src={qrCode}
-                  alt="QR code linking to Neural Nexus"
-                  width={112}
-                  height={112}
-                  className="block h-28 w-28 max-w-none shrink-0"
-                />
+            <div className="mt-auto shrink-0 pt-4 border-t border-white/10 flex flex-col items-center gap-2">
+              <button
+                onClick={openWelcomePage}
+                className="p-0! border-0! rounded-lg! overflow-hidden ring-1 ring-white/10 hover:ring-2 hover:ring-neutral-300/60 transition-shadow focus:outline-none focus:ring-2 focus:ring-amber-400/50"
+                aria-label="Neural Nexus — scan or open the welcome page"
+                title="Scan to share Neural Nexus, or press to open the welcome page"
+              >
+                <span className="flex h-32 w-32 shrink-0 items-center justify-center rounded-lg bg-white p-2">
+                  <img
+                    src={qrCode}
+                    alt="QR code linking to Neural Nexus"
+                    width={112}
+                    height={112}
+                    className="block h-28 w-28 max-w-none shrink-0"
+                  />
+                </span>
+              </button>
+              <span className="text-xs text-white/40">
+                Scan to share Neural Nexus
               </span>
-            </button>
-            <span className="text-xs text-white/40">
-              Scan to share Neural Nexus
-            </span>
-          </div>
+            </div>
           </div>
         </div>
       </div>

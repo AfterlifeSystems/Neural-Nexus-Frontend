@@ -1240,6 +1240,46 @@ const AMBIENT_SOURCE_BY_FILENAME = {
  * @param {string} [options.userTimezone] The browser's IANA zone.
  * @returns {{path: string, formData: FormData}}
  */
+/**
+ * Build the request for one live-voice utterance labelled by speaker.
+ *
+ * The recording rides the ordinary message call with `diarize=true`: the API
+ * transcribes the utterance with speaker labels (the owner recognised from the
+ * voice recordings, other people as "Speaker N"), announces the script as a
+ * `spoken_turn` stream frame, and either answers (the owner spoke to the
+ * avatar) or triages the turn as something heard in the room.
+ *
+ * @param {string} assistantId The avatar.
+ * @param {File} recording The utterance (WebM/Opus or MP4/AAC from MediaRecorder).
+ * @param {Object} [options]
+ * @param {string|null} [options.threadId]
+ * @param {string} [options.userTimezone]
+ * @param {string} [options.typedText] Text typed alongside the recording.
+ * @returns {{path: string, formData: FormData}}
+ */
+export const buildSpokenTurnRequest = (
+  assistantId,
+  recording,
+  { threadId, userTimezone, typedText = '' } = {}
+) => {
+  const formData = new FormData();
+  formData.append('message', typedText ?? '');
+  formData.append('stream', 'true');
+  formData.append('diarize', 'true');
+  formData.append('voice_mode', 'true');
+  formData.append('files', recording, recording?.name ?? 'utterance.webm');
+  if (threadId) {
+    formData.append('thread_id', threadId);
+  }
+  if (userTimezone) {
+    formData.append('user_timezone', userTimezone);
+  }
+  return {
+    path: `/message/${encodeURIComponent(assistantId)}`,
+    formData,
+  };
+};
+
 export const buildAmbientMessageRequest = (
   assistantId,
   files,
@@ -1267,6 +1307,45 @@ export const buildAmbientMessageRequest = (
     path: `/message/${encodeURIComponent(assistantId)}`,
     formData,
   };
+};
+
+/**
+ * End a reply the avatar is still generating.
+ * POST /message/{assistant_id}/stop
+ *
+ * The stream announced its `request_id` in its first frame (`turn_started`);
+ * pass that, or the `thread_id` when the first frame was never seen. On
+ * success the running stream ends with a `done` frame flagged `stopped`. A
+ * 404 means no reply is being generated for that id in the process that
+ * answered — the turn already finished, or another API process is streaming
+ * it — and the caller should abort its own stream instead.
+ *
+ * @param {Object} parameters
+ * @param {string} parameters.assistantId The avatar whose reply is streaming.
+ * @param {string|null} [parameters.requestId] The id from `turn_started`.
+ * @param {string|null} [parameters.threadId] The conversation, as a fallback.
+ * @param {boolean} [parameters.asAnonymousIdentity] Send no credential, as the
+ *   turn itself was sent (a guest on a shared avatar's public chat).
+ * @returns {Promise<Object>} `{status: 'stopping', request_id, thread_id}`.
+ */
+export const stopAssistantReply = async ({
+  assistantId,
+  requestId = null,
+  threadId = null,
+  asAnonymousIdentity = false,
+}) => {
+  const formData = new FormData();
+  if (requestId) {
+    formData.append('request_id', requestId);
+  }
+  if (threadId) {
+    formData.append('thread_id', threadId);
+  }
+  return requestJson(`/message/${encodeURIComponent(assistantId)}/stop`, {
+    method: 'POST',
+    formData,
+    asAnonymousIdentity,
+  });
 };
 
 /**

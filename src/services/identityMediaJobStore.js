@@ -5,11 +5,20 @@
 // outlives that screen. Mapping from GET /media_jobs lives here so tests can
 // cover restore without loading the API client.
 
+import {
+  MEDIA_JOB_LOST_MESSAGE,
+  mergeMediaJobTiming,
+  timingFromMediaJobSnapshot,
+} from './mediaJobTiming.js';
 import { isVoiceMediaFilename } from './voiceMedia.js';
 import {
   applyMediaProgress,
+  fallbackTitleForKind,
   finalizePipelineSteps,
+  firstRealMediaLabel,
+  isGenericMediaLabel,
   stepsForMediaKind,
+  titleFromUploadItems,
 } from './mediaProcessSteps.js';
 
 let jobs = [];
@@ -164,11 +173,13 @@ const childItemsFromSnapshot = (entry) => {
         child.url ||
         `item-${index}`,
       label:
-        child.filename ||
-        child.url ||
-        child.label ||
-        child.description ||
-        'Item',
+        firstRealMediaLabel([
+          child.filename,
+          child.namespace_filename,
+          child.url,
+          child.label,
+          child.description,
+        ]) || 'Item',
       itemJobId: child.job_id || child.id || null,
       state:
         statusFromMediaJobSnapshot(child) === 'running'
@@ -216,18 +227,29 @@ export const panelJobFromMediaSnapshot = (entry, assistantId) => {
   applySnapshotProgress(steps, entry, kind);
   const items = childItemsFromSnapshot(entry);
   const title =
-    entry?.description ||
-    entry?.title ||
-    entry?.filename ||
-    items[0]?.label ||
-    'Media upload';
+    firstRealMediaLabel([
+      entry?.filename,
+      entry?.namespace_filename,
+      entry?.original_filename,
+      items[0]?.label,
+      entry?.description,
+      entry?.title,
+    ]) || fallbackTitleForKind(kind);
   if (items.length === 0) {
-    items.push({
-      id: entry?.job_id || entry?.id || title,
-      label: title,
-      itemJobId: null,
-      state: statusFromMediaJobSnapshot(entry) === 'running' ? 'running' : 'done',
-    });
+    const itemLabel = firstRealMediaLabel([
+      entry?.filename,
+      entry?.namespace_filename,
+      title,
+    ]);
+    if (itemLabel) {
+      items.push({
+        id: entry?.job_id || entry?.id || itemLabel,
+        label: itemLabel,
+        itemJobId: null,
+        state:
+          statusFromMediaJobSnapshot(entry) === 'running' ? 'running' : 'done',
+      });
+    }
   }
   return {
     localId: `restored-${entry?.job_id || entry?.id || newIdentityMediaLocalId()}`,
@@ -240,7 +262,132 @@ export const panelJobFromMediaSnapshot = (entry, assistantId) => {
     status: statusFromMediaJobSnapshot(entry),
     error: entry?.error || entry?.error_message || null,
     cancelling: false,
+    previewUrl: null,
+    timing: timingFromMediaJobSnapshot(entry),
   };
+};
+
+const revokePreviewUrl = (url) => {
+  if (typeof url === 'string' && url.startsWith('blob:') && typeof URL !== 'undefined') {
+    try {
+      URL.revokeObjectURL(url);
+    } catch {
+      // The URL may already have been revoked.
+    }
+  }
+};
+
+const revokeJobPreviews = (job) => {
+  if (!job) return;
+  revokePreviewUrl(job.previewUrl);
+  for (const item of job.items ?? []) {
+    revokePreviewUrl(item.previewUrl);
+  }
+};
+
+/**
+ * Copy filenames from a GET /media_job/{id} snapshot onto a card that was
+ * restored from the list (which does not include them).
+ *
+ * @param {Object} job The stored card.
+ * @param {Object} entry A detailed snapshot.
+ * @returns {Object}
+ */
+export const applyMediaSnapshotToPanelJob = (job, entry) => {
+  if (!job || !entry) return job;
+  const incoming = panelJobFromMediaSnapshot(entry, job.assistantId);
+  const incomingHasNames = incoming.items.some(
+    (item) => !isGenericMediaLabel(item.label)
+  );
+  const items = incomingHasNames ? incoming.items : job.items;
+  return {
+    ...job,
+    jobId: job.jobId || incoming.jobId,
+    title: isGenericMediaLabel(job.title)
+      ? titleFromUploadItems(items, incoming.title)
+      : job.title,
+    items,
+    kind:
+      job.kind === 'document' && incoming.kind !== 'document'
+        ? incoming.kind
+        : job.kind,
+    error: job.error || incoming.error,
+    timing: mergeMediaJobTiming(job.timing ?? null, incoming.timing),
+  };
+};
+
+/**
+ * Mark running cards whose server job no longer exists as failed.
+ *
+ * Jobs live in the API process's memory. After a restart GET /media_jobs
+ * (with finished jobs included) no longer lists them, so a card still
+ * following one is showing a job that will never finish. Cards without a
+ * server id (a POST still in flight) are left alone.
+ *
+ * @param {string} assistantId The avatar whose jobs were listed.
+ * @param {Iterable<string>} liveJobIds Server ids the listing returned.
+ * @returns {string[]} The cards marked lost.
+ */
+export const markMissingRunningJobsLost = (assistantId, liveJobIds) => {
+  const live = new Set(liveJobIds ?? []);
+  const lostLocalIds = [];
+  jobs = jobs.map((job) => {
+    if (
+      job.assistantId !== assistantId ||
+      job.status !== 'running' ||
+      !job.jobId ||
+      live.has(job.jobId)
+    ) {
+      return job;
+    }
+    lostLocalIds.push(job.localId);
+    return {
+      ...job,
+      status: 'error',
+      error: MEDIA_JOB_LOST_MESSAGE,
+      cancelling: false,
+      steps: job.steps.map((step) =>
+        step.state === 'active' ? { ...step, state: 'error' } : step
+      ),
+    };
+  });
+  if (lostLocalIds.length > 0) emit();
+  return lostLocalIds;
+};
+
+/**
+ * Keep the filename and preview from a local card when Settings remounted
+ * and restored the same server job without those fields.
+ *
+ * @param {string} fromLocalId The card that started the upload.
+ * @param {string} ontoJobId The server id of the restored card.
+ */
+export const transferIdentityMediaJobLabels = (fromLocalId, ontoJobId) => {
+  const source = findIdentityMediaJob(fromLocalId);
+  const target = jobs.find((job) => job.jobId === ontoJobId);
+  if (!source || !target) return;
+  patchIdentityMediaJob(target.localId, (job) => {
+    const sourceHasNames = source.items?.some(
+      (item) => !isGenericMediaLabel(item.label)
+    );
+    const targetNeedsNames = !job.items?.some(
+      (item) => !isGenericMediaLabel(item.label)
+    );
+    return {
+      ...job,
+      title: isGenericMediaLabel(job.title) ? source.title : job.title,
+      items: sourceHasNames && targetNeedsNames ? source.items : job.items,
+      previewUrl: job.previewUrl || source.previewUrl,
+      kind: job.kind === 'document' && source.kind !== 'document' ? source.kind : job.kind,
+    };
+  });
+  // The restored card now owns any object-URL preview. Clear them here so
+  // dropping this card does not revoke the URL the other card is showing.
+  patchIdentityMediaJob(fromLocalId, (job) => ({
+    ...job,
+    previewUrl: null,
+    items: (job.items ?? []).map((item) => ({ ...item, previewUrl: null })),
+  }));
 };
 
 /**
@@ -277,6 +424,8 @@ const forgetDismissTimer = (localId) => {
  */
 export const dropIdentityMediaJobCard = (localId) => {
   forgetDismissTimer(localId);
+  const leaving = jobs.find((candidate) => candidate.localId === localId);
+  revokeJobPreviews(leaving);
   jobs = jobs.filter((candidate) => candidate.localId !== localId);
   emit();
 };
@@ -332,6 +481,7 @@ export const adoptListedMediaJobs = (assistantId, entries) => {
     return { added: 0, runningLocalIds: [] };
   }
   const runningLocalIds = [];
+  const addedLocalIds = [];
   let added = 0;
   for (const entry of entries) {
     const jobId = entry?.job_id ?? entry?.id ?? null;
@@ -343,6 +493,7 @@ export const adoptListedMediaJobs = (assistantId, entries) => {
     const panelJob = panelJobFromMediaSnapshot(entry, assistantId);
     jobs = [...jobs, panelJob];
     added += 1;
+    addedLocalIds.push(panelJob.localId);
     if (panelJob.status === 'running') {
       runningLocalIds.push(panelJob.localId);
     } else {
@@ -350,5 +501,5 @@ export const adoptListedMediaJobs = (assistantId, entries) => {
     }
   }
   if (added > 0) emit();
-  return { added, runningLocalIds };
+  return { added, addedLocalIds, runningLocalIds };
 };

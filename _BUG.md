@@ -64,3 +64,4 @@ should be able to cancel any description generation
 
 should not attempt to connect to ubuntu pc "on next turn" needs to attempt to connect immediately
 
+agent inbox is meant to be its own tab on the personal avatar (avatar settings, personal avatar inbox, etc on the header)

@@ -3,6 +3,7 @@ import { test } from 'node:test';
 import {
   adoptListedMediaJobs,
   addIdentityMediaJob,
+  applyMediaSnapshotToPanelJob,
   dismissIdentityMediaJob,
   kindFromMediaJobSnapshot,
   listStoredIdentityMediaJobs,
@@ -13,6 +14,7 @@ import {
   statusFromMediaJobSnapshot,
   storeHasMediaJobId,
   subscribeIdentityMediaJobs,
+  transferIdentityMediaJobLabels,
 } from './identityMediaJobStore.js';
 
 test('mediaJobEntriesFromListResponse unwraps jobs, items, or a bare array', () => {
@@ -159,4 +161,97 @@ test('adoptListedMediaJobs restores a missing card and skips known or dismissed 
   ]);
   assert.equal(afterDismiss.added, 0);
   assert.equal(listStoredIdentityMediaJobs('avatar-1').length, 0);
+});
+
+test('panelJobFromMediaSnapshot does not invent a Media upload label', () => {
+  const job = panelJobFromMediaSnapshot(
+    { job_id: 'listed-1', status: 'running', assistant_id: 'avatar-1' },
+    'avatar-1'
+  );
+  assert.equal(job.title, 'Document upload');
+  assert.equal(job.items.length, 0);
+});
+
+test('panelJobFromMediaSnapshot titles the card from child filenames', () => {
+  const job = panelJobFromMediaSnapshot(
+    {
+      job_id: 'master-2',
+      status: 'running',
+      children: [{ job_id: 'child-2', filename: 'vacation.jpg', status: 'running' }],
+    },
+    'avatar-1'
+  );
+  assert.equal(job.title, 'vacation.jpg');
+  assert.equal(job.items[0].label, 'vacation.jpg');
+});
+
+test('applyMediaSnapshotToPanelJob fills a list-restored card from GET /media_job', () => {
+  const listed = panelJobFromMediaSnapshot(
+    { job_id: 'job-9', status: 'running' },
+    'avatar-1'
+  );
+  const filled = applyMediaSnapshotToPanelJob(listed, {
+    job_id: 'job-9',
+    status: 'running',
+    children: [{ job_id: 'child-9', filename: 'notes.pdf', status: 'running' }],
+  });
+  assert.equal(filled.title, 'notes.pdf');
+  assert.equal(filled.items[0].label, 'notes.pdf');
+  assert.equal(filled.localId, listed.localId);
+});
+
+test('transferIdentityMediaJobLabels keeps the local filename on the restored card', () => {
+  resetIdentityMediaJobsForTests();
+  addIdentityMediaJob({
+    localId: 'local-upload',
+    assistantId: 'avatar-1',
+    jobId: null,
+    title: 'face.png',
+    kind: 'document',
+    items: [
+      { id: 'face.png', label: 'face.png', itemJobId: null, state: 'running' },
+    ],
+    steps: [],
+    status: 'running',
+    error: null,
+    cancelling: false,
+    previewUrl: null,
+  });
+  addIdentityMediaJob({
+    localId: 'restored-job-8',
+    assistantId: 'avatar-1',
+    jobId: 'job-8',
+    title: 'Document upload',
+    kind: 'document',
+    items: [],
+    steps: [],
+    status: 'running',
+    error: null,
+    cancelling: false,
+    previewUrl: null,
+  });
+  transferIdentityMediaJobLabels('local-upload', 'job-8');
+  const restored = listStoredIdentityMediaJobs('avatar-1').find(
+    (job) => job.jobId === 'job-8'
+  );
+  assert.equal(restored.title, 'face.png');
+  assert.equal(restored.items[0].label, 'face.png');
+});
+
+test('a list-restored card plus GET /media_job snapshot names the file', () => {
+  resetIdentityMediaJobsForTests();
+  const { addedLocalIds } = adoptListedMediaJobs('avatar-1', [
+    { job_id: 'job-9', assistant_id: 'avatar-1', status: 'running' },
+  ]);
+  assert.equal(addedLocalIds.length, 1);
+  const listed = listStoredIdentityMediaJobs('avatar-1')[0];
+  assert.equal(listed.title, 'Document upload');
+  patchIdentityMediaJob(listed.localId, (job) =>
+    applyMediaSnapshotToPanelJob(job, {
+      job_id: 'job-9',
+      status: 'running',
+      children: [{ job_id: 'child-1', filename: 'notes.pdf', status: 'running' }],
+    })
+  );
+  assert.equal(listStoredIdentityMediaJobs('avatar-1')[0].title, 'notes.pdf');
 });

@@ -39,6 +39,8 @@ import {
   VideoOff,
   Volume2,
   VolumeX,
+  Square,
+  Users,
 } from 'lucide-react';
 import { toast } from 'react-hot-toast';
 import { useLocation, useNavigate } from 'react-router-dom';
@@ -53,6 +55,10 @@ import {
   isSharedAvatarChatPath,
   isValidImageUrl,
 } from './utils';
+import {
+  canUseAvatarSpeechInput,
+  canUseAvatarSpeechPlayback,
+} from '../services/avatarSpeechPlayback';
 import AvatarWorkspaceHeader from './AvatarWorkspaceHeader';
 import useInboxCount from '../hooks/useInboxCount';
 import LoopingVideo from './ui/LoopingVideo';
@@ -67,6 +73,9 @@ import {
   stripArtifactReferences,
 } from '../services/createdArtifacts';
 import ConversationSuggestions from './ConversationSuggestions';
+import SpeakerScript from './SpeakerScript';
+import { hasSpeakerScript } from './speakerScript';
+import { speakerLabelsDefaultOn } from '../config/voiceSpeakerLabels';
 import ComposerConnectorsMenu from './connections/ComposerConnectorsMenu';
 import { canCaptureMicrophone, recordOneTurn } from '../services/voiceSession';
 import { startVoiceActivityListening } from '../services/voiceActivity';
@@ -196,6 +205,7 @@ const LiveVoiceMode = ({
   const {
     messages,
     sendSpokenTurn,
+    sendSpokenAudioTurn,
     handleFileChange,
     setAmbientHold,
     assistantActivity,
@@ -211,13 +221,18 @@ const LiveVoiceMode = ({
   const location = useLocation();
   const navigate = useNavigate();
   const readerIsAnonymous = isSharedAvatarChatPath(location.pathname);
+  const canDictate = canUseAvatarSpeechInput(activeAvatar, user, {
+    pathname: location.pathname,
+  });
+  const canPlayAvatarVoice = canUseAvatarSpeechPlayback(activeAvatar, user, {
+    pathname: location.pathname,
+  });
   const inboxCount = useInboxCount();
   const canOpenAvatarSettings =
     isAvatarOwnedByUser(activeAvatar, user) ||
     canShareAvatar(activeAvatar, user);
-  const isPersonalAvatar = Boolean(
-    activeAvatar?.metadata?.is_personal_avatar_of_creator
-  );
+  const isPersonalAvatar =
+    activeAvatar?.metadata?.is_personal_avatar_of_creator === true;
   const showWorkspaceTabs =
     typeof onNavigateTab === 'function' && !readerIsAnonymous;
 
@@ -232,14 +247,38 @@ const LiveVoiceMode = ({
   const [showCaptions, setShowCaptions] = useState(
     preferences.showCaptions ?? true
   );
+  // Hands-free listening is the default: opening voice mode starts the
+  // voice-activity loop (detect speech, transcribe, reply, speak) without a
+  // click. Turning the loop off is remembered until the person turns it back on.
+  const [liveListeningPreferred, setLiveListeningPreferred] = useState(
+    preferences.liveListening ?? true
+  );
+  // "Who is speaking": each hands-free utterance is sent as audio and labelled
+  // by speaker on the server (the owner by voice, others as Speaker N) so the
+  // avatar can tell the owner from other people in the room. On by default
+  // for a personal avatar, which is the only avatar with the owner's voice.
+  const [speakerLabelsPreferred, setSpeakerLabelsPreferred] = useState(
+    preferences.speakerLabels ?? (isPersonalAvatar && speakerLabelsDefaultOn())
+  );
+  const speakerLabelsAvailable = isPersonalAvatar && !readerIsAnonymous;
+  const speakerLabelsOn = speakerLabelsAvailable && speakerLabelsPreferred;
   useEffect(() => {
     writePreferences({
       avatarMuted: isAvatarMuted,
       micMuted: isMicMuted,
       videoEnabled: isVideoEnabled,
       showCaptions,
+      liveListening: liveListeningPreferred,
+      speakerLabels: speakerLabelsPreferred,
     });
-  }, [isAvatarMuted, isMicMuted, isVideoEnabled, showCaptions]);
+  }, [
+    isAvatarMuted,
+    isMicMuted,
+    isVideoEnabled,
+    showCaptions,
+    liveListeningPreferred,
+    speakerLabelsPreferred,
+  ]);
 
   const [isLiveListening, setIsLiveListening] = useState(false);
   const [isHearingSpeech, setIsHearingSpeech] = useState(false);
@@ -299,6 +338,7 @@ const LiveVoiceMode = ({
     assistantId,
     avatarName,
     asAnonymousIdentity: readerIsAnonymous,
+    speechPlaybackEnabled: canPlayAvatarVoice,
   });
 
   const spokenExchange = messages.filter((message) => {
@@ -401,7 +441,9 @@ const LiveVoiceMode = ({
   useEffect(
     () => () => {
       speech.stop();
+      listenerStartGenerationRef.current += 1;
       listenerRef.current?.stop();
+      listenerRef.current = null;
       dictationRef.current?.cancel();
       stagePresentedWaiterRef.current?.();
     },
@@ -554,6 +596,7 @@ const LiveVoiceMode = ({
         showStageFlash('avatar', spokenReply);
       }
       if (!spokenReply || isAvatarMuted) return;
+      if (!canPlayAvatarVoice) return;
 
       setIsPlayingReply(true);
       // Speech starts with the talking face, not ahead of it. Listening
@@ -582,6 +625,7 @@ const LiveVoiceMode = ({
     [
       assistantId,
       avatarPortrait,
+      canPlayAvatarVoice,
       isAvatarMuted,
       isMicMuted,
       isVideoEnabled,
@@ -630,6 +674,49 @@ const LiveVoiceMode = ({
       }
     },
     [handleReply, sendSpokenTurn, showCaptions, showStageFlash, speech]
+  );
+
+  // The same turn lifecycle as submitTurn, for an utterance sent as audio to
+  // be labelled by speaker. A triaged turn the avatar ignored yields no reply
+  // and nothing is spoken.
+  const submitSpokenAudio = useCallback(
+    async (recording) => {
+      if (!recording) return;
+      userTurnsInFlightRef.current += 1;
+      const generation = ++turnGenerationRef.current;
+      holdNewCaptionsRef.current = true;
+      setHoldNewCaptions(true);
+      if (speech.isSpeaking) speech.stop();
+      setLipSyncClipUrl(null);
+      setIsTranscribing(true);
+      setIsWaitingForReply(true);
+      try {
+        const { reply, sentiment, speakers } = await sendSpokenAudioTurn(recording);
+        setIsTranscribing(false);
+        if (generation !== turnGenerationRef.current) return;
+        if (!showCaptions && speakers?.segments?.length) {
+          showStageFlash(
+            'human',
+            speakers.segments
+              .map((segment) => `${segment.speaker}: ${segment.text}`)
+              .join('\n')
+          );
+        }
+        if (reply) await handleReply(reply, sentiment, generation);
+      } finally {
+        setIsTranscribing(false);
+        userTurnsInFlightRef.current = Math.max(
+          0,
+          userTurnsInFlightRef.current - 1
+        );
+        if (userTurnsInFlightRef.current === 0) {
+          holdNewCaptionsRef.current = false;
+          setHoldNewCaptions(false);
+          setIsWaitingForReply(false);
+        }
+      }
+    },
+    [handleReply, sendSpokenAudioTurn, showCaptions, showStageFlash, speech]
   );
 
   // Accept / retry must cut the transcript and then present the new reply
@@ -722,8 +809,15 @@ const LiveVoiceMode = ({
 
   useEffect(() => () => setAmbientHold(false), [setAmbientHold]);
 
+  const speechInputUnavailableMessage =
+    'Sign in to talk to this avatar, or open it from a shared link.';
+
   const transcribe = useCallback(
     async (file) => {
+      if (!canDictate) {
+        toast.error(speechInputUnavailableMessage);
+        return '';
+      }
       setIsTranscribing(true);
       try {
         const result = await transcribeRecording(assistantId, file, {
@@ -739,11 +833,35 @@ const LiveVoiceMode = ({
         setIsTranscribing(false);
       }
     },
-    [assistantId, readerIsAnonymous]
+    [assistantId, canDictate, readerIsAnonymous]
   );
 
   // --- live audio (turn-based, voice activity detection) -----------------------
+  // The listener lives for the whole visit, but the callbacks it needs are
+  // recreated as the avatar, conversation, and speech state change. Calling
+  // through refs keeps every utterance on the latest versions; a listener
+  // holding the first render's `submitTurn` would send nothing, because the
+  // context had no active avatar yet.
+  const submitTurnRef = useRef(submitTurn);
+  submitTurnRef.current = submitTurn;
+  const submitSpokenAudioRef = useRef(submitSpokenAudio);
+  submitSpokenAudioRef.current = submitSpokenAudio;
+  const speakerLabelsOnRef = useRef(speakerLabelsOn);
+  speakerLabelsOnRef.current = speakerLabelsOn;
+  const transcribeRef = useRef(transcribe);
+  transcribeRef.current = transcribe;
+  const speechRef = useRef(speech);
+  speechRef.current = speech;
+
+  // Only one listener may exist. A start that is still waiting on the
+  // microphone permission when a stop (or a second start) happens is
+  // discarded when it resolves; two listeners on one microphone would send
+  // every utterance twice.
+  const listenerStartGenerationRef = useRef(0);
+  const listenerStartInFlightRef = useRef(false);
+
   const stopLiveListening = useCallback(() => {
+    listenerStartGenerationRef.current += 1;
     listenerRef.current?.stop();
     listenerRef.current = null;
     setIsLiveListening(false);
@@ -752,24 +870,41 @@ const LiveVoiceMode = ({
   }, []);
 
   const startLiveListening = useCallback(async () => {
+    if (!canDictate) {
+      toast.error(speechInputUnavailableMessage);
+      return;
+    }
     if (!canCaptureMicrophone()) {
       toast.error(
         'This browser cannot record audio here (a secure connection is required).'
       );
       return;
     }
+    if (listenerRef.current || listenerStartInFlightRef.current) return;
+    listenerStartInFlightRef.current = true;
+    const startGeneration = ++listenerStartGenerationRef.current;
     try {
-      listenerRef.current = await startVoiceActivityListening({
+      const listener = await startVoiceActivityListening({
         onLevel: (level) => setMicLevel(level),
         onSpeechStart: () => {
           setIsHearingSpeech(true);
           // Barge-in: the person started talking over the avatar.
-          if (speech.isSpeaking) speech.stop();
+          const currentSpeech = speechRef.current;
+          if (currentSpeech.isSpeaking) currentSpeech.stop();
         },
         onUtterance: async (file) => {
           setIsHearingSpeech(false);
-          const words = await transcribe(file);
-          if (words) await submitTurn(words);
+          try {
+            if (speakerLabelsOnRef.current) {
+              await submitSpokenAudioRef.current(file);
+              return;
+            }
+            const words = await transcribeRef.current(file);
+            if (words) await submitTurnRef.current(words);
+          } catch (turnError) {
+            console.error('The live turn failed:', turnError);
+            toast.error('Could not send what you said.');
+          }
         },
         onError: (listenError) => {
           console.error('Live listening failed:', listenError);
@@ -777,7 +912,15 @@ const LiveVoiceMode = ({
           stopLiveListening();
         },
       });
-      if (isMicMuted) listenerRef.current.pause();
+      if (
+        startGeneration !== listenerStartGenerationRef.current ||
+        listenerRef.current
+      ) {
+        listener.stop();
+        return;
+      }
+      listenerRef.current = listener;
+      if (isMicMuted) listener.pause();
       setIsLiveListening(true);
     } catch (microphoneError) {
       toast.error(
@@ -785,8 +928,10 @@ const LiveVoiceMode = ({
           ? 'Microphone access was refused. Allow it in your browser to speak.'
           : 'Could not start listening.'
       );
+    } finally {
+      listenerStartInFlightRef.current = false;
     }
-  }, [isMicMuted, speech, stopLiveListening, submitTurn, transcribe]);
+  }, [canDictate, isMicMuted, stopLiveListening]);
 
   useEffect(() => {
     if (!listenerRef.current) return;
@@ -794,19 +939,71 @@ const LiveVoiceMode = ({
     else if (!speech.isSpeaking) listenerRef.current.resume();
   }, [isMicMuted, speech.isSpeaking]);
 
+  // Dictation is gated; do not auto-listen when this reader cannot talk.
+  useEffect(() => {
+    if (!canDictate && isLiveListening) {
+      stopLiveListening();
+      setLiveListeningPreferred(false);
+    }
+  }, [
+    canDictate,
+    isLiveListening,
+    stopLiveListening,
+  ]);
+
+  // Start listening as soon as the stage opens and the avatar is loaded
+  // (once), unless the person switched hands-free listening off last time,
+  // spoken audio is unavailable for this avatar, or this browser cannot record.
+  const autoStartedListeningRef = useRef(false);
+  useEffect(() => {
+    if (autoStartedListeningRef.current) return;
+    if (!activeAvatar || !assistantId) return;
+    if (!canDictate) return;
+    if (!liveListeningPreferred || !canCaptureMicrophone()) return;
+    autoStartedListeningRef.current = true;
+    startLiveListening();
+  }, [
+    activeAvatar,
+    assistantId,
+    canDictate,
+    liveListeningPreferred,
+    startLiveListening,
+  ]);
+
+  const toggleLiveListening = () => {
+    if (isLiveListening) {
+      setLiveListeningPreferred(false);
+      stopLiveListening();
+      return;
+    }
+    if (!canDictate) {
+      toast.error(speechInputUnavailableMessage);
+      return;
+    }
+    setLiveListeningPreferred(true);
+    startLiveListening();
+  };
+
   // --- dictation (one utterance into the text box) ---------------------------------
   const startDictation = async () => {
+    if (!canDictate) {
+      toast.error(speechInputUnavailableMessage);
+      return;
+    }
     if (!canCaptureMicrophone()) {
       toast.error(
         'This browser cannot record audio here (a secure connection is required).'
       );
       return;
     }
+    if (dictationRef.current) return;
+    listenerRef.current?.pause?.();
     try {
       dictationRef.current = await recordOneTurn();
       setIsDictating(true);
     } catch {
       toast.error('Could not start recording.');
+      if (!isMicMuted && !speech.isSpeaking) listenerRef.current?.resume?.();
     }
   };
 
@@ -816,9 +1013,15 @@ const LiveVoiceMode = ({
     dictationRef.current = null;
     setIsDictating(false);
     const file = await recording.stop();
+    if (!isMicMuted && !speech.isSpeaking) listenerRef.current?.resume?.();
     const words = await transcribe(file);
     if (words)
       setDraft((previous) => (previous ? `${previous} ${words}` : words));
+  };
+
+  const toggleDictation = () => {
+    if (isDictating) stopDictation();
+    else startDictation();
   };
 
   const leaveVoiceMode = () => {
@@ -1075,11 +1278,18 @@ const LiveVoiceMode = ({
                     </div>
                   ) : (
                     <>
-                      <div className="whitespace-pre-wrap">
-                        {(isFromAvatar
-                          ? stripArtifactReferences(message.content)
-                          : message.content) || '…'}
-                      </div>
+                      {isHuman && hasSpeakerScript(message) ? (
+                        <SpeakerScript
+                          speakers={message.speakers}
+                          fallback={message.content || '…'}
+                        />
+                      ) : (
+                        <div className="whitespace-pre-wrap">
+                          {(isFromAvatar
+                            ? stripArtifactReferences(message.content)
+                            : message.content) || '…'}
+                        </div>
+                      )}
                       {isFromAvatar && (
                         <CreatedArtifacts
                           artifacts={createdArtifactsOf(message)}
@@ -1097,6 +1307,7 @@ const LiveVoiceMode = ({
                       overlay={false}
                       isSpeaking={isSpeakingThis}
                       isSpeechLoading={loadingSpeechKey === messageKey}
+                      canSpeak={canPlayAvatarVoice}
                       copiedKey={copiedKey}
                       feedbackKey={feedbackKey}
                       feedbackDraft={feedbackDraft}
@@ -1259,19 +1470,24 @@ const LiveVoiceMode = ({
               <div className="flex items-center rounded-full bg-white/5 border border-white/10">
                 <button
                   type="button"
-                  onClick={() =>
-                    isLiveListening ? stopLiveListening() : startLiveListening()
-                  }
+                  onClick={toggleLiveListening}
+                  disabled={!canDictate && !isLiveListening}
                   title={
-                    isLiveListening
-                      ? 'Stop live audio'
-                      : 'Live audio (hands-free)'
+                    !canDictate
+                      ? speechInputUnavailableMessage
+                      : isLiveListening
+                        ? 'Stop live audio'
+                        : 'Live audio (hands-free)'
                   }
                   aria-label={
-                    isLiveListening ? 'Stop live audio' : 'Start live audio'
+                    !canDictate
+                      ? 'Speech input unavailable'
+                      : isLiveListening
+                        ? 'Stop live audio'
+                        : 'Start live audio'
                   }
                   aria-pressed={isLiveListening}
-                  className={`${CONTROL_CLASSES} ${isLiveListening ? ACTIVE_CONTROL_CLASSES : ''}`}
+                  className={`${CONTROL_CLASSES} ${isLiveListening ? ACTIVE_CONTROL_CLASSES : ''} disabled:opacity-40 disabled:pointer-events-none`}
                 >
                   <span className="relative inline-flex">
                     <AudioLines className="w-5 h-5" />
@@ -1286,24 +1502,52 @@ const LiveVoiceMode = ({
                     )}
                   </span>
                 </button>
+                {speakerLabelsAvailable && (
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setSpeakerLabelsPreferred((preferred) => !preferred)
+                    }
+                    title={
+                      speakerLabelsOn
+                        ? 'Who is speaking: on. Utterances are labelled by speaker; turn off to send plain transcripts.'
+                        : 'Who is speaking: off. Turn on to tell your voice from other people in the room.'
+                    }
+                    aria-label={
+                      speakerLabelsOn
+                        ? 'Turn off speaker labels'
+                        : 'Turn on speaker labels'
+                    }
+                    aria-pressed={speakerLabelsOn}
+                    className={`${CONTROL_CLASSES} ${speakerLabelsOn ? ACTIVE_CONTROL_CLASSES : ''}`}
+                  >
+                    <Users className="w-5 h-5" />
+                  </button>
+                )}
                 <button
                   type="button"
-                  onMouseDown={startDictation}
-                  onMouseUp={stopDictation}
-                  onMouseLeave={() => isDictating && stopDictation()}
-                  onTouchStart={(event) => {
-                    event.preventDefault();
-                    startDictation();
-                  }}
-                  onTouchEnd={(event) => {
-                    event.preventDefault();
-                    stopDictation();
-                  }}
-                  title="Hold to dictate into the message"
-                  aria-label="Hold to dictate"
-                  className={`${CONTROL_CLASSES} ${isDictating ? 'bg-red-500/30 text-red-200' : ''}`}
+                  disabled={!canDictate}
+                  onClick={toggleDictation}
+                  title={
+                    !canDictate
+                      ? speechInputUnavailableMessage
+                      : isDictating
+                        ? 'Stop recording and put the words in the message box'
+                        : 'Record a message (the words appear in the message box)'
+                  }
+                  aria-label={
+                    !canDictate
+                      ? 'Speech input unavailable'
+                      : isDictating
+                        ? 'Stop recording'
+                        : 'Start recording'
+                  }
+                  aria-pressed={isDictating}
+                  className={`${CONTROL_CLASSES} ${isDictating ? 'bg-red-500/30 text-red-200' : ''} disabled:opacity-40 disabled:pointer-events-none`}
                 >
-                  {isTranscribing && !isLiveListening ? (
+                  {isDictating ? (
+                    <Square className="w-5 h-5 fill-current" />
+                  ) : isTranscribing && !isLiveListening ? (
                     <Loader2 className="w-5 h-5 animate-spin" />
                   ) : (
                     <Mic className="w-5 h-5" />

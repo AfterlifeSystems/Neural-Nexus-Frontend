@@ -17,6 +17,7 @@ import { AMBIENT_CAPTURE_INTERVAL_MS } from '../config/ambientCapture';
 import {
   INITIAL_AMBIENT_STATUS,
   isAmbientVisionActive,
+  isObservationYield,
   nextCaptureInMs,
   reduceAmbientEvent,
   retryAfterMillisecondsFromError,
@@ -91,6 +92,12 @@ export async function snapshotStream(stream, filename) {
  * one snapshot per live share sent to the avatar on a timer. There is no
  * button: sharing a webcam or a screen starts the looks, and stopping the last
  * share ends them.
+ *
+ * The share is background context only. Snapshots go out as hidden
+ * observations from this timer and never ride along with a typed or spoken
+ * message, so nothing from the share is painted into the conversation and the
+ * person's own turns go out at once. An observation in flight when the person
+ * sends a message is stopped for it (see `yieldAmbientObservations`).
  *
  * @param {Object} props
  * @param {boolean} [props.ambientAllowed] Whether this account may run ambient
@@ -324,6 +331,12 @@ export function MediaShareProvider({
           );
         }
       } catch (observationError) {
+        if (isObservationYield(observationError)) {
+          // The person typed or spoke while this look was in flight and the
+          // look was stopped for it: a quiet end, not a failure.
+          apply({ type: 'done' });
+          return;
+        }
         const retryAfterMs = retryAfterMillisecondsFromError(observationError);
         const next = apply({
           type: 'failed',

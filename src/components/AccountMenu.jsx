@@ -23,6 +23,8 @@ import { useAuth } from '../context/AuthContext';
 import { getPersonalAvatar } from '../services/avatarService';
 import useInboxCount from '../hooks/useInboxCount';
 
+import EvanAssistLauncher from './evanAssist/EvanAssistLauncher';
+
 const MENU_TONE = {
   danger: 'text-red-400 hover:bg-red-900/40 hover:text-neutral-100',
   current: 'bg-white/15 text-neutral-200',
@@ -259,6 +261,7 @@ const AccountMenu = ({
         onClick={() => goTo('/billing')}
         isCurrent={currentPath === '/billing'}
       />
+      <EvanAssistLauncher variant={iconOnly ? 'icon' : 'row'} />
       <AccountMenuItem
         iconOnly={iconOnly}
         icon={<LogOut className={iconClass} />}

@@ -4,6 +4,7 @@ import {
   absoluteMediaUrl,
   getAvatarEmotionMedia,
 } from '../services/avatarService';
+import { subscribeAvatarPortraitChanged } from '../services/avatarPortraitEvents';
 
 // One manifest per avatar for the life of the page. The assets themselves are
 // immutable URLs the browser caches; only this small index is held here, never
@@ -11,6 +12,14 @@ import {
 // and a manifest goes stale the moment a portrait is replaced.
 const manifestCache = new Map();
 const inFlight = new Map();
+// Mounted hooks, told which avatar's manifest was dropped so they re-read it.
+const invalidationListeners = new Set();
+
+// A stored portrait means a new set of stills and loops: drop the manifest the
+// moment the portrait job finishes, so the chat header, the message faces,
+// the gallery and the Data Uploaded rows stop showing the pre-upload answer
+// (an empty manifest, cached when the avatar was first opened).
+subscribeAvatarPortraitChanged((assistantId) => forgetEmotionMedia(assistantId));
 
 /**
  * Read (and cache) an avatar's emotion media manifest.
@@ -41,8 +50,11 @@ export async function loadEmotionMedia(
       manifestCache.set(assistantId, normalized);
       return normalized;
     } catch (loadError) {
-      console.debug('No emotion media for this avatar:', loadError);
-      manifestCache.set(assistantId, null);
+      // A failed read is not an answer. Leave the cache empty so the next
+      // screen to ask retries instead of inheriting "no media" for the rest
+      // of the page's life.
+      console.debug('Reading emotion media failed:', loadError);
+      manifestCache.delete(assistantId);
       return null;
     } finally {
       inFlight.delete(assistantId);
@@ -52,9 +64,16 @@ export async function loadEmotionMedia(
   return request;
 }
 
-/** Forget a cached manifest (after the portrait or media was regenerated). */
+/**
+ * Forget a cached manifest (after the portrait or media was regenerated).
+ * Every mounted useEmotionMedia for that avatar re-reads it.
+ */
 export function forgetEmotionMedia(assistantId) {
+  if (!assistantId) return;
   manifestCache.delete(assistantId);
+  for (const listener of [...invalidationListeners]) {
+    listener(assistantId);
+  }
 }
 
 function normalizeManifest(manifest) {
@@ -164,8 +183,20 @@ export default function useEmotionMedia(
     loadEmotionMedia(assistantId, { asAnonymousIdentity }).then((loaded) => {
       if (!cancelled) setManifest(loaded);
     });
+    // When this avatar's manifest is dropped (a portrait was stored or the
+    // media regenerated), read the new one without waiting for a remount.
+    const onInvalidated = (invalidatedAssistantId) => {
+      if (invalidatedAssistantId !== assistantId) return;
+      loadEmotionMedia(assistantId, { asAnonymousIdentity, force: true }).then(
+        (loaded) => {
+          if (!cancelled) setManifest(loaded);
+        }
+      );
+    };
+    invalidationListeners.add(onInvalidated);
     return () => {
       cancelled = true;
+      invalidationListeners.delete(onInvalidated);
     };
   }, [assistantId, asAnonymousIdentity]);
 

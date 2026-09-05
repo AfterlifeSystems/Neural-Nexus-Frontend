@@ -347,7 +347,7 @@ const SharedAvatarChat = () => {
 
           <div className="flex-shrink-0 min-w-0 mt-2">
             <InputBar
-              avatar_id={avatarId}
+              avatarId={avatarId}
               suggestionsEnabled={
                 hasCheckedForEarlierChats && !isOfferingTheOpeningQuestion
               }

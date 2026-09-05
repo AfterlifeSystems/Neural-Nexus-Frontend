@@ -306,6 +306,7 @@ const AvatarIdentityFacts = ({ assistantId, avatarName }) => {
   const [loadError, setLoadError] = useState(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [groupFilter, setGroupFilter] = useState('all');
+  const [isLearningsOpen, setIsLearningsOpen] = useState(true);
 
   const load = useCallback(async () => {
     if (!assistantId) return;
@@ -386,11 +387,33 @@ const AvatarIdentityFacts = ({ assistantId, avatarName }) => {
 
   return (
     <div className="bg-black/60 backdrop-blur-lg rounded-2xl border border-white/10 p-6">
-      <div className="flex items-center justify-between gap-3 mb-4">
-        <h3 className="text-xl font-semibold text-neutral-200 flex items-center gap-2 min-w-0">
-          <BookOpen size={20} />
-          <span className="truncate">What {avatarName ?? 'this avatar'} has learned</span>
-        </h3>
+      <div
+        className={`flex items-center justify-between gap-3 ${
+          isLearningsOpen ? 'mb-4' : ''
+        }`}
+      >
+        <button
+          type="button"
+          onClick={() => setIsLearningsOpen((wasOpen) => !wasOpen)}
+          aria-expanded={isLearningsOpen}
+          aria-controls="avatar-learnings"
+          className="flex items-center gap-2 min-w-0 flex-1 text-left text-xl font-semibold text-neutral-200 hover:text-white transition-colors"
+        >
+          <BookOpen size={20} className="shrink-0" />
+          <span className="truncate">
+            What {avatarName ?? 'this avatar'} has learned
+          </span>
+          {totalCount > 0 && (
+            <span className="text-sm font-normal text-white/50 shrink-0">
+              {totalCount}
+            </span>
+          )}
+          {isLearningsOpen ? (
+            <ChevronUp size={20} className="shrink-0 text-white/60" />
+          ) : (
+            <ChevronDown size={20} className="shrink-0 text-white/60" />
+          )}
+        </button>
         <button
           type="button"
           onClick={load}
@@ -402,102 +425,108 @@ const AvatarIdentityFacts = ({ assistantId, avatarName }) => {
           <RefreshCw size={16} className={isLoading ? 'animate-spin' : ''} />
         </button>
       </div>
-      <p className="text-white/50 text-sm mb-4">
-        Only you can see this. These are the facts, traits, and memories the
-        avatar holds about who it is — taught in chat, read from your uploads,
-        or derived from them. Edit one to correct it, or forget it entirely.
-      </p>
+      {isLearningsOpen && (
+        <div id="avatar-learnings">
+          <p className="text-white/50 text-sm mb-4">
+            Only you can see this. These are the facts, traits, and memories
+            the avatar holds about who it is — taught in chat, read from your
+            uploads, or derived from them. Edit one to correct it, or forget it
+            entirely.
+          </p>
 
-      {totalCount > 0 && (
-        <div className="mb-4 space-y-3">
-          <div className="relative">
-            <Search
-              size={16}
-              className="absolute left-3 top-1/2 -translate-y-1/2 text-white/40 pointer-events-none"
-            />
-            <input
-              type="search"
-              value={searchQuery}
-              onChange={(event) => setSearchQuery(event.target.value)}
-              placeholder="Search what the avatar has learned…"
-              aria-label="Search what the avatar has learned"
-              className="w-full pl-9 pr-3 py-2 bg-black/50 border border-white/10 rounded-lg text-neutral-200 placeholder-white/40 focus:outline-none focus:ring-2 focus:ring-amber-400/50 text-sm"
-            />
-          </div>
-          <div
-            className="flex flex-wrap gap-2"
-            role="group"
-            aria-label="Filter by where the fact came from"
-          >
-            {['all', ...FACT_GROUP_ORDER.filter((group) => counts[group])].map(
-              (group) => {
-                const isSelected = groupFilter === group;
-                const count = group === 'all' ? totalCount : counts[group];
-                const label =
-                  group === 'all'
-                    ? 'All'
-                    : FACT_GROUP_PRESENTATION[group].filterLabel;
-                return (
-                  <button
-                    key={group}
-                    type="button"
-                    onClick={() => setGroupFilter(group)}
-                    aria-pressed={isSelected}
-                    className={`px-3 py-1 rounded-full text-xs font-medium border transition-colors ${
-                      isSelected
-                        ? 'bg-neutral-200 text-neutral-900 border-neutral-200'
-                        : 'bg-black/60 text-white/70 border-white/10 hover:bg-white/10 hover:text-neutral-100'
-                    }`}
-                  >
-                    {label}
-                    <span className="ml-1 opacity-70">{count}</span>
-                  </button>
-                );
-              }
+          {totalCount > 0 && (
+            <div className="mb-4 space-y-3">
+              <div className="relative">
+                <Search
+                  size={16}
+                  className="absolute left-3 top-1/2 -translate-y-1/2 text-white/40 pointer-events-none"
+                />
+                <input
+                  type="search"
+                  value={searchQuery}
+                  onChange={(event) => setSearchQuery(event.target.value)}
+                  placeholder="Search what the avatar has learned…"
+                  aria-label="Search what the avatar has learned"
+                  className="w-full pl-9 pr-3 py-2 bg-black/50 border border-white/10 rounded-lg text-neutral-200 placeholder-white/40 focus:outline-none focus:ring-2 focus:ring-amber-400/50 text-sm"
+                />
+              </div>
+              <div
+                className="flex flex-wrap gap-2"
+                role="group"
+                aria-label="Filter by where the fact came from"
+              >
+                {[
+                  'all',
+                  ...FACT_GROUP_ORDER.filter((group) => counts[group]),
+                ].map((group) => {
+                  const isSelected = groupFilter === group;
+                  const count = group === 'all' ? totalCount : counts[group];
+                  const label =
+                    group === 'all'
+                      ? 'All'
+                      : FACT_GROUP_PRESENTATION[group].filterLabel;
+                  return (
+                    <button
+                      key={group}
+                      type="button"
+                      onClick={() => setGroupFilter(group)}
+                      aria-pressed={isSelected}
+                      className={`px-3 py-1 rounded-full text-xs font-medium border transition-colors ${
+                        isSelected
+                          ? 'bg-neutral-200 text-neutral-900 border-neutral-200'
+                          : 'bg-black/60 text-white/70 border-white/10 hover:bg-white/10 hover:text-neutral-100'
+                      }`}
+                    >
+                      {label}
+                      <span className="ml-1 opacity-70">{count}</span>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
+          <div className="space-y-2 max-h-[60vh] overflow-y-auto pr-1">
+            {totalCount > 0 ? (
+              visibleFacts.length > 0 ? (
+                visibleFacts.map((fact) => (
+                  <IdentityFactRow
+                    key={factRowKey(fact)}
+                    fact={fact}
+                    onDelete={handleDelete}
+                    onSave={handleSave}
+                  />
+                ))
+              ) : (
+                <p className="text-white/40 text-sm italic">
+                  Nothing learned matches this search or filter.
+                </p>
+              )
+            ) : loadError ? (
+              <div className="p-3 bg-red-500/10 border border-red-500/30 rounded-lg">
+                <p className="text-red-300 text-sm">{loadError}</p>
+                <button
+                  type="button"
+                  onClick={load}
+                  className="mt-2 px-3 py-1.5 text-sm bg-black/50 hover:bg-white/10 text-neutral-200 rounded-lg border border-white/10 transition-colors"
+                >
+                  Try again
+                </button>
+              </div>
+            ) : isLoading ? (
+              <p className="text-white/40 text-sm italic inline-flex items-center gap-2">
+                <Loader2 size={14} className="animate-spin" />
+                Reading what {avatarName ?? 'this avatar'} has learned…
+              </p>
+            ) : (
+              <p className="text-white/40 text-sm italic">
+                Nothing learned yet. Tell {avatarName ?? 'this avatar'} about
+                themselves in chat, or upload media for them to learn from.
+              </p>
             )}
           </div>
         </div>
       )}
-
-      <div className="space-y-2 max-h-[60vh] overflow-y-auto pr-1">
-        {totalCount > 0 ? (
-          visibleFacts.length > 0 ? (
-            visibleFacts.map((fact) => (
-              <IdentityFactRow
-                key={factRowKey(fact)}
-                fact={fact}
-                onDelete={handleDelete}
-                onSave={handleSave}
-              />
-            ))
-          ) : (
-            <p className="text-white/40 text-sm italic">
-              Nothing learned matches this search or filter.
-            </p>
-          )
-        ) : loadError ? (
-          <div className="p-3 bg-red-500/10 border border-red-500/30 rounded-lg">
-            <p className="text-red-300 text-sm">{loadError}</p>
-            <button
-              type="button"
-              onClick={load}
-              className="mt-2 px-3 py-1.5 text-sm bg-black/50 hover:bg-white/10 text-neutral-200 rounded-lg border border-white/10 transition-colors"
-            >
-              Try again
-            </button>
-          </div>
-        ) : isLoading ? (
-          <p className="text-white/40 text-sm italic inline-flex items-center gap-2">
-            <Loader2 size={14} className="animate-spin" />
-            Reading what {avatarName ?? 'this avatar'} has learned…
-          </p>
-        ) : (
-          <p className="text-white/40 text-sm italic">
-            Nothing learned yet. Tell {avatarName ?? 'this avatar'} about
-            themselves in chat, or upload media for them to learn from.
-          </p>
-        )}
-      </div>
     </div>
   );
 };

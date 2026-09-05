@@ -18,6 +18,7 @@ import {
 } from '../services/avatarService';
 import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import useEmotionMedia, { stillFor } from '../hooks/useEmotionMedia';
+import { subscribeAvatarPortraitChanged } from '../services/avatarPortraitEvents';
 import {
   readVoiceModePreference,
   voiceModeIsOpen,
@@ -61,7 +62,6 @@ const ChatArea = ({ onActivateLiveChat, onEndLiveChat, className }) => {
     if (requestedTab === 'inbox') return 'inbox';
     return 'chat';
   });
-  const isLiveModeOpen = voiceModeIsOpen(prefersVoiceMode, activeTab);
 
   // Settings administer the avatar — rename, portrait, documents, sharing,
   // deletion — and every one of those is refused by the API for an avatar the
@@ -77,11 +77,10 @@ const ChatArea = ({ onActivateLiveChat, onEndLiveChat, className }) => {
 
   // The agent inbox belongs to the personal avatar: that is the one that
   // triages the owner's mail. Other avatars have no inbox to show.
-  const isPersonalAvatar = Boolean(
-    activeAvatar?.metadata?.is_personal_avatar_of_creator
-  );
+  const isPersonalAvatar =
+    activeAvatar?.metadata?.is_personal_avatar_of_creator === true;
   const inboxCount = useInboxCount();
-
+  const isLiveModeOpen = voiceModeIsOpen(prefersVoiceMode, activeTab);
   // A visitor who was already on the settings tab when the avatar changed must
   // not be left looking at controls that no longer belong to them. The inbox
   // tab is the same: it only exists on the personal avatar.
@@ -189,7 +188,7 @@ const ChatArea = ({ onActivateLiveChat, onEndLiveChat, className }) => {
     }
     let cancelled = false;
     setAvatarPortrait(null);
-    (async () => {
+    const loadPortrait = async () => {
       try {
         const portrait = await getAvatarReferenceImage(avatarId);
         if (!cancelled) {
@@ -199,9 +198,17 @@ const ChatArea = ({ onActivateLiveChat, onEndLiveChat, className }) => {
         // An avatar with no portrait is normal, and the placeholder covers it.
         console.debug('No portrait for this avatar:', portraitError);
       }
-    })();
+    };
+    loadPortrait();
+    // A portrait stored while this avatar is open — by an upload in Settings,
+    // or by a job restored after the page reloaded mid-upload — replaces the
+    // header face as soon as the job finishes, not on the next navigation.
+    const unsubscribe = subscribeAvatarPortraitChanged((changedAssistantId) => {
+      if (changedAssistantId === avatarId) loadPortrait();
+    });
     return () => {
       cancelled = true;
+      unsubscribe();
     };
   }, [avatarId]);
 

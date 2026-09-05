@@ -46,6 +46,7 @@ import qrCode from '../assets/qr-neuralnexus.png';
 import { followPathInTopWindow } from './utils';
 import SharePreviewSlot from './SharePreviewSlot';
 import SidebarShareControls from './SidebarShareControls';
+import EvanAssistLauncher from './evanAssist/EvanAssistLauncher';
 
 /**
  * @param {Object} props
@@ -187,6 +188,7 @@ const AnonymousSidebar = ({
               />
             </>
           )}
+          <EvanAssistLauncher />
           <div className="mt-auto shrink-0 w-full flex flex-col items-center gap-1">
             <SharePreviewSlot
               name="rail"
@@ -311,6 +313,7 @@ const AnonymousSidebar = ({
                   />
                 </>
               )}
+              <EvanAssistLauncher variant="row" />
             </div>
 
             {showShareControls && (

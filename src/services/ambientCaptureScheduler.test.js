@@ -5,6 +5,7 @@ import {
   INITIAL_AMBIENT_STATUS,
   describeAmbientStatus,
   isAmbientVisionActive,
+  isObservationYield,
   nextCaptureInMs,
   reduceAmbientEvent,
   retryAfterMillisecondsFromError,
@@ -146,4 +147,27 @@ test('the status label says what happened last and when the next look is', () =>
     ),
     'Could not send'
   );
+});
+
+test('a busy conversation (409) paces the next look instead of counting a failure', () => {
+  const busy = { status: 409, headers: { 'retry-after': '5' } };
+  assert.equal(retryAfterMillisecondsFromError(busy), 5000);
+  assert.equal(retryAfterMillisecondsFromError({ status: 409 }), 5000);
+  const status = reduceAmbientEvent(INITIAL_AMBIENT_STATUS, {
+    type: 'failed',
+    error: 'busy',
+    retryAfterMs: retryAfterMillisecondsFromError(busy),
+    at: 1_000,
+  });
+  assert.equal(status.consecutiveFailures, 0);
+  assert.equal(status.retryAfterUntil, 6_000);
+});
+
+test('an observation stopped for the person\'s own message is a yield, not a failure', () => {
+  const aborted = new Error('The user aborted a request.');
+  aborted.name = 'AbortError';
+  assert.equal(isObservationYield(aborted), true);
+  assert.equal(isObservationYield(new Error('network')), false);
+  assert.equal(isObservationYield({ status: 500 }), false);
+  assert.equal(isObservationYield(null), false);
 });

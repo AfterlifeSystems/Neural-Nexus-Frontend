@@ -234,9 +234,81 @@ export const pipelineProgress = (steps) => {
   return { ratio, percent: Math.round(ratio * 100), label };
 };
 
+const GENERIC_MEDIA_LABELS = new Set([
+  'media upload',
+  'item',
+  'your media',
+  'processing',
+  'processing…',
+  'document upload',
+  'voice upload',
+  'portrait upload',
+  'playlist video',
+]);
+
+/**
+ * @param {unknown} label A card title or item name.
+ * @returns {boolean} True when the label does not name a file or URL.
+ */
+export const isGenericMediaLabel = (label) => {
+  const text = String(label ?? '').trim();
+  if (!text) return true;
+  return GENERIC_MEDIA_LABELS.has(text.toLowerCase());
+};
+
+/**
+ * @param {'portrait'|'voice'|'document'} [kind]
+ * @returns {string}
+ */
+export const fallbackTitleForKind = (kind) => {
+  if (kind === 'portrait') return 'Portrait upload';
+  if (kind === 'voice') return 'Voice upload';
+  return 'Document upload';
+};
+
+/**
+ * @param {Array<unknown>} candidates Possible labels, first real one wins.
+ * @returns {string|null}
+ */
+export const firstRealMediaLabel = (candidates) => {
+  if (!Array.isArray(candidates)) return null;
+  for (const candidate of candidates) {
+    const text = typeof candidate === 'string' ? candidate.trim() : '';
+    if (text && !isGenericMediaLabel(text)) return text;
+  }
+  return null;
+};
+
+/**
+ * @param {Object} progressEvent A `media_progress` frame.
+ * @returns {string|null}
+ */
+export const labelFromProgressEvent = (progressEvent) =>
+  firstRealMediaLabel([
+    progressEvent?.item_filename,
+    progressEvent?.filename,
+    progressEvent?.url,
+    progressEvent?.namespace_filename,
+  ]);
+
+/**
+ * @param {Array<{label?: string}>} items
+ * @param {string} [fallback]
+ * @returns {string}
+ */
+export const titleFromUploadItems = (items, fallback) => {
+  const named = (items ?? [])
+    .map((item) => item?.label)
+    .filter((label) => label && !isGenericMediaLabel(label));
+  if (named.length === 1) return named[0];
+  if (named.length > 1) return `${named.length} items`;
+  return fallback ?? fallbackTitleForKind();
+};
+
 /**
  * Attach child job ids from the progress stream onto the items this upload
- * started with, and append playlist children as they are enumerated.
+ * started with, append playlist children as they are enumerated, and replace
+ * a generic "Media upload" placeholder once the stream names the file.
  *
  * @param {Array} items
  * @param {Object} progressEvent
@@ -244,19 +316,16 @@ export const pipelineProgress = (steps) => {
  */
 export const mergeUploadItems = (items, progressEvent) => {
   if (!progressEvent) return items;
+  const current = Array.isArray(items) ? items : [];
   const itemJobId = progressEvent.item_job_id ?? null;
-  const name =
-    progressEvent.item_filename ||
-    progressEvent.filename ||
-    progressEvent.url ||
-    null;
+  const name = labelFromProgressEvent(progressEvent);
   const stage = progressEvent.stage ?? progressEvent.type;
   if (stage === 'playlist_child_added' && itemJobId) {
-    if (items.some((item) => item.itemJobId === itemJobId || item.id === itemJobId)) {
-      return items;
+    if (current.some((item) => item.itemJobId === itemJobId || item.id === itemJobId)) {
+      return current;
     }
     return [
-      ...items,
+      ...current,
       {
         id: itemJobId,
         label: name || 'Playlist video',
@@ -265,15 +334,53 @@ export const mergeUploadItems = (items, progressEvent) => {
       },
     ];
   }
-  if (!itemJobId && !name) return items;
-  return items.map((item) => {
-    const matches =
-      (itemJobId && item.itemJobId === itemJobId) ||
-      (name && (item.label === name || item.id === name));
-    if (!matches) return item;
-    return {
-      ...item,
-      itemJobId: item.itemJobId || itemJobId,
-    };
+  if (!itemJobId && !name) return current;
+
+  const matchIndex = current.findIndex((item) => {
+    if (itemJobId && (item.itemJobId === itemJobId || item.id === itemJobId)) {
+      return true;
+    }
+    return Boolean(name && (item.label === name || item.id === name));
+  });
+  if (matchIndex >= 0) {
+    return current.map((item, index) => {
+      if (index !== matchIndex) return item;
+      return {
+        ...item,
+        itemJobId: item.itemJobId || itemJobId,
+        label:
+          name && isGenericMediaLabel(item.label) ? name : item.label,
+        id: isGenericMediaLabel(item.id) && name ? name : item.id,
+      };
+    });
+  }
+
+  if (name && current.length === 1 && isGenericMediaLabel(current[0].label)) {
+    return [
+      {
+        ...current[0],
+        id: name,
+        label: name,
+        itemJobId: current[0].itemJobId || itemJobId,
+      },
+    ];
+  }
+
+  if (name) {
+    const kept = current.filter((item) => !isGenericMediaLabel(item.label));
+    return [
+      ...kept,
+      {
+        id: itemJobId || name,
+        label: name,
+        itemJobId,
+        state: 'running',
+      },
+    ];
+  }
+
+  return current.map((item, index) => {
+    if (item.itemJobId || index > 0) return item;
+    return { ...item, itemJobId };
   });
 };

@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import {
   AudioLines,
   FileAudio,
+  Square,
   FileSpreadsheet,
   FileText,
   FileVideo,
@@ -12,7 +13,6 @@ import {
 } from 'lucide-react';
 import { useMedia } from '../context/MediaContext';
 import { useAuth } from '../context/AuthContext';
-import { useMediaShare } from '../context/MediaShareContext';
 import ComposerConnectorsMenu from './connections/ComposerConnectorsMenu';
 import { composerHasSendableDraft } from './composerSendState';
 import ConversationSuggestions from './ConversationSuggestions';
@@ -136,8 +136,13 @@ const InputBar = ({
     stopThoughtToImage,
     dataExchangeTypes,
     attachmentsInFlight,
+    stopAssistantTurn,
+    stoppableTurnCount,
   } = useMedia();
-  const { captureShareStills } = useMediaShare();
+  // While the avatar is answering, the send button is a Stop button. Enter
+  // still sends — a second message can be queued behind the reply — but the
+  // button's one job during a reply is to end it.
+  const isReplyStoppable = (stoppableTurnCount ?? 0) > 0;
 
   // One object URL per attached image, minted when the attachment list changes
   // and revoked when it changes again. These used to be created inline while
@@ -222,7 +227,7 @@ const InputBar = ({
     }
   };
 
-  const handleSendMessage = async () => {
+  const handleSendMessage = () => {
     if (sendInFlightRef.current) return;
     if (!composerHasSendableDraft(inputMessage, mediaFiles.length)) return;
     sendInFlightRef.current = true;
@@ -239,19 +244,18 @@ const InputBar = ({
     setHistoryIndex(-1);
     setTempMessage('');
     setType('user');
-    // Clear before the share snapshot so a second Enter cannot resend this
-    // turn. Webcam/screen stills are attached as extras on the same send.
+    // Clear first so a second Enter cannot resend this turn. A live webcam or
+    // screen share never rides along: the share is background context that the
+    // ambient loop sends as hidden observations, so the typed message goes out
+    // at once carrying only what the person attached, and nothing from the
+    // share is painted into the conversation.
     setInputMessage('');
     setMediaFiles([]);
     setCaptions({});
     if (fileInputRef.current) fileInputRef.current.value = '';
     if (textareaRef.current) textareaRef.current.style.height = 'auto';
     try {
-      const shareStills = await captureShareStills();
-      handleSendMessageMediaContext(outgoingText, [
-        ...outgoingFiles,
-        ...shareStills,
-      ]);
+      handleSendMessageMediaContext(outgoingText, outgoingFiles);
     } finally {
       sendInFlightRef.current = false;
     }
@@ -295,13 +299,28 @@ const InputBar = ({
   // }, [mediaFiles.length]);
 
   const submitComposer = () => {
-    if (!hasSomethingToSend) {
+    if (isReplyStoppable) {
+      stopAssistantTurn?.();
+    } else if (!hasSomethingToSend) {
       onActivateLiveChat?.();
     } else {
       handleSendMessage();
     }
   };
 
+  const composerButtonTitle = isReplyStoppable
+    ? 'Stop generating'
+    : hasSomethingToSend
+      ? 'Send message'
+      : 'Talk out loud';
+  const composerButtonLabel = isReplyStoppable
+    ? 'Stop generating'
+    : hasSomethingToSend
+      ? 'Send message'
+      : 'Enter live mode';
+  const emptyComposerControl = (
+    <AudioLines className="w-4 h-4 sm:w-5 sm:h-5" />
+  );
   return (
     <div
       className="chat-composer w-full max-w-3xl mx-auto min-w-0 rounded-xl flex flex-col"
@@ -455,11 +474,18 @@ const InputBar = ({
             <button
               type="button"
               onClick={submitComposer}
-              title={hasSomethingToSend ? 'Send message' : 'Talk out loud'}
-              aria-label={hasSomethingToSend ? 'Send message' : 'Enter live mode'}
+              title={composerButtonTitle}
+              aria-label={composerButtonLabel}
+              data-composer-action={isReplyStoppable ? 'stop' : 'send'}
               className="chat-send ml-auto sm:hidden shrink-0 rounded-lg text-neutral-200 bg-black/60 border border-neutral-700"
             >
-              {hasSomethingToSend ? 'Send' : <AudioLines className="w-4 h-4" />}
+              {isReplyStoppable ? (
+                <Square className="w-4 h-4 fill-current" />
+              ) : hasSomethingToSend ? (
+                'Send'
+              ) : (
+                emptyComposerControl
+              )}
             </button>
           </div>
 
@@ -487,16 +513,20 @@ const InputBar = ({
         <button
           type="button"
           onClick={submitComposer}
-          title={hasSomethingToSend ? 'Send message' : 'Talk out loud'}
-          aria-label={hasSomethingToSend ? 'Send message' : 'Enter live mode'}
+          title={composerButtonTitle}
+          aria-label={composerButtonLabel}
+          data-composer-action={isReplyStoppable ? 'stop' : 'send'}
           className="chat-send hidden sm:flex shrink-0 rounded-xl text-neutral-200 bg-black/60 border border-neutral-700 hover:border-neutral-200 items-center justify-center gap-2 whitespace-nowrap self-stretch"
         >
-          {hasSomethingToSend ? (
+          {isReplyStoppable ? (
+            <>
+              <Square className="w-4 h-4 fill-current" />
+              Stop
+            </>
+          ) : hasSomethingToSend ? (
             'Send'
           ) : (
-            <>
-              <AudioLines className="w-5 h-5" />
-            </>
+            emptyComposerControl
           )}
         </button>
       </div>

@@ -53,7 +53,12 @@ const ConversationSuggestions = ({ enabled = true, onSend, overlay = false }) =>
   const lastAvatarMessage = [...(messages ?? [])]
     .reverse()
     .find((message) => {
-      if (message.type !== 'ai' || !message.content || message.isLoading) {
+      if (
+        message.type !== 'ai' ||
+        !message.content ||
+        message.isLoading ||
+        message.stopped
+      ) {
         return false;
       }
       return !isConversationSuggestionList(message.content);

@@ -7,6 +7,7 @@ import { useLocation } from 'react-router-dom';
 import { useMedia } from '../context/MediaContext';
 import { useAuth } from '../context/AuthContext';
 import { isValidImageUrl, isSharedAvatarChatPath } from './utils';
+import { canUseAvatarSpeechPlayback } from '../services/avatarSpeechPlayback';
 import BillingRefusalNotice, {
   BILLING_REFUSAL_MESSAGE_TYPE,
 } from './BillingRefusalNotice';
@@ -17,6 +18,8 @@ import { isConversationSuggestionList } from '../services/conversationSuggestion
 import { messageKeyOf } from '../services/messageKey';
 import AmbientNotificationCard from './AmbientNotificationCard';
 import CreatedArtifacts from './CreatedArtifacts';
+import SpeakerScript from './SpeakerScript';
+import { hasSpeakerScript } from './speakerScript';
 import {
   createdArtifactsOf,
   speakableReplyText,
@@ -91,9 +94,12 @@ const MessageList = ({
   readOnly = false,
 }) => {
   const { assistantActivity } = useMedia();
-  const { userPortrait, activeAvatar } = useAuth();
+  const { userPortrait, activeAvatar, user } = useAuth();
   const location = useLocation();
   const readerIsAnonymous = isSharedAvatarChatPath(location.pathname);
+  const canSpeak = canUseAvatarSpeechPlayback(activeAvatar, user, {
+    pathname: location.pathname,
+  });
   const resolvedAssistantId =
     assistantId ?? activeAvatar?.assistant_id ?? activeAvatar?.avatar_id;
   const { manifest: emotionMedia } = useEmotionMedia(resolvedAssistantId, {
@@ -122,6 +128,7 @@ const MessageList = ({
     assistantId: resolvedAssistantId,
     avatarName,
     asAnonymousIdentity: readerIsAnonymous,
+    speechPlaybackEnabled: canSpeak,
   });
 
   // Who the reader is on THIS screen, which is not always who this browser has
@@ -282,13 +289,26 @@ const MessageList = ({
                           </div>
                         </div>
                       ) : (
-                        msg.content && (
-                          <div className="whitespace-pre-wrap">
-                            {isFromAvatar
-                              ? stripArtifactReferences(msg.content)
-                              : msg.content}
-                          </div>
+                        !isFromAvatar && hasSpeakerScript(msg) ? (
+                          <SpeakerScript
+                            speakers={msg.speakers}
+                            fallback={msg.content}
+                          />
+                        ) : (
+                          msg.content && (
+                            <div className="whitespace-pre-wrap">
+                              {isFromAvatar
+                                ? stripArtifactReferences(msg.content)
+                                : msg.content}
+                            </div>
+                          )
                         )
+                      )}
+
+                      {isFromAvatar && msg.stopped && (
+                        <div className="mt-1 text-[11px] uppercase tracking-wide text-neutral-500">
+                          Stopped
+                        </div>
                       )}
 
                       {/* The plot and report an analysis turn produced. The
@@ -344,6 +364,7 @@ const MessageList = ({
                         readOnly={readOnly}
                         isSpeaking={speech.speakingKey === messageKey}
                         isSpeechLoading={loadingSpeechKey === messageKey}
+                        canSpeak={canSpeak}
                         copiedKey={copiedKey}
                         feedbackKey={feedbackKey}
                         feedbackDraft={feedbackDraft}

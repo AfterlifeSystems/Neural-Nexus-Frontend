@@ -21,7 +21,7 @@
  * a code change.
  */
 export const ADMIN_ACCOUNT_EMAIL =
-  import.meta.env.VITE_ADMIN_ACCOUNT_EMAIL ?? 'e.woods.business@icloud.com';
+  import.meta.env?.VITE_ADMIN_ACCOUNT_EMAIL ?? 'e.woods.business@icloud.com';
 
 /**
  * Decide whether the signed-in user is the administrator.

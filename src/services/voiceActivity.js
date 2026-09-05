@@ -45,6 +45,10 @@ function preferredRecordingMimeType() {
  * @param {Function} [handlers.onUtterance] Called with a File once an utterance ends.
  * @param {Function} [handlers.onLevel] Called each frame with the current RMS (for a meter).
  * @param {Function} [handlers.onError] Microphone or recorder failure.
+ * `pause` mutes: the microphone track is disabled (the browser hears
+ * nothing), any open turn is closed, and the level reads zero. `resume`
+ * re-enables the track. The stream itself stays open so the switch is instant.
+ *
  * @returns {Promise<{stop: Function, pause: Function, resume: Function, isPaused: () => boolean}>}
  */
 export async function startVoiceActivityListening({
@@ -134,7 +138,9 @@ export async function startVoiceActivityListening({
   const tick = () => {
     if (stopped) return;
     frame = requestAnimationFrame(tick);
-    const level = rms();
+    // A muted microphone reads as silence: the meter rests and nothing is
+    // recorded, even though the stream stays open so unmuting is instant.
+    const level = paused ? 0 : rms();
     onLevel?.(level);
     const now = performance.now();
 
@@ -188,8 +194,10 @@ export async function startVoiceActivityListening({
     },
     pause: () => {
       paused = true;
+      for (const track of stream.getAudioTracks()) track.enabled = false;
     },
     resume: () => {
+      for (const track of stream.getAudioTracks()) track.enabled = true;
       paused = false;
     },
     isPaused: () => paused,

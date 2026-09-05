@@ -33,6 +33,8 @@ import {
   Sparkles,
   Loader2,
   Plus,
+  ChevronDown,
+  ChevronUp,
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import {
@@ -61,6 +63,7 @@ import EmotionMediaStatus from './media/EmotionMediaStatus';
 import UploadProcessPanel from './media/UploadProcessPanel';
 import VoicePanel from './voice/VoicePanel';
 import useEmotionMedia, { forgetEmotionMedia } from '../hooks/useEmotionMedia';
+import { subscribeAvatarPortraitChanged } from '../services/avatarPortraitEvents';
 import { emotionMediaRows } from '../hooks/emotionMediaRows';
 import AvatarIdentityFacts from './AvatarIdentityFacts';
 import {
@@ -75,6 +78,12 @@ import {
 } from './utils';
 import { isAdminAccount } from '../config/adminAccount';
 import { parseHttpUrls } from '../services/parseHttpUrls';
+import { singleReferenceImageUrl } from '../services/referenceImageUrl';
+import {
+  didDragLeaveViewport,
+  isDropOverlayCancelKey,
+  isFileOrUrlDrag,
+} from './documentDropOverlay';
 import { splitVoiceMedia } from '../services/voiceMedia';
 import useIdentityMediaJobs from '../hooks/useIdentityMediaJobs';
 import AvatarDocumentRow, {
@@ -149,10 +158,12 @@ const AvatarSettings = ({ avatarId, onPortraitChanged }) => {
     password: '',
   });
   const [manualUrl, setManualUrl] = useState('');
+  const [portraitUrl, setPortraitUrl] = useState('');
   // Bumped whenever something outside the Voice panel changes the voice
   // (a deleted upload, a new reference clip) so the panel re-reads status.
   const [voiceStatusVersion, setVoiceStatusVersion] = useState(0);
   const urlInputRef = useRef(null);
+  const portraitUrlInputRef = useRef(null);
   const uploadSectionRef = useRef(null);
   const startSectionUploadRef = useRef(null);
   // Source documents already uploaded to this avatar, from
@@ -166,6 +177,7 @@ const AvatarSettings = ({ avatarId, onPortraitChanged }) => {
   // time. Both are view state only; the list itself is never changed by them.
   const [documentSearchQuery, setDocumentSearchQuery] = useState('');
   const [documentKindFilter, setDocumentKindFilter] = useState('all');
+  const [isDataUploadedOpen, setIsDataUploadedOpen] = useState(true);
   // Why the file list is empty, when it is empty because something FAILED
   // rather than because the avatar genuinely has no files. Without this the two
   // states render identically, and "No files attached to this avatar" is shown
@@ -367,10 +379,6 @@ const AvatarSettings = ({ avatarId, onPortraitChanged }) => {
           block: 'start',
         });
       if (options?.isReferenceImage) {
-        uploadSectionRef.current?.scrollIntoView({
-          behavior: 'smooth',
-          block: 'start',
-        });
         return startUpload(options);
       }
       if (options?.kind) {
@@ -421,8 +429,15 @@ const AvatarSettings = ({ avatarId, onPortraitChanged }) => {
     () => sectionJobs.filter((job) => job.kind === 'voice'),
     [sectionJobs]
   );
+  const portraitJobs = useMemo(
+    () => sectionJobs.filter((job) => job.kind === 'portrait'),
+    [sectionJobs]
+  );
   const uploadSectionJobs = useMemo(
-    () => sectionJobs.filter((job) => job.kind !== 'voice'),
+    () =>
+      sectionJobs.filter(
+        (job) => job.kind !== 'voice' && job.kind !== 'portrait'
+      ),
     [sectionJobs]
   );
   // The document endpoints name their avatar in the request, so opening this
@@ -465,6 +480,35 @@ const AvatarSettings = ({ avatarId, onPortraitChanged }) => {
     refreshAvatarDocuments,
   ]);
 
+  // A portrait stored by any job for this avatar — one dropped on the Upload
+  // section with the reference flag, or one restored after the page reloaded
+  // mid-upload — replaces the picture here the moment the job finishes. The
+  // dropzone's own path confirms the portrait itself; this covers the rest.
+  useEffect(() => {
+    if (!assistantId) return undefined;
+    let cancelled = false;
+    const unsubscribe = subscribeAvatarPortraitChanged(async (changedAssistantId) => {
+      if (changedAssistantId !== assistantId) return;
+      try {
+        const storedPortrait = await getAvatarReferenceImage(assistantId);
+        if (cancelled) return;
+        setAvatarIcon(storedPortrait);
+        if (storedPortrait) {
+          writeCachedAvatarIcon(assistantId, storedPortrait);
+          onPortraitChanged?.(storedPortrait);
+        } else {
+          forgetCachedAvatarIcon(assistantId);
+        }
+      } catch (portraitError) {
+        console.error('Re-reading the avatar portrait failed:', portraitError);
+      }
+    });
+    return () => {
+      cancelled = true;
+      unsubscribe();
+    };
+  }, [assistantId, onPortraitChanged]);
+
   // Keep the sharing control in step with whichever avatar is open.
   useEffect(() => {
     setIsAvatarShared(isAvatarListedPublicly(activeAvatar));
@@ -494,16 +538,21 @@ const AvatarSettings = ({ avatarId, onPortraitChanged }) => {
   // sees the sharing control alone, and a file dropped anywhere on that screen
   // would otherwise raise the full-screen upload overlay for an upload the API
   // refuses.
+  //
+  // Dismiss is not only dragleave: a cancelled OS file drag often never
+  // reports a leave the page can trust, which used to leave "Drop to Upload"
+  // covering the screen with no way off it. Escape, a click, dragend, and
+  // leaving the window all clear it; drop still uploads.
   useEffect(() => {
     if (!canAdministerAvatar) {
       return undefined;
     }
+    const dismissDropOverlay = () => {
+      setIsDragging(false);
+    };
     const handleDragEnter = (e) => {
       e.preventDefault();
-      if (
-        e.dataTransfer.types.includes('Files') ||
-        e.dataTransfer.types.includes('text/uri-list')
-      ) {
+      if (isFileOrUrlDrag(e.dataTransfer)) {
         setIsDragging(true);
       }
     };
@@ -512,15 +561,17 @@ const AvatarSettings = ({ avatarId, onPortraitChanged }) => {
     };
     const handleDragLeave = (e) => {
       if (
-        e.target === document.body ||
-        !document.body.contains(e.relatedTarget)
+        didDragLeaveViewport(e.clientX, e.clientY, {
+          width: window.innerWidth,
+          height: window.innerHeight,
+        })
       ) {
-        setIsDragging(false);
+        dismissDropOverlay();
       }
     };
     const handleDrop = async (e) => {
       e.preventDefault();
-      setIsDragging(false);
+      dismissDropOverlay();
       const droppedUrls = parseHttpUrls(
         e.dataTransfer.getData('text/uri-list') ||
           e.dataTransfer.getData('text/plain')
@@ -533,7 +584,12 @@ const AvatarSettings = ({ avatarId, onPortraitChanged }) => {
       });
     };
     const handlePaste = (e) => {
-      if (e.target === urlInputRef.current) return;
+      if (
+        e.target === urlInputRef.current ||
+        e.target === portraitUrlInputRef.current
+      ) {
+        return;
+      }
       const typingInAnotherField =
         e.target instanceof HTMLInputElement ||
         e.target instanceof HTMLTextAreaElement;
@@ -543,17 +599,26 @@ const AvatarSettings = ({ avatarId, onPortraitChanged }) => {
       e.preventDefault();
       startSectionUploadRef.current?.({ urls: pastedUrls });
     };
+    const handleKeyDown = (e) => {
+      if (isDropOverlayCancelKey(e.key)) {
+        dismissDropOverlay();
+      }
+    };
     document.addEventListener('dragenter', handleDragEnter);
     document.addEventListener('dragover', handleDragOver);
     document.addEventListener('dragleave', handleDragLeave);
     document.addEventListener('drop', handleDrop);
+    document.addEventListener('dragend', dismissDropOverlay);
     document.addEventListener('paste', handlePaste);
+    window.addEventListener('keydown', handleKeyDown);
     return () => {
       document.removeEventListener('dragenter', handleDragEnter);
       document.removeEventListener('dragover', handleDragOver);
       document.removeEventListener('dragleave', handleDragLeave);
       document.removeEventListener('drop', handleDrop);
+      document.removeEventListener('dragend', dismissDropOverlay);
       document.removeEventListener('paste', handlePaste);
+      window.removeEventListener('keydown', handleKeyDown);
     };
   }, [canAdministerAvatar]);
 
@@ -786,7 +851,7 @@ const AvatarSettings = ({ avatarId, onPortraitChanged }) => {
     }
   };
   /**
-   * Set the avatar's portrait from a chosen image.
+   * Set the avatar's portrait from a chosen image file or a single image URL.
    *
    * The portrait is the avatar's reference image, so this uses the same media
    * endpoint with the reference_image flag rather than storing the file as
@@ -794,15 +859,48 @@ const AvatarSettings = ({ avatarId, onPortraitChanged }) => {
    * done: asking for the portrait the instant the 202 lands returns the OLD
    * image (or none), which looked exactly like the upload had failed.
    */
-  const handleIconUpload = async (acceptedFiles) => {
-    const [chosenImage] = acceptedFiles ?? [];
-    if (!chosenImage) return;
-
+  const submitPortraitUrl = async (text) => {
+    const parsed = singleReferenceImageUrl(text);
+    if (parsed.error) {
+      toast.error(parsed.error);
+      return;
+    }
+    setPortraitUrl('');
     await startSectionUpload({
-      files: [chosenImage],
+      urls: [parsed.url],
       isReferenceImage: true,
       confirmStored: confirmPortraitWasStored,
     });
+  };
+
+  const handleIconUpload = async (acceptedFiles, fileRejections, dropEvent) => {
+    const droppedUrlText =
+      dropEvent?.dataTransfer?.getData('text/uri-list') ||
+      dropEvent?.dataTransfer?.getData('text/plain') ||
+      '';
+    if (fileRejections?.length) {
+      toast.error('Only an image file or an image URL can be the portrait.');
+    }
+    const [chosenImage] = acceptedFiles ?? [];
+    if (chosenImage) {
+      await startSectionUpload({
+        files: [chosenImage],
+        isReferenceImage: true,
+        confirmStored: confirmPortraitWasStored,
+      });
+      return;
+    }
+    if (droppedUrlText.trim()) {
+      await submitPortraitUrl(droppedUrlText);
+    }
+  };
+
+  const handlePortraitPaste = (event) => {
+    const text = event.clipboardData.getData('text/plain');
+    if (!singleReferenceImageUrl(text).url) return;
+    event.preventDefault();
+    event.stopPropagation();
+    submitPortraitUrl(text);
   };
 
   /**
@@ -1158,10 +1256,16 @@ const AvatarSettings = ({ avatarId, onPortraitChanged }) => {
       return (
         <div className="avatar-settings flex flex-col gap-4 sm:gap-6 w-full max-w-4xl mx-auto min-w-0">
           {renderSharingCard()}
+          {isAdministrator && (
+            <AvatarIdentityFacts
+              assistantId={assistantId}
+              avatarName={activeAvatar?.name}
+            />
+          )}
           <p className="text-white/50 text-sm px-1">
             Another account created this avatar, so its name, portrait, source
-            documents and deletion stay with that account. Sharing is the only
-            setting the administrator can change here.
+            documents and deletion stay with that account. You can change
+            sharing, and you can review what the avatar has learned.
           </p>
         </div>
       );
@@ -1177,13 +1281,30 @@ const AvatarSettings = ({ avatarId, onPortraitChanged }) => {
     <div className="avatar-settings flex flex-col gap-4 sm:gap-6 w-full max-w-4xl mx-auto min-w-0">
       {/* Drag Overlay */}
       {isDragging && (
-        <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm flex items-center justify-center">
+        <div
+          className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="drop-to-upload-title"
+          onClick={() => setIsDragging(false)}
+        >
+          <button
+            type="button"
+            aria-label="Cancel upload"
+            onClick={() => setIsDragging(false)}
+            className="absolute top-4 right-4 text-white/60 hover:text-neutral-100"
+          >
+            <X size={28} />
+          </button>
           <div className="text-center">
             <Upload
               className="mx-auto mb-4 text-neutral-200 animate-bounce"
               size={80}
             />
-            <h2 className="text-3xl font-bold text-neutral-200 mb-4">
+            <h2
+              id="drop-to-upload-title"
+              className="text-3xl font-bold text-neutral-200 mb-4"
+            >
               Drop to Upload
             </h2>
             <p className="text-white/80 text-lg mb-2">
@@ -1191,6 +1312,16 @@ const AvatarSettings = ({ avatarId, onPortraitChanged }) => {
             </p>
             <p className="text-white/60">
               YouTube • Twitter • Wikipedia • Twitch • Web Pages
+            </p>
+            <button
+              type="button"
+              onClick={() => setIsDragging(false)}
+              className="mt-6 px-4 py-2 bg-black/50 hover:bg-white/10 text-neutral-200 rounded-lg transition-all duration-300 border border-white/10"
+            >
+              Cancel
+            </button>
+            <p className="mt-3 text-white/50 text-sm">
+              Press Escape or click anywhere to cancel
             </p>
           </div>
         </div>
@@ -1268,23 +1399,24 @@ const AvatarSettings = ({ avatarId, onPortraitChanged }) => {
         <div className="flex flex-col sm:flex-row gap-4 sm:gap-6 items-center sm:items-start">
           {/* Icon Upload */}
           <div className="flex flex-col gap-3">
-            {avatarIcon ? (
-              <Dropzone
-                onDrop={handleIconUpload}
-                multiple={false}
-                accept={{ 'image/*': [] }}
-                noClick
-                // The screen also listens for a drop on the document itself, so
-                // that a file dropped anywhere is taken as source material. An
-                // image dropped HERE is the portrait and nothing else: without
-                // this the one drop ran both handlers and uploaded the same file
-                // twice — once as the portrait, once as an ordinary document —
-                // with two independent progress cards to match.
-                noDragEventsBubbling
-              >
-                {({ getRootProps, getInputProps, open }) => (
+            <Dropzone
+              onDrop={handleIconUpload}
+              multiple={false}
+              accept={{ 'image/*': [] }}
+              noClick={Boolean(avatarIcon)}
+              // The screen also listens for a drop on the document itself, so
+              // that a file dropped anywhere is taken as source material. An
+              // image dropped HERE is the portrait and nothing else: without
+              // this the one drop ran both handlers and uploaded the same file
+              // twice — once as the portrait, once as an ordinary document —
+              // with two independent progress cards to match.
+              noDragEventsBubbling
+            >
+              {({ getRootProps, getInputProps, open }) =>
+                avatarIcon ? (
                   <div
                     {...getRootProps()}
+                    onPaste={handlePortraitPaste}
                     className="relative w-32 h-32 rounded-2xl overflow-hidden cursor-pointer group"
                   >
                     <img
@@ -1300,20 +1432,10 @@ const AvatarSettings = ({ avatarId, onPortraitChanged }) => {
                     </div>
                     <input {...getInputProps()} />
                   </div>
-                )}
-              </Dropzone>
-            ) : (
-              <Dropzone
-                onDrop={handleIconUpload}
-                multiple={false}
-                accept={{ 'image/*': [] }}
-                // Same reason as the replace-the-portrait dropzone above: this
-                // drop is the portrait, not another source document.
-                noDragEventsBubbling
-              >
-                {({ getRootProps, getInputProps }) => (
+                ) : (
                   <div
                     {...getRootProps()}
+                    onPaste={handlePortraitPaste}
                     className="w-32 h-32 border-2 border-dashed border-white/30 hover:border-white/50 flex flex-col gap-2 items-center justify-center cursor-pointer rounded-2xl bg-black/60 transition-all duration-300"
                   >
                     <input {...getInputProps()} />
@@ -1322,11 +1444,11 @@ const AvatarSettings = ({ avatarId, onPortraitChanged }) => {
                       Add a portrait
                     </span>
                   </div>
-                )}
-              </Dropzone>
-            )}
+                )
+              }
+            </Dropzone>
             <p className="text-xs text-white/40 text-center w-32">
-              {avatarIcon ? 'Click to replace' : 'Drop or click'}
+              {avatarIcon ? 'Click to replace' : 'Drop, click, or paste a URL'}
             </p>
             <EmotionMediaStatus
               assistantId={assistantId}
@@ -1391,37 +1513,76 @@ const AvatarSettings = ({ avatarId, onPortraitChanged }) => {
                   <textarea
                     value={updatedDesc}
                     onChange={(e) => setUpdatedDesc(e.target.value)}
-                    placeholder="Enter description"
+                    placeholder={
+                      isGeneratingDescription
+                        ? 'Generating…'
+                        : 'Enter description'
+                    }
                     rows="3"
-                    className="w-full px-4 py-2 bg-black/50 border border-white/10 rounded-lg text-neutral-200 placeholder-white/40 focus:outline-none focus:ring-2 focus:ring-amber-400/50 resize-none"
+                    readOnly={isGeneratingDescription}
+                    aria-busy={isGeneratingDescription}
+                    className="w-full px-4 py-2 bg-black/50 border border-white/10 rounded-lg text-neutral-200 placeholder-white/40 focus:outline-none focus:ring-2 focus:ring-amber-400/50 resize-none read-only:opacity-90"
                   />
+                  {/* {isGeneratingDescription && (
+                    <div
+                      className="flex items-center gap-2 text-sm text-amber-300"
+                      role="status"
+                      aria-live="polite"
+                    >
+                      <Loader2 className="w-4 h-4 animate-spin shrink-0" />
+                      Generating description…
+                    </div>
+                  )} */}
                   <div className="flex gap-2 flex-wrap">
                     <button
+                      type="button"
                       onClick={() => {
                         handleDescSave(updatedDesc);
                         setEditingDesc(false);
                       }}
                       disabled={isGeneratingDescription}
-                      className="px-4 py-2 bg-amber-400/15 hover:bg-amber-400/25 text-amber-300 rounded-lg transition-all duration-300 border border-amber-400/30 disabled:opacity-40"
+                      className={`px-4 py-2 rounded-lg transition-all duration-300 border inline-flex items-center gap-1.5 disabled:opacity-40 disabled:cursor-not-allowed ${
+                        isGeneratingDescription
+                          ? 'bg-amber-400/15 text-amber-300 border-amber-400/30'
+                          : 'bg-amber-400 hover:bg-amber-300 text-neutral-900 border-amber-400 font-semibold'
+                      }`}
                     >
                       Save
                     </button>
-                    {isGeneratingDescription ? (
-                      <button
-                        type="button"
-                        onClick={cancelDescriptionGeneration}
-                        className="px-4 py-2 bg-black/50 hover:bg-white/10 text-neutral-200 rounded-lg transition-all duration-300 border border-white/10"
-                      >
-                        Cancel generation
-                      </button>
-                    ) : (
-                      <button
-                        onClick={() => setEditingDesc(false)}
-                        className="px-4 py-2 bg-black/50 hover:bg-white/10 text-neutral-200 rounded-lg transition-all duration-300 border border-white/10"
-                      >
-                        Cancel
-                      </button>
-                    )}
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (isGeneratingDescription) {
+                          cancelDescriptionGeneration();
+                        }
+                        setUpdatedDesc(activeAvatar?.description ?? '');
+                        setEditingDesc(false);
+                      }}
+                      className="px-4 py-2 bg-black/50 hover:bg-white/10 text-neutral-200 rounded-lg transition-all duration-300 border border-white/10"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      type="button"
+                      onClick={
+                        isGeneratingDescription
+                          ? cancelDescriptionGeneration
+                          : generateDescription
+                      }
+                      className="px-4 py-2 bg-black/50 hover:bg-white/10 text-amber-300 rounded-lg transition-all duration-300 border border-amber-400/30 inline-flex items-center gap-1.5"
+                    >
+                      {isGeneratingDescription ? (
+                        <>
+                          <Loader2 className="w-4 h-4 animate-spin" />
+                          Cancel generation
+                        </>
+                      ) : (
+                        <>
+                          <Sparkles className="w-4 h-4" />
+                          Generate
+                        </>
+                      )}
+                    </button>
                   </div>
                 </div>
               ) : (
@@ -1432,16 +1593,24 @@ const AvatarSettings = ({ avatarId, onPortraitChanged }) => {
                   <div className="flex items-center gap-3 shrink-0">
                     <button
                       type="button"
-                      onClick={generateDescription}
-                      disabled={isGeneratingDescription}
+                      onClick={
+                        isGeneratingDescription
+                          ? cancelDescriptionGeneration
+                          : generateDescription
+                      }
                       className="text-amber-300 hover:text-amber-200 transition-colors duration-300 inline-flex items-center gap-1 text-sm"
                     >
                       {isGeneratingDescription ? (
-                        <Loader2 className="w-4 h-4 animate-spin" />
+                        <>
+                          <Loader2 className="w-4 h-4 animate-spin" />
+                          Cancel generation
+                        </>
                       ) : (
-                        <Sparkles className="w-4 h-4" />
+                        <>
+                          <Sparkles className="w-4 h-4" />
+                          Generate
+                        </>
                       )}
-                      Generate
                     </button>
                     <button
                       onClick={() => setEditingDesc(true)}
@@ -1455,6 +1624,53 @@ const AvatarSettings = ({ avatarId, onPortraitChanged }) => {
             </div>
           </div>
         </div>
+        <div className="mt-4 flex flex-col sm:flex-row gap-2">
+          <input
+            ref={portraitUrlInputRef}
+            type="url"
+            inputMode="url"
+            autoComplete="url"
+            spellCheck={false}
+            placeholder="https://example.com/portrait.jpg"
+            value={portraitUrl}
+            onChange={(event) => setPortraitUrl(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === 'Enter') {
+                event.preventDefault();
+                if (portraitUrl.trim()) submitPortraitUrl(portraitUrl);
+              }
+            }}
+            className="w-full min-w-0 sm:flex-1 px-3 py-2 bg-black/50 border border-white/10 rounded-lg text-sm text-neutral-200 placeholder-white/40 focus:outline-none focus:ring-2 focus:ring-amber-400/50"
+          />
+          <button
+            type="button"
+            onClick={() => submitPortraitUrl(portraitUrl)}
+            disabled={!portraitUrl.trim()}
+            className="px-3 py-2 bg-amber-400/15 hover:bg-amber-400/25 text-amber-300 text-sm font-semibold rounded-lg transition-colors flex items-center justify-center gap-2 border border-amber-400/30 disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            <Link size={16} aria-hidden="true" />
+            Add as reference image
+          </button>
+        </div>
+        <p className="mt-1.5 text-xs text-white/40">
+          A direct image link becomes this avatar's reference image — the
+          portrait used for emotion stills and idle loops.
+        </p>
+        {portraitJobs.length > 0 && (
+          <div className="mt-3 space-y-3">
+            {portraitJobs.map((job) => (
+              <UploadProcessPanel
+                key={job.localId}
+                job={job}
+                onCancel={() => cancelSectionJob(job.localId)}
+                onCancelItem={(itemJobId) =>
+                  cancelSectionJob(job.localId, itemJobId)
+                }
+                onDismiss={() => dismissSectionJob(job.localId)}
+              />
+            ))}
+          </div>
+        )}
         {/* The avatar's voice: record it, watch the corpus fill, verify the
             professional voice model. Every avatar gets a voice audio model from this;
             only the personal avatar continues to a professional one. */}
@@ -1664,104 +1880,133 @@ const AvatarSettings = ({ avatarId, onPortraitChanged }) => {
       {/* Documents Section */}
 
       <div className="bg-black/60 backdrop-blur-lg rounded-2xl border border-white/10 p-6">
-        <h3 className="text-xl font-semibold text-neutral-200 mb-4 flex items-center gap-2">
-          <File size={20} />
-          Data Uploaded for {activeAvatar?.name}
-        </h3>
+        <button
+          type="button"
+          onClick={() => setIsDataUploadedOpen((wasOpen) => !wasOpen)}
+          aria-expanded={isDataUploadedOpen}
+          aria-controls="avatar-data-uploaded"
+          className={`w-full flex items-center justify-between gap-3 text-left text-xl font-semibold text-neutral-200 hover:text-white transition-colors ${
+            isDataUploadedOpen ? 'mb-4' : ''
+          }`}
+        >
+          <span className="flex items-center gap-2 min-w-0">
+            <File size={20} className="shrink-0" />
+            <span className="truncate">
+              Data Uploaded for {activeAvatar?.name}
+            </span>
+            {allAvatarRows.length > 0 && (
+              <span className="text-sm font-normal text-white/50 shrink-0">
+                {allAvatarRows.length}
+              </span>
+            )}
+          </span>
+          {isDataUploadedOpen ? (
+            <ChevronUp size={20} className="shrink-0 text-white/60" />
+          ) : (
+            <ChevronDown size={20} className="shrink-0 text-white/60" />
+          )}
+        </button>
 
-        {allAvatarRows.length > 0 && (
-          <div className="mb-4 space-y-3">
-            <div className="relative">
-              <Search
-                size={16}
-                className="absolute left-3 top-1/2 -translate-y-1/2 text-white/40 pointer-events-none"
-              />
-              <input
-                type="search"
-                value={documentSearchQuery}
-                onChange={(event) => setDocumentSearchQuery(event.target.value)}
-                placeholder="Search uploaded data…"
-                aria-label="Search uploaded data"
-                className="w-full pl-9 pr-3 py-2 bg-black/50 border border-white/10 rounded-lg text-neutral-200 placeholder-white/40 focus:outline-none focus:ring-2 focus:ring-amber-400/50 text-sm"
-              />
-            </div>
-            <div
-              className="flex flex-wrap gap-2"
-              role="group"
-              aria-label="Filter by type"
-            >
-              {[
-                'all',
-                ...Object.keys(DOCUMENT_BUCKET_LABELS).filter(
-                  (bucket) => bucket !== 'all' && documentBucketCounts[bucket]
-                ),
-              ].map((bucket) => {
-                const isSelected = documentKindFilter === bucket;
-                const count =
-                  bucket === 'all'
-                    ? allAvatarRows.length
-                    : documentBucketCounts[bucket];
-                return (
+        {isDataUploadedOpen && (
+          <div id="avatar-data-uploaded">
+            {allAvatarRows.length > 0 && (
+              <div className="mb-4 space-y-3">
+                <div className="relative">
+                  <Search
+                    size={16}
+                    className="absolute left-3 top-1/2 -translate-y-1/2 text-white/40 pointer-events-none"
+                  />
+                  <input
+                    type="search"
+                    value={documentSearchQuery}
+                    onChange={(event) =>
+                      setDocumentSearchQuery(event.target.value)
+                    }
+                    placeholder="Search uploaded data…"
+                    aria-label="Search uploaded data"
+                    className="w-full pl-9 pr-3 py-2 bg-black/50 border border-white/10 rounded-lg text-neutral-200 placeholder-white/40 focus:outline-none focus:ring-2 focus:ring-amber-400/50 text-sm"
+                  />
+                </div>
+                <div
+                  className="flex flex-wrap gap-2"
+                  role="group"
+                  aria-label="Filter by type"
+                >
+                  {[
+                    'all',
+                    ...Object.keys(DOCUMENT_BUCKET_LABELS).filter(
+                      (bucket) =>
+                        bucket !== 'all' && documentBucketCounts[bucket]
+                    ),
+                  ].map((bucket) => {
+                    const isSelected = documentKindFilter === bucket;
+                    const count =
+                      bucket === 'all'
+                        ? allAvatarRows.length
+                        : documentBucketCounts[bucket];
+                    return (
+                      <button
+                        key={bucket}
+                        type="button"
+                        onClick={() => setDocumentKindFilter(bucket)}
+                        aria-pressed={isSelected}
+                        className={`px-3 py-1 rounded-full text-xs font-medium border transition-colors ${
+                          isSelected
+                            ? 'bg-neutral-200 text-neutral-900 border-neutral-200'
+                            : 'bg-black/60 text-white/70 border-white/10 hover:bg-white/10 hover:text-neutral-100'
+                        }`}
+                      >
+                        {DOCUMENT_BUCKET_LABELS[bucket]}
+                        <span className="ml-1 opacity-70">{count}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+
+            {/* The list scrolls within a bounded height, so a long upload history
+            does not push the rest of the settings off the bottom of the page,
+            and the search and filters above it stay in reach. */}
+            <div className="space-y-2 max-h-[60vh] overflow-y-auto pr-1">
+              {allAvatarRows.length > 0 ? (
+                visibleAvatarDocuments.length > 0 ? (
+                  visibleAvatarDocuments.map((documentEntry) => (
+                    <AvatarDocumentRow
+                      key={documentEntry.assetId ?? documentEntry.label}
+                      documentEntry={documentEntry}
+                      portraitDataUri={avatarIcon}
+                      onDelete={handleDeleteDocument}
+                      onSetVoiceReference={handleSetVoiceReference}
+                    />
+                  ))
+                ) : (
+                  <p className="text-white/40 text-sm italic">
+                    Nothing uploaded matches this search or filter.
+                  </p>
+                )
+              ) : avatarDocumentsError ? (
+                <div className="p-3 bg-red-500/10 border border-red-500/30 rounded-lg">
+                  <p className="text-red-300 text-sm">{avatarDocumentsError}</p>
                   <button
-                    key={bucket}
-                    type="button"
-                    onClick={() => setDocumentKindFilter(bucket)}
-                    aria-pressed={isSelected}
-                    className={`px-3 py-1 rounded-full text-xs font-medium border transition-colors ${
-                      isSelected
-                        ? 'bg-neutral-200 text-neutral-900 border-neutral-200'
-                        : 'bg-black/60 text-white/70 border-white/10 hover:bg-white/10 hover:text-neutral-100'
-                    }`}
+                    onClick={() =>
+                      setAvatarDocumentsReloadCount(
+                        (reloadCount) => reloadCount + 1
+                      )
+                    }
+                    className="mt-2 px-3 py-1.5 text-sm bg-black/50 hover:bg-white/10 text-neutral-200 rounded-lg border border-white/10 transition-colors"
                   >
-                    {DOCUMENT_BUCKET_LABELS[bucket]}
-                    <span className="ml-1 opacity-70">{count}</span>
+                    Try again
                   </button>
-                );
-              })}
+                </div>
+              ) : (
+                <p className="text-white/40 text-sm italic">
+                  No files attached to this avatar.
+                </p>
+              )}
             </div>
           </div>
         )}
-
-        {/* The list scrolls within a bounded height, so a long upload history
-            does not push the rest of the settings off the bottom of the page,
-            and the search and filters above it stay in reach. */}
-        <div className="space-y-2 max-h-[60vh] overflow-y-auto pr-1">
-          {allAvatarRows.length > 0 ? (
-            visibleAvatarDocuments.length > 0 ? (
-              visibleAvatarDocuments.map((documentEntry) => (
-                <AvatarDocumentRow
-                  key={documentEntry.assetId ?? documentEntry.label}
-                  documentEntry={documentEntry}
-                  portraitDataUri={avatarIcon}
-                  onDelete={handleDeleteDocument}
-                  onSetVoiceReference={handleSetVoiceReference}
-                />
-              ))
-            ) : (
-              <p className="text-white/40 text-sm italic">
-                Nothing uploaded matches this search or filter.
-              </p>
-            )
-          ) : avatarDocumentsError ? (
-            <div className="p-3 bg-red-500/10 border border-red-500/30 rounded-lg">
-              <p className="text-red-300 text-sm">{avatarDocumentsError}</p>
-              <button
-                onClick={() =>
-                  setAvatarDocumentsReloadCount(
-                    (reloadCount) => reloadCount + 1
-                  )
-                }
-                className="mt-2 px-3 py-1.5 text-sm bg-black/50 hover:bg-white/10 text-neutral-200 rounded-lg border border-white/10 transition-colors"
-              >
-                Try again
-              </button>
-            </div>
-          ) : (
-            <p className="text-white/40 text-sm italic">
-              No files attached to this avatar.
-            </p>
-          )}
-        </div>
       </div>
     </div>
   );

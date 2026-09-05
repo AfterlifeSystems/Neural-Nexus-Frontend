@@ -41,9 +41,18 @@ import {
 } from '../services/attachmentArchive';
 import {
   buildAmbientMessageRequest,
+  buildSpokenTurnRequest,
   deleteConversationThread,
+  stopAssistantReply,
   updateConversationThread,
 } from '../services/avatarService';
+import {
+  STOP_FALLBACK_ABORT_DELAY_MS,
+  buildLocallyStoppedDoneFrame,
+  isAbortError,
+  resolveStopStrategy,
+  terminalFrameWasStopped,
+} from '../services/assistantTurnStop';
 import { notifyAmbientObservation } from '../services/desktopNotifications';
 import {
   overlayLocalPinState,
@@ -93,6 +102,7 @@ const ASSISTANT_ACTIVITY = {
   responding: 'Responding',
   analyzing: 'Reflecting on the reply',
   suggestingEdits: 'Suggesting edits',
+  stopping: 'Stopping',
 };
 
 /**
@@ -302,6 +312,9 @@ function normalizeThreadMessages(storedMessages, threadId = null) {
         // The triage record of an ambient observation this reply answers
         // (`decision` of respond or notify); a notify reply renders as a card.
         ambient: storedMessage.response_metadata?.ambient ?? null,
+        // A live-voice turn labelled by speaker: the chips render from this
+        // record, the content is the same script as plain text.
+        speakers: storedMessage.additional_kwargs?.speakers ?? null,
         // Only a person's own turn is trimmed. The account of the attachments
         // is appended to what the person sent, so an avatar that writes those
         // same words is quoting, and its reply is shown whole.
@@ -394,6 +407,14 @@ export const MediaProvider = ({ children }) => {
   // identity rather than replaced, so a second send while the first is still
   // running neither hides the first turn's files nor clears the second's.
   const [attachmentsInFlight, setAttachmentsInFlight] = useState([]);
+  // Every reply being streamed right now, so Stop can end it. Each entry holds
+  // the fetch's AbortController and, once the first frame lands, the request
+  // id the server knows the turn by. Hidden harvests and ambient observations
+  // are registered too (so they abort with everything else on teardown) but
+  // are not counted as stoppable: the composer's Stop button only ever ends
+  // replies the person can see.
+  const activeTurnsRef = useRef(new Set());
+  const [stoppableTurnCount, setStoppableTurnCount] = useState(0);
   // Object URLs minted while restoring a thread's archived attachments. They
   // stay valid for as long as that transcript is on screen and are released
   // when another thread replaces it, so reopening conversations in a long
@@ -632,6 +653,7 @@ export const MediaProvider = ({ children }) => {
     messageContent,
     attachedFiles = []
   ) {
+    yieldAmbientObservations();
     return sendMessageAwaitResponseUpdateMessages(
       user,
       avatarForMessage,
@@ -671,6 +693,9 @@ export const MediaProvider = ({ children }) => {
    * @param {Function} [parameters.bubbleDecorator] Given the bubble about to
    *   be painted, returns extra fields for it (for example the ambient triage
    *   record that turns the bubble into a notification card).
+   * @param {boolean} [parameters.ambient] The turn is an ambient webcam /
+   *   screen observation: disposable context that yields to the person's own
+   *   turns (see `yieldAmbientObservations`).
    */
   async function runAssistantTurnStream({
     avatarForMessage,
@@ -681,6 +706,7 @@ export const MediaProvider = ({ children }) => {
     deferBubbleUntilFirstToken = false,
     onExtraEvent = null,
     bubbleDecorator = null,
+    ambient = false,
   }) {
     const assistantId = resolveAssistantId(avatarForMessage);
     const streamingMessageId = `streaming-${Date.now()}`;
@@ -768,65 +794,131 @@ export const MediaProvider = ({ children }) => {
 
     let terminalFrame = null;
 
-    await streamServerSentEvents(path, {
-      method: 'POST',
-      formData,
-      // A turn on a shared avatar's public chat belongs to the anonymous
-      // visitor, never to whatever account this browser is signed into. The
-      // API resolves the anonymous identity only for a caller that presents no
-      // credential at all, so the credential is withheld here rather than
-      // merely unused: sending it would attribute the guest's conversation —
-      // and meter its tokens against the allotment — of the signed-in account,
-      // which during testing is the administrator's.
-      asAnonymousIdentity: isSharedAvatarChatPath(),
-      onEvent: (streamEvent) => {
-        if (streamEvent.type === 'assistant_token') {
-          appendTokenToStreamingMessage(streamEvent.text ?? '');
-          setActivityIfStillOnScreen(ASSISTANT_ACTIVITY.responding);
-        } else if (streamEvent.type === 'usage_estimate') {
-          // The first frame of a turn: the request has been costed and the
-          // model has not started speaking yet.
-          setActivityUnlessDeferred(ASSISTANT_ACTIVITY.thinking);
-        } else if (streamEvent.type === 'media_job_started') {
-          // The avatar called update_avatar_identity_with_media: the media is
-          // processed in the background, and its progress gets the same toast
-          // an upload from the settings screen gets. Not awaited — the turn's
-          // reply keeps streaming while the job runs.
-          followMediaJobWithToast(streamEvent.job_id, streamEvent.description);
-          setActivityIfStillOnScreen(ASSISTANT_ACTIVITY.thinking);
-        } else if (streamEvent.type === 'status') {
-          // The avatar started or finished a tool. The phrase is what the
-          // avatar is doing right now ("Listing files on linux-pc-dev",
-          // "Running analysis code"). A data-analysis turn spends most of its
-          // time here, before the first reply token, so this is the only
-          // signal a person waiting gets that the turn is progressing.
-          setActivityUnlessDeferred(
-            streamEvent.text || ASSISTANT_ACTIVITY.thinking
-          );
-        } else if (streamEvent.type === 'keepalive_comment') {
-          // Tokens have stopped but the turn has not: the server keeps this
-          // line open while it runs its post-reply analysis.
-          setActivityUnlessDeferred(ASSISTANT_ACTIVITY.analyzing);
-        } else if (
-          streamEvent.type !== 'done' &&
-          streamEvent.type !== 'interrupt'
-        ) {
-          onExtraEvent?.(streamEvent);
-        }
-        if (
-          streamEvent.type === 'done' ||
-          streamEvent.type === 'interrupt'
-        ) {
-          terminalFrame = streamEvent;
-          turnPausedForUserRef.current = streamEvent.type === 'interrupt';
-          setActivityIfStillOnScreen(
+    // A turn on a shared avatar's public chat belongs to the anonymous
+    // visitor, never to whatever account this browser is signed into. The
+    // API resolves the anonymous identity only for a caller that presents no
+    // credential at all, so the credential is withheld here rather than
+    // merely unused: sending it would attribute the guest's conversation —
+    // and meter its tokens against the allotment — of the signed-in account,
+    // which during testing is the administrator's. A stop for this turn must
+    // present the same identity, so the decision is recorded on the turn.
+    const asAnonymousIdentity = isSharedAvatarChatPath();
+
+    // Registered so Stop can end this turn. Until the first frame names the
+    // request, a stop can only abort the fetch.
+    const abortController = new AbortController();
+    const activeTurn = {
+      assistantId,
+      threadId:
+        threadId && threadId !== NEW_CONVERSATION_ID ? threadId : null,
+      requestId: null,
+      abortController,
+      asAnonymousIdentity,
+      stopRequested: false,
+      fallbackTimer: null,
+      visible: !hideFromTranscript && !deferBubbleUntilFirstToken,
+      ambient,
+    };
+    activeTurnsRef.current.add(activeTurn);
+    if (activeTurn.visible) {
+      setStoppableTurnCount((count) => count + 1);
+    }
+    const releaseActiveTurn = () => {
+      if (!activeTurnsRef.current.has(activeTurn)) return;
+      activeTurnsRef.current.delete(activeTurn);
+      if (activeTurn.fallbackTimer) {
+        clearTimeout(activeTurn.fallbackTimer);
+        activeTurn.fallbackTimer = null;
+      }
+      if (activeTurn.visible) {
+        setStoppableTurnCount((count) => Math.max(0, count - 1));
+      }
+    };
+
+    let abortedByStop = false;
+    try {
+      await streamServerSentEvents(path, {
+        method: 'POST',
+        formData,
+        asAnonymousIdentity,
+        signal: abortController.signal,
+        onEvent: (streamEvent) => {
+          if (streamEvent.type === 'turn_started') {
+            // The server's name for this turn: what a stop request must quote.
+            // A first message on a new conversation also learns its thread here.
+            activeTurn.requestId = streamEvent.request_id ?? null;
+            if (streamEvent.thread_id) {
+              activeTurn.threadId = streamEvent.thread_id;
+            }
+          } else if (streamEvent.type === 'assistant_token') {
+            appendTokenToStreamingMessage(streamEvent.text ?? '');
+            setActivityIfStillOnScreen(ASSISTANT_ACTIVITY.responding);
+          } else if (streamEvent.type === 'usage_estimate') {
+            // The first frame of a turn: the request has been costed and the
+            // model has not started speaking yet.
+            setActivityUnlessDeferred(ASSISTANT_ACTIVITY.thinking);
+          } else if (streamEvent.type === 'media_job_started') {
+            // The avatar called update_avatar_identity_with_media: the media is
+            // processed in the background, and its progress gets the same toast
+            // an upload from the settings screen gets. Not awaited — the turn's
+            // reply keeps streaming while the job runs.
+            followMediaJobWithToast(streamEvent.job_id, streamEvent.description);
+            setActivityIfStillOnScreen(ASSISTANT_ACTIVITY.thinking);
+          } else if (streamEvent.type === 'status') {
+            // The avatar started or finished a tool. The phrase is what the
+            // avatar is doing right now ("Listing files on linux-pc-dev",
+            // "Running analysis code"). A data-analysis turn spends most of its
+            // time here, before the first reply token, so this is the only
+            // signal a person waiting gets that the turn is progressing.
+            setActivityUnlessDeferred(
+              streamEvent.text || ASSISTANT_ACTIVITY.thinking
+            );
+          } else if (streamEvent.type === 'keepalive_comment') {
+            // Tokens have stopped but the turn has not: the server keeps this
+            // line open while it runs its post-reply analysis.
+            setActivityUnlessDeferred(ASSISTANT_ACTIVITY.analyzing);
+          } else if (
+            streamEvent.type !== 'done' &&
+            streamEvent.type !== 'interrupt'
+          ) {
+            onExtraEvent?.(streamEvent);
+          }
+          if (
+            streamEvent.type === 'done' ||
             streamEvent.type === 'interrupt'
-              ? describeInterrupt(streamEvent.interrupt)
-              : null
-          );
-        }
-      },
-    });
+          ) {
+            terminalFrame = streamEvent;
+            turnPausedForUserRef.current = streamEvent.type === 'interrupt';
+            setActivityIfStillOnScreen(
+              streamEvent.type === 'interrupt'
+                ? describeInterrupt(streamEvent.interrupt)
+                : null
+            );
+          }
+        },
+      });
+    } catch (streamError) {
+      // The fetch was aborted because the person pressed Stop and the server
+      // could not end the stream itself in time (or could not be asked: no
+      // request id yet, a 404 from another process). That is not a failure —
+      // the turn is finalized below with what arrived, as the server does on
+      // its side when it sees the disconnect.
+      if (!(activeTurn.stopRequested && isAbortError(streamError))) {
+        throw streamError;
+      }
+      abortedByStop = true;
+    } finally {
+      releaseActiveTurn();
+    }
+
+    if (abortedByStop && terminalFrame == null) {
+      terminalFrame = buildLocallyStoppedDoneFrame({
+        streamedText,
+        suppressed: turnStreamedInternalJson,
+        threadId: activeTurn.threadId ?? threadId ?? null,
+        requestId: activeTurn.requestId,
+      });
+    }
 
     if (terminalFrame?.type === 'interrupt' && hideFromTranscript) {
       // A hidden harvest must not steal the open conversation or raise a panel.
@@ -925,6 +1017,9 @@ export const MediaProvider = ({ children }) => {
               ...message,
               isLoading: false,
               content: terminalFrame.content ?? message.content,
+              // Cut short by the person; the transcript says so under the
+              // bubble, and the follow-up harvest leaves the turn alone.
+              stopped: terminalFrameWasStopped(terminalFrame),
               usage: timed.usage,
               request_id: terminalFrame.request_id ?? null,
               total_response_time_ms: timed.total_response_time_ms,
@@ -945,8 +1040,25 @@ export const MediaProvider = ({ children }) => {
             return finalized;
           })
         );
+        // A reply stopped before its first word is not a reply: the bubble
+        // that was waiting for it is removed rather than left empty.
+        if (
+          terminalFrameWasStopped(terminalFrame) &&
+          !String(terminalFrame.content ?? '').trim()
+        ) {
+          updateMessagesIfStillOnScreen((previousMessages) =>
+            previousMessages.filter(
+              (message) => message.id !== streamingMessageId
+            )
+          );
+        }
       }
-      if (terminalFrame.thread_id && !hideFromTranscript) {
+      // A thread an observation minted and was then stopped on (the person
+      // typed before the first look finished) is not adopted: the typed turn
+      // is minting the conversation that stays on screen.
+      const yieldedBeforeMinting =
+        ambient && threadId == null && terminalFrameWasStopped(terminalFrame);
+      if (terminalFrame.thread_id && !hideFromTranscript && !yieldedBeforeMinting) {
         const wasNewConversation = threadId !== terminalFrame.thread_id;
         setActiveConversation(terminalFrame.thread_id);
         if (wasNewConversation) {
@@ -992,6 +1104,88 @@ export const MediaProvider = ({ children }) => {
         ? null
         : (terminalFrame?.response_metadata?.sentiment ?? null),
     };
+  }
+
+  /**
+   * Ask the server to end one running turn, aborting the fetch as a fallback.
+   *
+   * With a request id (or a thread id) the API is asked to stop the reply;
+   * the stream then ends with a stopped `done` frame carrying the partial
+   * content, the thread id and the metered usage, and is finalized like any
+   * completed reply. The fetch is aborted instead when the API has no way to
+   * identify the turn, when the stop route fails (a 404 means the reply
+   * already finished or another process is streaming it), or when the
+   * server's `done` frame has not arrived within the fallback delay.
+   *
+   * @param {Object} activeTurn The registered turn.
+   */
+  async function requestActiveTurnStop(activeTurn) {
+    if (activeTurn.stopRequested) return;
+    activeTurn.stopRequested = true;
+    if (activeTurn.visible) {
+      setAssistantActivity(ASSISTANT_ACTIVITY.stopping);
+    }
+    if (resolveStopStrategy(activeTurn) === 'abort') {
+      activeTurn.abortController.abort();
+      return;
+    }
+    activeTurn.fallbackTimer = setTimeout(() => {
+      activeTurn.fallbackTimer = null;
+      activeTurn.abortController.abort();
+    }, STOP_FALLBACK_ABORT_DELAY_MS);
+    try {
+      await stopAssistantReply({
+        assistantId: activeTurn.assistantId,
+        requestId: activeTurn.requestId,
+        threadId: activeTurn.threadId,
+        asAnonymousIdentity: activeTurn.asAnonymousIdentity,
+      });
+    } catch (stopError) {
+      console.warn('The stop request did not reach the reply:', stopError);
+      if (activeTurn.fallbackTimer) {
+        clearTimeout(activeTurn.fallbackTimer);
+        activeTurn.fallbackTimer = null;
+      }
+      activeTurn.abortController.abort();
+    }
+  }
+
+  /**
+   * Stop every reply the avatar is generating on screen right now.
+   *
+   * Bound to the composer's Stop button. Turns nobody can see (a hidden
+   * follow-up harvest, an ambient observation) are left alone.
+   *
+   * @returns {Promise<boolean>} Whether there was anything to stop.
+   */
+  async function stopAssistantTurn() {
+    const stoppableTurns = [...activeTurnsRef.current].filter(
+      (activeTurn) => activeTurn.visible && !activeTurn.stopRequested
+    );
+    if (stoppableTurns.length === 0) return false;
+    await Promise.all(stoppableTurns.map(requestActiveTurnStop));
+    return true;
+  }
+
+  /**
+   * Stop every ambient observation still in flight, so the person's own turn
+   * goes out at once and never races a snapshot on the same thread.
+   *
+   * An observation is disposable context; a message the person typed or spoke
+   * is not. The stops are fired and not awaited — the typed turn must not
+   * wait on them — and the API enforces the same order on its side, holding
+   * the typed turn until the observation's run has wound down. The ambient
+   * loop treats the resulting stopped `done` (or aborted fetch) as a quiet
+   * end, not as a failure.
+   */
+  function yieldAmbientObservations() {
+    for (const activeTurn of activeTurnsRef.current) {
+      if (activeTurn.ambient && !activeTurn.stopRequested) {
+        requestActiveTurnStop(activeTurn).catch((stopError) => {
+          console.warn('Could not stop an ambient observation:', stopError);
+        });
+      }
+    }
   }
 
   /**
@@ -1469,6 +1663,7 @@ export const MediaProvider = ({ children }) => {
         path,
         formData,
         deferBubbleUntilFirstToken: true,
+        ambient: true,
         onExtraEvent: (streamEvent) => {
           if (streamEvent.type === 'ambient_decision') {
             decision = streamEvent;
@@ -1500,6 +1695,120 @@ export const MediaProvider = ({ children }) => {
       };
     } finally {
       if (mintsThread) setPendingSendCount((count) => Math.max(0, count - 1));
+    }
+  }
+
+  /**
+   * Send one live-voice utterance to be labelled by speaker and answered.
+   *
+   * The bubble is painted at once as "listening"; the `spoken_turn` frame
+   * replaces its text with the speaker-labelled script before any reply token.
+   * When someone other than the owner spoke, the API triages the turn: an
+   * ignored turn produces no reply and leaves only the script on screen, a
+   * notify decision arrives as a card.
+   *
+   * @param {File} recording
+   * @returns {Promise<{reply: string, sentiment: Object|null, decision: string|null, speakers: Object|null}>}
+   */
+  async function sendSpokenAudioTurn(recording) {
+    if (!activeAvatar || !recording) {
+      return { reply: '', sentiment: null, decision: null, speakers: null };
+    }
+    const threadId =
+      activeConversation && activeConversation !== NEW_CONVERSATION_ID
+        ? activeConversation
+        : null;
+    const temporaryUserMessageId = `temp-spoken-${Date.now()}`;
+    setPendingSendCount((count) => count + 1);
+    let decision = null;
+    let heard = null;
+    try {
+      setMessages((previousMessages) => [
+        ...previousMessages,
+        {
+          id: temporaryUserMessageId,
+          content: '',
+          type: 'human',
+          isPending: true,
+          timestamp: new Date().toISOString(),
+        },
+      ]);
+      turnPausedForUserRef.current = false;
+      setAssistantActivity(ASSISTANT_ACTIVITY.thinking);
+      const userTimezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+      const { path, formData } = buildSpokenTurnRequest(
+        resolveAssistantId(activeAvatar),
+        recording,
+        { threadId, userTimezone }
+      );
+      yieldAmbientObservations();
+      const outcome = await runAssistantTurnStream({
+        _user: user,
+        avatarForMessage: activeAvatar,
+        threadId,
+        path,
+        formData,
+        deferBubbleUntilFirstToken: true,
+        onExtraEvent: (streamEvent) => {
+          if (streamEvent.type === 'spoken_turn') {
+            heard = streamEvent;
+            setMessages((previousMessages) =>
+              previousMessages.map((message) =>
+                message.id === temporaryUserMessageId
+                  ? {
+                      ...message,
+                      isPending: false,
+                      content: streamEvent.content ?? '',
+                      speakers: streamEvent.speakers ?? null,
+                    }
+                  : message
+              )
+            );
+          } else if (streamEvent.type === 'ambient_decision') {
+            decision = streamEvent;
+            if (streamEvent.decision === 'notify') {
+              notifyAmbientObservation(activeAvatar?.name, streamEvent.summary);
+            }
+          }
+        },
+        bubbleDecorator: () =>
+          decision
+            ? {
+                ambient: {
+                  decision: decision.decision,
+                  observation_id: decision.observation_id,
+                  observation_kind: decision.observation_kind,
+                  summary: decision.summary,
+                  reason: decision.reason,
+                },
+              }
+            : {},
+      });
+      if (!heard) {
+        // The server never announced what it heard (an error frame, a stop):
+        // drop the placeholder rather than leave an empty bubble.
+        setMessages((previousMessages) =>
+          previousMessages.filter((message) => message.id !== temporaryUserMessageId)
+        );
+      }
+      return {
+        reply: outcome?.reply ?? '',
+        sentiment: outcome?.sentiment ?? null,
+        decision: decision?.decision ?? null,
+        speakers: heard?.speakers ?? null,
+      };
+    } catch (spokenError) {
+      setMessages((previousMessages) =>
+        previousMessages.filter((message) => message.id !== temporaryUserMessageId)
+      );
+      console.error('The spoken turn failed:', spokenError);
+      reportTurnFailure(spokenError, 'Could not send what was heard.');
+      return { reply: '', sentiment: null, decision: null, speakers: null };
+    } finally {
+      setPendingSendCount((count) => Math.max(0, count - 1));
+      if (!turnPausedForUserRef.current) {
+        setAssistantActivity(null);
+      }
     }
   }
 
@@ -1763,11 +2072,14 @@ export const MediaProvider = ({ children }) => {
         assistantActivity,
         sendVoiceTurn,
         sendSpokenTurn,
+        sendSpokenAudioTurn,
         sendAmbientObservation,
         ambientHold,
         setAmbientHold,
         pendingSendCount,
         attachmentsInFlight,
+        stopAssistantTurn,
+        stoppableTurnCount,
         resendFromUserMessage,
         regenerateAvatarReply,
         submitMessageFeedback,

@@ -165,14 +165,25 @@ export function shouldReportRepeatedFailures(status) {
   return (status?.consecutiveFailures ?? 0) === AMBIENT_FAILURE_LIMIT;
 }
 
+/** How long to wait after the server said the conversation was busy (409). */
+export const BUSY_THREAD_RETRY_MS = 5_000;
+
+/** How long to wait after the server rate-limited the client (429). */
+export const RATE_LIMIT_RETRY_MS = 15_000;
+
 /**
- * Read the seconds a 429 asked the client to wait, from an API error.
+ * Read the seconds the server asked the client to wait, from an API error.
+ *
+ * Two answers pace the client rather than fail the observation: a 429 (the
+ * per-thread floor) and a 409 (another turn — the person's own message — is
+ * in flight on the conversation, and the observation was skipped for it).
  *
  * @param {Object} error The thrown error (an ApiError or anything else).
- * @returns {number|null} Milliseconds to wait, or null when the error was not a rate limit.
+ * @returns {number|null} Milliseconds to wait, or null when the error was
+ *   neither a rate limit nor a busy conversation.
  */
 export function retryAfterMillisecondsFromError(error) {
-  if (!error || error.status !== 429) return null;
+  if (!error || (error.status !== 429 && error.status !== 409)) return null;
   const headerValue =
     error.headers?.get?.('retry-after') ??
     error.headers?.['retry-after'] ??
@@ -180,7 +191,22 @@ export function retryAfterMillisecondsFromError(error) {
     null;
   const seconds = Number.parseFloat(String(headerValue ?? '').trim());
   if (Number.isFinite(seconds) && seconds > 0) return Math.round(seconds * 1000);
-  return 15_000;
+  return error.status === 409 ? BUSY_THREAD_RETRY_MS : RATE_LIMIT_RETRY_MS;
+}
+
+/**
+ * Whether an observation ended because the person's own turn took the thread.
+ *
+ * A typed or spoken message stops any observation still in flight (the fetch
+ * is aborted, or the server ends the stream with a stopped `done`). That is
+ * the observation yielding, not failing: the status goes back to idle and no
+ * failure is counted.
+ *
+ * @param {Object} error The thrown error.
+ * @returns {boolean}
+ */
+export function isObservationYield(error) {
+  return error?.name === 'AbortError';
 }
 
 /**

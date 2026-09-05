@@ -16,11 +16,13 @@ import useSpeech from './useSpeech';
  * @param {string} [parameters.assistantId] The avatar whose voice to use.
  * @param {string} [parameters.avatarName] Shown on the voice-not-ready toast.
  * @param {boolean} [parameters.asAnonymousIdentity] Public chat: withhold the credential.
+ * @param {boolean} [parameters.speechPlaybackEnabled] Whether speak-aloud is allowed.
  */
 export default function useMessageActions({
   assistantId,
   avatarName,
   asAnonymousIdentity = false,
+  speechPlaybackEnabled = false,
 } = {}) {
   const {
     resendFromUserMessage,
@@ -47,6 +49,7 @@ export default function useMessageActions({
   }, [speech.notReady, avatarName, assistantId]);
 
   const toggleSpeech = async (messageKey, text, { alsoStopKeys = [] } = {}) => {
+    if (!speechPlaybackEnabled) return;
     const speakingThis =
       speech.speakingKey === messageKey ||
       alsoStopKeys.includes(speech.speakingKey);

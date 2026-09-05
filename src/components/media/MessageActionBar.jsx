@@ -38,6 +38,7 @@ export const ACTION_BUTTON_CLASSES =
  * @param {boolean} [parameters.overlay] Chip background for captions on a stage.
  * @param {boolean} parameters.isSpeaking Whether this row's speech is playing.
  * @param {boolean} parameters.isSpeechLoading Whether its audio is being fetched.
+ * @param {boolean} [parameters.canSpeak] Whether speak-aloud is offered for this avatar.
  * @param {string|null} parameters.copiedKey Which row was just copied.
  * @param {string|null} parameters.feedbackKey Which row's comment box is open.
  * @param {string} parameters.feedbackDraft The open comment.
@@ -63,6 +64,7 @@ const MessageActionBar = ({
   overlay = false,
   isSpeaking,
   isSpeechLoading,
+  canSpeak = false,
   copiedKey,
   feedbackKey,
   feedbackDraft,
@@ -172,11 +174,13 @@ const MessageActionBar = ({
                 >
                   <MessageSquare className="w-3 h-3" aria-hidden="true" />
                 </button>
-                <SpeakButton
-                  isSpeaking={isSpeaking}
-                  isLoading={isSpeechLoading}
-                  onToggle={onToggleSpeech}
-                />
+                {canSpeak && (
+                  <SpeakButton
+                    isSpeaking={isSpeaking}
+                    isLoading={isSpeechLoading}
+                    onToggle={onToggleSpeech}
+                  />
+                )}
               </>
             )}
           </div>
