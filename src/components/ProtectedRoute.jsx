@@ -8,6 +8,7 @@ import ConversationSidebar from './ConversationSidebar';
 import SharePreviewOutlet from './SharePreviewOutlet';
 import { MediaShareProvider } from '../context/MediaShareContext';
 import { toast } from 'react-hot-toast';
+import { isAmbientCaptureSurface } from '../services/ambientCaptureSurface';
 
 export default function ProtectedRoute() {
   const { user, isRestoringSession, activeAvatar } = useAuth();
@@ -31,6 +32,12 @@ export default function ProtectedRoute() {
     activeAvatar?.assistant_id ?? activeAvatar?.avatar_id ?? null;
   const chatPath = activeAvatarId ? `/chat/${activeAvatarId}` : null;
   const isOnChatScreen = chatPath !== null && location.pathname === chatPath;
+  // Webcam and screen stay on the rail on the gallery. Snapshots only go out
+  // on the message view or voice mode — not settings, inbox, or avatar pick.
+  const isConversationSurface = isAmbientCaptureSurface(
+    location.pathname,
+    location.search
+  );
 
   // Conversations belong to an open avatar, so the sidebar shows them only on a
   // chat screen. The account half of it is shown everywhere.
@@ -84,7 +91,10 @@ export default function ProtectedRoute() {
   }
 
   return (
-    <MediaShareProvider ambientAllowed>
+    <MediaShareProvider
+      ambientAllowed
+      ambientCaptureAllowed={isConversationSurface}
+    >
       <SharePreviewOutlet />
       <ConversationSidebar
         isOpen={isSidebarOpen}
@@ -96,7 +106,7 @@ export default function ProtectedRoute() {
         onStartNewConversation={handleStartNewConversation}
         avatarName={activeAvatar?.name}
         showConversations={isViewingAChat}
-        showShareControls={isOnChatScreen}
+        showShareControls
       />
       {/* The frame every signed-in screen renders into.
           `pl-[var(--app-rail-width)]` reserves the collapsed rail's width, so

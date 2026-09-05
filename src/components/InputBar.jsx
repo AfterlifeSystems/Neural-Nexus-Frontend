@@ -116,6 +116,7 @@ const InputBar = ({
   const [editingCaption, setEditingCaption] = useState(null);
   const [captions, setCaptions] = useState({});
   const [isHovered, setIsHovered] = useState(false);
+  const sendInFlightRef = useRef(false);
 
   const {
     handleSendMessageMediaContext,
@@ -222,25 +223,38 @@ const InputBar = ({
   };
 
   const handleSendMessage = async () => {
-    console.log(`handle send message`);
+    if (sendInFlightRef.current) return;
+    if (!composerHasSendableDraft(inputMessage, mediaFiles.length)) return;
+    sendInFlightRef.current = true;
+    const outgoingText = inputMessage;
+    const outgoingFiles = [...mediaFiles];
     if (
-      inputMessage.trim() &&
+      outgoingText.trim() &&
       (messageHistory.length === 0 ||
-        messageHistory[messageHistory.length - 1] !== inputMessage.trim())
+        messageHistory[messageHistory.length - 1] !== outgoingText.trim())
     ) {
-      setMessageHistory((prev) => [...prev, inputMessage.trim()]);
+      setMessageHistory((prev) => [...prev, outgoingText.trim()]);
     }
 
     setHistoryIndex(-1);
     setTempMessage('');
     setType('user');
-    const shareStills = await captureShareStills();
-    handleSendMessageMediaContext(undefined, shareStills);
-    setMediaFiles([]);
+    // Clear before the share snapshot so a second Enter cannot resend this
+    // turn. Webcam/screen stills are attached as extras on the same send.
     setInputMessage('');
+    setMediaFiles([]);
     setCaptions({});
     if (fileInputRef.current) fileInputRef.current.value = '';
     if (textareaRef.current) textareaRef.current.style.height = 'auto';
+    try {
+      const shareStills = await captureShareStills();
+      handleSendMessageMediaContext(outgoingText, [
+        ...outgoingFiles,
+        ...shareStills,
+      ]);
+    } finally {
+      sendInFlightRef.current = false;
+    }
   };
 
   const handleFileSelect = (e) => {

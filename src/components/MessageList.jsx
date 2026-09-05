@@ -15,6 +15,12 @@ import useMessageActions from '../hooks/useMessageActions';
 import MessageActionBar from './media/MessageActionBar';
 import { isConversationSuggestionList } from '../services/conversationSuggestions';
 import AmbientNotificationCard from './AmbientNotificationCard';
+import CreatedArtifacts from './CreatedArtifacts';
+import {
+  createdArtifactsOf,
+  speakableReplyText,
+  stripArtifactReferences,
+} from '../services/createdArtifacts';
 
 /**
  * The face beside a message: whoever said it.
@@ -275,8 +281,20 @@ const MessageList = ({
                         </div>
                       ) : (
                         msg.content && (
-                          <div className="whitespace-pre-wrap">{msg.content}</div>
+                          <div className="whitespace-pre-wrap">
+                            {isFromAvatar
+                              ? stripArtifactReferences(msg.content)
+                              : msg.content}
+                          </div>
                         )
+                      )}
+
+                      {/* The plot and report an analysis turn produced. The
+                          model's own attachment link to them is stripped from
+                          the text above because a browser cannot fetch it;
+                          this is where the files actually appear. */}
+                      {isFromAvatar && (
+                        <CreatedArtifacts artifacts={createdArtifactsOf(msg)} />
                       )}
 
                       {msg.media?.length > 0 &&
@@ -331,7 +349,12 @@ const MessageList = ({
                         pendingSendCount={pendingSendCount}
                         onCopy={copyMessage}
                         onToggleSpeech={() =>
-                          toggleSpeech(messageKey, msg.content)
+                          toggleSpeech(
+                            messageKey,
+                            isFromAvatar
+                              ? speakableReplyText(msg.content)
+                              : msg.content
+                          )
                         }
                         onRegenerate={(key) => regenerateAvatarReply?.(key)}
                         onLike={() =>

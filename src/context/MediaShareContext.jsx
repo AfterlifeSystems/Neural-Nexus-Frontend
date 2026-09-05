@@ -16,11 +16,12 @@ import { useMedia } from './MediaContext';
 import { AMBIENT_CAPTURE_INTERVAL_MS } from '../config/ambientCapture';
 import {
   INITIAL_AMBIENT_STATUS,
+  isAmbientVisionActive,
   nextCaptureInMs,
   reduceAmbientEvent,
   retryAfterMillisecondsFromError,
   shouldCaptureNow,
-  shouldDisableAfterFailures,
+  shouldReportRepeatedFailures,
 } from '../services/ambientCaptureScheduler';
 
 const MediaShareContext = createContext(null);
@@ -32,8 +33,8 @@ const INACTIVE_SHARE = {
   toggleScreenShare: async () => {},
   captureShareStills: async () => [],
   ambientAllowed: false,
+  ambientCaptureAllowed: false,
   ambientEnabled: false,
-  setAmbientEnabled: () => {},
   ambientStatus: INITIAL_AMBIENT_STATUS,
   ambientNextInMs: 0,
   ambientIntervalMs: AMBIENT_CAPTURE_INTERVAL_MS,
@@ -87,14 +88,24 @@ export async function snapshotStream(stream, filename) {
 
 /**
  * The live webcam and screen shares, and — when allowed — ambient vision:
- * one snapshot per live share sent to the avatar on a timer.
+ * one snapshot per live share sent to the avatar on a timer. There is no
+ * button: sharing a webcam or a screen starts the looks, and stopping the last
+ * share ends them.
  *
  * @param {Object} props
- * @param {boolean} [props.ambientAllowed] Whether this screen may run ambient
- *   vision. Signed-in screens allow it; the anonymous shared-avatar page never
- *   does, because an observation is billed to the account that sends it.
+ * @param {boolean} [props.ambientAllowed] Whether this account may run ambient
+ *   vision at all. Signed-in screens allow it; the anonymous shared-avatar
+ *   page never does, because an observation is billed to the account that
+ *   sends it.
+ * @param {boolean} [props.ambientCaptureAllowed] Whether this location may
+ *   send a snapshot. Webcam and screen stay up on the gallery; observations
+ *   only go out in the message view or voice mode.
  */
-export function MediaShareProvider({ children, ambientAllowed = false }) {
+export function MediaShareProvider({
+  children,
+  ambientAllowed = false,
+  ambientCaptureAllowed = false,
+}) {
   const [webcamStream, setWebcamStream] = useState(null);
   const [screenStream, setScreenStream] = useState(null);
   const webcamStreamRef = useRef(null);
@@ -108,9 +119,15 @@ export function MediaShareProvider({ children, ambientAllowed = false }) {
     ambientHold,
   } = useMedia();
 
-  // Ambient vision is per session and starts off: nothing is sent until the
-  // person turns the eye on, and a reload never silently resumes capture.
-  const [ambientEnabled, setAmbientEnabledState] = useState(false);
+  // Ambient vision has no switch: sharing a webcam or a screen starts the
+  // looks, and stopping the last share stops them. A reload never silently
+  // resumes capture because a reload ends the shares.
+  const hasLiveShare = Boolean(webcamStream || screenStream);
+  const ambientEnabled = isAmbientVisionActive({
+    allowed: ambientAllowed,
+    hasWebcam: Boolean(webcamStream),
+    hasScreen: Boolean(screenStream),
+  });
   const [ambientStatus, setAmbientStatus] = useState(INITIAL_AMBIENT_STATUS);
   const [ambientNextInMs, setAmbientNextInMs] = useState(0);
   const ambientVoiceModeRef = useRef(false);
@@ -121,7 +138,7 @@ export function MediaShareProvider({ children, ambientAllowed = false }) {
   // a stale closure.
   const ambientConditionsRef = useRef({});
   ambientConditionsRef.current = {
-    enabled: ambientAllowed && ambientEnabled,
+    enabled: ambientAllowed && ambientCaptureAllowed && ambientEnabled,
     pendingSendCount,
     assistantActivity,
     pendingInterrupt,
@@ -206,16 +223,6 @@ export function MediaShareProvider({ children, ambientAllowed = false }) {
     return stills.filter(Boolean);
   }, []);
 
-  const setAmbientEnabled = useCallback((enabled) => {
-    setAmbientEnabledState((current) => {
-      const next = typeof enabled === 'function' ? enabled(current) : Boolean(enabled);
-      if (next !== current) {
-        setAmbientStatus({ ...INITIAL_AMBIENT_STATUS });
-      }
-      return next;
-    });
-  }, []);
-
   const setAmbientVoiceMode = useCallback((inVoiceMode) => {
     ambientVoiceModeRef.current = Boolean(inVoiceMode);
   }, []);
@@ -233,20 +240,19 @@ export function MediaShareProvider({ children, ambientAllowed = false }) {
     };
   }, []);
 
-  // Turning both shares off turns ambient vision off: there is nothing to see.
+  // The first share starting, or the last share ending, resets the look so
+  // the countdown begins again on a new share.
   useEffect(() => {
-    if (!webcamStream && !screenStream && ambientEnabled) {
-      setAmbientEnabledState(false);
-      setAmbientStatus({ ...INITIAL_AMBIENT_STATUS });
-    }
-  }, [webcamStream, screenStream, ambientEnabled]);
+    setAmbientStatus({ ...INITIAL_AMBIENT_STATUS });
+  }, [hasLiveShare]);
 
   // One timer for the whole application. Every second it asks the scheduler
   // whether a capture is due; when one is, both live shares are snapshotted and
-  // sent as one observation. A rate limit paces the next tick, and repeated
-  // failures switch ambient vision off rather than retrying forever.
+  // sent as one observation. A rate limit paces the next tick. Repeated
+  // failures are reported once per outage; the looks keep going on the normal
+  // interval for as long as the share is live, since there is no switch.
   useEffect(() => {
-    if (!ambientAllowed || !ambientEnabled) {
+    if (!ambientAllowed || !ambientCaptureAllowed || !ambientEnabled) {
       setAmbientNextInMs(0);
       return undefined;
     }
@@ -328,10 +334,9 @@ export function MediaShareProvider({ children, ambientAllowed = false }) {
         if (retryAfterMs == null) {
           console.error('Ambient observation failed:', observationError);
         }
-        if (shouldDisableAfterFailures(next)) {
-          setAmbientEnabledState(false);
+        if (shouldReportRepeatedFailures(next)) {
           toast.error(
-            'Ambient vision was turned off after repeated failures. Turn the eye back on to try again.'
+            'Ambient vision cannot reach the avatar right now. It will keep trying while the share is live.'
           );
         }
       }
@@ -342,7 +347,7 @@ export function MediaShareProvider({ children, ambientAllowed = false }) {
       cancelled = true;
       clearInterval(timer);
     };
-  }, [ambientAllowed, ambientEnabled, captureShareStills]);
+  }, [ambientAllowed, ambientCaptureAllowed, ambientEnabled, captureShareStills]);
 
   return (
     <MediaShareContext.Provider
@@ -353,8 +358,8 @@ export function MediaShareProvider({ children, ambientAllowed = false }) {
         toggleScreenShare,
         captureShareStills,
         ambientAllowed,
+        ambientCaptureAllowed,
         ambientEnabled,
-        setAmbientEnabled,
         ambientStatus,
         ambientNextInMs,
         ambientIntervalMs: AMBIENT_CAPTURE_INTERVAL_MS,

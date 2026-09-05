@@ -30,13 +30,40 @@ export function isConversationSuggestionList(text) {
 }
 
 /**
- * Follow-up chips from the last real avatar reply, without another /message
- * turn. A second turn on the same assistant is what replaced the reply with
- * a JSON list.
+ * Whether streamed text is the start of leaked model JSON, not speech.
  *
- * The first draw is a stable default. Passing `exclude` (the set already on
- * screen) picks three different prompts from the same pool, which is how
- * "Re-roll" refreshes the list without asking the avatar to speak JSON.
+ * A spoken line may open with a stage direction (`[smiles] I missed you`).
+ * Treating every `[` as a harvest list hid that reply, then posted the
+ * user's words again — two identical human turns and no avatar bubble.
+ *
+ * @param {string} text The tokens seen so far.
+ * @returns {boolean}
+ */
+export function looksLikeLeakedModelJson(text) {
+  const trimmed = String(text ?? '').trimStart();
+  if (trimmed.startsWith('{')) {
+    return true;
+  }
+  if (!trimmed.startsWith('[')) {
+    return false;
+  }
+  const afterBracket = trimmed.slice(1).trimStart();
+  return (
+    afterBracket.startsWith('"') ||
+    afterBracket.startsWith("'") ||
+    afterBracket.startsWith('[')
+  );
+}
+
+/**
+ * Chips for the composer, without another /message turn. A second turn on
+ * the same assistant is what replaced the reply with a JSON list.
+ *
+ * An empty transcript gets opening starters. After a real avatar reply, the
+ * chips are follow-ups drawn from that line. The first draw is a stable
+ * default. Passing `exclude` (the set already on screen) picks three
+ * different prompts from the same pool, which is how "Re-roll" refreshes
+ * the list without asking the avatar to speak JSON.
  *
  * @param {Array} messages The open transcript.
  * @param {Object} [options]
@@ -67,6 +94,18 @@ export const STATEMENT_FOLLOW_UPS = [
   'That reminds me of something',
 ];
 
+export const OPENING_STARTERS = [
+  'Hey, how are you?',
+  'What should we talk about?',
+  'I wanted to check in',
+  'Tell me a story',
+  'What have you been up to?',
+  'Can I ask you something?',
+  'I missed you',
+  'What are you thinking about?',
+  'Help me think something through',
+];
+
 const pickThree = (pool, exclude) => {
   const skipped = new Set(
     (exclude ?? []).map((entry) => String(entry).trim().toLowerCase())
@@ -90,12 +129,11 @@ export function localFollowUpSuggestions(messages, { exclude = [] } = {}) {
     }
     return !isConversationSuggestionList(message.content);
   });
-  if (!lastAvatar) {
-    return [];
-  }
-  const pool = /\?/.test(String(lastAvatar.content))
-    ? QUESTION_FOLLOW_UPS
-    : STATEMENT_FOLLOW_UPS;
+  const pool = lastAvatar
+    ? /\?/.test(String(lastAvatar.content))
+      ? QUESTION_FOLLOW_UPS
+      : STATEMENT_FOLLOW_UPS
+    : OPENING_STARTERS;
   if (exclude.length === 0) {
     return pool.slice(0, 3);
   }

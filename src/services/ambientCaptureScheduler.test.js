@@ -4,11 +4,12 @@ import {
   AMBIENT_FAILURE_LIMIT,
   INITIAL_AMBIENT_STATUS,
   describeAmbientStatus,
+  isAmbientVisionActive,
   nextCaptureInMs,
   reduceAmbientEvent,
   retryAfterMillisecondsFromError,
   shouldCaptureNow,
-  shouldDisableAfterFailures,
+  shouldReportRepeatedFailures,
 } from './ambientCaptureScheduler.js';
 
 const readyConditions = () => ({
@@ -24,6 +25,16 @@ const readyConditions = () => ({
   intervalMs: 30_000,
   retryAfterUntil: null,
   now: 100_000,
+});
+
+test('sharing a webcam or a screen starts ambient vision without a button', () => {
+  assert.equal(isAmbientVisionActive({ allowed: true, hasWebcam: true, hasScreen: false }), true);
+  assert.equal(isAmbientVisionActive({ allowed: true, hasWebcam: false, hasScreen: true }), true);
+});
+
+test('ambient vision stops only when no share is live or the account may not run it', () => {
+  assert.equal(isAmbientVisionActive({ allowed: true, hasWebcam: false, hasScreen: false }), false);
+  assert.equal(isAmbientVisionActive({ allowed: false, hasWebcam: true, hasScreen: true }), false);
 });
 
 test('a quiet conversation with a live share captures on the first tick', () => {
@@ -78,10 +89,14 @@ test('the status follows an observation from capture to decision to done', () =>
 test('failures count up and a rate limit only paces the client', () => {
   let status = INITIAL_AMBIENT_STATUS;
   for (let attempt = 0; attempt < AMBIENT_FAILURE_LIMIT; attempt += 1) {
-    assert.equal(shouldDisableAfterFailures(status), false);
+    assert.equal(shouldReportRepeatedFailures(status), false);
     status = reduceAmbientEvent(status, { type: 'failed', error: 'boom' });
   }
-  assert.equal(shouldDisableAfterFailures(status), true);
+  assert.equal(shouldReportRepeatedFailures(status), true);
+  // The outage is reported once; capture keeps going, so a further failure
+  // does not report again until an observation has gone through.
+  status = reduceAmbientEvent(status, { type: 'failed', error: 'boom' });
+  assert.equal(shouldReportRepeatedFailures(status), false);
   const paced = reduceAmbientEvent(INITIAL_AMBIENT_STATUS, {
     type: 'failed',
     error: 'slow down',

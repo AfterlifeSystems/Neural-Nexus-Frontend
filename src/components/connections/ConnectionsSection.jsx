@@ -322,15 +322,15 @@ const ConnectionsSection = ({ onConnectionsChanged }) => {
     return (
       <div
         key={connection.connection_key}
-        className="flex flex-col sm:flex-row sm:items-center gap-3 p-3 bg-black/60 border border-white/10 rounded-xl min-w-0"
+        className="flex flex-col sm:flex-row sm:items-start gap-3 p-3 bg-black/60 border border-white/10 rounded-xl min-w-0"
       >
-        <div className="flex items-center gap-3 min-w-0 flex-1">
+        <div className="flex items-start gap-3 min-w-0 flex-1">
           <ConnectorIcon iconKey={connection.icon_key} />
           <div className="min-w-0 flex-1">
-            <p className="text-neutral-200 truncate">
+            <p className="text-neutral-200 break-words">
               {connection.display_label}
             </p>
-            <p className="text-xs text-white/50 truncate">
+            <p className="text-xs text-white/50 break-words">
               {formatDeviceMetadata(connection)}
             </p>
             {connection.pending && connection.downloadHref && (
@@ -470,7 +470,7 @@ const ConnectionsSection = ({ onConnectionsChanged }) => {
       {isLoading ? (
         <p className="text-white/50 text-sm mb-6">Loading…</p>
       ) : connectedRows.length > 0 ? (
-        <div className="grid grid-cols-1 xl:grid-cols-2 gap-3 mb-6">
+        <div className="grid grid-cols-1 gap-3 mb-6">
           {connectedRows.map((connection) =>
             isDeviceConnection(connection)
               ? renderDeviceRow(connection)

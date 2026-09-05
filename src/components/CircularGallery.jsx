@@ -19,6 +19,10 @@ import {
   disposeIdleLoopVideo,
   stepIdleLoopMedia,
 } from './ui/idleLoopSeam';
+import {
+  galleryIndexFromScroll,
+  nearestGalleryScroll,
+} from './galleryScrollIndex';
 function debounce(func, wait) {
   let timeout;
   return function (...args) {
@@ -529,10 +533,11 @@ class App {
     this.onResize();
     this.createGeometry();
     this.createMedias(items, bend, textColor, borderRadius, font);
+    // Sit on the restored card before the first frame, or that frame reports
+    // index 0 and the bottom strip jumps away from the carousel.
+    this.setCurrentIndex(currentIndex, false);
     this.update();
     this.addEventListeners();
-    // Set initial position based on currentIndex
-    this.setCurrentIndex(currentIndex, false);
   }
   createRenderer() {
     this.renderer = new Renderer({
@@ -628,44 +633,55 @@ class App {
     }
   }
   onCheck() {
-    if (!this.medias || !this.medias[0]) return;
+    if (!this.medias || !this.medias[0] || this.isExternalControl) return;
     const width = this.medias[0].width;
-    const itemIndex = Math.round(Math.abs(this.scroll.target) / width);
-    const item = width * itemIndex;
-    this.scroll.target = this.scroll.target < 0 ? -item : item;
-    // Update current index and notify parent
-    const newIndex = this.getCurrentItemIndex();
-    if (newIndex !== this.currentIndex && !this.isExternalControl) {
-      this.currentIndex = newIndex;
-      if (this.onIndexChange) {
-        this.onIndexChange(newIndex);
-      }
-    }
+    const length = this.originalItems.length;
+    this.scroll.target = nearestGalleryScroll(
+      this.scroll.target,
+      this.getIndexFromScroll(this.scroll.target),
+      width,
+      length
+    );
+    this.reportVisualIndex();
   }
-  getCurrentItemIndex() {
+
+  getIndexFromScroll(scrollValue) {
     if (!this.medias || !this.medias[0]) return 0;
-    const width = this.medias[0].width;
-    const itemIndex = Math.round(this.scroll.target / width);
-    const len = this.originalItems.length;
-    return ((itemIndex % len) + len) % len;
+    return galleryIndexFromScroll(
+      scrollValue,
+      this.medias[0].width,
+      this.originalItems.length
+    );
+  }
+
+  getCurrentItemIndex() {
+    return this.getIndexFromScroll(this.scroll.current);
+  }
+
+  reportVisualIndex() {
+    if (this.isExternalControl) return;
+    const visualIndex = this.getCurrentItemIndex();
+    if (visualIndex === this.currentIndex) return;
+    this.currentIndex = visualIndex;
+    this.onIndexChange?.(visualIndex);
   }
 
   setCurrentIndex(index, animate = true) {
     if (!this.medias || !this.medias[0]) return;
-    this.isExternalControl = true;
     const width = this.medias[0].width;
-    const targetPosition = width * index;
+    const length = this.originalItems.length;
+    const from = animate ? this.scroll.current : this.scroll.target;
+    const target = nearestGalleryScroll(from, index, width, length);
     if (animate) {
-      this.scroll.target = targetPosition;
+      this.isExternalControl = true;
+      this.scroll.target = target;
     } else {
-      this.scroll.target = targetPosition;
-      this.scroll.current = targetPosition;
-    }
-    this.currentIndex = index;
-    // Reset external control flag after a short delay
-    setTimeout(() => {
       this.isExternalControl = false;
-    }, 100);
+      this.scroll.current = target;
+      this.scroll.target = target;
+      this.scroll.last = target;
+    }
+    this.currentIndex = ((index % length) + length) % length;
   }
   onResize() {
     this.screen = {
@@ -713,6 +729,13 @@ class App {
       this.scroll.target,
       this.scroll.ease
     );
+    if (
+      this.isExternalControl &&
+      Math.abs(this.scroll.current - this.scroll.target) < 0.5
+    ) {
+      this.isExternalControl = false;
+    }
+    this.reportVisualIndex();
     const direction = this.scroll.current > this.scroll.last ? 'right' : 'left';
     if (this.medias) {
       this.medias.forEach((media) => media.update(this.scroll, direction));
@@ -823,11 +846,22 @@ const CircularGallery = forwardRef(
         appRef.current = null;
       };
     }, [items, bend, textColor, borderRadius, font, scrollSpeed, scrollEase]);
-    // Update current index when prop changes
     useEffect(() => {
-      if (appRef.current && appRef.current.currentIndex !== currentIndex) {
-        appRef.current.setCurrentIndex(currentIndex, true);
-      }
+      const app = appRef.current;
+      if (!app) return;
+      app.onIndexChange = onIndexChange;
+      app.onCardClick = onCardClick;
+      app.onCreateCardMove = onCreateCardMove;
+    }, [onIndexChange, onCardClick, onCreateCardMove]);
+    // Drive the gallery from the strip / search / keys. Skip when the gallery
+    // already reports this index — otherwise a wrap-left scroll would be
+    // yanked to the positive slot of the same card.
+    useEffect(() => {
+      const app = appRef.current;
+      if (!app) return;
+      if (app.getCurrentItemIndex() === currentIndex) return;
+      if (app.currentIndex === currentIndex) return;
+      app.setCurrentIndex(currentIndex, true);
     }, [currentIndex]);
     return (
       <div

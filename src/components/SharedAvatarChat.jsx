@@ -348,7 +348,9 @@ const SharedAvatarChat = () => {
           <div className="flex-shrink-0 min-w-0 mt-2">
             <InputBar
               avatar_id={avatarId}
-              suggestionsEnabled={!isOfferingTheOpeningQuestion}
+              suggestionsEnabled={
+                hasCheckedForEarlierChats && !isOfferingTheOpeningQuestion
+              }
               onActivateLiveChat={() => setIsLiveModeOpen(true)}
             />
           </div>

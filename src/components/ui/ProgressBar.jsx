@@ -5,7 +5,7 @@ import React from 'react';
  * A thin progress bar in the house accent, with optional milestone ticks.
  *
  * The voice corpus fills toward several thresholds at once (a voice audio
- * model at one minute, a better one at two, a professional clone at thirty),
+ * model at one minute, a better one at two, a professional voice model at thirty),
  * so the bar can mark each as a tick and the label names the next one to reach.
  *
  * @param {Object} parameters
@@ -15,7 +15,13 @@ import React from 'react';
  * @param {string} [parameters.label] Accessible name.
  * @param {string} [parameters.className] Extra classes for the track.
  */
-const ProgressBar = ({ value, max, milestones = [], label, className = '' }) => {
+const ProgressBar = ({
+  value,
+  max,
+  milestones = [],
+  label,
+  className = '',
+}) => {
   const safeMax = max > 0 ? max : 1;
   const fraction = Math.max(0, Math.min(1, (value ?? 0) / safeMax));
   return (

@@ -50,8 +50,15 @@ import {
   setConversationPinnedLocally,
 } from '../services/pinnedConversations';
 import {
+  applyRememberedAvatarResponseMetrics,
+  attachResponseTimeMs,
+  rememberAvatarResponseMetrics,
+  resolveMessageResponseTimeMs,
+} from '../services/messageResponseMetrics';
+import {
   isConversationSuggestionList,
   localFollowUpSuggestions,
+  looksLikeLeakedModelJson,
   parseConversationSuggestionList,
 } from '../services/conversationSuggestions';
 
@@ -108,8 +115,7 @@ const INTERNAL_JSON_MARKERS = [
  */
 function streamedTextIsInternalJson(textSoFar) {
   const text = textSoFar ?? '';
-  const firstCharacter = text.trimStart().slice(0, 1);
-  if (firstCharacter === '{' || firstCharacter === '[') {
+  if (looksLikeLeakedModelJson(text)) {
     return true;
   }
   return INTERNAL_JSON_MARKERS.some((marker) => text.includes(marker));
@@ -255,13 +261,15 @@ export const DESCRIPTION_PROMPT_MARKER =
  * otherwise disappear the moment a conversation is reopened.
  *
  * @param {Array} storedMessages Messages as returned by the API.
+ * @param {string|null} [threadId] Thread these rows belong to, so a duration
+ *   remembered from the live `done` frame can be put back after reload.
  * @returns {Array} Messages in the shape MessageList expects.
  */
-function normalizeThreadMessages(storedMessages) {
+function normalizeThreadMessages(storedMessages, threadId = null) {
   if (!Array.isArray(storedMessages)) {
     return [];
   }
-  return storedMessages
+  const normalized = storedMessages
     .filter((storedMessage) => ['human', 'ai'].includes(storedMessage?.type))
     // A hidden turn is context the avatar was given, never something the
     // person typed: an ambient webcam / screen observation. The API already
@@ -269,6 +277,14 @@ function normalizeThreadMessages(storedMessages) {
     .filter((storedMessage) => !storedMessage?.additional_kwargs?.hidden)
     .map((storedMessage) => {
       const messageText = messageContentAsText(storedMessage.content);
+      const usage =
+        storedMessage.usage ?? storedMessage.response_metadata?.usage ?? null;
+      const responseMetadata = storedMessage.response_metadata ?? {};
+      const totalResponseTimeMs = resolveMessageResponseTimeMs({
+        ...storedMessage,
+        usage,
+        response_metadata: responseMetadata,
+      });
       return {
         id: storedMessage.id,
         type: storedMessage.type,
@@ -282,20 +298,22 @@ function normalizeThreadMessages(storedMessages) {
           storedMessage.type === 'human'
             ? withoutModelFacingAttachmentText(messageText)
             : messageText,
-        response_metadata: storedMessage.response_metadata ?? {},
+        response_metadata: responseMetadata,
         // The reply's classified emotion, which picks the avatar's emotion
         // still beside the bubble. Absent on human turns and on replies made
         // before sentiment was recorded.
         sentiment: storedMessage.response_metadata?.sentiment ?? null,
-        usage:
-          storedMessage.usage ?? storedMessage.response_metadata?.usage ?? null,
+        usage,
         request_id:
           storedMessage.request_id ??
           storedMessage.response_metadata?.request_id ??
           null,
-        total_response_time_ms:
-          storedMessage.total_response_time_ms ??
-          storedMessage.response_metadata?.total_response_time_ms ??
+        total_response_time_ms: totalResponseTimeMs,
+        timestamp:
+          storedMessage.timestamp ??
+          storedMessage.created_at ??
+          storedMessage.additional_kwargs?.created_at ??
+          storedMessage.response_metadata?.created_at ??
           null,
         feedback: storedMessage.feedback ?? null,
       };
@@ -321,6 +339,7 @@ function normalizeThreadMessages(storedMessages) {
       }
       return true;
     });
+  return applyRememberedAvatarResponseMetrics(threadId, normalized);
 }
 
 export const MediaProvider = ({ children }) => {
@@ -518,7 +537,10 @@ export const MediaProvider = ({ children }) => {
         asAnonymousIdentity: isSharedAvatarChatPath(),
       }
     );
-    const storedMessages = normalizeThreadMessages(messagesResponse?.messages);
+    const storedMessages = normalizeThreadMessages(
+      messagesResponse?.messages,
+      threadId
+    );
 
     // Put the attachments back. The server returns none — an upload is read
     // into text and the bytes dropped — so anything shown here comes from this
@@ -592,9 +614,11 @@ export const MediaProvider = ({ children }) => {
   }
 
   /**
-   * Send a user-visible turn. If the model answers with a follow-up JSON list
-   * instead of speech, ask once more on the same thread without adding another
-   * "hey mom" bubble.
+   * Send a user-visible turn.
+   *
+   * A JSON follow-up list is hidden from the transcript and offered as chips
+   * locally. Posting the same user text again to "ask for speech" used to
+   * store a second identical human message and often hid the real reply too.
    */
   async function sendVisibleAssistantTurn(
     avatarForMessage,
@@ -602,22 +626,12 @@ export const MediaProvider = ({ children }) => {
     messageContent,
     attachedFiles = []
   ) {
-    const first = await sendMessageAwaitResponseUpdateMessages(
+    return sendMessageAwaitResponseUpdateMessages(
       user,
       avatarForMessage,
       threadId,
       messageContent,
       attachedFiles
-    );
-    if (!first?.shouldRetryForSpokenReply && !first?.leakedSuggestions?.length) {
-      return first;
-    }
-    return sendMessageAwaitResponseUpdateMessages(
-      user,
-      avatarForMessage,
-      first.threadId || threadId,
-      messageContent,
-      []
     );
   }
 
@@ -664,6 +678,7 @@ export const MediaProvider = ({ children }) => {
   }) {
     const assistantId = resolveAssistantId(avatarForMessage);
     const streamingMessageId = `streaming-${Date.now()}`;
+    const streamStartedAtMs = performance.now();
     // The turn keeps running wherever the user goes; only its rendering is
     // conditional on that conversation still being the one on screen.
     const isStillOnScreen = () =>
@@ -773,6 +788,15 @@ export const MediaProvider = ({ children }) => {
           // reply keeps streaming while the job runs.
           followMediaJobWithToast(streamEvent.job_id, streamEvent.description);
           setActivityIfStillOnScreen(ASSISTANT_ACTIVITY.thinking);
+        } else if (streamEvent.type === 'status') {
+          // The avatar started or finished a tool. The phrase is what the
+          // avatar is doing right now ("Listing files on linux-pc-dev",
+          // "Running analysis code"). A data-analysis turn spends most of its
+          // time here, before the first reply token, so this is the only
+          // signal a person waiting gets that the turn is progressing.
+          setActivityUnlessDeferred(
+            streamEvent.text || ASSISTANT_ACTIVITY.thinking
+          );
         } else if (streamEvent.type === 'keepalive_comment') {
           // Tokens have stopped but the turn has not: the server keeps this
           // line open while it runs its post-reply analysis.
@@ -826,17 +850,22 @@ export const MediaProvider = ({ children }) => {
       // never receives any text.
       updateMessagesIfStillOnScreen((previousMessages) =>
         previousMessages
-          .map((message) =>
-            message.id === streamingMessageId
-              ? {
-                  ...message,
-                  isLoading: false,
-                  interrupt: terminalFrame.interrupt ?? null,
-                  interruptThreadId: terminalFrame.thread_id ?? threadId ?? null,
-                  interruptAssistantId: assistantId,
-                }
-              : message
-          )
+          .map((message) => {
+            if (message.id !== streamingMessageId) return message;
+            const serverTimeMs = resolveMessageResponseTimeMs(terminalFrame);
+            const clientTimeMs = Math.round(performance.now() - streamStartedAtMs);
+            const totalResponseTimeMs =
+              serverTimeMs ?? (clientTimeMs > 0 ? clientTimeMs : null);
+            const timed = attachResponseTimeMs(message, totalResponseTimeMs);
+            return {
+              ...message,
+              ...timed,
+              isLoading: false,
+              interrupt: terminalFrame.interrupt ?? null,
+              interruptThreadId: terminalFrame.thread_id ?? threadId ?? null,
+              interruptAssistantId: assistantId,
+            };
+          })
           .filter(
             (message) =>
               message.id !== streamingMessageId ||
@@ -862,9 +891,7 @@ export const MediaProvider = ({ children }) => {
         terminalFrame.content ?? ''
       );
       const hideSuggestionReply =
-        !hideFromTranscript &&
-        (Boolean(leakedSuggestions) ||
-          String(terminalFrame.content ?? '').trim().startsWith('['));
+        !hideFromTranscript && Boolean(leakedSuggestions);
       // A harvest that landed on this turn answers with a JSON list. That list
       // is chips, not something the avatar said — drop the bubble and let the
       // caller ask again for a spoken reply.
@@ -881,28 +908,36 @@ export const MediaProvider = ({ children }) => {
         // Adopt the authoritative content and metadata from the terminal frame;
         // the token stream is a preview, `done.content` is the record.
         updateMessagesIfStillOnScreen((previousMessages) =>
-          previousMessages.map((message) =>
-            message.id === streamingMessageId
-              ? {
-                  ...message,
-                  isLoading: false,
-                  content: terminalFrame.content ?? message.content,
-                  usage: terminalFrame.usage,
-                  request_id: terminalFrame.request_id ?? null,
-                  total_response_time_ms:
-                    terminalFrame.total_response_time_ms ?? null,
-                  response_metadata: terminalFrame.response_metadata ?? {},
-                  ambient:
-                    terminalFrame.response_metadata?.ambient ??
-                    message.ambient ??
-                    null,
-                  // Classified once the whole reply is known; the chat swaps the
-                  // avatar's icon to the matching emotion still, and voice mode
-                  // picks the emotion's idle loop and lip-sync still from it.
-                  sentiment: terminalFrame.response_metadata?.sentiment ?? null,
-                }
-              : message
-          )
+          previousMessages.map((message) => {
+            if (message.id !== streamingMessageId) return message;
+            const serverTimeMs = resolveMessageResponseTimeMs(terminalFrame);
+            const clientTimeMs = Math.round(performance.now() - streamStartedAtMs);
+            const totalResponseTimeMs =
+              serverTimeMs ?? (clientTimeMs > 0 ? clientTimeMs : null);
+            const timed = attachResponseTimeMs(terminalFrame, totalResponseTimeMs);
+            const finalized = {
+              ...message,
+              isLoading: false,
+              content: terminalFrame.content ?? message.content,
+              usage: timed.usage,
+              request_id: terminalFrame.request_id ?? null,
+              total_response_time_ms: timed.total_response_time_ms,
+              response_metadata: timed.response_metadata,
+              ambient:
+                terminalFrame.response_metadata?.ambient ??
+                message.ambient ??
+                null,
+              // Classified once the whole reply is known; the chat swaps the
+              // avatar's icon to the matching emotion still, and voice mode
+              // picks the emotion's idle loop and lip-sync still from it.
+              sentiment: terminalFrame.response_metadata?.sentiment ?? null,
+            };
+            rememberAvatarResponseMetrics(
+              terminalFrame.thread_id ?? threadId,
+              finalized
+            );
+            return finalized;
+          })
         );
       }
       if (terminalFrame.thread_id && !hideFromTranscript) {
@@ -940,9 +975,7 @@ export const MediaProvider = ({ children }) => {
       terminalFrame?.content ?? ''
     );
     const hideSuggestionReply =
-      !hideFromTranscript &&
-      (Boolean(leakedSuggestions) ||
-        String(terminalFrame?.content ?? '').trim().startsWith('['));
+      !hideFromTranscript && Boolean(leakedSuggestions);
     return {
       success: terminalFrame != null,
       reply: hideSuggestionReply ? '' : (terminalFrame?.content ?? ''),

@@ -42,6 +42,7 @@ import {
 } from '../context/MediaContext';
 import {
   deleteAvatarDocument,
+  setAvatarVoiceReference,
   deleteAvatar,
   modifyAvatar,
   listAvatarDocuments,
@@ -51,7 +52,10 @@ import {
   deleteAvatarEmotionMedia,
 } from '../services/avatarService';
 import { streamServerSentEvents } from '../services/neuralNexusApiClient';
-import { showRequestFailureToast, isBillingRefusal } from './requestFailureToast';
+import {
+  showRequestFailureToast,
+  isBillingRefusal,
+} from './requestFailureToast';
 import ConnectionsSection from './connections/ConnectionsSection';
 import EmotionMediaStatus from './media/EmotionMediaStatus';
 import UploadProcessPanel from './media/UploadProcessPanel';
@@ -71,7 +75,7 @@ import {
 } from './utils';
 import { isAdminAccount } from '../config/adminAccount';
 import { parseHttpUrls } from '../services/parseHttpUrls';
-import { looksLikeReferenceAudioUrl } from '../services/referenceAudioUrl';
+import { splitVoiceMedia } from '../services/voiceMedia';
 import useIdentityMediaJobs from '../hooks/useIdentityMediaJobs';
 import AvatarDocumentRow, {
   describeDocumentKind,
@@ -145,7 +149,9 @@ const AvatarSettings = ({ avatarId, onPortraitChanged }) => {
     password: '',
   });
   const [manualUrl, setManualUrl] = useState('');
-  const [useUrlAsVoiceReference, setUseUrlAsVoiceReference] = useState(false);
+  // Bumped whenever something outside the Voice panel changes the voice
+  // (a deleted upload, a new reference clip) so the panel re-reads status.
+  const [voiceStatusVersion, setVoiceStatusVersion] = useState(0);
   const urlInputRef = useRef(null);
   const uploadSectionRef = useRef(null);
   const startSectionUploadRef = useRef(null);
@@ -328,11 +334,18 @@ const AvatarSettings = ({ avatarId, onPortraitChanged }) => {
    * follows the job in the store so convert 1/N, indexing, and the rest stay
    * on one card — including after this screen unmounts.
    *
+   * Audio and video are speech of the avatar wherever they are dropped: the
+   * batch is split, and the speech starts a voice job (card in the Voice
+   * section) while everything else starts a document job. The server picks
+   * the reference clip itself (the first speech upload), so no reference flag
+   * is sent for speech.
+   *
    * @param {Object} options
    * @param {File[]} [options.files]
    * @param {string[]} [options.urls]
    * @param {boolean} [options.isReferenceImage]
-   * @param {boolean} [options.isReferenceAudio]
+   * @param {'portrait'|'voice'|'document'} [options.kind] Skip the split and
+   *   start one job of this kind (the Voice panel passes 'voice').
    * @param {Function} [options.confirmStored] After the job reports done, check
    *   that what was uploaded is actually stored. Returns null when it is, or
    *   the message the panel must end on instead of success.
@@ -348,18 +361,57 @@ const AvatarSettings = ({ avatarId, onPortraitChanged }) => {
         toast.error('No active avatar');
         return false;
       }
+      const scrollToVoice = () =>
+        voiceSectionRef.current?.scrollIntoView({
+          behavior: 'smooth',
+          block: 'start',
+        });
       if (options?.isReferenceImage) {
         uploadSectionRef.current?.scrollIntoView({
           behavior: 'smooth',
           block: 'start',
         });
-      } else if (options?.isReferenceAudio) {
-        voiceSectionRef.current?.scrollIntoView({
-          behavior: 'smooth',
-          block: 'start',
-        });
+        return startUpload(options);
       }
-      return startUpload(options);
+      if (options?.kind) {
+        if (options.kind === 'voice') scrollToVoice();
+        return startUpload(options);
+      }
+      const { voiceFiles, voiceUrls, otherFiles, otherUrls } = splitVoiceMedia({
+        files: options?.files ?? [],
+        urls: options?.urls ?? [],
+      });
+      const started = [];
+      if (voiceFiles.length > 0) {
+        started.push(
+          startUpload({
+            ...options,
+            files: voiceFiles,
+            urls: [],
+            kind: 'voice',
+          })
+        );
+      }
+      // A direct media address must travel alone to be fetched as media, so
+      // each speech URL is its own job.
+      for (const voiceUrl of voiceUrls) {
+        started.push(
+          startUpload({
+            ...options,
+            files: [],
+            urls: [voiceUrl],
+            kind: 'voice',
+          })
+        );
+      }
+      if (otherFiles.length > 0 || otherUrls.length > 0) {
+        started.push(
+          startUpload({ ...options, files: otherFiles, urls: otherUrls })
+        );
+      }
+      if (voiceFiles.length > 0 || voiceUrls.length > 0) scrollToVoice();
+      const results = await Promise.all(started);
+      return results.length > 0 && results.every(Boolean);
     },
     [assistantId, startUpload, user]
   );
@@ -373,11 +425,6 @@ const AvatarSettings = ({ avatarId, onPortraitChanged }) => {
     () => sectionJobs.filter((job) => job.kind !== 'voice'),
     [sectionJobs]
   );
-  const typedUrlLooksLikeVoice = useMemo(() => {
-    const urls = parseHttpUrls(manualUrl);
-    return urls.length === 1 && looksLikeReferenceAudioUrl(urls[0]);
-  }, [manualUrl]);
-
   // The document endpoints name their avatar in the request, so opening this
   // screen is a plain read: there is no per-account "selected avatar" to
   // register first, and nothing another tab can repoint between the two calls.
@@ -515,15 +562,7 @@ const AvatarSettings = ({ avatarId, onPortraitChanged }) => {
     const files = Array.from(filesList);
     if (files.length === 0) return;
 
-    const treatsAsReferenceAudio = files.some(
-      (file) =>
-        String(file.type ?? '').startsWith('audio/') ||
-        String(file.type ?? '').startsWith('video/')
-    );
-    await startSectionUpload({
-      files,
-      isReferenceAudio: treatsAsReferenceAudio,
-    });
+    await startSectionUpload({ files });
     if (e.target) {
       e.target.value = '';
     }
@@ -533,15 +572,6 @@ const AvatarSettings = ({ avatarId, onPortraitChanged }) => {
     const urls = parseHttpUrls(manualUrl);
     if (urls.length === 0) {
       toast.error('Enter one or more http:// or https:// URLs');
-      return;
-    }
-    if (useUrlAsVoiceReference) {
-      if (urls.length !== 1) {
-        toast.error('Voice reference needs a single URL');
-        return;
-      }
-      setManualUrl('');
-      startSectionUpload({ urls, isReferenceAudio: true });
       return;
     }
     setManualUrl('');
@@ -619,10 +649,16 @@ const AvatarSettings = ({ avatarId, onPortraitChanged }) => {
       return;
     }
     const sourceDocumentName = documentEntry.label;
+    const voiceNote = documentEntry.isReferenceAudio
+      ? ' This is the reference clip: the next audio or video upload becomes the new reference.'
+      : documentEntry.inVoiceCorpus
+        ? ' Its seconds leave the voice model count; a trained voice is kept.'
+        : '';
     if (
       !window.confirm(
         `Delete "${sourceDocumentName}" from this avatar? The upload and ` +
-          'everything the avatar learned from it are removed. This cannot be undone.'
+          'everything the avatar learned from it are removed. This cannot be undone.' +
+          voiceNote
       )
     ) {
       return;
@@ -632,8 +668,30 @@ const AvatarSettings = ({ avatarId, onPortraitChanged }) => {
       await deleteAvatarDocument(assistantId, sourceDocumentName);
       toast.success('Document deleted');
       await refreshAvatarDocuments();
+      setVoiceStatusVersion((version) => version + 1);
     } catch (err) {
       toast.error('Failed to delete: ' + err.message);
+    }
+  };
+
+  /**
+   * Make one upload the reference clip the diarizer uses to find this
+   * avatar's voice. Only the reference changes: nothing is re-learned and the
+   * trained voice is untouched.
+   *
+   * @param {Object} documentEntry A row from the document list.
+   */
+  const handleSetVoiceReference = async (documentEntry) => {
+    try {
+      if (!user) throw new Error('Not logged in');
+      await setAvatarVoiceReference(assistantId, documentEntry.label);
+      toast.success(`${documentEntry.label} is now the reference audio.`);
+      await refreshAvatarDocuments();
+      setVoiceStatusVersion((version) => version + 1);
+    } catch (err) {
+      showRequestFailureToast(err, {
+        fallbackMessage: `${documentEntry.label} could not be made the reference.`,
+      });
     }
   };
 
@@ -1398,7 +1456,7 @@ const AvatarSettings = ({ avatarId, onPortraitChanged }) => {
           </div>
         </div>
         {/* The avatar's voice: record it, watch the corpus fill, verify the
-            professional clone. Every avatar gets a voice audio model from this;
+            professional voice model. Every avatar gets a voice audio model from this;
             only the personal avatar continues to a professional one. */}
         <div id="voice" ref={voiceSectionRef}>
           <VoicePanel
@@ -1409,6 +1467,7 @@ const AvatarSettings = ({ avatarId, onPortraitChanged }) => {
             voiceJobs={voiceJobs}
             onCancelJob={cancelSectionJob}
             onDismissJob={dismissSectionJob}
+            refreshToken={voiceStatusVersion}
           />
         </div>
       </div>
@@ -1528,10 +1587,6 @@ const AvatarSettings = ({ avatarId, onPortraitChanged }) => {
                 );
                 if (pastedUrls.length > 1) {
                   e.preventDefault();
-                  if (useUrlAsVoiceReference) {
-                    toast.error('Voice reference needs a single URL');
-                    return;
-                  }
                   startSectionUpload({ urls: pastedUrls });
                 }
               }}
@@ -1547,21 +1602,6 @@ const AvatarSettings = ({ avatarId, onPortraitChanged }) => {
               Add
             </button>
           </div>
-          <label className="mt-2 inline-flex items-center gap-2 text-xs text-white/60">
-            <input
-              type="checkbox"
-              checked={useUrlAsVoiceReference}
-              onChange={(e) => setUseUrlAsVoiceReference(e.target.checked)}
-              className="rounded border-white/30 bg-black/50 text-amber-400 focus:ring-amber-400/50"
-            />
-            Use as voice reference
-          </label>
-          {typedUrlLooksLikeVoice && !useUrlAsVoiceReference ? (
-            <p className="mt-1 text-xs text-white/40">
-              This looks like a video or audio link. Check the box to use it as
-              the avatar's voice.
-            </p>
-          ) : null}
         </div>
         <div className="border-2 border-dashed border-white/30 rounded-xl p-4 sm:p-8 text-center hover:border-white/50 transition-all duration-300 bg-black/60">
           <Upload className="mx-auto mb-3 sm:mb-4 text-white/60" size={36} />
@@ -1694,6 +1734,7 @@ const AvatarSettings = ({ avatarId, onPortraitChanged }) => {
                   documentEntry={documentEntry}
                   portraitDataUri={avatarIcon}
                   onDelete={handleDeleteDocument}
+                  onSetVoiceReference={handleSetVoiceReference}
                 />
               ))
             ) : (

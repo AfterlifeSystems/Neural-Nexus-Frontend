@@ -5,7 +5,7 @@
 // next capture, and how the status shown to the person changes as the stream
 // of an observation's events arrives.
 
-/** Turn ambient capture off after this many failed observations in a row. */
+/** Tell the person about an outage after this many failed observations in a row. */
 export const AMBIENT_FAILURE_LIMIT = 3;
 
 export const INITIAL_AMBIENT_STATUS = Object.freeze({
@@ -20,6 +20,23 @@ export const INITIAL_AMBIENT_STATUS = Object.freeze({
 });
 
 /**
+ * Whether ambient vision is running.
+ *
+ * There is no switch: sharing a webcam or a screen on an account that may run
+ * ambient vision starts the looks, and only the last share ending stops them.
+ *
+ * @param {Object} conditions
+ * @param {boolean} conditions.allowed The account may run ambient vision.
+ * @param {boolean} conditions.hasWebcam A webcam stream is live.
+ * @param {boolean} conditions.hasScreen A screen stream is live.
+ * @returns {boolean}
+ */
+export function isAmbientVisionActive({ allowed, hasWebcam, hasScreen }) {
+  if (!allowed) return false;
+  return Boolean(hasWebcam || hasScreen);
+}
+
+/**
  * Whether this tick should capture and send a snapshot.
  *
  * A capture is skipped whenever the conversation is busy: a typed or spoken
@@ -29,7 +46,8 @@ export const INITIAL_AMBIENT_STATUS = Object.freeze({
  * screen while the person works in another window is the main use.
  *
  * @param {Object} conditions
- * @param {boolean} conditions.enabled The person turned ambient vision on.
+ * @param {boolean} conditions.enabled Ambient vision is running (see
+ *   `isAmbientVisionActive`) on a surface that may send a snapshot.
  * @param {boolean} conditions.hasWebcam A webcam stream is live.
  * @param {boolean} conditions.hasScreen A screen stream is live.
  * @param {boolean} conditions.inFlight An observation is already being sent.
@@ -134,13 +152,17 @@ export function reduceAmbientEvent(status, event) {
 }
 
 /**
- * Whether the failure count says ambient capture should switch itself off.
+ * Whether this failure is the one that tells the person about an outage.
  *
- * @param {Object} status The current status.
+ * Capture never switches itself off — there is no switch — so the outage is
+ * reported once, when the failures reach the limit, and not again until an
+ * observation has gone through and the count has started over.
+ *
+ * @param {Object} status The status after the failure was folded in.
  * @returns {boolean}
  */
-export function shouldDisableAfterFailures(status) {
-  return (status?.consecutiveFailures ?? 0) >= AMBIENT_FAILURE_LIMIT;
+export function shouldReportRepeatedFailures(status) {
+  return (status?.consecutiveFailures ?? 0) === AMBIENT_FAILURE_LIMIT;
 }
 
 /**

@@ -45,7 +45,7 @@ const AvatarWorkspaceHeader = ({
     <div
       className={`flex items-center shrink-0 border-b border-white/10 gap-1 sm:gap-4 ${className}`}
     >
-      <div className="flex items-center min-w-0 flex-1 gap-1 sm:gap-4 sm:justify-center overflow-x-auto overflow-y-hidden scrollbar-none">
+      <div className="flex items-center min-w-0 flex-1 gap-1 sm:gap-4 justify-safe-center overflow-x-auto overflow-y-hidden scrollbar-none">
         <div className="w-9 h-9 shrink-0 rounded-full bg-black/50 border border-white/10 flex items-center justify-center overflow-hidden">
           {headerFace && isValidImageUrl(headerFace) ? (
             <img

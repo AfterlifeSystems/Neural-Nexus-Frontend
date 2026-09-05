@@ -80,6 +80,14 @@ const AvatarSelectionComponent = ({}) => {
     overlay.style.transform = `translate(calc(-50% + ${x}px), -50%)`;
     overlay.style.visibility = visible ? 'visible' : 'hidden';
   }, []);
+  const handleGalleryIndexChange = useCallback((index) => {
+    setCurrentCardIndex(index);
+    try {
+      localStorage.setItem('current_card_index', String(index));
+    } catch {
+      // quota or private mode — the strip still follows the live index
+    }
+  }, []);
   const searchRef = useRef(null);
   const hasInitialized = useRef(false);
   const [showCreateModal, setShowCreateModal] = useState(false);
@@ -426,16 +434,23 @@ const AvatarSelectionComponent = ({}) => {
   }, [user, setUserAvatars]);
 
   useEffect(() => {
-    // SET AVATAR CARD INDEX TO LAST USED AVATAR
-    let targetIndex = localStorage.getItem('current_card_index');
-    if (!targetIndex) {
-      let targetIndex = 0;
-      localStorage.setItem('current_card_index', targetIndex);
+    if (hasInitialized.current || !userAvatars?.length) return;
+    const lastId = localStorage.getItem('last_used_avatar_id');
+    const stored = Number.parseInt(
+      localStorage.getItem('current_card_index'),
+      10
+    );
+    let targetIndex = 0;
+    if (lastId) {
+      const byId = userAvatars.findIndex(
+        (avatar) => (avatar.assistant_id ?? avatar.avatar_id) === lastId
+      );
+      if (byId >= 0) targetIndex = byId;
+    } else if (Number.isInteger(stored) && stored >= 0) {
+      targetIndex = Math.min(stored, userAvatars.length);
     }
     setCurrentCardIndex(targetIndex);
-    if (galleryRef.current) {
-      galleryRef.current.setCurrentIndex(targetIndex);
-    }
+    galleryRef.current?.setCurrentIndex(targetIndex);
     hasInitialized.current = true;
     // if (!hasInitialized.current) {
     //   let targetIndex = 0;
@@ -485,18 +500,22 @@ const AvatarSelectionComponent = ({}) => {
   }, []);
 
   const handleDotClick = (index) => {
+    const selectedCard = authenticatedCards[index];
     setCurrentCardIndex(index);
+    localStorage.setItem('current_card_index', String(index));
     if (galleryRef.current) {
       galleryRef.current.setCurrentIndex(index);
+    }
+    if (selectedCard) {
+      handleClick(selectedCard);
     }
   };
 
   const handleJumpLeft = () => {
     const newIndex = Math.max(0, currentCardIndex - 5);
     setCurrentCardIndex(newIndex);
-    if (galleryRef.current) {
-      galleryRef.current.setCurrentIndex(newIndex);
-    }
+    localStorage.setItem('current_card_index', String(newIndex));
+    galleryRef.current?.setCurrentIndex(newIndex);
   };
 
   const handleJumpRight = () => {
@@ -505,23 +524,10 @@ const AvatarSelectionComponent = ({}) => {
       currentCardIndex + 5
     );
     setCurrentCardIndex(newIndex);
-    if (galleryRef.current) {
-      galleryRef.current.setCurrentIndex(newIndex);
-    }
+    localStorage.setItem('current_card_index', String(newIndex));
+    galleryRef.current?.setCurrentIndex(newIndex);
   };
-  useEffect(() => {
-    const visibleDots = getVisibleDots();
 
-    // Find the index of the currently selected card within the visible dots
-    const selectedDotIndex = visibleDots.findIndex(
-      (card) => card.originalIndex === currentCardIndex
-    );
-
-    console.log('Currently selected visible dot index:', selectedDotIndex);
-    console.log('Current Card Index:', currentCardIndex);
-  }, [currentCardIndex]);
-
-  // Get the 5 closest userAvatars to current index (2 before, current, 2 after)
   const getVisibleDots = () => {
     const total = authenticatedCards.length;
     const visibleCount = 5;
@@ -530,7 +536,6 @@ const AvatarSelectionComponent = ({}) => {
     let start = currentCardIndex - halfVisible;
     let end = currentCardIndex + halfVisible;
 
-    // Clamp start/end to valid range
     if (start < 0) {
       end = Math.min(total - 1, end + Math.abs(start));
       start = 0;
@@ -540,13 +545,9 @@ const AvatarSelectionComponent = ({}) => {
       end = total - 1;
     }
 
-    const slice = authenticatedCards.slice(start, end + 1);
-
-    // Map slice to include visibleIndex
-    return slice.map((card, idx) => ({
+    return authenticatedCards.slice(start, end + 1).map((card, idx) => ({
       ...card,
       originalIndex: start + idx,
-      visibleIndex: idx, // index relative to the visible slice
     }));
   };
 
@@ -811,7 +812,7 @@ const AvatarSelectionComponent = ({}) => {
             scrollEase={0.3}
             onCardClick={handleClick}
             currentIndex={currentCardIndex}
-            onIndexChange={setCurrentCardIndex}
+            onIndexChange={handleGalleryIndexChange}
             onCreateCardMove={handleCreateCardMove}
           />
         </div>
@@ -832,9 +833,12 @@ const AvatarSelectionComponent = ({}) => {
                 </>
               )}
             </button> */}
-          <div className="flex gap-2 justify-center items-center">
-            {/* Left arrow */}
+          <div
+            className="flex gap-2 justify-center items-center"
+            data-avatar-picker
+          >
             <button
+              type="button"
               onClick={handleJumpLeft}
               disabled={currentCardIndex === 0}
               className={`p-1 rounded-full transition-all duration-300 ${
@@ -859,10 +863,9 @@ const AvatarSelectionComponent = ({}) => {
               </svg>
             </button>
 
-            {/* Visible dots */}
             <div
-              className="flex gap-2 items-center"
-              style={{ minWidth: '200px', justifyContent: 'center' }}
+              className="flex gap-2 items-center justify-center"
+              style={{ minWidth: '200px', minHeight: '40px' }}
             >
               {getVisibleDots().map((card) => {
                 const isCreateAvatar = card.type === 'create';
@@ -870,15 +873,15 @@ const AvatarSelectionComponent = ({}) => {
                 const distance = Math.abs(
                   currentCardIndex - card.originalIndex
                 );
-
-                // Scale dots based on distance from current index
                 const scale = Math.max(0.4, 1 - distance * 0.2);
 
                 return (
-                  <div
+                  <button
                     key={card.originalIndex}
+                    type="button"
+                    data-avatar-dot
                     onClick={() => handleDotClick(card.originalIndex)}
-                    className={`rounded-full transition-all duration-300 cursor-pointer hover:scale-110 border-2 ${
+                    className={`rounded-full shrink-0 overflow-hidden border-2 transition-transform duration-300 hover:scale-110 ${
                       isSelected
                         ? 'border-neutral-300'
                         : 'border-white/30 hover:border-white/60'
@@ -887,35 +890,32 @@ const AvatarSelectionComponent = ({}) => {
                       transform: `scale(${scale})`,
                       width: '32px',
                       height: '32px',
-                      flexShrink: 0,
                     }}
-                    aria-label={`Go to ${card.text}`}
+                    aria-label={`Open ${card.text}`}
+                    aria-current={isSelected ? 'true' : undefined}
                   >
                     {isCreateAvatar ? (
-                      <div className="w-full h-full flex items-center justify-center bg-black/50 rounded-full">
+                      <span className="w-full h-full flex items-center justify-center bg-black/50 rounded-full">
                         <CirclePlus className="w-5 h-5 text-neutral-200" />
-                      </div>
+                      </span>
                     ) : card.image && isValidImageUrl(card.image) ? (
                       <img
                         src={card.image}
-                        alt={card.text}
+                        alt=""
                         className="w-full h-full object-cover rounded-full"
-                        onError={(e) => {
-                          e.target.style.display = 'none';
-                        }}
                       />
                     ) : (
-                      <div className="w-full h-full flex items-center justify-center bg-black/50 rounded-full">
+                      <span className="w-full h-full flex items-center justify-center bg-black/50 rounded-full">
                         <User className="w-4 h-4 text-white/50" />
-                      </div>
+                      </span>
                     )}
-                  </div>
+                  </button>
                 );
               })}
             </div>
 
-            {/* Right arrow */}
             <button
+              type="button"
               onClick={handleJumpRight}
               disabled={currentCardIndex === authenticatedCards.length - 1}
               className={`p-1 rounded-full transition-all duration-300 ${

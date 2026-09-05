@@ -8,7 +8,7 @@
 
 import { parseHttpUrls } from './parseHttpUrls.js';
 
-const AUDIO_EXTENSIONS = new Set([
+export const AUDIO_EXTENSIONS = new Set([
   'mp3',
   'wav',
   'm4a',
@@ -22,7 +22,7 @@ const AUDIO_EXTENSIONS = new Set([
   'amr',
 ]);
 
-const VIDEO_EXTENSIONS = new Set([
+export const VIDEO_EXTENSIONS = new Set([
   'mp4',
   'mov',
   'avi',
@@ -114,8 +114,8 @@ export const looksLikeReferenceAudioUrl = (href) => {
 };
 
 /**
- * One voice-reference URL from pasted or typed text. The API accepts
- * exactly one item when reference_audio is set.
+ * One voice-media URL from pasted or typed text: a YouTube link or a direct
+ * audio/video address. The voice panel starts one job per URL.
  *
  * @param {string} text Raw clipboard or input text.
  * @returns {{ url: string } | { error: string }}
@@ -126,7 +126,13 @@ export const singleReferenceAudioUrl = (text) => {
     return { error: 'Enter an http:// or https:// video or audio URL' };
   }
   if (urls.length > 1) {
-    return { error: 'Voice reference needs a single URL' };
+    return { error: 'Add one voice URL at a time' };
+  }
+  if (!looksLikeReferenceAudioUrl(urls[0])) {
+    return {
+      error:
+        'Only a YouTube link or a direct audio/video URL can be added to the voice',
+    };
   }
   return { url: urls[0] };
 };

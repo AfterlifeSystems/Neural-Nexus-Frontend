@@ -1,16 +1,17 @@
-import { Camera, CameraOff, Eye, EyeOff, MonitorUp } from 'lucide-react';
+import { Camera, CameraOff, MonitorUp } from 'lucide-react';
 import { AccountMenuItem } from './AccountMenu';
 import { useMediaShare } from '../context/MediaShareContext';
 import { describeAmbientStatus } from '../services/ambientCaptureScheduler';
 
 /**
- * Webcam and screen-share toggles for the sidebar rail and open panel, plus
- * the ambient-vision eye once a share is live.
+ * Webcam and screen-share toggles for the sidebar rail and open panel.
  *
- * Ambient vision sends one snapshot per live share to the avatar on the
- * configured interval, as background context the avatar may ignore, respond
- * to, or notify the person about. The eye appears only where an observation
- * may be sent (a signed-in screen with a live share) and starts off.
+ * Ambient vision has no control of its own: the moment a webcam or a screen
+ * is shared, one snapshot per live share goes to the avatar on the configured
+ * interval, as background context the avatar may ignore, respond to, or notify
+ * the person about, until the share stops. The open panel shows the status
+ * under the share rows. Webcam and screen stay on the rail on the gallery; a
+ * snapshot is sent only in the message view or voice mode.
  *
  * @param {{ variant?: 'icons' | 'rows' }} props
  */
@@ -20,30 +21,19 @@ const SidebarShareControls = ({ variant = 'icons' }) => {
     screenStream,
     toggleWebcam,
     toggleScreenShare,
-    ambientAllowed,
+    ambientCaptureAllowed,
     ambientEnabled,
-    setAmbientEnabled,
     ambientStatus,
     ambientNextInMs,
-    ambientIntervalMs,
   } = useMediaShare();
 
   const webcamLabel = webcamStream ? 'Turn off webcam' : 'Share webcam';
   const screenLabel = screenStream ? 'Stop sharing screen' : 'Share screen';
-  const showAmbient = ambientAllowed && Boolean(webcamStream || screenStream);
-  const intervalSeconds = Math.round((ambientIntervalMs ?? 30_000) / 1000);
-  const ambientLabel = ambientEnabled
-    ? 'Stop ambient vision'
-    : `Ambient vision (a look every ${intervalSeconds}s)`;
   const ambientDetail = ambientEnabled
-    ? describeAmbientStatus(ambientStatus, ambientNextInMs)
+    ? ambientCaptureAllowed
+      ? describeAmbientStatus(ambientStatus, ambientNextInMs)
+      : 'Looks resume when you open a chat'
     : '';
-  const ambientIcon = ambientEnabled ? (
-    <Eye className="w-4 h-4 shrink-0" />
-  ) : (
-    <EyeOff className="w-4 h-4 shrink-0" />
-  );
-  const toggleAmbient = () => setAmbientEnabled((enabled) => !enabled);
 
   if (variant === 'rows') {
     return (
@@ -66,23 +56,13 @@ const SidebarShareControls = ({ variant = 'icons' }) => {
           isCurrent={Boolean(screenStream)}
           onClick={toggleScreenShare}
         />
-        {showAmbient && (
-          <AccountMenuItem
-            icon={ambientIcon}
-            label={
-              <span className="flex flex-col min-w-0">
-                <span>{ambientLabel}</span>
-                {ambientDetail && (
-                  <span className="text-[11px] text-white/50 truncate">
-                    {ambientDetail}
-                  </span>
-                )}
-              </span>
-            }
-            ariaLabel={ambientLabel}
-            isCurrent={ambientEnabled}
-            onClick={toggleAmbient}
-          />
+        {ambientDetail && (
+          <p
+            className="px-3 pt-1 text-[11px] text-white/50 truncate"
+            aria-live="polite"
+          >
+            Ambient vision: {ambientDetail}
+          </p>
         )}
       </div>
     );
@@ -110,15 +90,6 @@ const SidebarShareControls = ({ variant = 'icons' }) => {
         isCurrent={Boolean(screenStream)}
         onClick={toggleScreenShare}
       />
-      {showAmbient && (
-        <AccountMenuItem
-          iconOnly
-          icon={ambientIcon}
-          label={ambientDetail ? `${ambientLabel} — ${ambientDetail}` : ambientLabel}
-          isCurrent={ambientEnabled}
-          onClick={toggleAmbient}
-        />
-      )}
     </>
   );
 };

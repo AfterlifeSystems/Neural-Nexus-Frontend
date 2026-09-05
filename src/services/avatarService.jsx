@@ -212,6 +212,10 @@ export const listAvatarDocuments = async (assistantId) => {
         isReferenceAudio:
           documentEntry.is_reference_audio ??
           documentEntry.reference_role === 'reference_audio',
+        // Seconds of the avatar's speech this upload contributed to the voice
+        // model, so the list can show which uploads feed the voice.
+        voiceSeconds: Number(documentEntry.voice_seconds ?? 0),
+        inVoiceCorpus: documentEntry.in_voice_corpus === true,
       }));
   }
 
@@ -220,6 +224,8 @@ export const listAvatarDocuments = async (assistantId) => {
     referenceRole: null,
     isReferenceImage: false,
     isReferenceAudio: false,
+    voiceSeconds: 0,
+    inVoiceCorpus: false,
   }));
 };
 
@@ -972,6 +978,23 @@ export const retryAvatarProfessionalVoice = async (assistantId) => {
   const formData = new FormData();
   formData.append('assistant_id', assistantId);
   return requestJson('/avatar_voice/professional/retry', { method: 'POST', formData });
+};
+
+/**
+ * Point the avatar's reference clip at a different upload. Only the reference
+ * changes: the avatar's identity and the trained voice stay as they are.
+ * POST /avatar_voice/reference
+ *
+ * @param {string} assistantId The avatar.
+ * @param {string} sourceDocumentName A document label from listAvatarDocuments
+ *   that has speech in the voice model.
+ * @returns {Promise<Object>} The updated voice status.
+ */
+export const setAvatarVoiceReference = async (assistantId, sourceDocumentName) => {
+  return requestJson('/avatar_voice/reference', {
+    method: 'POST',
+    body: { assistant_id: assistantId, source_document_name: sourceDocumentName },
+  });
 };
 
 /**

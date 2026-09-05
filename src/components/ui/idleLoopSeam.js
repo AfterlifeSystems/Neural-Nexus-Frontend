@@ -13,6 +13,12 @@ const CAPTURE_FIELD = '_idleLoopCaptureAttached';
 const REPEAT_FIELD = '_idleLoopRepeat';
 const MAX_EDGE_FIELD = '_idleLoopMaxEdge';
 const VIDEO_HOST_ID = 'idle-loop-video-host';
+// Must stay a painted pixel in the viewport. `opacity: 0`, `visibility:
+// hidden`, `display: none`, or `z-index: -1` behind an opaque page all
+// count as invisible: Chrome and Firefox suspend the decoder, rVFC
+// stops, and both the carousel and voice mode freeze on the last frame.
+export const IDLE_LOOP_VIDEO_HOST_STYLE =
+  'position:fixed;right:0;bottom:0;width:2px;height:2px;opacity:1;overflow:hidden;pointer-events:none;z-index:2147483647';
 
 const DEFAULT_TAPE = {
   frames: [],
@@ -204,11 +210,10 @@ export function mountIdleLoopVideo(video) {
     host = document.createElement('div');
     host.id = VIDEO_HOST_ID;
     host.setAttribute('aria-hidden', 'true');
-    host.style.cssText =
-      'position:fixed;left:0;top:0;width:64px;height:64px;opacity:0.01;overflow:hidden;pointer-events:none;z-index:-1';
     document.body.appendChild(host);
   }
-  video.style.cssText = 'width:64px;height:64px;object-fit:cover';
+  host.style.cssText = IDLE_LOOP_VIDEO_HOST_STYLE;
+  video.style.cssText = 'width:2px;height:2px;object-fit:cover';
   host.appendChild(video);
 }
 
@@ -389,10 +394,18 @@ export function stepIdleLoopPingPong(video, _direction, now) {
     if (tape.reverseStartedAt != null || (video.ended && !atStart) || atEnd) {
       return beginReverse(video, tape, clock);
     }
+    // A hidden or covered video can be paused by the browser mid-pass.
+    // Leaving it paused paints the same frame until something else plays it.
+    if (video.paused) {
+      playQuietly(video);
+    }
     video[REVERSE_FIELD] = null;
     return 1;
   }
 
+  if (video.paused && video[REPEAT_FIELD] !== false && !tape.cycleEnded) {
+    playQuietly(video);
+  }
   return 1;
 }
 
@@ -656,7 +669,13 @@ function holdStartFrame(video, tape) {
           video.currentTime = 0;
         } catch {
           finishHoldStart(video, tape);
+          return;
         }
+        globalThis.setTimeout(() => {
+          if (tape.holdingStart) {
+            finishHoldStart(video, tape);
+          }
+        }, HOLD_START_MS);
         return;
       }
       finishHoldStart(video, tape);
@@ -674,23 +693,41 @@ function finishHoldStart(video, tape) {
   tape.waitingForForward = true;
   tape.forwardPresentCount = 0;
   video[REVERSE_FIELD] = frameImage(tape.frames[0]);
+  playQuietly(video);
+}
+
+function playQuietly(video) {
   const playAttempt = video.play();
   if (playAttempt && typeof playAttempt.catch === 'function') {
     playAttempt.catch(() => {});
   }
 }
 
+function releaseForwardSeam(video, tape) {
+  tape.waitingForForward = false;
+  tape.forwardPresentCount = 0;
+  video[REVERSE_FIELD] = null;
+}
+
 function holdForwardSeam(video, tape) {
   video[REVERSE_FIELD] = frameImage(tape.frames[0]);
+  if (video.paused) {
+    playQuietly(video);
+  }
   const atStart = video.currentTime < 0.08;
   const playing = !video.paused && video.readyState >= 2;
-  if (atStart && playing) {
-    tape.forwardPresentCount += 1;
-    if (tape.forwardPresentCount >= FORWARD_PRESENT_FRAMES) {
-      tape.waitingForForward = false;
-      tape.forwardPresentCount = 0;
-      video[REVERSE_FIELD] = null;
-    }
+  if (!playing) {
+    return 1;
+  }
+  if (!atStart) {
+    // Keyframe seek or a dropped frame skipped the 0–80ms window. The
+    // live video is already past frame 0; keeping this overlay looks frozen.
+    releaseForwardSeam(video, tape);
+    return 1;
+  }
+  tape.forwardPresentCount += 1;
+  if (tape.forwardPresentCount >= FORWARD_PRESENT_FRAMES) {
+    releaseForwardSeam(video, tape);
   }
   return 1;
 }

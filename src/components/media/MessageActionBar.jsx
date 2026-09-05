@@ -3,54 +3,31 @@ import React from 'react';
 import {
   Check,
   Copy,
+  ExternalLink,
   MessageSquare,
   Pencil,
   RefreshCw,
   ThumbsDown,
   ThumbsUp,
 } from 'lucide-react';
+import { useAuth } from '../../context/AuthContext';
+import { useMedia } from '../../context/MediaContext';
+import {
+  langsmithDebugLinkFor,
+  shortenThreadId,
+} from '../../config/langsmithDebug';
 import SpeakButton from './SpeakButton';
+import { formatMessageMetrics } from '../../services/messageResponseMetrics';
+
+export { formatMessageMetrics };
 
 export const ACTION_BUTTON_CLASSES =
   'inline-flex items-center justify-center p-0.5 rounded text-neutral-400 hover:text-neutral-100 hover:bg-white/10 transition-colors focus:outline-none focus:ring-2 focus:ring-amber-400/50 disabled:opacity-40';
 
 /**
- * Format the screenshot metrics line: `4.6s • 8.4k tokens • $0.0012`.
- *
- * @param {Object} message An avatar message that may carry usage metadata.
- * @returns {string|null} The line, or null when nothing is known.
- */
-export const formatMessageMetrics = (message) => {
-  const parts = [];
-  const timeMs =
-    message?.total_response_time_ms ?? message?.usage?.latency_ms ?? null;
-  if (Number.isFinite(Number(timeMs)) && Number(timeMs) > 0) {
-    parts.push(`${(Number(timeMs) / 1000).toFixed(1)}s`);
-  }
-  const tokens = Number(
-    message?.usage?.total_tokens ??
-      message?.response_metadata?.token_usage?.total_tokens ??
-      0
-  );
-  if (tokens > 0) {
-    parts.push(
-      tokens >= 1000
-        ? `${(tokens / 1000).toFixed(tokens >= 10_000 ? 0 : 1)}k tokens`
-        : `${tokens} tokens`
-    );
-  }
-  const cost = Number(
-    message?.response_metadata?.total_cost ?? message?.usage?.cost_usd ?? NaN
-  );
-  if (Number.isFinite(cost) && cost > 0) {
-    parts.push(`$${cost < 0.01 ? cost.toFixed(4) : cost.toFixed(3)}`);
-  }
-  return parts.length ? parts.join(' • ') : null;
-};
-
-/**
  * Copy, regenerate, rate, speak, edit, and retry — the same controls the
- * message list shows under a bubble.
+ * message list shows under a bubble. In Vite development, the administrator
+ * also gets a LangSmith link to this conversation's thread.
  *
  * @param {Object} parameters
  * @param {Object} parameters.message The transcript row.
@@ -102,6 +79,10 @@ const MessageActionBar = ({
   onStartEdit,
   onRetry,
 }) => {
+  const { user } = useAuth();
+  const { activeConversation } = useMedia();
+  const langsmithHref = langsmithDebugLinkFor(user, activeConversation);
+
   if (!message?.content) return null;
 
   const metrics = isFromAvatar ? formatMessageMetrics(message) : null;
@@ -237,15 +218,32 @@ const MessageActionBar = ({
         ) : (
           <span />
         )}
-        {timestamp && (
-          <div
-            className={`text-xs text-right select-none ml-auto ${
-              overlay ? 'text-white/60' : 'text-neutral-400'
-            }`}
-          >
-            {timestamp}
-          </div>
-        )}
+        <div className="flex items-center gap-2 ml-auto">
+          {langsmithHref && (
+            <a
+              href={langsmithHref}
+              target="_blank"
+              rel="noopener noreferrer"
+              title={`Open thread ${activeConversation} in LangSmith`}
+              aria-label={`Open conversation thread ${activeConversation} in LangSmith`}
+              className={`${ACTION_BUTTON_CLASSES} gap-1 text-[11px] font-mono ${
+                overlay ? 'text-amber-200/80' : 'text-amber-300/80'
+              }`}
+            >
+              <ExternalLink className="w-3 h-3" aria-hidden="true" />
+              <span>LangSmith · {shortenThreadId(activeConversation)}</span>
+            </a>
+          )}
+          {timestamp && (
+            <div
+              className={`text-xs text-right select-none ${
+                overlay ? 'text-white/60' : 'text-neutral-400'
+              }`}
+            >
+              {timestamp}
+            </div>
+          )}
+        </div>
       </div>
       {isFromAvatar && !readOnly && feedbackKey === messageKey && (
         <div className="mt-2 space-y-1 caption-actions">

@@ -64,6 +64,14 @@ test('singleReferenceAudioUrl requires exactly one http(s) URL', () => {
     singleReferenceAudioUrl(
       'https://youtu.be/aaaaaaaaaaa https://youtu.be/bbbbbbbbbbb'
     ),
-    { error: 'Voice reference needs a single URL' }
+    { error: 'Add one voice URL at a time' }
   );
+  // An article is identity media, not speech: the voice panel refuses the address.
+  assert.deepEqual(singleReferenceAudioUrl('https://example.com/article'), {
+    error:
+      'Only a YouTube link or a direct audio/video URL can be added to the voice',
+  });
+  assert.deepEqual(singleReferenceAudioUrl('https://cdn.example.com/talk.mp3'), {
+    url: 'https://cdn.example.com/talk.mp3',
+  });
 });

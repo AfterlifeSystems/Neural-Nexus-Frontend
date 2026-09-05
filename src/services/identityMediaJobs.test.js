@@ -33,6 +33,18 @@ test('kindFromMediaJobSnapshot reads flags and description text', () => {
     'portrait'
   );
   assert.equal(kindFromMediaJobSnapshot({ filename: 'notes.pdf' }), 'document');
+  // Speech uploads carry no reference flag: the audio/video filename marks them.
+  assert.equal(kindFromMediaJobSnapshot({ filename: 'Mom.m4a' }), 'voice');
+  assert.equal(
+    kindFromMediaJobSnapshot({ children: [{ filename: 'talk.mp4' }] }),
+    'voice'
+  );
+  assert.equal(
+    kindFromMediaJobSnapshot({
+      children: [{ filename: 'talk.mp4' }, { filename: 'notes.pdf' }],
+    }),
+    'document'
+  );
 });
 
 test('statusFromMediaJobSnapshot maps queued, done, failed, cancelled', () => {
@@ -66,7 +78,9 @@ test('panelJobFromMediaSnapshot keeps the checklist and child items', () => {
   assert.equal(job.jobId, 'master-1');
   assert.equal(job.title, 'talk.mp4');
   assert.equal(job.status, 'running');
-  assert.equal(job.kind, 'document');
+  // A video upload is speech: the restored card is the voice card, whose
+  // checklist still ends with indexing.
+  assert.equal(job.kind, 'voice');
   assert.equal(job.items[0].itemJobId, 'child-1');
   assert.equal(job.steps.find((step) => step.id === 'upload').state, 'done');
   assert.equal(job.steps.find((step) => step.id === 'convert').state, 'active');

@@ -31,10 +31,13 @@ const documentSteps = () => [
   countedStep('index', 'Adding to memory', 1),
 ];
 
+// Speech is identity media too: after the clip joins the voice corpus the
+// transcript is indexed like any other upload.
 const voiceSteps = () => [
   countedStep('upload', 'Uploading', 1, { active: true }),
   countedStep('convert', 'Converting', 1),
   countedStep('voice', 'Building the voice model', 1),
+  countedStep('index', 'Adding to memory', 1),
 ];
 
 export const STAGE_TO_STEP = {

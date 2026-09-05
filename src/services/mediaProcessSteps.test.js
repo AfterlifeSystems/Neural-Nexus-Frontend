@@ -137,3 +137,27 @@ test('mergeUploadItems stamps child job ids and appends playlist children', () =
   });
   assert.equal(stamped[0].itemJobId, 'item-9');
 });
+
+test('voice pipeline collects speech, then indexes the transcript', () => {
+  const steps = stepsForMediaKind('voice');
+  assert.deepEqual(
+    steps.map((step) => [step.id, step.label]),
+    [
+      ['upload', 'Uploading'],
+      ['convert', 'Converting'],
+      ['voice', 'Building the voice model'],
+      ['index', 'Adding to memory'],
+    ]
+  );
+  applyMediaProgress(steps, { stage: 'upload', current: 1, total: 1 });
+  applyMediaProgress(steps, { stage: 'converting', current: 1, total: 1 });
+  applyMediaProgress(steps, {
+    stage: 'voice_clip_collected',
+    seconds: 42,
+    collected_seconds: 42,
+  });
+  const voiceStep = steps.find((step) => step.id === 'voice');
+  assert.notEqual(voiceStep.state, 'pending');
+  applyMediaProgress(steps, { stage: 'indexing', current: 1, total: 1 });
+  assert.equal(steps.find((step) => step.id === 'index').state, 'done');
+});

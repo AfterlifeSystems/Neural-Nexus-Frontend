@@ -231,15 +231,14 @@ const ChatArea = ({ onActivateLiveChat, onEndLiveChat, className }) => {
   // paints the wrong conversation; a stale load now finds its generation
   // superseded and drops its result.
   const loadGeneration = useRef(0);
+  const openAvatarId = activeAvatar?.assistant_id ?? activeAvatar?.avatar_id;
 
   useEffect(() => {
     // Wait for context and the URL to agree on which avatar is open. In the
     // moment between navigating and resolving the route parameter they name
     // different avatars, and loading then would fetch the old avatar's
     // conversations into the new avatar's window — the very bug being fixed.
-    const activeAvatarId =
-      activeAvatar?.assistant_id ?? activeAvatar?.avatar_id;
-    if (!user || !activeAvatar || (avatarId && activeAvatarId !== avatarId)) {
+    if (!user || !activeAvatar || (avatarId && openAvatarId !== avatarId)) {
       return undefined;
     }
 
@@ -285,8 +284,12 @@ const ChatArea = ({ onActivateLiveChat, onEndLiveChat, className }) => {
         );
         const threadIdToOpen = requestedThreadExists
           ? requestedThreadId
-          : (threads?.[0]?.thread_id ?? null);
+          : (threads?.[0]?.thread_id ?? NEW_CONVERSATION_ID);
         setActiveConversation(threadIdToOpen);
+        if (threadIdToOpen === NEW_CONVERSATION_ID) {
+          setMessages([]);
+          return;
+        }
 
         await getActiveConversationMessages(user, activeAvatar, threadIdToOpen);
         if (!isCurrentLoad()) return;
@@ -305,11 +308,13 @@ const ChatArea = ({ onActivateLiveChat, onEndLiveChat, className }) => {
       // Any load still in flight belongs to the avatar being left behind.
       loadGeneration.current += 1;
     };
-    // Deliberately keyed on identity only. The context functions this calls are
-    // rebuilt on every render of the provider, so listing them (as the
-    // exhaustive-deps rule asks) would reload the conversation on every render.
+    // Keyed on the avatar id, not the object. Replacing the same avatar with a
+    // new record used to reset the transcript mid-send — the optimistic line
+    // stayed, the in-flight reply was wiped, and a retry stored a duplicate.
+    // The context functions this calls are rebuilt on every render of the
+    // provider, so listing them would reload the conversation on every render.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [user, activeAvatar, avatarId]);
+  }, [user, openAvatarId, avatarId]);
 
   return (
     <>

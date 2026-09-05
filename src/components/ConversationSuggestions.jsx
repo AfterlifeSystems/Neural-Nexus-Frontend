@@ -1,16 +1,21 @@
 // src/components/ConversationSuggestions.jsx
 //
-// Follow-up prompts from the current thread, offered as a sheet above the
-// composer. The handle raises and lowers the list; pressing a prompt sends it
-// as the next user turn. Voice mode and message mode share the open/closed
-// flag, so switching medium does not put the list away.
+// Prompts for the current thread, offered as a sheet above the composer.
+// An empty new conversation gets starters; after a reply, follow-ups.
+// The handle raises and lowers the list; pressing a prompt sends it as the
+// next user turn. Voice mode and message mode share the open/closed flag,
+// so switching medium does not put the list away.
 
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { ChevronDown, ChevronUp, RefreshCw } from 'lucide-react';
-import { useMedia } from '../context/MediaContext';
+import { useMedia, NEW_CONVERSATION_ID } from '../context/MediaContext';
+import { isConversationSuggestionList } from '../services/conversationSuggestions';
 import {
   getSuggestionSheetOpen,
   setSuggestionSheetOpen,
+  shouldAutoOpenSuggestionSheet,
+  shouldCollapseSuggestionSheetAfterSend,
+  shouldLoadConversationSuggestions,
   shouldShowConversationSuggestions,
   subscribeSuggestionSheetOpen,
 } from './conversationSuggestionSheet';
@@ -51,11 +56,20 @@ const ConversationSuggestions = ({ enabled = true, onSend, overlay = false }) =>
       if (message.type !== 'ai' || !message.content || message.isLoading) {
         return false;
       }
-      const text = String(message.content).trim();
-      if (text.startsWith('[') && text.endsWith(']')) return false;
-      return true;
+      return !isConversationSuggestionList(message.content);
     });
-  const suggestionKey = `${activeConversation ?? 'new'}:${lastAvatarMessage?.id ?? 'empty'}`;
+  const hasHumanTurn = (messages ?? []).some(
+    (message) => message.type === 'human' || message.type === 'user'
+  );
+  const isNewConversation = activeConversation === NEW_CONVERSATION_ID;
+  const shouldLoad = shouldLoadConversationSuggestions({
+    hasSpokenAvatarReply: Boolean(lastAvatarMessage),
+    isNewConversation,
+    hasHumanTurn,
+  });
+  const suggestionKey = `${activeConversation ?? 'none'}:${
+    lastAvatarMessage?.id ?? (shouldLoad ? 'opening' : 'empty')
+  }`;
 
   const loadSuggestions = useCallback(
     async ({ exclude = [] } = {}) => {
@@ -76,10 +90,18 @@ const ConversationSuggestions = ({ enabled = true, onSend, overlay = false }) =>
 
   useEffect(() => {
     if (!enabled) return undefined;
-    if (!lastAvatarMessage) {
+    if (!shouldLoad) {
       setSuggestions([]);
       setIsLoading(false);
       return undefined;
+    }
+    if (
+      shouldAutoOpenSuggestionSheet({
+        hasSpokenAvatarReply: Boolean(lastAvatarMessage),
+        hasHumanTurn,
+      })
+    ) {
+      setSuggestionSheetOpen(true);
     }
     const thisGeneration = requestGeneration.current;
     loadSuggestions();
@@ -90,6 +112,17 @@ const ConversationSuggestions = ({ enabled = true, onSend, overlay = false }) =>
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [enabled, suggestionKey]);
+
+  useLayoutEffect(() => {
+    if (
+      shouldCollapseSuggestionSheetAfterSend({
+        hasSpokenAvatarReply: Boolean(lastAvatarMessage),
+        hasHumanTurn,
+      })
+    ) {
+      setSuggestionSheetOpen(false);
+    }
+  }, [hasHumanTurn, lastAvatarMessage]);
 
   useEffect(() => {
     if (!isOpen) return undefined;
@@ -116,6 +149,9 @@ const ConversationSuggestions = ({ enabled = true, onSend, overlay = false }) =>
 
   const sendSuggestion = (suggestion) => {
     if (turnInFlight) return;
+    if (!lastAvatarMessage) {
+      setSuggestionSheetOpen(false);
+    }
     if (onSend) {
       onSend(suggestion);
       return;
@@ -132,6 +168,9 @@ const ConversationSuggestions = ({ enabled = true, onSend, overlay = false }) =>
     loadSuggestions({ exclude: suggestions });
   };
 
+  const sheetNoun = lastAvatarMessage
+    ? 'suggested replies'
+    : 'suggested starters';
   const menuId = overlay
     ? 'conversation-suggestions-menu-voice'
     : 'conversation-suggestions-menu';
@@ -193,8 +232,8 @@ const ConversationSuggestions = ({ enabled = true, onSend, overlay = false }) =>
             // Keyboard activation has no pointer coordinates to swipe with.
             if (clickEvent.detail === 0) toggleOpen();
           }}
-          title={isOpen ? 'Hide suggested replies' : 'Show suggested replies'}
-          aria-label={isOpen ? 'Hide suggested replies' : 'Show suggested replies'}
+          title={isOpen ? `Hide ${sheetNoun}` : `Show ${sheetNoun}`}
+          aria-label={isOpen ? `Hide ${sheetNoun}` : `Show ${sheetNoun}`}
           aria-expanded={isOpen}
           aria-controls={menuId}
           className="suggestions-handle voice-text-btn min-w-0 flex-1 flex items-center justify-center gap-1.5 py-1.5 rounded-lg text-white/50 hover:text-neutral-200 hover:bg-white/5 transition-colors focus:outline-none focus:ring-2 focus:ring-amber-400/50"
@@ -204,15 +243,17 @@ const ConversationSuggestions = ({ enabled = true, onSend, overlay = false }) =>
           ) : (
             <ChevronUp className="w-4 h-4" aria-hidden="true" />
           )}
-          <span className="text-xs">Suggested replies</span>
+          <span className="text-xs">
+            {lastAvatarMessage ? 'Suggested replies' : 'Suggested starters'}
+          </span>
         </button>
         <button
           type="button"
           onClick={rerollSuggestions}
           onPointerDown={(event) => event.stopPropagation()}
-          disabled={isLoading || !lastAvatarMessage}
-          title="Re-roll suggested replies"
-          aria-label="Re-roll suggested replies"
+          disabled={isLoading}
+          title={`Re-roll ${sheetNoun}`}
+          aria-label={`Re-roll ${sheetNoun}`}
           className="voice-text-btn shrink-0 inline-flex items-center justify-center gap-1 px-2 py-1.5 rounded-lg text-white/50 hover:text-neutral-200 hover:bg-white/5 transition-colors focus:outline-none focus:ring-2 focus:ring-amber-400/50 disabled:opacity-40"
         >
           <RefreshCw

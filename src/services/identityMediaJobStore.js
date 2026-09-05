@@ -5,6 +5,7 @@
 // outlives that screen. Mapping from GET /media_jobs lives here so tests can
 // cover restore without loading the API client.
 
+import { isVoiceMediaFilename } from './voiceMedia.js';
 import {
   applyMediaProgress,
   finalizePipelineSteps,
@@ -95,6 +96,17 @@ export const kindFromMediaJobSnapshot = (entry) => {
     entry?.kind === 'voice' ||
     entry?.job_kind === 'voice'
   ) {
+    return 'voice';
+  }
+  // Speech uploads carry no reference flag any more (the server decides the
+  // reference clip), so an audio or video filename is what marks the job.
+  const filenames = [
+    entry?.filename,
+    ...(Array.isArray(entry?.children)
+      ? entry.children.map((child) => child?.filename)
+      : []),
+  ].filter(Boolean);
+  if (filenames.length > 0 && filenames.every(isVoiceMediaFilename)) {
     return 'voice';
   }
   const label = String(

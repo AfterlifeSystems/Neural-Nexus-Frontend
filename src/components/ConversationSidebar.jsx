@@ -326,7 +326,8 @@ const ConversationSidebar = ({
       )}
 
       {/* Collapsed, the sidebar is a slim rail of the same actions the open
-          panel holds — as icons — so the place stays put in voice mode. */}
+          panel holds — as icons — so the place stays put in voice mode and
+          on the gallery (webcam and screen stay here). */}
       {!isOpen && (
         <div
           data-sidebar-rail

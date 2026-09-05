@@ -4,6 +4,9 @@ import {
   getSuggestionSheetOpen,
   resetSuggestionSheetOpenForTests,
   setSuggestionSheetOpen,
+  shouldAutoOpenSuggestionSheet,
+  shouldCollapseSuggestionSheetAfterSend,
+  shouldLoadConversationSuggestions,
   shouldShowConversationSuggestions,
   subscribeSuggestionSheetOpen,
 } from './conversationSuggestionSheet.js';
@@ -46,6 +49,83 @@ test('suggested replies hide when there is nothing to offer', () => {
       enabled: false,
       isLoading: false,
       suggestionCount: 3,
+    }),
+    false
+  );
+});
+
+test('a new conversation loads starters before anyone has spoken', () => {
+  assert.equal(
+    shouldLoadConversationSuggestions({
+      hasSpokenAvatarReply: false,
+      isNewConversation: true,
+      hasHumanTurn: false,
+    }),
+    true
+  );
+});
+
+test('an existing thread still loading does not load opening starters', () => {
+  assert.equal(
+    shouldLoadConversationSuggestions({
+      hasSpokenAvatarReply: false,
+      isNewConversation: false,
+      hasHumanTurn: false,
+    }),
+    false
+  );
+});
+
+test('a first human turn still in flight keeps starters available', () => {
+  assert.equal(
+    shouldLoadConversationSuggestions({
+      hasSpokenAvatarReply: false,
+      isNewConversation: false,
+      hasHumanTurn: true,
+    }),
+    true
+  );
+});
+
+test('an empty new chat auto-opens starters', () => {
+  assert.equal(
+    shouldAutoOpenSuggestionSheet({
+      hasSpokenAvatarReply: false,
+      hasHumanTurn: false,
+    }),
+    true
+  );
+});
+
+test('the first send folds starters and does not auto-open them again', () => {
+  assert.equal(
+    shouldCollapseSuggestionSheetAfterSend({
+      hasSpokenAvatarReply: false,
+      hasHumanTurn: true,
+    }),
+    true
+  );
+  assert.equal(
+    shouldAutoOpenSuggestionSheet({
+      hasSpokenAvatarReply: false,
+      hasHumanTurn: true,
+    }),
+    false
+  );
+});
+
+test('follow-up chips stay as the person left them after a later send', () => {
+  assert.equal(
+    shouldCollapseSuggestionSheetAfterSend({
+      hasSpokenAvatarReply: true,
+      hasHumanTurn: true,
+    }),
+    false
+  );
+  assert.equal(
+    shouldAutoOpenSuggestionSheet({
+      hasSpokenAvatarReply: true,
+      hasHumanTurn: true,
     }),
     false
   );

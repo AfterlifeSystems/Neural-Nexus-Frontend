@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import {
+  IDLE_LOOP_VIDEO_HOST_STYLE,
   idleLoopReverseImage,
   idleLoopUsesNativeLoop,
   meanRgbDistance,
@@ -89,6 +90,15 @@ function paintTape(video, duration, count) {
     scratch: null,
   };
 }
+
+test('the idle-loop host stays a painted pixel so decoders are not suspended', () => {
+  const style = IDLE_LOOP_VIDEO_HOST_STYLE;
+  assert.doesNotMatch(style, /z-index\s*:\s*-/);
+  assert.doesNotMatch(style, /opacity\s*:\s*0/);
+  assert.doesNotMatch(style, /visibility\s*:\s*hidden/);
+  assert.doesNotMatch(style, /display\s*:\s*none/);
+  assert.match(style, /opacity\s*:\s*1/);
+});
 
 test('meanRgbDistance compares image pixels, not array metadata', () => {
   const red = {
@@ -407,6 +417,62 @@ test('reverse overlay stays up until the start frame has been presented', () => 
   stepIdleLoopPingPong(video, 1, 1132);
   assert.equal(video._idleLoopTape.waitingForForward, false);
   assert.equal(idleLoopReverseImage(video), null);
+});
+
+test('reverse overlay lifts when the playhead skips the start window', () => {
+  const duration = 1;
+  const video = makeVideo(duration);
+  paintTape(video, duration, 16);
+  video.currentTime = 0.97;
+  stepIdleLoopPingPong(video, 1, 0);
+  stepIdleLoopPingPong(video, -1, 50);
+  let direction = 1;
+  for (let tick = 1; tick <= 10; tick += 1) {
+    direction = stepIdleLoopPingPong(video, direction, tick * 100);
+  }
+  stepIdleLoopPingPong(video, direction, 1100);
+  assert.equal(video._idleLoopTape.waitingForForward, true);
+  video.currentTime = 0.2;
+  video.play();
+  stepIdleLoopPingPong(video, 1, 1116);
+  assert.equal(video._idleLoopTape.waitingForForward, false);
+  assert.equal(idleLoopReverseImage(video), null);
+  assert.equal(video.paused, false);
+});
+
+test('a paused first pass is resumed before the tape is armed', () => {
+  const video = makeVideo(2);
+  video.loop = true;
+  video.currentTime = 0.3;
+  video.pause();
+  video._idleLoopTape = {
+    frames: [],
+    capturing: false,
+    complete: false,
+    decided: false,
+    armed: false,
+    wrapped: false,
+    pingPongActive: false,
+    pingPongRejected: false,
+    reverseStartedAt: null,
+    holdingStart: false,
+    seekStarted: false,
+    scratch: null,
+  };
+  stepIdleLoopPingPong(video, 1, 0);
+  assert.equal(video.paused, false);
+});
+
+test('a paused forward pass is resumed instead of holding a still', () => {
+  const duration = 1;
+  const video = makeVideo(duration);
+  paintTape(video, duration, 16);
+  video.currentTime = 0.4;
+  video.pause();
+  const direction = stepIdleLoopPingPong(video, 1, 0);
+  assert.equal(direction, 1);
+  assert.equal(video.paused, false);
+  assert.equal(video._idleLoopTape.reverseStartedAt, null);
 });
 
 test('playback sync matches the carousel: React cannot restore native loop once armed', () => {

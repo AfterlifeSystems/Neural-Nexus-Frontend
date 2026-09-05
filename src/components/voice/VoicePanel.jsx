@@ -67,14 +67,19 @@ const STATE_LABELS = {
 };
 
 /**
- * The avatar's voice: record it, watch the corpus fill, verify the professional clone.
+ * The avatar's voice: record it, watch the corpus fill, verify the professional voice model.
  *
  * Every avatar gets a voice audio model (the instant clone) once a minute of
  * its speech is collected (rebuilt at two minutes). The personal avatar keeps
  * collecting — from this recorder and from every audio or video uploaded of
- * the owner — toward the thirty minutes a professional clone needs; when that
+ * the owner — toward the thirty minutes a professional voice model needs; when that
  * is reached the panel shows the CAPTCHA the owner reads aloud, and training
  * starts on submit.
+ *
+ * Audio and video dropped here (and video URLs) are identity media as well as
+ * the voice reference: the identity-media job transcribes and diarizes them,
+ * indexes the avatar's speech into its identity, and feeds the clone corpus.
+ * Only microphone takes of the script bypass identity, via the corpus endpoint.
  *
  * @param {Object} parameters
  * @param {string} parameters.assistantId The avatar.
@@ -85,6 +90,8 @@ const STATE_LABELS = {
  * @param {Array<Object>} [parameters.voiceJobs] Voice-kind jobs to show here.
  * @param {Function} [parameters.onCancelJob]
  * @param {Function} [parameters.onDismissJob]
+ * @param {number} [parameters.refreshToken] Bumped by the parent when something
+ *   outside this panel changed the voice (a deleted upload, a new reference).
  */
 const VoicePanel = ({
   assistantId,
@@ -94,6 +101,7 @@ const VoicePanel = ({
   voiceJobs = [],
   onCancelJob,
   onDismissJob,
+  refreshToken = 0,
 }) => {
   const [status, setStatus] = useState(null);
   const [isRecording, setIsRecording] = useState(false);
@@ -116,14 +124,64 @@ const VoicePanel = ({
 
   useEffect(() => {
     refresh();
-  }, [refresh]);
+  }, [refresh, refreshToken]);
+
+  // A finished voice job changed the corpus (and maybe stored the reference):
+  // re-read the status once per job that reaches success.
+  const finishedJobIdsRef = useRef(new Set());
+  useEffect(() => {
+    const newlyFinished = voiceJobs.filter(
+      (job) =>
+        job.status === 'success' && !finishedJobIdsRef.current.has(job.localId)
+    );
+    if (newlyFinished.length === 0) return;
+    for (const job of newlyFinished) finishedJobIdsRef.current.add(job.localId);
+    refresh();
+  }, [voiceJobs, refresh]);
 
   useEffect(() => () => recordingRef.current?.cancel(), []);
+
+  /**
+   * Say what an upload achieved. "Stored as the voice audio model" used to be
+   * the message even when the clone did not exist yet, so a three-second file
+   * read as a finished voice. Now the toast reports the seconds collected and
+   * how many remain before the avatar can speak.
+   *
+   * @param {string} label What was uploaded, for the sentence.
+   * @returns {Promise<void>}
+   */
+  const announceVoiceProgress = async (label) => {
+    let latest = null;
+    try {
+      latest = await getAvatarVoice(assistantId);
+      setStatus(latest);
+    } catch (loadError) {
+      console.debug('Voice status unavailable:', loadError);
+    }
+    const collectedNow = Math.round(latest?.collected_seconds ?? 0);
+    const minimum = latest?.instant_minimum_seconds ?? 60;
+    const becameReference =
+      Boolean(label) && latest?.reference_audio_document === label;
+    const referenceNote = becameReference
+      ? ' and is now the reference audio'
+      : '';
+    if (latest?.instant_voice_id) {
+      toast.success(
+        `${label} added${referenceNote}. Voice model ready — ${avatarName ?? 'the avatar'} can speak.`
+      );
+      return;
+    }
+    const remaining = Math.max(0, Math.ceil(minimum - collectedNow));
+    toast.success(
+      `${label} added${referenceNote}. ${collectedNow}s of speech collected; ` +
+        `${remaining}s more needed before ${avatarName ?? 'the avatar'} can speak.`,
+      { duration: 8000 }
+    );
+  };
 
   const submitRecording = async (file, description) => {
     setIsUploading(true);
     try {
-      const isFirstTake = (status?.collected_seconds ?? 0) === 0;
       const response = await addAvatarVoiceSample(assistantId, file);
       setStatus(response);
       const added = Math.round(response?.added_seconds ?? 0);
@@ -133,17 +191,10 @@ const VoicePanel = ({
           : `${description} added.`
       );
       if (response?.instant_voice_id && !status?.instant_voice_id) {
-        toast.success('Voice audio model ready — the avatar can speak now.');
+        toast.success('Voice model ready — the avatar can speak now.');
       }
-      // The first take is also the voice audio model the diarizer and instant
-      // clone are built from. Later takes only grow the clone corpus.
-      if (isFirstTake) {
-        uploadAvatarIdentityMedia({
-          assistantId,
-          files: [file],
-          isReferenceAudio: true,
-        }).catch(() => {});
-      }
+      // The first take also becomes the diarizer's reference clip; the corpus
+      // endpoint stores that itself. Later takes only grow the corpus.
     } catch (uploadError) {
       showRequestFailureToast(uploadError, {
         fallbackMessage: `${description} could not be added.`,
@@ -154,31 +205,39 @@ const VoicePanel = ({
   };
 
   /**
-   * Non-personal avatars accept uploaded speech as identity media that is also
-   * the voice reference — there is no live person to record from.
+   * Uploaded audio or video files of the avatar speaking, for every avatar.
+   *
+   * The files are identity media: one job transcribes and diarizes each
+   * recording, indexes what the avatar said, and adds the avatar's speech to
+   * the voice model. The server stores the first speech upload as the
+   * reference clip on its own, so no reference flag is sent, and later
+   * uploads never replace the reference. Only microphone takes of the script
+   * skip that job (submitRecording), since a read script carries no identity.
+   *
+   * @param {File[]} files The recordings.
    */
-  const submitReferenceUpload = async (file) => {
+  const submitVoiceMediaUpload = async (files) => {
+    if (!files?.length) return;
     setIsUploading(true);
+    const label = files.length === 1 ? files[0].name : `${files.length} files`;
     try {
-      const uploadResponse = await uploadAvatarIdentityMedia({
-        assistantId,
-        files: [file],
-        isReferenceAudio: true,
-      });
-      const jobId = uploadResponse?.job_id;
-      if (jobId) {
-        await streamMediaJobProgress(jobId, () => {});
+      if (startUpload) {
+        const stored = await startUpload({ files, kind: 'voice' });
+        if (!stored) return;
+      } else {
+        const uploadResponse = await uploadAvatarIdentityMedia({
+          assistantId,
+          files,
+        });
+        const jobId = uploadResponse?.job_id;
+        if (jobId) {
+          await streamMediaJobProgress(jobId, () => {});
+        }
       }
-      try {
-        await addAvatarVoiceSample(assistantId, file);
-      } catch {
-        // The identity upload already stored the reference; clone corpus is extra.
-      }
-      await refresh();
-      toast.success(`${file.name} stored as the voice audio model.`);
+      await announceVoiceProgress(files.length === 1 ? files[0].name : label);
     } catch (uploadError) {
       showRequestFailureToast(uploadError, {
-        fallbackMessage: `${file.name} could not be added.`,
+        fallbackMessage: `${label} could not be added.`,
       });
     } finally {
       setIsUploading(false);
@@ -186,13 +245,12 @@ const VoicePanel = ({
   };
 
   /**
-   * A YouTube or direct video/audio URL as the voice reference. Files already
-   * go through submitReferenceUpload; a URL has no File for the clone corpus
-   * endpoint, so identity media with reference_audio is the whole path.
+   * A YouTube or direct video/audio URL of the avatar speaking. The same job
+   * as a file: identity, voice model, and the reference clip when none exists.
    *
    * @param {string} text Pasted or typed address(es).
    */
-  const submitReferenceUrl = async (text) => {
+  const submitVoiceMediaUrl = async (text) => {
     const parsed = singleReferenceAudioUrl(text);
     if (parsed.error) {
       toast.error(parsed.error);
@@ -203,27 +261,22 @@ const VoicePanel = ({
     setReferenceUrl('');
     try {
       if (startUpload) {
-        const stored = await startUpload({
-          urls: [url],
-          isReferenceAudio: true,
-        });
+        const stored = await startUpload({ urls: [url], kind: 'voice' });
         if (!stored) return;
       } else {
         const uploadResponse = await uploadAvatarIdentityMedia({
           assistantId,
           urls: [url],
-          isReferenceAudio: true,
         });
         const jobId = uploadResponse?.job_id;
         if (jobId) {
           await streamMediaJobProgress(jobId, () => {});
         }
       }
-      await refresh();
-      toast.success('Video stored as the voice audio model.');
+      await announceVoiceProgress(url);
     } catch (uploadError) {
       showRequestFailureToast(uploadError, {
-        fallbackMessage: 'That URL could not be used as reference audio.',
+        fallbackMessage: 'That URL could not be added to the voice.',
       });
     } finally {
       setIsUploading(false);
@@ -266,22 +319,24 @@ const VoicePanel = ({
     await submitRecording(file, 'Recording');
   };
 
-  const handleDrop = async (files, _fileRejections, dropEvent) => {
+  const handleDrop = async (files, fileRejections, dropEvent) => {
     const droppedUrlText =
       dropEvent?.dataTransfer?.getData('text/uri-list') ||
       dropEvent?.dataTransfer?.getData('text/plain') ||
       '';
-    const [file] = files ?? [];
-    if (file) {
-      if (!isPersonalAvatar) {
-        await submitReferenceUpload(file);
-        return;
-      }
-      await submitRecording(file, file.name);
+    if (fileRejections?.length) {
+      toast.error(
+        'Only audio or video files, or a YouTube / audio / video URL, can be added to the voice.'
+      );
+    }
+    if (files?.length) {
+      // Dropped files are identity media for every avatar; only microphone
+      // takes of the script go straight to the corpus endpoint.
+      await submitVoiceMediaUpload(files);
       return;
     }
     if (droppedUrlText.trim()) {
-      await submitReferenceUrl(droppedUrlText);
+      await submitVoiceMediaUrl(droppedUrlText);
     }
   };
 
@@ -356,24 +411,22 @@ const VoicePanel = ({
 
   const collected = status?.collected_seconds ?? 0;
   const instantMinimum = status?.instant_minimum_seconds ?? 60;
-  const instantTarget = status?.instant_target_seconds ?? 120;
   const professionalMinimum = status?.professional_minimum_seconds ?? 1800;
   const professionalState = status?.professional_state ?? 'not_started';
-  const barMax = isPersonalAvatar ? professionalMinimum : instantTarget;
+  const hasVoiceModel = Boolean(status?.instant_voice_id);
+  const barMax = isPersonalAvatar ? professionalMinimum : instantMinimum;
+  // The voice model is trained once, at the minimum, and never rebuilt; the
+  // personal avatar keeps collecting only toward the professional voice model.
   const milestones = [
     {
       value: instantMinimum,
-      label: `Voice audio model at ${describeSeconds(instantMinimum)}`,
-    },
-    {
-      value: instantTarget,
-      label: `Better voice audio model at ${describeSeconds(instantTarget)}`,
+      label: `Voice model at ${describeSeconds(instantMinimum)}`,
     },
     ...(isPersonalAvatar
       ? [
           {
             value: professionalMinimum,
-            label: `Professional clone at ${describeSeconds(professionalMinimum)}`,
+            label: `professional voice model at ${describeSeconds(professionalMinimum)}`,
           },
         ]
       : []),
@@ -381,6 +434,20 @@ const VoicePanel = ({
   const nextMilestone = milestones.find(
     (milestone) => collected < milestone.value
   );
+  const voiceClipGroups = React.useMemo(() => {
+    const groups = new Map();
+    for (const clip of status?.clips ?? []) {
+      const name = clip.source_document_name || 'Recording';
+      const existing = groups.get(name) ?? {
+        name,
+        seconds: 0,
+        sourceLabel: clip.source === 'recorder' ? 'Recording' : 'Upload',
+      };
+      existing.seconds += Number(clip.duration_seconds ?? 0);
+      groups.set(name, existing);
+    }
+    return Array.from(groups.values());
+  }, [status]);
   const captchaText =
     captcha?.captcha?.text ??
     captcha?.captcha?.captcha_text ??
@@ -395,14 +462,18 @@ const VoicePanel = ({
           Voice
         </h4>
         <div className="flex items-center gap-2 text-xs">
-          {status?.instant_voice_id ? (
-            <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-emerald-500/20 border border-emerald-500/30 text-emerald-300">
+          {hasVoiceModel ? (
+            <span
+              className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-emerald-500/20 border border-emerald-500/30 text-emerald-300"
+              title="Text-to-speech replies use this voice. The model is trained once and never rebuilt."
+            >
               <Check className="w-3.5 h-3.5" aria-hidden="true" />
-              Vocal audio model
+              Voice model trained and available
             </span>
           ) : (
             <span className="px-2.5 py-1 rounded-full bg-white/10 border border-white/10 text-white/60">
-              No vocal audio model yet
+              No voice model yet · {describeSeconds(collected)} of{' '}
+              {describeSeconds(instantMinimum)}
             </span>
           )}
           {isPersonalAvatar && (
@@ -443,6 +514,108 @@ const VoicePanel = ({
         label="Voice collected"
         className="mb-4"
       />
+
+      {/* The rules of the voice, in the panel itself: what an upload does, how
+          the reference clip is chosen, when the model is trained, and what
+          deleting does. The owner should not have to guess any of this. */}
+      <details className="mb-4 rounded-xl bg-black/40 border border-white/10 p-3 text-xs text-white/60 open:pb-4">
+        <summary className="cursor-pointer select-none font-semibold text-white/70">
+          How the voice works
+        </summary>
+        <ul className="mt-2 space-y-1.5 list-disc pl-4">
+          <li>
+            Every audio or video of {avatarName ?? 'the avatar'} speaking —
+            dropped here or in Upload — does three things: what was said is
+            added to what the avatar knows, the avatar's speech is added to the
+            voice model, and the first upload becomes the reference audio.
+          </li>
+          <li>
+            The reference audio is a short single-speaker clip the diarizer uses
+            to find {avatarName ?? 'the avatar'} in later recordings. The clip
+            is cut from whoever speaks the most in that upload, so a recording
+            where someone else talks first is fine as long as{' '}
+            {avatarName ?? 'the avatar'} speaks more.
+          </li>
+          <li>
+            Later uploads never replace the reference. To change the reference,
+            delete the reference upload and the next upload takes its place.
+          </li>
+          <li>
+            The voice model is trained once {describeSeconds(instantMinimum)} of
+            speech is collected, and is never rebuilt after that.
+            {isPersonalAvatar
+              ? ` Your own avatar keeps collecting toward a professional voice model at ${describeSeconds(professionalMinimum)}.`
+              : ' Later uploads still update what the avatar knows.'}
+          </li>
+          <li>
+            Deleting an upload removes its seconds from the count. A voice model
+            that already exists is kept.
+          </li>
+          <li>
+            Only audio or video files, YouTube links, and direct audio/video
+            URLs are accepted here.
+          </li>
+        </ul>
+      </details>
+
+      {/* What the voice is built from: the reference clip the diarizer uses
+          to find this avatar in recordings, and every upload whose speech
+          reached the model. */}
+      <div className="mb-4 rounded-xl bg-black/40 border border-white/10 p-3">
+        <p className="text-xs font-semibold text-white/70 mb-1.5">
+          What feeds the voice model
+        </p>
+        <p className="text-xs text-white/60 mb-2">
+          {status?.reference_audio_document ? (
+            <>
+              Reference audio:{' '}
+              <span className="text-emerald-200">
+                {status.reference_audio_document}
+              </span>
+            </>
+          ) : (
+            'No reference audio yet — the first audio or video upload becomes the reference.'
+          )}
+        </p>
+        {voiceClipGroups.length > 0 ? (
+          <ul className="space-y-1">
+            {voiceClipGroups.map((group) => (
+              <li
+                key={group.name}
+                className="flex flex-wrap items-center justify-between gap-2 text-xs"
+              >
+                <span className="min-w-0 truncate text-neutral-200">
+                  {group.name}
+                  <span className="text-white/40">
+                    {' '}
+                    · {group.sourceLabel} · {describeSeconds(group.seconds)}
+                  </span>
+                </span>
+                {group.name === status?.reference_audio_document && (
+                  <span className="px-2 py-0.5 rounded-full border border-emerald-400/40 text-emerald-200 text-[11px] font-semibold uppercase tracking-wide">
+                    Reference
+                  </span>
+                )}
+              </li>
+            ))}
+          </ul>
+        ) : (
+          <p className="text-xs text-white/40">
+            Nothing collected yet. Upload audio or video of{' '}
+            {avatarName ?? 'the avatar'} speaking, or paste a video URL.
+          </p>
+        )}
+        {hasVoiceModel && (
+          <p className="mt-2 text-[11px] text-white/40">
+            The voice model was trained from the first{' '}
+            {describeSeconds(status?.instant_voice_seconds ?? instantMinimum)}{' '}
+            and is never rebuilt
+            {isPersonalAvatar
+              ? '; later speech counts toward the professional voice model.'
+              : '; later uploads still update what the avatar knows.'}
+          </p>
+        )}
+      </div>
 
       <div className="grid grid-cols-1 md:grid-cols-[1fr_auto] gap-4 items-start">
         {isPersonalAvatar && (
@@ -512,7 +685,7 @@ const VoicePanel = ({
 
         <Dropzone
           onDrop={handleDrop}
-          multiple={false}
+          multiple
           accept={{ 'audio/*': [], 'video/*': [] }}
           noDragEventsBubbling
         >
@@ -524,7 +697,7 @@ const VoicePanel = ({
                 if (!singleReferenceAudioUrl(text).url) return;
                 event.preventDefault();
                 event.stopPropagation();
-                submitReferenceUrl(text);
+                submitVoiceMediaUrl(text);
               }}
               className={`h-full min-h-[7rem] border-2 border-dashed border-white/20 hover:border-white/40 rounded-xl bg-black/40 flex flex-col items-center justify-center gap-1 p-3 text-center cursor-pointer transition-colors ${
                 isPersonalAvatar ? 'w-full md:w-44' : 'w-full'
@@ -534,7 +707,7 @@ const VoicePanel = ({
               <Upload size={20} className="text-white/50" aria-hidden="true" />
               <span className="text-xs text-white/60">
                 {isPersonalAvatar
-                  ? `Or drop a recording or video URL of ${avatarName ?? 'the avatar'} speaking`
+                  ? `Or drop audio, video, or a video URL of ${avatarName ?? 'the avatar'} speaking`
                   : `Upload audio, video, or a video URL of ${avatarName ?? 'the avatar'} speaking`}
               </span>
             </div>
@@ -555,14 +728,14 @@ const VoicePanel = ({
           onKeyDown={(event) => {
             if (event.key === 'Enter') {
               event.preventDefault();
-              if (referenceUrl.trim()) submitReferenceUrl(referenceUrl);
+              if (referenceUrl.trim()) submitVoiceMediaUrl(referenceUrl);
             }
           }}
           className="w-full min-w-0 sm:flex-1 px-3 py-2 bg-black/50 border border-white/10 rounded-lg text-sm text-neutral-200 placeholder-white/40 focus:outline-none focus:ring-2 focus:ring-amber-400/50 disabled:opacity-50"
         />
         <button
           type="button"
-          onClick={() => submitReferenceUrl(referenceUrl)}
+          onClick={() => submitVoiceMediaUrl(referenceUrl)}
           disabled={isUploading || !referenceUrl.trim()}
           className="px-3 py-2 bg-amber-400/15 hover:bg-amber-400/25 text-amber-300 text-sm font-semibold rounded-lg transition-colors flex items-center justify-center gap-2 border border-amber-400/30 disabled:opacity-50 disabled:cursor-not-allowed"
         >
@@ -571,12 +744,13 @@ const VoicePanel = ({
           ) : (
             <Link size={16} aria-hidden="true" />
           )}
-          Use as voice
+          Add to voice
         </button>
       </div>
       <p className="mt-1.5 text-xs text-white/40">
-        A YouTube video or a direct video/audio link becomes the speech this
-        avatar is modelled from.
+        Speech in a YouTube video or a direct audio/video link is added to this
+        avatar's voice model and to what the avatar knows. The first upload is
+        also the reference audio.
       </p>
 
       {voiceJobs.length > 0 && (
@@ -586,7 +760,9 @@ const VoicePanel = ({
               key={job.localId}
               job={job}
               onCancel={() => onCancelJob?.(job.localId)}
-              onCancelItem={(itemJobId) => onCancelJob?.(job.localId, itemJobId)}
+              onCancelItem={(itemJobId) =>
+                onCancelJob?.(job.localId, itemJobId)
+              }
               onDismiss={() => onDismissJob?.(job.localId)}
             />
           ))}
@@ -601,8 +777,8 @@ const VoicePanel = ({
           </p>
           <p className="text-white/60 text-xs mb-3">
             ElevenLabs requires the owner to read a short phrase aloud before a
-            professional clone is trained. Fetch the phrase, hold the button
-            while you read it, and let go.
+            professional voice model is trained. Fetch the phrase, hold the
+            button while you read it, and let go.
           </p>
           {!captcha ? (
             <button

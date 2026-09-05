@@ -31,6 +31,7 @@
 
 import React, { useId, useState } from 'react';
 import {
+  AudioLines,
   Camera,
   FileAudio,
   FileSpreadsheet,
@@ -71,7 +72,9 @@ export const describeGeneratedMedia = (documentEntry) => {
   if (documentEntry.isEmotionLoop) {
     const seconds = documentEntry.durationSeconds;
     const duration =
-      seconds != null ? ` · ${Math.round(Number(seconds))} s looping video` : '';
+      seconds != null
+        ? ` · ${Math.round(Number(seconds))} s looping video`
+        : '';
     return `Generated from the ${documentEntry.emotion} portrait${duration}`;
   }
   return 'Generated from the reference image';
@@ -307,15 +310,24 @@ export const summarizeUrlForDisplay = (sourceUrl) => {
  * @param {Object} props.documentEntry An entry from listAvatarDocuments.
  * @param {string|null} props.portraitDataUri The avatar's reference image, already
  *   loaded for the header, reused as the thumbnail of the reference-image row.
+ * @param {Function} [props.onSetVoiceReference] Called with the row's entry
+ *   to make that upload the avatar's reference audio; shown only for uploads
+ *   whose speech is in the voice model.
  * @param {Function} props.onDelete Called with the document's label for an
  *   upload, and with the whole row for generated media (which has no label the
  *   document delete endpoint would recognise — the caller deletes by asset id).
  */
-const AvatarDocumentRow = ({ documentEntry, portraitDataUri, onDelete }) => {
+const AvatarDocumentRow = ({
+  documentEntry,
+  portraitDataUri,
+  onDelete,
+  onSetVoiceReference,
+}) => {
   // Generated media (emotion portraits and idle loops) is marked and previewed
   // differently from uploads; see the header comment.
   const isGeneratedMedia = documentEntry.source === 'emotion';
-  const isGeneratedLoop = isGeneratedMedia && Boolean(documentEntry.isEmotionLoop);
+  const isGeneratedLoop =
+    isGeneratedMedia && Boolean(documentEntry.isEmotionLoop);
   // Whether the YouTube player has replaced the thumbnail. The frame is only
   // mounted on demand: a settings screen listing twenty videos would otherwise
   // load twenty players, each of which is a third-party page.
@@ -332,23 +344,40 @@ const AvatarDocumentRow = ({ documentEntry, portraitDataUri, onDelete }) => {
   const referenceMark = isGeneratedMedia
     ? null
     : documentEntry.isReferenceImage
-    ? {
-        Icon: Camera,
-        iconClassName: 'text-purple-300',
-        label: 'Reference image',
-        description: 'Portrait this avatar is depicted by',
-        badgeClassName: 'bg-purple-500/20 text-purple-200 border-purple-400/40',
-      }
-    : documentEntry.isReferenceAudio
       ? {
-          Icon: Mic,
-          iconClassName: 'text-emerald-300',
-          label: 'Reference Audio',
-          description: "Speech this avatar's voice is modelled from",
+          Icon: Camera,
+          iconClassName: 'text-purple-300',
+          label: 'Reference image',
+          description: 'Portrait this avatar is depicted by',
           badgeClassName:
-            'bg-emerald-500/20 text-emerald-200 border-emerald-400/40',
+            'bg-purple-500/20 text-purple-200 border-purple-400/40',
+        }
+      : documentEntry.isReferenceAudio
+        ? {
+            Icon: Mic,
+            iconClassName: 'text-emerald-300',
+            label: 'Reference Audio',
+            description:
+              "Reference clip the diarizer uses to find this avatar's voice. Delete it, or pick another upload below, to change the reference.",
+            badgeClassName:
+              'bg-emerald-500/20 text-emerald-200 border-emerald-400/40',
+          }
+        : null;
+  // Speech that reached the voice model is marked with the seconds it added,
+  // so the owner can see which uploads the text-to-speech voice is built from.
+  const voiceCorpusMark =
+    !isGeneratedMedia && documentEntry.inVoiceCorpus
+      ? {
+          label: `In voice model · ${Math.round(documentEntry.voiceSeconds ?? 0)}s`,
+          badgeClassName:
+            'bg-emerald-500/10 text-emerald-200 border-emerald-400/30',
         }
       : null;
+  const canBecomeVoiceReference =
+    Boolean(onSetVoiceReference) &&
+    !isGeneratedMedia &&
+    documentEntry.inVoiceCorpus &&
+    !documentEntry.isReferenceAudio;
   // A reference mark says what the upload is FOR; the kind says what it IS.
   // The mark wins the icon when there is one, because which upload is the
   // portrait matters more to the user than that the portrait is a .jpg.
@@ -575,6 +604,15 @@ const AvatarDocumentRow = ({ documentEntry, portraitDataUri, onDelete }) => {
                   {referenceMark.label}
                 </span>
               )}
+              {voiceCorpusMark && (
+                <span
+                  className={`inline-flex items-center gap-1 px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wide rounded-full border ${voiceCorpusMark.badgeClassName}`}
+                  title="Seconds of this avatar's speech the voice model was collected from"
+                >
+                  <AudioLines size={11} aria-hidden="true" />
+                  {voiceCorpusMark.label}
+                </span>
+              )}
             </div>
             {isGeneratedMedia ? (
               <p className="text-white/50 text-xs mt-0.5">
@@ -597,9 +635,7 @@ const AvatarDocumentRow = ({ documentEntry, portraitDataUri, onDelete }) => {
 
         <div className="flex items-center gap-2">
           <button
-            onClick={() =>
-              onDelete(isGeneratedMedia ? documentEntry : documentEntry.label)
-            }
+            onClick={() => onDelete(documentEntry)}
             title={isGeneratedMedia ? 'Delete this generated media' : 'Delete'}
             aria-label={
               isGeneratedMedia ? 'Delete this generated media' : 'Delete'

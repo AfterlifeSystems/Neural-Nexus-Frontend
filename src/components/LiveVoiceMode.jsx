@@ -8,9 +8,10 @@
 // well beside the application sidebar, and when video is enabled a lip-synced
 // clip of the reply plays between the loops.
 // Along the bottom sits the composer pill from the reference design — type, or
-// attach; live audio (turn-based, with voice activity detection and barge-in)
-// or one-shot dictation; mute the avatar; mute the mic; enable video; show or
-// hide the captions; and leave for the message view.
+// attach; share the webcam or the screen; live audio (turn-based, with voice
+// activity detection and barge-in) or one-shot dictation; mute the avatar;
+// mute the mic; enable video; show or hide the captions; and leave for the
+// message view.
 
 import React, {
   useCallback,
@@ -23,12 +24,13 @@ import React, {
 import { createPortal } from 'react-dom';
 import {
   AudioLines,
+  Camera,
+  CameraOff,
   Captions,
-  Eye,
-  EyeOff,
   Loader2,
   Mic,
   MicOff,
+  MonitorUp,
   Paperclip,
   Send,
   User,
@@ -57,6 +59,12 @@ import useEmotionMedia, { preloadEmotionMedia } from '../hooks/useEmotionMedia';
 import { voiceStageEmotion } from '../hooks/voiceStageEmotion';
 import useMessageActions from '../hooks/useMessageActions';
 import MessageActionBar from './media/MessageActionBar';
+import CreatedArtifacts from './CreatedArtifacts';
+import {
+  createdArtifactsOf,
+  speakableReplyText,
+  stripArtifactReferences,
+} from '../services/createdArtifacts';
 import ConversationSuggestions from './ConversationSuggestions';
 import { canCaptureMicrophone, recordOneTurn } from '../services/voiceSession';
 import { startVoiceActivityListening } from '../services/voiceActivity';
@@ -92,6 +100,9 @@ const CLOSE_BUTTON_CLASSES =
   'voice-action shrink-0 rounded-full bg-neutral-200 hover:bg-neutral-100 text-neutral-900 inline-flex items-center justify-center gap-1 transition-colors';
 const SEND_BUTTON_CLASSES =
   'voice-action shrink-0 rounded-full bg-neutral-200 hover:bg-neutral-100 text-neutral-900 inline-flex items-center gap-1 transition-colors';
+const SENT_FLASH_ANIMATION = 'voice-sent-appear-fade';
+const HUMAN_BUBBLE_CLASSES =
+  'max-w-[min(100%,28rem)] sm:max-w-[85%] px-4 py-2 rounded-2xl text-[15px] leading-relaxed self-end bg-neutral-800/80 text-neutral-200 whitespace-pre-wrap';
 
 // Inverse of the composer’s AudioLines “talk out loud” control: same
 // waveform, struck through, so leaving voice mode is the obvious pair.
@@ -134,16 +145,17 @@ const LiveVoiceMode = ({
   onClose,
   onNavigateTab,
 }) => {
-  const { messages, sendSpokenTurn, handleFileChange, setAmbientHold } =
-    useMedia();
   const {
-    ambientAllowed,
+    messages,
+    sendSpokenTurn,
+    handleFileChange,
+    setAmbientHold,
+    assistantActivity,
+  } = useMedia();
+  const {
     ambientEnabled,
-    setAmbientEnabled,
     ambientStatus,
     ambientNextInMs,
-    webcamStream,
-    screenStream,
     setAmbientVoiceMode,
     registerAmbientReplyHandler,
   } = useMediaShare();
@@ -185,6 +197,7 @@ const LiveVoiceMode = ({
   const [isDictating, setIsDictating] = useState(false);
   const [isTranscribing, setIsTranscribing] = useState(false);
   const [isWaitingForReply, setIsWaitingForReply] = useState(false);
+  const [isPlayingReply, setIsPlayingReply] = useState(false);
   const [draft, setDraft] = useState('');
   const [currentEmotion, setCurrentEmotion] = useState('neutral');
   const [lipSyncClipUrl, setLipSyncClipUrl] = useState(null);
@@ -203,6 +216,7 @@ const LiveVoiceMode = ({
   });
   const [holdNewCaptions, setHoldNewCaptions] = useState(false);
   const [captionGeneration, setCaptionGeneration] = useState(0);
+  const [sentFlash, setSentFlash] = useState(null);
   const holdNewCaptionsRef = useRef(false);
   const revealedCaptionIdsRef = useRef(new Set());
   const stagePresentedWaiterRef = useRef(null);
@@ -274,6 +288,20 @@ const LiveVoiceMode = ({
     }
     if (added) setCaptionGeneration((generation) => generation + 1);
   }, [spokenExchange, holdNewCaptions, captionGeneration]);
+
+  useEffect(() => {
+    if (showCaptions) {
+      if (sentFlash) setSentFlash(null);
+      return undefined;
+    }
+    if (!sentFlash) return undefined;
+    const timeout = window.setTimeout(() => {
+      setSentFlash((current) =>
+        current?.id === sentFlash.id ? null : current
+      );
+    }, 3200);
+    return () => window.clearTimeout(timeout);
+  }, [sentFlash, showCaptions]);
 
   useLayoutEffect(() => {
     const dock = composerDockRef.current;
@@ -389,15 +417,20 @@ const LiveVoiceMode = ({
         await waitForStagePresented();
       }
       revealHeldCaptions();
-      if (!reply?.trim() || isAvatarMuted) return;
+      // Speak the words, not the markdown: an analysis reply ends with an
+      // image reference to its plot, which the captions paint as the plot
+      // itself and which read aloud is only a file path.
+      const spokenReply = speakableReplyText(reply);
+      if (!spokenReply || isAvatarMuted) return;
 
+      setIsPlayingReply(true);
       const wantsVideo =
         isVideoEnabled && Boolean(manifest?.emotions?.[emotion]?.still);
       if (wantsVideo) {
         // The clip renders in the background while the emotion loop and the
         // spoken audio play; when it is ready it takes over the stage.
         setIsRenderingClip(true);
-        requestLipSyncClip(assistantId, reply, emotion, {
+        requestLipSyncClip(assistantId, spokenReply, emotion, {
           asAnonymousIdentity: readerIsAnonymous,
         })
           .then((clipUrl) => {
@@ -418,12 +451,16 @@ const LiveVoiceMode = ({
       // Speech starts as soon as the reply is known; listening pauses so the
       // avatar does not hear itself, except at the barge-in threshold.
       listenerRef.current?.pause?.();
-      await speech.speak(assistantId, reply, {
-        key: 'live-reply',
-        onEnd: () => {
-          if (!isMicMuted) listenerRef.current?.resume?.();
-        },
-      });
+      try {
+        await speech.speak(assistantId, spokenReply, {
+          key: 'live-reply',
+          onEnd: () => {
+            if (!isMicMuted) listenerRef.current?.resume?.();
+          },
+        });
+      } finally {
+        setIsPlayingReply(false);
+      }
     },
     [
       assistantId,
@@ -446,6 +483,9 @@ const LiveVoiceMode = ({
       turnInFlightRef.current = true;
       holdNewCaptionsRef.current = true;
       setHoldNewCaptions(true);
+      if (!showCaptions) {
+        setSentFlash({ id: Date.now(), text: words });
+      }
       setIsWaitingForReply(true);
       try {
         const { reply, sentiment } = await sendSpokenTurn(words);
@@ -457,7 +497,7 @@ const LiveVoiceMode = ({
         setIsWaitingForReply(false);
       }
     },
-    [handleReply, sendSpokenTurn]
+    [handleReply, sendSpokenTurn, showCaptions]
   );
 
   // Ambient vision inside voice mode. A reply the avatar volunteers after a
@@ -611,7 +651,16 @@ const LiveVoiceMode = ({
   const describeState = () => {
     if (isHearingSpeech) return 'Listening…';
     if (isTranscribing) return 'Understanding…';
-    if (isWaitingForReply) return `${avatarName ?? 'The avatar'} is thinking…`;
+    if (isWaitingForReply) {
+      // What the avatar is doing while the reply is awaited, from the turn's
+      // status frames ("Listing files on linux-pc-dev", "Running analysis
+      // code"). A long data-analysis turn is silent for most of its length;
+      // without this the stage says only "thinking" for a minute or more.
+      const activity = assistantActivity?.trim();
+      return activity
+        ? `${avatarName ?? 'The avatar'} · ${activity}…`
+        : `${avatarName ?? 'The avatar'} is thinking…`;
+    }
     if (speech.isSpeaking) return `${avatarName ?? 'The avatar'} is speaking…`;
     if (ambientEnabled && ambientStatus?.inFlight) {
       return `${avatarName ?? 'The avatar'} is looking…`;
@@ -623,7 +672,8 @@ const LiveVoiceMode = ({
     return '';
   };
 
-  const isAvatarSpeaking = speech.isSpeaking || Boolean(lipSyncClipUrl);
+  const isAvatarSpeaking =
+    isPlayingReply || speech.isSpeaking || Boolean(lipSyncClipUrl);
   const headerFace =
     (currentEmotion && currentEmotion !== 'neutral' ? stageStill : null) ??
     avatarPortrait;
@@ -651,13 +701,15 @@ const LiveVoiceMode = ({
     // page (z-10) and under the sidebar (rail 40, panel 50).
     <div className="voice-stage fixed top-0 right-0 bottom-0 left-[var(--app-rail-width)] z-30 bg-transparent overflow-hidden">
       {/* Portrait fills the stage and does not reflow when chrome toggles. */}
-      <div className="absolute inset-0 flex items-center justify-center pointer-events-none overflow-hidden">
-        <div className="w-[min(100vw,100dvh)] h-[min(100vw,100dvh)] max-w-full max-h-full">
-          <div
-            className={`w-full h-full rounded-2xl overflow-hidden bg-transparent ${
-              isAvatarSpeaking ? 'voice-speak-glow' : ''
-            }`}
-          >
+      <div className="absolute inset-0 flex items-center justify-center pointer-events-none overflow-hidden p-6 sm:p-10">
+        <div className="relative w-[min(100vw,100dvh)] h-[min(100vw,100dvh)] max-w-full max-h-full">
+          {isAvatarSpeaking && (
+            <div
+              className="voice-speak-glow absolute inset-0 rounded-2xl z-10"
+              aria-hidden
+            />
+          )}
+          <div className="relative w-full h-full rounded-2xl overflow-hidden bg-transparent">
             {lipSyncClipUrl ||
             stageLoop ||
             (stageStill && isValidImageUrl(stageStill)) ? (
@@ -735,6 +787,32 @@ const LiveVoiceMode = ({
         )}
       </div>
 
+      {/* When captions are hidden, the just-sent line still needs a moment
+          on stage. Captions themselves are the record; no second flash. */}
+      {!showCaptions && sentFlash && (
+        <div
+          className="absolute left-0 right-0 z-[21] pointer-events-none px-3 sm:px-6 pb-2"
+          style={{ bottom: composerDockHeight }}
+        >
+          <div className="mx-auto max-w-3xl flex flex-col items-end py-2">
+            <div
+              key={sentFlash.id}
+              role="status"
+              aria-live="polite"
+              className={`voice-sent-flash ${HUMAN_BUBBLE_CLASSES}`}
+              onAnimationEnd={(event) => {
+                if (event.animationName !== SENT_FLASH_ANIMATION) return;
+                setSentFlash((current) =>
+                  current?.id === sentFlash.id ? null : current
+                );
+              }}
+            >
+              {sentFlash.text}
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Captions overlay the lower stage. The message bar is a separate
           dock on the bottom edge so toggling captions never lifts it. */}
       {showCaptions && (
@@ -799,9 +877,19 @@ const LiveVoiceMode = ({
                       </div>
                     </div>
                   ) : (
-                    <div className="whitespace-pre-wrap">
-                      {message.content || '…'}
-                    </div>
+                    <>
+                      <div className="whitespace-pre-wrap">
+                        {(isFromAvatar
+                          ? stripArtifactReferences(message.content)
+                          : message.content) || '…'}
+                      </div>
+                      {isFromAvatar && (
+                        <CreatedArtifacts
+                          artifacts={createdArtifactsOf(message)}
+                          compact
+                        />
+                      )}
+                    </>
                   )}
                   {!isLoading && (
                     <MessageActionBar
@@ -821,9 +909,15 @@ const LiveVoiceMode = ({
                       onToggleSpeech={() => {
                         listenerRef.current?.pause?.();
                         if (!isCurrentReply) setLipSyncClipUrl(null);
-                        toggleSpeech(messageKey, message.content, {
-                          alsoStopKeys: isCurrentReply ? ['live-reply'] : [],
-                        }).then(() => {
+                        toggleSpeech(
+                          messageKey,
+                          isFromAvatar
+                            ? speakableReplyText(message.content)
+                            : message.content,
+                          {
+                            alsoStopKeys: isCurrentReply ? ['live-reply'] : [],
+                          }
+                        ).then(() => {
                           if (!isMicMuted) listenerRef.current?.resume?.();
                         });
                       }}
@@ -919,7 +1013,6 @@ const LiveVoiceMode = ({
               >
                 <Paperclip className="w-5 h-5" />
               </button>
-
               <div className="flex items-center rounded-full bg-white/5 border border-white/10">
                 <button
                   type="button"
@@ -1048,30 +1141,6 @@ const LiveVoiceMode = ({
                 <Captions className="w-5 h-5" />
               </button>
 
-              {ambientAllowed && Boolean(webcamStream || screenStream) && (
-                <button
-                  type="button"
-                  onClick={() => setAmbientEnabled((enabled) => !enabled)}
-                  title={
-                    ambientEnabled
-                      ? 'Stop ambient vision'
-                      : 'Ambient vision: let the avatar look at your webcam and screen'
-                  }
-                  aria-label={
-                    ambientEnabled
-                      ? 'Stop ambient vision'
-                      : 'Start ambient vision'
-                  }
-                  aria-pressed={ambientEnabled}
-                  className={`${CONTROL_CLASSES} ${ambientEnabled ? ACTIVE_CONTROL_CLASSES : ''}`}
-                >
-                  {ambientEnabled ? (
-                    <Eye className="w-5 h-5" />
-                  ) : (
-                    <EyeOff className="w-5 h-5" />
-                  )}
-                </button>
-              )}
             </div>
 
             {draft.trim() ? (

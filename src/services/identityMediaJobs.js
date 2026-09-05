@@ -247,7 +247,11 @@ export const hydrateIdentityMediaJobs = async (
  * @param {File[]} [options.files]
  * @param {string[]} [options.urls]
  * @param {boolean} [options.isReferenceImage]
- * @param {boolean} [options.isReferenceAudio]
+ * @param {boolean} [options.isReferenceAudio] Legacy flag: the server now
+ *   decides the reference clip on its own, so callers pass `kind: 'voice'`
+ *   for speech instead.
+ * @param {'portrait'|'voice'|'document'} [options.kind] Which card and steps
+ *   to show. Defaults from the reference flags, else 'document'.
  * @param {Function} [options.confirmStored]
  * @param {Function} [options.onDocumentsChanged]
  * @returns {Promise<boolean>}
@@ -258,6 +262,7 @@ export const startIdentityMediaUpload = async ({
   urls = [],
   isReferenceImage = false,
   isReferenceAudio = false,
+  kind: explicitKind,
   confirmStored,
   onDocumentsChanged,
 }) => {
@@ -267,11 +272,9 @@ export const startIdentityMediaUpload = async ({
   const localId = newIdentityMediaLocalId();
   const abortController = new AbortController();
   abortByLocalId.set(localId, abortController);
-  const kind = isReferenceImage
-    ? 'portrait'
-    : isReferenceAudio
-      ? 'voice'
-      : 'document';
+  const kind =
+    explicitKind ??
+    (isReferenceImage ? 'portrait' : isReferenceAudio ? 'voice' : 'document');
   const items = [
     ...urls.map((url) => ({
       id: url,

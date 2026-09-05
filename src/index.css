@@ -40,24 +40,76 @@ html,
   0%,
   100% {
     box-shadow:
-      0 0 0 2px rgba(251, 191, 36, 0.55),
-      0 0 28px 6px rgba(251, 191, 36, 0.35),
-      0 0 64px 16px rgba(251, 191, 36, 0.18);
+      inset 0 0 0 3px rgba(251, 191, 36, 0.8),
+      0 0 0 3px rgba(251, 191, 36, 0.75),
+      0 0 22px 4px rgba(251, 191, 36, 0.45),
+      0 0 48px 12px rgba(251, 191, 36, 0.22);
   }
   50% {
     box-shadow:
-      0 0 0 2px rgba(253, 230, 138, 0.85),
-      0 0 36px 10px rgba(251, 191, 36, 0.5),
-      0 0 80px 22px rgba(251, 191, 36, 0.28);
+      inset 0 0 0 4px rgba(253, 230, 138, 0.95),
+      0 0 0 4px rgba(253, 230, 138, 0.95),
+      0 0 32px 8px rgba(251, 191, 36, 0.6),
+      0 0 64px 18px rgba(251, 191, 36, 0.32);
   }
 }
 
+/* Drawn on a sibling of the clipped portrait so overflow:hidden on the
+   video does not eat the pulse. Inset ring sits on the face; the outer
+   bloom needs the stage gutter (padding on the portrait well). */
 .voice-speak-glow {
-  animation: voice-speak-glow 1.6s ease-in-out infinite;
+  animation: voice-speak-glow 1.4s ease-in-out infinite;
+  pointer-events: none;
+}
+
+/* Typed (or just-sent) words in voice mode: rise into view, then recede. */
+@keyframes voice-sent-appear-fade {
+  0% {
+    opacity: 0;
+    transform: translateY(0.5rem);
+  }
+  10% {
+    opacity: 1;
+    transform: translateY(0);
+  }
+  70% {
+    opacity: 1;
+    transform: translateY(0);
+  }
+  100% {
+    opacity: 0;
+    transform: translateY(-0.4rem);
+  }
+}
+
+.voice-sent-flash {
+  animation: voice-sent-appear-fade 2.8s ease-in-out forwards;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .voice-sent-flash {
+    animation-duration: 1.2s;
+  }
 }
 
 html.voice-stage-open {
   --app-rail-width: 2.5rem;
+}
+
+/* Beat the unlayered `button { padding }` rule so picker icons stay 32px. */
+[data-avatar-picker] > button {
+  padding: 0.25rem;
+  min-width: 0;
+  min-height: 0;
+  border-color: transparent;
+}
+[data-avatar-picker] [data-avatar-dot] {
+  padding: 0;
+  min-width: 2rem;
+  min-height: 2rem;
+  width: 2rem;
+  height: 2rem;
+  border-radius: 9999px;
 }
 
 /* Beat the unlayered `button { padding }` rule so rail actions stay icons. */
@@ -189,17 +241,20 @@ html.voice-stage-open [data-rail-badge] {
   .chat-composer button:focus-visible {
     outline: none;
   }
+}
 
-  .avatar-settings button {
-    padding: 0.4rem 0.75rem;
-    font-size: 0.875rem;
-    line-height: 1.25;
-    border-color: transparent;
-  }
-  .avatar-settings button:focus,
-  .avatar-settings button:focus-visible {
-    outline: none;
-  }
+/* Same specificity as the unlayered `button { padding }` rule below, so
+   settings actions stay compact on a wide window — otherwise Connect /
+   Remove inflate and clip the machine name down to a few letters. */
+.avatar-settings button {
+  padding: 0.4rem 0.75rem;
+  font-size: 0.875rem;
+  line-height: 1.25;
+  border-color: transparent;
+}
+.avatar-settings button:focus,
+.avatar-settings button:focus-visible {
+  outline: none;
 }
 
 /* A row that scrolls sideways without showing a bar (the phone tab strip). */
