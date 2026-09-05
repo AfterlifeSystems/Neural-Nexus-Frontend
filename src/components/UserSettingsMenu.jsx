@@ -93,10 +93,10 @@ const UserSettingsMenu = ({
                 having failed to load. Closing is the control that opened the
                 menu, or a press outside it, so the menu carries no close
                 button of its own. */}
-            {profile?.username && (
+            {(profile?.username || profile?.email) && (
               <div className="flex items-center px-4 py-2 border-b border-white/10">
                 <span className="text-neutral-200 text-sm font-semibold truncate">
-                  {profile.username}
+                  {profile.username || profile.email}
                 </span>
               </div>
             )}

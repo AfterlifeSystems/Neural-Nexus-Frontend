@@ -210,6 +210,12 @@ const AccountSettings = ({ activeTab }) => {
           what it will do before it does it. */}
       <div className="flex flex-col gap-4 bg-black/60 border border-white/10 rounded-2xl p-6">
         <h2 className="text-xl font-semibold">Manage your account</h2>
+        <div className="flex flex-col gap-1">
+          <p className="text-white/50 text-sm">Email</p>
+          <p className="text-neutral-200 break-all">
+            {user?.email || 'This session has no email on file.'}
+          </p>
+        </div>
 
         {newApiKey && (
           <div className="rounded-lg border border-amber-400/40 bg-amber-400/10 p-4 space-y-2">

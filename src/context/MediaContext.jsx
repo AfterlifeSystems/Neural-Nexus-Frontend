@@ -61,6 +61,11 @@ import {
   looksLikeLeakedModelJson,
   parseConversationSuggestionList,
 } from '../services/conversationSuggestions';
+import {
+  findMessageByKey,
+  findMessageIndexByKey,
+  messageKeyOf,
+} from '../services/messageKey';
 
 const MediaContext = createContext();
 
@@ -285,8 +290,14 @@ function normalizeThreadMessages(storedMessages, threadId = null) {
         usage,
         response_metadata: responseMetadata,
       });
+      const timestamp =
+        storedMessage.timestamp ??
+        storedMessage.created_at ??
+        storedMessage.additional_kwargs?.created_at ??
+        storedMessage.response_metadata?.created_at ??
+        null;
       return {
-        id: storedMessage.id,
+        id: storedMessage.id ?? messageKeyOf({ timestamp }),
         type: storedMessage.type,
         // The triage record of an ambient observation this reply answers
         // (`decision` of respond or notify); a notify reply renders as a card.
@@ -309,12 +320,7 @@ function normalizeThreadMessages(storedMessages, threadId = null) {
           storedMessage.response_metadata?.request_id ??
           null,
         total_response_time_ms: totalResponseTimeMs,
-        timestamp:
-          storedMessage.timestamp ??
-          storedMessage.created_at ??
-          storedMessage.additional_kwargs?.created_at ??
-          storedMessage.response_metadata?.created_at ??
-          null,
+        timestamp,
         feedback: storedMessage.feedback ?? null,
       };
     })
@@ -1264,15 +1270,16 @@ export const MediaProvider = ({ children }) => {
    * @param {string} [replacementText] Edited text; defaults to the original.
    */
   async function resendFromUserMessage(userMessageId, replacementText) {
-    const sourceMessage = messages.find(
-      (message) => message.id === userMessageId
-    );
-    if (!sourceMessage || !activeAvatar) return;
+    const sourceMessage = findMessageByKey(messages, userMessageId);
+    if (!sourceMessage || !activeAvatar) {
+      toast.error('Could not update that message.');
+      return { reply: '', sentiment: null };
+    }
     const text =
       typeof replacementText === 'string'
         ? replacementText
         : sourceMessage.content ?? '';
-    if (!String(text).trim()) return;
+    if (!String(text).trim()) return { reply: '', sentiment: null };
 
     const temporaryUserMessageId = `temp-${Date.now()}`;
     // Lock the composer before rewriting the transcript. If the count rises
@@ -1282,9 +1289,7 @@ export const MediaProvider = ({ children }) => {
     // as its "reply".
     setPendingSendCount((count) => count + 1);
     setMessages((previousMessages) => {
-      const cutIndex = previousMessages.findIndex(
-        (message) => message.id === userMessageId
-      );
+      const cutIndex = findMessageIndexByKey(previousMessages, userMessageId);
       if (cutIndex < 0) return previousMessages;
       return [
         ...previousMessages.slice(0, cutIndex),
@@ -1300,7 +1305,7 @@ export const MediaProvider = ({ children }) => {
     try {
       turnPausedForUserRef.current = false;
       setAssistantActivity(ASSISTANT_ACTIVITY.thinking);
-      await sendVisibleAssistantTurn(
+      return await sendVisibleAssistantTurn(
         activeAvatar,
         activeConversation,
         text,
@@ -1308,6 +1313,7 @@ export const MediaProvider = ({ children }) => {
       );
     } catch (resendError) {
       reportTurnFailure(resendError, 'Could not resend that message.');
+      return { reply: '', sentiment: null };
     } finally {
       setPendingSendCount((count) => Math.max(0, count - 1));
       if (!turnPausedForUserRef.current) {
@@ -1330,7 +1336,7 @@ export const MediaProvider = ({ children }) => {
       .reverse()
       .find((message) => message.type === 'human' || message.type === 'user');
     if (!precedingUser) return;
-    await resendFromUserMessage(precedingUser.id);
+    await resendFromUserMessage(messageKeyOf(precedingUser) ?? precedingUser.id);
   }
 
   /**

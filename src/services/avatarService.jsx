@@ -10,6 +10,9 @@ import {
   requestJson,
   streamServerSentEvents,
 } from './neuralNexusApiClient';
+import { retainOwnedMcpDevices } from './mcpOwnership';
+
+export { retainOwnedMcpDevices } from './mcpOwnership';
 
 /**
  * List the caller's own avatars plus any public avatars.
@@ -581,7 +584,11 @@ export const connectMcpDevice = async ({ deviceId, deviceLabel } = {}) => {
  * @returns {Promise<Object>} `{devices}` — label, platform, online, connected.
  */
 export const listMcpConnections = async () => {
-  return requestJson('/list_mcp_connections');
+  const listed = await requestJson('/list_mcp_connections');
+  return {
+    ...listed,
+    devices: retainOwnedMcpDevices(listed?.devices, listed?.user_id),
+  };
 };
 
 const PLATFORM_ICON_KEYS = {

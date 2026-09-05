@@ -4,11 +4,10 @@
 // row on the Connected list and immediately tries to bind a reachable daemon.
 // These are not custom MCP URLs.
 
-import {
-  connectMcpDevice,
-  deviceIdFromConnection,
-  listMcpConnections,
-} from '../../services/avatarService';
+import { connectMcpDevice } from '../../services/avatarService';
+import { selectMcpDeviceToBind } from './mcpBindTarget';
+
+export { selectMcpDeviceToBind } from './mcpBindTarget';
 
 export const MCP_CONNECTORS = [
   {
@@ -269,27 +268,14 @@ function formatRelativeTime(value) {
 /**
  * Bind a listed MCP row to a reachable daemon right now.
  *
- * Prefers the row's own device id, then a registered machine of the same
- * platform. Used both when the owner presses Connect and immediately after
- * adding the connector from New Connector.
- *
  * @param {Object} connection A device row (pending or registered).
  * @returns {Promise<Object>} The `/connect_mcp` response.
  */
 export async function bindMcpConnection(connection) {
-  const listed = await listMcpConnections();
-  const devices = listed?.devices ?? [];
-  const wantedPlatform = normalizePlatform(connection?.platform);
-  const matchingDevices = wantedPlatform
-    ? devices.filter(
-        (device) => normalizePlatform(device.platform) === wantedPlatform
-      )
-    : devices;
-  const target =
-    deviceIdFromConnection(connection) || matchingDevices[0]?.device_id || null;
+  const target = selectMcpDeviceToBind(connection);
   const response = await connectMcpDevice({
-    deviceId: target || undefined,
-    deviceLabel: connection?.pending ? undefined : connection?.display_label,
+    deviceId: target.deviceId,
+    deviceLabel: target.deviceLabel,
   });
   if (connection?.pending) {
     removePendingMcpConnection(connection.connection_key);

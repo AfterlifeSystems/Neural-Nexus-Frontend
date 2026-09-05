@@ -76,6 +76,11 @@ import {
 } from '../services/avatarService';
 import { showRequestFailureToast } from './requestFailureToast';
 import { isConversationSuggestionList } from '../services/conversationSuggestions';
+import { messageKeyOf } from '../services/messageKey';
+import {
+  captionForVoiceStage,
+  stagePresentationIsClip,
+} from './voiceCaptionVisibility';
 
 const PREFERENCES_KEY = 'voice_mode_preferences';
 
@@ -111,6 +116,41 @@ const AVATAR_BUBBLE_CLASSES =
 const CAPTION_DOCK_CLASSES =
   'absolute left-0 right-0 z-20 max-h-[min(28vh,16rem)] overflow-y-auto px-3 sm:px-6 pb-2';
 const CAPTION_COLUMN_CLASSES = 'mx-auto max-w-3xl flex flex-col gap-3 py-2';
+const SPEAKING_BUBBLE_HIGHLIGHT =
+  'ring-2 ring-amber-400/80 border-amber-400/50 bg-amber-400/10';
+
+const TypingDots = () => (
+  <div className="flex items-center space-x-2" aria-label="Responding">
+    <div className="flex space-x-1">
+      <div
+        className="w-2 h-2 bg-white rounded-full animate-bounce"
+        style={{ animationDelay: '0ms' }}
+      />
+      <div
+        className="w-2 h-2 bg-white rounded-full animate-bounce"
+        style={{ animationDelay: '150ms' }}
+      />
+      <div
+        className="w-2 h-2 bg-white rounded-full animate-bounce"
+        style={{ animationDelay: '300ms' }}
+      />
+    </div>
+  </div>
+);
+
+const AssistantActivityLine = ({ activity }) => {
+  if (!activity) return null;
+  return (
+    <div
+      className="self-start flex items-center gap-2 px-2 py-1 text-xs text-white/70 italic"
+      role="status"
+      aria-live="polite"
+    >
+      <span className="w-1.5 h-1.5 bg-amber-400 rounded-full animate-pulse" />
+      {activity}…
+    </div>
+  );
+};
 
 // Inverse of the composer’s AudioLines “talk out loud” control: same
 // waveform, struck through, so leaving voice mode is the obvious pair.
@@ -216,7 +256,9 @@ const LiveVoiceMode = ({
   const listenerRef = useRef(null);
   const dictationRef = useRef(null);
   const fileInputRef = useRef(null);
-  const turnInFlightRef = useRef(false);
+  const userTurnsInFlightRef = useRef(0);
+  const turnGenerationRef = useRef(0);
+  const ambientReplyInFlightRef = useRef(false);
   const transcriptEndRef = useRef(null);
   const composerDockRef = useRef(null);
   const [composerDockHeight, setComposerDockHeight] = useState(120);
@@ -268,21 +310,31 @@ const LiveVoiceMode = ({
     }
     return isHumanMessage(message) || isAvatarMessage(message);
   });
-  const lastAvatarMessage = [...spokenExchange]
+  const lastCompletedAvatarMessage = [...spokenExchange]
     .reverse()
-    .find((message) => isAvatarMessage(message));
-  const visibleExchange = spokenExchange.filter((message) => {
-    if (!isAvatarMessage(message)) return true;
-    if (message.isLoading || message.isPending) return false;
-    return Boolean(message.id) && revealedCaptionIdsRef.current.has(message.id);
-  });
+    .find(
+      (message) =>
+        isAvatarMessage(message) &&
+        !message.isLoading &&
+        !message.isPending
+    );
+  const visibleExchange = useMemo(
+    () =>
+      spokenExchange.map((message) =>
+        captionForVoiceStage(message, {
+          holdNewCaptions,
+          revealedIds: revealedCaptionIdsRef.current,
+        })
+      ),
+    [spokenExchange, holdNewCaptions, captionGeneration]
+  );
 
   useEffect(() => {
     transcriptEndRef.current?.scrollIntoView({
       behavior: 'smooth',
       block: 'end',
     });
-  }, [visibleExchange.length, showCaptions]);
+  }, [visibleExchange.length, assistantActivity, showCaptions]);
 
   useEffect(() => {
     preloadEmotionMedia(manifest);
@@ -397,11 +449,12 @@ const LiveVoiceMode = ({
     !stageLoop &&
     (speech.isSpeaking || Boolean(lipSyncClipUrl) || isRenderingClip);
 
-  const waitForStagePresented = useCallback((timeoutMs = 4000) => {
+  const waitForStagePresented = useCallback((timeoutMs = 4000, match) => {
     return new Promise((resolve) => {
       let settled = false;
-      const finish = () => {
+      const finish = (presented) => {
         if (settled) return;
+        if (match && presented !== undefined && !match(presented)) return;
         settled = true;
         if (stagePresentedWaiterRef.current === finish) {
           stagePresentedWaiterRef.current = null;
@@ -409,7 +462,7 @@ const LiveVoiceMode = ({
         resolve();
       };
       stagePresentedWaiterRef.current = finish;
-      window.setTimeout(finish, timeoutMs);
+      window.setTimeout(() => finish(), timeoutMs);
     });
   }, []);
 
@@ -424,15 +477,14 @@ const LiveVoiceMode = ({
     setCaptionGeneration((generation) => generation + 1);
   }, []);
 
-  const handleStagePresented = useCallback(() => {
-    stagePresentedWaiterRef.current?.();
-    if (holdNewCaptionsRef.current) {
-      revealHeldCaptions();
-    }
-  }, [revealHeldCaptions]);
+  const handleStagePresented = useCallback((presented) => {
+    stagePresentedWaiterRef.current?.(presented);
+  }, []);
 
   const handleReply = useCallback(
-    async (reply, sentiment) => {
+    async (reply, sentiment, generation = turnGenerationRef.current) => {
+      const isCurrentTurn = () => generation === turnGenerationRef.current;
+      if (!isCurrentTurn()) return;
       const emotion = voiceStageEmotion(sentiment);
       const nextAssets = manifest?.emotions?.[emotion];
       const nextStill =
@@ -443,50 +495,82 @@ const LiveVoiceMode = ({
         nextLoop !== stageLoopRef.current;
       setCurrentEmotion(emotion);
       setLipSyncClipUrl(null);
-      if (mediaChanged && (nextStill || nextLoop)) {
-        await waitForStagePresented();
-      }
-      revealHeldCaptions();
       // Speak the words, not the markdown: an analysis reply ends with an
       // image reference to its plot, which the captions paint as the plot
       // itself and which read aloud is only a file path.
       const spokenReply = speakableReplyText(reply);
+      const wantsVideo =
+        Boolean(spokenReply) &&
+        isVideoEnabled &&
+        Boolean(manifest?.emotions?.[emotion]?.still);
+
+      let clipPromise = null;
+      if (wantsVideo) {
+        // Start the clip at once so generation overlaps the emotion-stage
+        // wait. The finished line stays hidden until that clip is on stage.
+        setIsRenderingClip(true);
+        clipPromise = requestLipSyncClip(assistantId, spokenReply, emotion, {
+          asAnonymousIdentity: readerIsAnonymous,
+        }).catch((clipError) => {
+          if (clipError?.status === 403) {
+            setIsVideoEnabled(false);
+            showRequestFailureToast(clipError, {
+              fallbackMessage: 'Video replies need a premium plan.',
+            });
+          } else {
+            console.debug('Lip-sync unavailable for this reply:', clipError);
+          }
+          return null;
+        });
+      }
+
+      if (!clipPromise && mediaChanged && (nextStill || nextLoop)) {
+        await waitForStagePresented();
+        if (!isCurrentTurn()) return;
+      }
+
+      if (clipPromise) {
+        try {
+          const clipUrl = await clipPromise;
+          if (!isCurrentTurn()) return;
+          if (clipUrl) {
+            setLipSyncClipUrl(clipUrl);
+            await waitForStagePresented(4000, (presented) =>
+              stagePresentationIsClip(presented, clipUrl)
+            );
+            if (!isCurrentTurn()) return;
+          } else if (mediaChanged && (nextStill || nextLoop)) {
+            await waitForStagePresented();
+            if (!isCurrentTurn()) return;
+          }
+        } finally {
+          setIsRenderingClip(false);
+        }
+      }
+
+      revealHeldCaptions();
+      if (!isCurrentTurn()) return;
       if (spokenReply && !showCaptions) {
         showStageFlash('avatar', spokenReply);
       }
       if (!spokenReply || isAvatarMuted) return;
 
       setIsPlayingReply(true);
-      const wantsVideo =
-        isVideoEnabled && Boolean(manifest?.emotions?.[emotion]?.still);
-      if (wantsVideo) {
-        // The clip renders in the background while the emotion loop and the
-        // spoken audio play; when it is ready it takes over the stage.
-        setIsRenderingClip(true);
-        requestLipSyncClip(assistantId, spokenReply, emotion, {
-          asAnonymousIdentity: readerIsAnonymous,
-        })
-          .then((clipUrl) => {
-            if (clipUrl) setLipSyncClipUrl(clipUrl);
-          })
-          .catch((clipError) => {
-            if (clipError?.status === 403) {
-              setIsVideoEnabled(false);
-              showRequestFailureToast(clipError, {
-                fallbackMessage: 'Video replies need a premium plan.',
-              });
-            } else {
-              console.debug('Lip-sync unavailable for this reply:', clipError);
-            }
-          })
-          .finally(() => setIsRenderingClip(false));
-      }
-      // Speech starts as soon as the reply is known; listening pauses so the
-      // avatar does not hear itself, except at the barge-in threshold.
+      // Speech starts with the talking face, not ahead of it. Listening
+      // pauses so the avatar does not hear itself, except at barge-in.
       listenerRef.current?.pause?.();
+      const replyMessageId =
+        [...messagesRef.current]
+          .reverse()
+          .find(
+            (message) =>
+              isAvatarMessage(message) &&
+              !message.isLoading &&
+              !message.isPending
+          )?.id ?? 'live-reply';
       try {
         await speech.speak(assistantId, spokenReply, {
-          key: 'live-reply',
+          key: replyMessageId,
           onEnd: () => {
             if (!isMicMuted) listenerRef.current?.resume?.();
           },
@@ -514,25 +598,84 @@ const LiveVoiceMode = ({
   const submitTurn = useCallback(
     async (text) => {
       const words = text?.trim();
-      if (!words || turnInFlightRef.current) return;
-      turnInFlightRef.current = true;
+      if (!words) return;
+      // Message view lets another line go out while a reply is still
+      // arriving. Voice mode keeps that: this send is not blocked by an
+      // earlier turn. A newer send just takes the stage and the older
+      // reply is not spoken.
+      userTurnsInFlightRef.current += 1;
+      const generation = ++turnGenerationRef.current;
       holdNewCaptionsRef.current = true;
       setHoldNewCaptions(true);
+      if (speech.isSpeaking) speech.stop();
+      setLipSyncClipUrl(null);
       if (!showCaptions) {
         showStageFlash('human', words);
       }
       setIsWaitingForReply(true);
       try {
         const { reply, sentiment } = await sendSpokenTurn(words);
-        await handleReply(reply, sentiment);
+        if (generation !== turnGenerationRef.current) return;
+        await handleReply(reply, sentiment, generation);
       } finally {
-        holdNewCaptionsRef.current = false;
-        setHoldNewCaptions(false);
-        turnInFlightRef.current = false;
-        setIsWaitingForReply(false);
+        userTurnsInFlightRef.current = Math.max(
+          0,
+          userTurnsInFlightRef.current - 1
+        );
+        if (userTurnsInFlightRef.current === 0) {
+          holdNewCaptionsRef.current = false;
+          setHoldNewCaptions(false);
+          setIsWaitingForReply(false);
+        }
       }
     },
-    [handleReply, sendSpokenTurn, showCaptions, showStageFlash]
+    [handleReply, sendSpokenTurn, showCaptions, showStageFlash, speech]
+  );
+
+  // Accept / retry must cut the transcript and then present the new reply
+  // on this stage. Calling resend alone updates the bubbles and never
+  // speaks; submitTurn would append a second human line instead of
+  // replacing the one that was edited.
+  const presentResentTurn = useCallback(
+    async (messageKey, text) => {
+      const words = text?.trim();
+      if (!words) return;
+      userTurnsInFlightRef.current += 1;
+      const generation = ++turnGenerationRef.current;
+      holdNewCaptionsRef.current = true;
+      setHoldNewCaptions(true);
+      if (speech.isSpeaking) speech.stop();
+      setLipSyncClipUrl(null);
+      setEditingKey(null);
+      if (!showCaptions) {
+        showStageFlash('human', words);
+      }
+      setIsWaitingForReply(true);
+      try {
+        const result = await resendFromUserMessage(messageKey, words);
+        if (generation !== turnGenerationRef.current) return;
+        if (result?.reply) {
+          await handleReply(result.reply, result.sentiment, generation);
+        }
+      } finally {
+        userTurnsInFlightRef.current = Math.max(
+          0,
+          userTurnsInFlightRef.current - 1
+        );
+        if (userTurnsInFlightRef.current === 0) {
+          holdNewCaptionsRef.current = false;
+          setHoldNewCaptions(false);
+          setIsWaitingForReply(false);
+        }
+      }
+    },
+    [
+      handleReply,
+      resendFromUserMessage,
+      showCaptions,
+      showStageFlash,
+      speech,
+    ]
   );
 
   // Ambient vision inside voice mode. A reply the avatar volunteers after a
@@ -543,12 +686,15 @@ const LiveVoiceMode = ({
   useEffect(() => {
     setAmbientVoiceMode(true);
     const unregister = registerAmbientReplyHandler(async (reply, sentiment) => {
-      if (turnInFlightRef.current) return;
-      turnInFlightRef.current = true;
+      if (userTurnsInFlightRef.current > 0 || ambientReplyInFlightRef.current) {
+        return;
+      }
+      ambientReplyInFlightRef.current = true;
+      const generation = turnGenerationRef.current;
       try {
-        await handleReply(reply, sentiment);
+        await handleReply(reply, sentiment, generation);
       } finally {
-        turnInFlightRef.current = false;
+        ambientReplyInFlightRef.current = false;
       }
     });
     return () => {
@@ -825,38 +971,45 @@ const LiveVoiceMode = ({
       {/* When captions are hidden, the latest line stays in the caption
           dock until the next send or reply fades it out and takes the
           slot. Captions are the lasting record. */}
-      {!showCaptions && stageFlash && (
+      {!showCaptions && (stageFlash || assistantActivity) && (
         <div
           className={`${CAPTION_DOCK_CLASSES} pointer-events-none`}
           style={{ bottom: composerDockHeight }}
         >
           <div className={CAPTION_COLUMN_CLASSES}>
-            <div
-              key={stageFlash.id}
-              role="status"
-              aria-live="polite"
-              className={`${
-                stageFlash.dismissing
-                  ? 'voice-stage-flash-out'
-                  : 'voice-stage-flash'
-              } ${
-                stageFlash.from === 'human'
-                  ? HUMAN_BUBBLE_CLASSES
-                  : AVATAR_BUBBLE_CLASSES
-              }`}
-              onAnimationEnd={(event) => {
-                if (event.animationName === STAGE_FLASH_IN_ANIMATION) return;
-                if (event.animationName !== STAGE_FLASH_OUT_ANIMATION) return;
-                const next = pendingStageFlashRef.current;
-                pendingStageFlashRef.current = null;
-                setStageFlash((current) => {
-                  if (!current || current.id !== stageFlash.id) return current;
-                  return next;
-                });
-              }}
-            >
-              {stageFlash.text}
-            </div>
+            {stageFlash && (
+              <div
+                key={stageFlash.id}
+                role="status"
+                aria-live="polite"
+                className={`${
+                  stageFlash.dismissing
+                    ? 'voice-stage-flash-out'
+                    : 'voice-stage-flash'
+                } ${
+                  stageFlash.from === 'human'
+                    ? HUMAN_BUBBLE_CLASSES
+                    : `${AVATAR_BUBBLE_CLASSES} ${
+                        isPlayingReply || speech.isSpeaking
+                          ? SPEAKING_BUBBLE_HIGHLIGHT
+                          : ''
+                      }`
+                }`}
+                onAnimationEnd={(event) => {
+                  if (event.animationName === STAGE_FLASH_IN_ANIMATION) return;
+                  if (event.animationName !== STAGE_FLASH_OUT_ANIMATION) return;
+                  const next = pendingStageFlashRef.current;
+                  pendingStageFlashRef.current = null;
+                  setStageFlash((current) => {
+                    if (!current || current.id !== stageFlash.id) return current;
+                    return next;
+                  });
+                }}
+              >
+                {stageFlash.text}
+              </div>
+            )}
+            <AssistantActivityLine activity={assistantActivity} />
           </div>
         </div>
       )}
@@ -871,30 +1024,27 @@ const LiveVoiceMode = ({
           <div className={CAPTION_COLUMN_CLASSES}>
             {visibleExchange.map((message) => {
               const messageKey =
-                message.id || `temp-${message.timestamp || Date.now()}`;
+                messageKeyOf(message) ??
+                `temp-${message.timestamp || Date.now()}`;
               const isHuman = isHumanMessage(message);
               const isFromAvatar = isAvatarMessage(message);
               const isLoading = message.isLoading || message.isPending;
               const isCurrentReply =
-                isFromAvatar && message.id === lastAvatarMessage?.id;
+                isFromAvatar &&
+                message.id === lastCompletedAvatarMessage?.id;
               const isSpeakingThis =
                 speech.speakingKey === messageKey ||
-                (isCurrentReply && speech.speakingKey === 'live-reply');
+                (isCurrentReply &&
+                  (speech.speakingKey === 'live-reply' || isPlayingReply));
               return (
                 <div
                   key={messageKey}
-                  className={`max-w-[min(100%,28rem)] sm:max-w-[85%] px-4 py-2 rounded-2xl text-[15px] leading-relaxed ${
-                    isHuman
-                      ? 'self-end bg-neutral-800/80 text-neutral-200'
-                      : `self-start bg-black/55 backdrop-blur-md border border-white/15 text-neutral-100 ${
-                          isSpeakingThis
-                            ? 'ring-1 ring-amber-400/70 border-amber-400/30'
-                            : ''
-                        }`
-                  }`}
+                  className={`${
+                    isHuman ? HUMAN_BUBBLE_CLASSES : AVATAR_BUBBLE_CLASSES
+                  } ${isSpeakingThis ? SPEAKING_BUBBLE_HIGHLIGHT : ''}`}
                 >
                   {isLoading ? (
-                    '…'
+                    <TypingDots />
                   ) : isHuman && editingKey === messageKey ? (
                     <div className="space-y-2 caption-actions">
                       <textarea
@@ -908,8 +1058,7 @@ const LiveVoiceMode = ({
                           type="button"
                           disabled={pendingSendCount > 0 || !editDraft.trim()}
                           onClick={() => {
-                            resendFromUserMessage?.(messageKey, editDraft);
-                            setEditingKey(null);
+                            presentResentTurn(messageKey, editDraft);
                           }}
                           className="voice-text-btn px-2 py-1 rounded-md bg-amber-400/15 text-amber-300 text-xs border border-amber-400/30"
                         >
@@ -1000,12 +1149,15 @@ const LiveVoiceMode = ({
                         setEditingKey(messageKey);
                         setEditDraft(message.content);
                       }}
-                      onRetry={(key) => resendFromUserMessage?.(key)}
+                      onRetry={(key) =>
+                        presentResentTurn(key, message.content)
+                      }
                     />
                   )}
                 </div>
               );
             })}
+            <AssistantActivityLine activity={assistantActivity} />
             <div ref={transcriptEndRef} />
           </div>
         </div>

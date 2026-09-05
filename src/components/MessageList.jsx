@@ -14,6 +14,7 @@ import useEmotionMedia, { stillFor } from '../hooks/useEmotionMedia';
 import useMessageActions from '../hooks/useMessageActions';
 import MessageActionBar from './media/MessageActionBar';
 import { isConversationSuggestionList } from '../services/conversationSuggestions';
+import { messageKeyOf } from '../services/messageKey';
 import AmbientNotificationCard from './AmbientNotificationCard';
 import CreatedArtifacts from './CreatedArtifacts';
 import {
@@ -162,7 +163,8 @@ const MessageList = ({
           // Prefer type, fall back to sender (old field name safety)
           const type = msg.type || 'user';
 
-          const messageKey = msg.id || `temp-${msg.timestamp || Date.now()}`;
+          const messageKey =
+            messageKeyOf(msg) ?? `temp-${msg.timestamp || Date.now()}`;
 
           // Not something anybody said: the API refusing to carry the
           // conversation any further until billing is dealt with. It is a card

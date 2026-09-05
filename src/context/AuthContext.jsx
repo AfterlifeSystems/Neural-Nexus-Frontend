@@ -14,6 +14,7 @@ import {
   clearSessionCredential,
   extractSessionCredentialFromLoginResponse,
 } from '../services/neuralNexusApiClient';
+import { restoreSignedInUser } from './authSession';
 
 const AuthContext = createContext();
 
@@ -237,9 +238,11 @@ export const AuthProvider = ({ children }) => {
       try {
         const loginStatus = await requestJson('/verify_login_status');
         const storedUser = JSON.parse(localStorage.getItem('user') ?? 'null');
-        if (loginStatus?.logged_in && storedUser?.id) {
-          setUser(storedUser);
-          setProfile(storedUser);
+        const restoredUser = restoreSignedInUser(storedUser, loginStatus);
+        if (restoredUser) {
+          setUser(restoredUser);
+          setProfile(restoredUser);
+          localStorage.setItem('user', JSON.stringify(restoredUser));
         } else {
           // The credential authenticates, but this browser has no signed-in
           // session: the account signed up and has not verified yet, a logout
