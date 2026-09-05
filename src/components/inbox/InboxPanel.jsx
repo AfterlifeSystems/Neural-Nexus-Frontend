@@ -1,6 +1,10 @@
 // src/components/inbox/InboxPanel.jsx
 import React, { useCallback, useEffect, useState } from 'react';
 import { toast } from 'react-hot-toast';
+import { useNavigate } from 'react-router-dom';
+import { useAuth } from '../../context/AuthContext';
+import { resolvePersonalAvatarId } from '../AccountMenu';
+import LoadingSpinner from '../LoadingSpinner';
 import {
   Bell,
   BellRing,
@@ -208,7 +212,9 @@ const InboxItemCard = ({ item, onDecide, isBusy }) => {
  * and is waiting on the owner to decide.
  *
  * Reached from the sidebar's "Avatar Inbox" entry (with the pending badge)
- * and from the Inbox tab on the personal avatar's header. Accept / Edit /
+ * and from the Inbox tab on the personal avatar's header. The sidebar
+ * selects that avatar first so this panel sits under the same workspace
+ * header as its chat. Accept / Edit /
  * Ignore / Reply deliver the same HumanResponse the avatar's chat tools do,
  * so a decision made here or in conversation resumes the same paused triage
  * and teaches the same preferences.
@@ -218,6 +224,8 @@ const InboxItemCard = ({ item, onDecide, isBusy }) => {
  *   so this panel can sit in the avatar header tab.
  */
 const InboxPanel = ({ embedded = false }) => {
+  const navigate = useNavigate();
+  const { userAvatars } = useAuth();
   const [items, setItems] = useState([]);
   const [pendingCount, setPendingCount] = useState(0);
   const [view, setView] = useState('open');
@@ -227,6 +235,29 @@ const InboxPanel = ({ embedded = false }) => {
   const [notificationPermission, setNotificationPermission] = useState(
     typeof Notification === 'undefined' ? 'unsupported' : Notification.permission
   );
+
+  // `/inbox` is a bookmark into the personal avatar's Inbox tab, not a
+  // second screen. Without that redirect the page has no workspace header.
+  useEffect(() => {
+    if (embedded) return undefined;
+    let cancelled = false;
+    (async () => {
+      const personalAvatarId = await resolvePersonalAvatarId(userAvatars);
+      if (cancelled) return;
+      if (!personalAvatarId) {
+        toast.error('You do not have a personal avatar yet.');
+        navigate('/avatars', { replace: true });
+        return;
+      }
+      navigate(
+        `/chat/${encodeURIComponent(personalAvatarId)}?tab=inbox`,
+        { replace: true }
+      );
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [embedded, navigate, userAvatars]);
 
   const refresh = useCallback(async () => {
     try {
@@ -241,8 +272,9 @@ const InboxPanel = ({ embedded = false }) => {
   }, [view]);
 
   useEffect(() => {
+    if (!embedded) return;
     refresh();
-  }, [refresh]);
+  }, [embedded, refresh]);
 
   const handleDecide = async (item, decision) => {
     setBusyItemId(item.item_id);
@@ -284,12 +316,12 @@ const InboxPanel = ({ embedded = false }) => {
     }
   };
 
+  if (!embedded) {
+    return <LoadingSpinner fullscreen label="Opening inbox…" />;
+  }
+
   return (
-    <div
-      className={`flex flex-col flex-grow relative z-10 overflow-y-auto ${
-        embedded ? '' : 'p-2 sm:p-4'
-      }`}
-    >
+    <div className="flex flex-col flex-grow relative z-10 overflow-y-auto">
       <div className="max-w-3xl mx-auto w-full space-y-4">
         <header className="flex flex-wrap items-center gap-3">
           <h1 className="text-2xl font-semibold text-neutral-200 inline-flex items-center gap-2">

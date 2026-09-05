@@ -8,10 +8,10 @@
 // well beside the application sidebar, and when video is enabled a lip-synced
 // clip of the reply plays between the loops.
 // Along the bottom sits the composer pill from the reference design — type, or
-// attach; share the webcam or the screen; live audio (turn-based, with voice
-// activity detection and barge-in) or one-shot dictation; mute the avatar;
-// mute the mic; enable video; show or hide the captions; and leave for the
-// message view.
+// attach; connectors on the personal avatar; share the webcam or the screen;
+// live audio (turn-based, with voice activity detection and barge-in) or
+// one-shot dictation; mute the avatar; mute the mic; enable video; show or
+// hide the captions; and leave for the message view.
 
 import React, {
   useCallback,
@@ -32,6 +32,7 @@ import {
   MicOff,
   MonitorUp,
   Paperclip,
+  Plus,
   Send,
   User,
   Video,
@@ -40,7 +41,7 @@ import {
   VolumeX,
 } from 'lucide-react';
 import { toast } from 'react-hot-toast';
-import { useLocation } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
 
 import { useMedia } from '../context/MediaContext';
 import { useMediaShare } from '../context/MediaShareContext';
@@ -66,6 +67,7 @@ import {
   stripArtifactReferences,
 } from '../services/createdArtifacts';
 import ConversationSuggestions from './ConversationSuggestions';
+import ComposerConnectorsMenu from './connections/ComposerConnectorsMenu';
 import { canCaptureMicrophone, recordOneTurn } from '../services/voiceSession';
 import { startVoiceActivityListening } from '../services/voiceActivity';
 import {
@@ -100,9 +102,15 @@ const CLOSE_BUTTON_CLASSES =
   'voice-action shrink-0 rounded-full bg-neutral-200 hover:bg-neutral-100 text-neutral-900 inline-flex items-center justify-center gap-1 transition-colors';
 const SEND_BUTTON_CLASSES =
   'voice-action shrink-0 rounded-full bg-neutral-200 hover:bg-neutral-100 text-neutral-900 inline-flex items-center gap-1 transition-colors';
-const SENT_FLASH_ANIMATION = 'voice-sent-appear-fade';
+const STAGE_FLASH_IN_ANIMATION = 'voice-stage-flash-in';
+const STAGE_FLASH_OUT_ANIMATION = 'voice-stage-flash-out';
 const HUMAN_BUBBLE_CLASSES =
   'max-w-[min(100%,28rem)] sm:max-w-[85%] px-4 py-2 rounded-2xl text-[15px] leading-relaxed self-end bg-neutral-800/80 text-neutral-200 whitespace-pre-wrap';
+const AVATAR_BUBBLE_CLASSES =
+  'max-w-[min(100%,28rem)] sm:max-w-[85%] px-4 py-2 rounded-2xl text-[15px] leading-relaxed self-start bg-black/55 backdrop-blur-md border border-white/15 text-neutral-100 whitespace-pre-wrap';
+const CAPTION_DOCK_CLASSES =
+  'absolute left-0 right-0 z-20 max-h-[min(28vh,16rem)] overflow-y-auto px-3 sm:px-6 pb-2';
+const CAPTION_COLUMN_CLASSES = 'mx-auto max-w-3xl flex flex-col gap-3 py-2';
 
 // Inverse of the composer’s AudioLines “talk out loud” control: same
 // waveform, struck through, so leaving voice mode is the obvious pair.
@@ -161,6 +169,7 @@ const LiveVoiceMode = ({
   } = useMediaShare();
   const { user, activeAvatar } = useAuth();
   const location = useLocation();
+  const navigate = useNavigate();
   const readerIsAnonymous = isSharedAvatarChatPath(location.pathname);
   const inboxCount = useInboxCount();
   const canOpenAvatarSettings =
@@ -199,6 +208,7 @@ const LiveVoiceMode = ({
   const [isWaitingForReply, setIsWaitingForReply] = useState(false);
   const [isPlayingReply, setIsPlayingReply] = useState(false);
   const [draft, setDraft] = useState('');
+  const [isComposerMenuOpen, setIsComposerMenuOpen] = useState(false);
   const [currentEmotion, setCurrentEmotion] = useState('neutral');
   const [lipSyncClipUrl, setLipSyncClipUrl] = useState(null);
   const [isRenderingClip, setIsRenderingClip] = useState(false);
@@ -216,7 +226,8 @@ const LiveVoiceMode = ({
   });
   const [holdNewCaptions, setHoldNewCaptions] = useState(false);
   const [captionGeneration, setCaptionGeneration] = useState(0);
-  const [sentFlash, setSentFlash] = useState(null);
+  const [stageFlash, setStageFlash] = useState(null);
+  const pendingStageFlashRef = useRef(null);
   const holdNewCaptionsRef = useRef(false);
   const revealedCaptionIdsRef = useRef(new Set());
   const stagePresentedWaiterRef = useRef(null);
@@ -289,19 +300,38 @@ const LiveVoiceMode = ({
     if (added) setCaptionGeneration((generation) => generation + 1);
   }, [spokenExchange, holdNewCaptions, captionGeneration]);
 
+  const showStageFlash = useCallback((from, text) => {
+    const words = text?.trim();
+    if (!words) return;
+    const next = { id: Date.now(), from, text: words, dismissing: false };
+    setStageFlash((current) => {
+      if (!current) return next;
+      pendingStageFlashRef.current = next;
+      if (current.dismissing) return current;
+      return { ...current, dismissing: true };
+    });
+  }, []);
+
   useEffect(() => {
-    if (showCaptions) {
-      if (sentFlash) setSentFlash(null);
-      return undefined;
-    }
-    if (!sentFlash) return undefined;
+    if (!showCaptions) return;
+    pendingStageFlashRef.current = null;
+    if (stageFlash) setStageFlash(null);
+  }, [showCaptions, stageFlash]);
+
+  useEffect(() => {
+    if (!stageFlash?.dismissing) return undefined;
     const timeout = window.setTimeout(() => {
-      setSentFlash((current) =>
-        current?.id === sentFlash.id ? null : current
-      );
-    }, 3200);
+      const next = pendingStageFlashRef.current;
+      pendingStageFlashRef.current = null;
+      setStageFlash((current) => {
+        if (!current?.dismissing || current.id !== stageFlash.id) {
+          return current;
+        }
+        return next;
+      });
+    }, 500);
     return () => window.clearTimeout(timeout);
-  }, [sentFlash, showCaptions]);
+  }, [stageFlash]);
 
   useLayoutEffect(() => {
     const dock = composerDockRef.current;
@@ -421,6 +451,9 @@ const LiveVoiceMode = ({
       // image reference to its plot, which the captions paint as the plot
       // itself and which read aloud is only a file path.
       const spokenReply = speakableReplyText(reply);
+      if (spokenReply && !showCaptions) {
+        showStageFlash('avatar', spokenReply);
+      }
       if (!spokenReply || isAvatarMuted) return;
 
       setIsPlayingReply(true);
@@ -470,6 +503,8 @@ const LiveVoiceMode = ({
       isVideoEnabled,
       manifest,
       readerIsAnonymous,
+      showCaptions,
+      showStageFlash,
       revealHeldCaptions,
       speech,
       waitForStagePresented,
@@ -484,7 +519,7 @@ const LiveVoiceMode = ({
       holdNewCaptionsRef.current = true;
       setHoldNewCaptions(true);
       if (!showCaptions) {
-        setSentFlash({ id: Date.now(), text: words });
+        showStageFlash('human', words);
       }
       setIsWaitingForReply(true);
       try {
@@ -497,7 +532,7 @@ const LiveVoiceMode = ({
         setIsWaitingForReply(false);
       }
     },
-    [handleReply, sendSpokenTurn, showCaptions]
+    [handleReply, sendSpokenTurn, showCaptions, showStageFlash]
   );
 
   // Ambient vision inside voice mode. A reply the avatar volunteers after a
@@ -787,27 +822,40 @@ const LiveVoiceMode = ({
         )}
       </div>
 
-      {/* When captions are hidden, the just-sent line still needs a moment
-          on stage. Captions themselves are the record; no second flash. */}
-      {!showCaptions && sentFlash && (
+      {/* When captions are hidden, the latest line stays in the caption
+          dock until the next send or reply fades it out and takes the
+          slot. Captions are the lasting record. */}
+      {!showCaptions && stageFlash && (
         <div
-          className="absolute left-0 right-0 z-[21] pointer-events-none px-3 sm:px-6 pb-2"
+          className={`${CAPTION_DOCK_CLASSES} pointer-events-none`}
           style={{ bottom: composerDockHeight }}
         >
-          <div className="mx-auto max-w-3xl flex flex-col items-end py-2">
+          <div className={CAPTION_COLUMN_CLASSES}>
             <div
-              key={sentFlash.id}
+              key={stageFlash.id}
               role="status"
               aria-live="polite"
-              className={`voice-sent-flash ${HUMAN_BUBBLE_CLASSES}`}
+              className={`${
+                stageFlash.dismissing
+                  ? 'voice-stage-flash-out'
+                  : 'voice-stage-flash'
+              } ${
+                stageFlash.from === 'human'
+                  ? HUMAN_BUBBLE_CLASSES
+                  : AVATAR_BUBBLE_CLASSES
+              }`}
               onAnimationEnd={(event) => {
-                if (event.animationName !== SENT_FLASH_ANIMATION) return;
-                setSentFlash((current) =>
-                  current?.id === sentFlash.id ? null : current
-                );
+                if (event.animationName === STAGE_FLASH_IN_ANIMATION) return;
+                if (event.animationName !== STAGE_FLASH_OUT_ANIMATION) return;
+                const next = pendingStageFlashRef.current;
+                pendingStageFlashRef.current = null;
+                setStageFlash((current) => {
+                  if (!current || current.id !== stageFlash.id) return current;
+                  return next;
+                });
               }}
             >
-              {sentFlash.text}
+              {stageFlash.text}
             </div>
           </div>
         </div>
@@ -817,10 +865,10 @@ const LiveVoiceMode = ({
           dock on the bottom edge so toggling captions never lifts it. */}
       {showCaptions && (
         <div
-          className="absolute left-0 right-0 z-20 pointer-events-auto max-h-[min(28vh,16rem)] overflow-y-auto px-3 sm:px-6 pb-2"
+          className={`${CAPTION_DOCK_CLASSES} pointer-events-auto`}
           style={{ bottom: composerDockHeight }}
         >
-          <div className="mx-auto max-w-3xl flex flex-col gap-3 py-2">
+          <div className={CAPTION_COLUMN_CLASSES}>
             {visibleExchange.map((message) => {
               const messageKey =
                 message.id || `temp-${message.timestamp || Date.now()}`;
@@ -993,7 +1041,7 @@ const LiveVoiceMode = ({
             />
           </form>
           <div className="flex items-center gap-1 mt-1 min-w-0">
-            <div className="flex items-center gap-0.5 min-w-0 overflow-x-auto scrollbar-none flex-1">
+            <div className="relative shrink-0 flex items-center gap-0.5">
               <input
                 ref={fileInputRef}
                 type="file"
@@ -1013,6 +1061,49 @@ const LiveVoiceMode = ({
               >
                 <Paperclip className="w-5 h-5" />
               </button>
+              {isPersonalAvatar && !readerIsAnonymous && (
+                <>
+                  <button
+                    type="button"
+                    onMouseDown={(event) => event.stopPropagation()}
+                    onClick={() =>
+                      setIsComposerMenuOpen((previous) => !previous)
+                    }
+                    title="Connectors"
+                    aria-label="Connectors"
+                    aria-haspopup="menu"
+                    aria-expanded={isComposerMenuOpen}
+                    aria-controls="voice-composer-menu"
+                    className={`${CONTROL_CLASSES} ${
+                      isComposerMenuOpen ? ACTIVE_CONTROL_CLASSES : ''
+                    }`}
+                  >
+                    <Plus
+                      className={`w-5 h-5 transition-transform ${
+                        isComposerMenuOpen ? 'rotate-45' : ''
+                      }`}
+                    />
+                  </button>
+                  <ComposerConnectorsMenu
+                    open={isComposerMenuOpen}
+                    onClose={() => setIsComposerMenuOpen(false)}
+                    menuId="voice-composer-menu"
+                    showConnectors
+                    onManageConnectors={() => {
+                      setIsComposerMenuOpen(false);
+                      if (assistantId) {
+                        navigate(
+                          `/chat/${encodeURIComponent(assistantId)}?tab=settings&section=connections`
+                        );
+                        return;
+                      }
+                      onNavigateTab?.('avatar-settings');
+                    }}
+                  />
+                </>
+              )}
+            </div>
+            <div className="flex items-center gap-0.5 min-w-0 overflow-x-auto scrollbar-none flex-1">
               <div className="flex items-center rounded-full bg-white/5 border border-white/10">
                 <button
                   type="button"
@@ -1078,8 +1169,8 @@ const LiveVoiceMode = ({
                 aria-label={
                   isAvatarMuted ? 'Unmute the avatar' : 'Mute the avatar'
                 }
-                aria-pressed={isAvatarMuted}
-                className={`${CONTROL_CLASSES} ${isAvatarMuted ? ACTIVE_CONTROL_CLASSES : ''}`}
+                aria-pressed={!isAvatarMuted}
+                className={`${CONTROL_CLASSES} ${!isAvatarMuted ? ACTIVE_CONTROL_CLASSES : ''}`}
               >
                 {isAvatarMuted ? (
                   <VolumeX className="w-5 h-5" />
@@ -1097,8 +1188,8 @@ const LiveVoiceMode = ({
                 aria-label={
                   isMicMuted ? 'Unmute your microphone' : 'Mute your microphone'
                 }
-                aria-pressed={isMicMuted}
-                className={`${CONTROL_CLASSES} ${isMicMuted ? ACTIVE_CONTROL_CLASSES : ''}`}
+                aria-pressed={!isMicMuted}
+                className={`${CONTROL_CLASSES} ${!isMicMuted ? ACTIVE_CONTROL_CLASSES : ''}`}
               >
                 {isMicMuted ? (
                   <MicOff className="w-5 h-5" />

@@ -49,12 +49,15 @@ import {
  * @param {boolean} parameters.showConnectors Whether the Connectors entry exists
  *   (personal avatar only).
  * @param {Function} parameters.onManageConnectors Navigate to the settings section.
+ * @param {string} [parameters.menuId] `id` for `aria-controls` when two
+ *   composers can mount (chat under voice mode).
  */
 const ComposerConnectorsMenu = ({
   open,
   onClose,
   showConnectors,
   onManageConnectors,
+  menuId = 'composer-menu',
 }) => {
   const [isSubmenuOpen, setIsSubmenuOpen] = useState(false);
   const [connections, setConnections] = useState([]);
@@ -235,7 +238,7 @@ const ComposerConnectorsMenu = ({
       <MenuPanel
         open={open}
         onClose={onClose}
-        id="composer-menu"
+        id={menuId}
         className="bottom-full mb-2 left-0 w-72"
       >
         {showConnectors && (

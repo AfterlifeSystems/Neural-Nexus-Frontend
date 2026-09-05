@@ -149,9 +149,7 @@ const ConversationSuggestions = ({ enabled = true, onSend, overlay = false }) =>
 
   const sendSuggestion = (suggestion) => {
     if (turnInFlight) return;
-    if (!lastAvatarMessage) {
-      setSuggestionSheetOpen(false);
-    }
+    setSuggestionSheetOpen(false);
     if (onSend) {
       onSend(suggestion);
       return;

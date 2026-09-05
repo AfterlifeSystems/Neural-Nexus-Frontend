@@ -17,7 +17,7 @@ import {
   UserCog,
   Users,
 } from 'lucide-react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 
 import { useAuth } from '../context/AuthContext';
 import { getPersonalAvatar } from '../services/avatarService';
@@ -111,6 +111,43 @@ export async function resolvePersonalAvatarId(userAvatars) {
 }
 
 /**
+ * Open a tab on the workspace of the avatar that depicts the signed-in user.
+ *
+ * Inbox and settings belong to that avatar, so the sidebar entries must
+ * select it first — the same header as opening its chat — rather than a
+ * standalone page with no face or name.
+ *
+ * @param {Function} [onNavigate] Called before navigating, to dismiss the
+ *   panel or menu the control is rendered inside.
+ * @returns {Function} An async handler `(tab)` — `inbox`, `settings`, or chat.
+ */
+export function usePersonalAvatarWorkspaceNavigation(onNavigate) {
+  const navigate = useNavigate();
+  const { userAvatars } = useAuth();
+
+  return async (tab = 'chat') => {
+    const personalAvatarId = await resolvePersonalAvatarId(userAvatars);
+    onNavigate?.();
+    if (!personalAvatarId) {
+      // Saying nothing would look like a dead button.
+      const { toast } = await import('react-hot-toast');
+      toast.error('You do not have a personal avatar yet.');
+      return;
+    }
+    const encoded = encodeURIComponent(personalAvatarId);
+    if (tab === 'settings') {
+      navigate(`/chat/${encoded}?tab=settings`);
+      return;
+    }
+    if (tab === 'inbox') {
+      navigate(`/chat/${encoded}?tab=inbox`);
+      return;
+    }
+    navigate(`/chat/${encoded}`);
+  };
+}
+
+/**
  * Navigate to the settings of the avatar that depicts the signed-in user.
  *
  * Shared by every control that leads there — the menu entry and the sidebar
@@ -122,22 +159,8 @@ export async function resolvePersonalAvatarId(userAvatars) {
  * @returns {Function} An async handler that performs the navigation.
  */
 export function usePersonalAvatarSettingsNavigation(onNavigate) {
-  const navigate = useNavigate();
-  const { userAvatars } = useAuth();
-
-  return async () => {
-    const personalAvatarId = await resolvePersonalAvatarId(userAvatars);
-    onNavigate?.();
-    if (!personalAvatarId) {
-      // Saying nothing would look like a dead button.
-      const { toast } = await import('react-hot-toast');
-      toast.error('You do not have a personal avatar yet.');
-      return;
-    }
-    // The settings live on a tab of the avatar's own screen; the query
-    // parameter opens that tab directly rather than landing on the chat.
-    navigate(`/chat/${personalAvatarId}?tab=settings`);
-  };
+  const openWorkspace = usePersonalAvatarWorkspaceNavigation(onNavigate);
+  return () => openWorkspace('settings');
 }
 
 /**
@@ -160,9 +183,15 @@ const AccountMenu = ({
   variant = 'list',
 }) => {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const { logOut } = useAuth();
-  const openPersonalAvatarSettings =
-    usePersonalAvatarSettingsNavigation(onNavigate);
+  const openPersonalWorkspace =
+    usePersonalAvatarWorkspaceNavigation(onNavigate);
+  const openPersonalAvatarSettings = () => openPersonalWorkspace('settings');
+  const isInboxCurrent =
+    currentPath === '/inbox' ||
+    (Boolean(currentPath?.startsWith('/chat/')) &&
+      searchParams.get('tab') === 'inbox');
   // Pending agent-inbox items, polled in the background; the badge is the
   // owner's first sign that something needs them.
   const inboxCount = useInboxCount();
@@ -213,8 +242,8 @@ const AccountMenu = ({
         }
         ariaLabel="Avatar Inbox"
         badgeCount={iconOnly ? inboxCount : 0}
-        onClick={() => goTo('/inbox')}
-        isCurrent={currentPath === '/inbox'}
+        onClick={() => openPersonalWorkspace('inbox')}
+        isCurrent={isInboxCurrent}
       />
       <AccountMenuItem
         iconOnly={iconOnly}

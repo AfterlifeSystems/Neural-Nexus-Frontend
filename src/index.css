@@ -62,33 +62,42 @@ html,
   pointer-events: none;
 }
 
-/* Typed (or just-sent) words in voice mode: rise into view, then recede. */
-@keyframes voice-sent-appear-fade {
-  0% {
+/* Latest voice-mode line when captions are off: rise and stay.
+   It recedes only when the next send or reply takes the slot. */
+@keyframes voice-stage-flash-in {
+  from {
     opacity: 0;
     transform: translateY(0.5rem);
   }
-  10% {
+  to {
     opacity: 1;
     transform: translateY(0);
   }
-  70% {
+}
+
+@keyframes voice-stage-flash-out {
+  from {
     opacity: 1;
     transform: translateY(0);
   }
-  100% {
+  to {
     opacity: 0;
     transform: translateY(-0.4rem);
   }
 }
 
-.voice-sent-flash {
-  animation: voice-sent-appear-fade 2.8s ease-in-out forwards;
+.voice-stage-flash {
+  animation: voice-stage-flash-in 0.28s ease-out forwards;
+}
+
+.voice-stage-flash-out {
+  animation: voice-stage-flash-out 0.4s ease-in forwards;
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .voice-sent-flash {
-    animation-duration: 1.2s;
+  .voice-stage-flash,
+  .voice-stage-flash-out {
+    animation-duration: 0.01s;
   }
 }
 
@@ -199,6 +208,30 @@ html.voice-stage-open [data-rail-badge] {
 }
 .voice-stage .caption-actions button {
   border-radius: 0.375rem;
+}
+.voice-stage [role="menu"] button,
+.voice-stage [role="dialog"] button {
+  padding: 0.5rem 0.75rem;
+  min-width: 0;
+  min-height: 0;
+  border-radius: 0.5rem;
+  font-size: 0.875rem;
+  font-weight: 400;
+  line-height: 1.25;
+}
+.voice-stage [role="menu"] button[role="switch"],
+.voice-stage [role="dialog"] button[role="switch"] {
+  padding: 0;
+  width: 2.25rem;
+  height: 1.25rem;
+  min-width: 2.25rem;
+  min-height: 1.25rem;
+  border-radius: 9999px;
+}
+.voice-stage [role="menu"] button svg,
+.voice-stage [role="dialog"] button svg {
+  width: 1rem;
+  height: 1rem;
 }
 .voice-stage button svg {
   width: 1.125rem;
