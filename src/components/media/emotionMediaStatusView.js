@@ -39,6 +39,31 @@ export const emotionMediaStatusView = (manifest) => {
 };
 
 /**
+ * What a new reference image will do to generated media.
+ *
+ * Uploading a portrait rebuilds the whole set from that image. If clips
+ * already exist this is a replacement; if none exist it is a first build.
+ *
+ * @param {Object|null} manifest A normalized emotion-media manifest.
+ * @param {number} [totalAssets] How many stills and loops a full set holds.
+ * @returns {{isComplete: boolean, missingAssets: number, onlyMissing: boolean}}
+ */
+export const portraitUploadGenerationView = (manifest, totalAssets = 14) => {
+  const emotions = manifest?.emotions ?? {};
+  const hasExisting = Object.values(emotions).some(
+    (entry) => Boolean(entry?.still) || Boolean(entry?.idleLoop)
+  );
+  if (hasExisting) {
+    return { isComplete: true, missingAssets: 0, onlyMissing: false };
+  }
+  return {
+    isComplete: false,
+    missingAssets: totalAssets,
+    onlyMissing: true,
+  };
+};
+
+/**
  * The generate button's label for that state.
  *
  * @param {{isComplete: boolean, missingAssets: number}} view From emotionMediaStatusView.

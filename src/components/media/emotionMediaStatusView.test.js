@@ -4,6 +4,7 @@ import {
   emotionMediaGenerateLabel,
   emotionMediaGenerationConfirmation,
   emotionMediaStatusView,
+  portraitUploadGenerationView,
 } from './emotionMediaStatusView.js';
 
 test('every flag is a boolean, so JSX never paints a stray 0', () => {
@@ -168,4 +169,29 @@ test('the first build says what it makes, not what it keeps', () => {
     'This generates 6 emotion images and 7 idle videos from the reference image.'
   );
   assert.equal(confirmation.confirmLabel, 'Generate for about $3.60');
+});
+
+test('a new portrait replaces existing clips and first-builds an empty set', () => {
+  const empty = portraitUploadGenerationView({
+    complete: false,
+    missing: [],
+    emotions: {},
+  });
+  assert.strictEqual(empty.onlyMissing, true);
+  assert.equal(empty.missingAssets, 14);
+  assert.equal(
+    emotionMediaGenerationConfirmation(empty, {}).title,
+    'Generate the emotion images and videos?'
+  );
+
+  const replacing = portraitUploadGenerationView({
+    complete: true,
+    missing: [],
+    emotions: { joy: { still: 'https://example/joy.jpg' } },
+  });
+  assert.strictEqual(replacing.onlyMissing, false);
+  assert.equal(
+    emotionMediaGenerationConfirmation(replacing, {}).title,
+    'Replace every emotion image and video?'
+  );
 });

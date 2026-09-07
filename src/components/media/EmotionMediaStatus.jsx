@@ -1,9 +1,10 @@
 // src/components/media/EmotionMediaStatus.jsx
 import React, { useEffect, useRef, useState } from 'react';
 import { toast } from 'react-hot-toast';
-import { AlertTriangle, Loader2, Sparkles, Wand2 } from 'lucide-react';
+import { AlertTriangle, Ban, Loader2, Sparkles, Wand2 } from 'lucide-react';
 import useEmotionMedia from '../../hooks/useEmotionMedia';
 import {
+  cancelAvatarMediaJob,
   getAvatarMediaJob,
   regenerateAvatarEmotionMedia,
 } from '../../services/avatarService';
@@ -13,7 +14,7 @@ import {
   emotionMediaGenerationConfirmation,
   emotionMediaStatusView,
 } from './emotionMediaStatusView';
-import Modal from '../ui/Modal';
+import GenerationConfirmation from './GenerationConfirmation';
 
 const JOB_POLL_MILLISECONDS = 4000;
 
@@ -24,12 +25,12 @@ const JOB_POLL_MILLISECONDS = 4000;
  * The generate button appears as soon as a reference image exists, and is the
  * owner's way to spend on the image and video vendor deliberately: pressing it
  * opens a confirmation that says whether the run REPLACES the existing videos
- * and what the run is expected to cost, priced from the configured vendor
- * rates the server reports with the manifest. The tier
- * that may spend is a deployment setting (EMOTION_MEDIA_MINIMUM_TIER, premium
- * by default), and the manifest reports the answer per viewer, so a lower tier
- * sees the button disabled with the plan the feature needs rather than a
- * refusal after pressing.
+ * and what the run is expected to cost. Confirm starts the spend; Cancel on
+ * the dialog does not. While the job runs, Cancel stops further vendor calls.
+ * The tier that may spend is a deployment setting (EMOTION_MEDIA_MINIMUM_TIER,
+ * premium by default), and the manifest reports the answer per viewer, so a
+ * lower tier sees the button disabled with the plan the feature needs rather
+ * than a refusal after pressing.
  *
  * While a job runs this shows its stage. Afterwards, when the newest run left
  * portraits or videos missing, it shows why — for a moderation refusal, that a
@@ -45,62 +46,12 @@ const JOB_POLL_MILLISECONDS = 4000;
  * @param {Function} [parameters.onReuploadImage] Opens the portrait picker;
  *   shown after a miss that is retried by replacing the reference image.
  */
-/**
- * The spend-and-replace confirmation shown before a generation run starts.
- *
- * @param {Object} parameters
- * @param {Object} parameters.confirmation From emotionMediaGenerationConfirmation.
- * @param {boolean} parameters.starting Whether the run is already starting.
- * @param {Function} parameters.onCancel Dismiss without generating.
- * @param {Function} parameters.onConfirm Start the run.
- */
-const GenerationConfirmation = ({
-  confirmation,
-  starting,
-  onCancel,
-  onConfirm,
-}) => (
-  <Modal open onClose={onCancel} title={confirmation.title} widthClassName="max-w-md">
-    <div className="px-5 py-4 space-y-3">
-      <p className="text-sm text-neutral-200">{confirmation.description}</p>
-      <div className="rounded-lg border border-amber-400/30 bg-amber-400/5 p-3">
-        <p className="text-sm font-semibold text-amber-200">
-          {confirmation.costSummary}
-        </p>
-        {confirmation.costBreakdown.length > 0 && (
-          <ul className="mt-2 space-y-1 text-xs text-white/70 list-disc list-inside">
-            {confirmation.costBreakdown.map((line) => (
-              <li key={line}>{line}</li>
-            ))}
-          </ul>
-        )}
-      </div>
-      <div className="flex justify-end gap-2 pt-1">
-        <button
-          type="button"
-          onClick={onCancel}
-          className="px-4 py-2 rounded-lg border border-white/20 text-white/80 hover:bg-white/10 transition-colors text-sm"
-        >
-          Cancel
-        </button>
-        <button
-          type="button"
-          onClick={onConfirm}
-          disabled={starting}
-          className="px-4 py-2 rounded-lg bg-amber-400/15 hover:bg-amber-400/25 text-amber-300 border border-amber-400/30 disabled:opacity-50 transition-colors text-sm font-semibold"
-        >
-          {starting ? 'Starting…' : confirmation.confirmLabel}
-        </button>
-      </div>
-    </div>
-  </Modal>
-);
-
 const EmotionMediaStatus = ({ assistantId, hasPortrait, onReuploadImage }) => {
   const { manifest, refresh } = useEmotionMedia(assistantId);
   const [jobId, setJobId] = useState(null);
   const [jobStage, setJobStage] = useState(null);
   const [starting, setStarting] = useState(false);
+  const [cancelling, setCancelling] = useState(false);
   // The run awaiting the owner's confirmation: generation spends real money at
   // the vendor and a full rebuild deletes the videos that exist, so no run
   // starts from a single press.
@@ -127,6 +78,7 @@ const EmotionMediaStatus = ({ assistantId, hasPortrait, onReuploadImage }) => {
         proceedDespiteModerationRisk,
       });
       if (started?.job_id) {
+        setPendingRun(null);
         setJobStage('Generating…');
         setJobId(started.job_id);
       }
@@ -136,6 +88,25 @@ const EmotionMediaStatus = ({ assistantId, hasPortrait, onReuploadImage }) => {
       );
     } finally {
       setStarting(false);
+    }
+  };
+
+  const cancelGeneration = async () => {
+    if (!jobId || cancelling) return;
+    setCancelling(true);
+    try {
+      await cancelAvatarMediaJob(jobId);
+      const job = await getAvatarMediaJob(jobId);
+      if (job?.state === 'cancelled') {
+        setJobId(null);
+        setJobStage(null);
+        setCancelling(false);
+        await refresh({ force: true });
+        toast('Emotion image and video generation was cancelled.');
+      }
+    } catch (cancelError) {
+      toast.error(cancelError?.message || 'Could not cancel generation.');
+      setCancelling(false);
     }
   };
 
@@ -154,11 +125,14 @@ const EmotionMediaStatus = ({ assistantId, hasPortrait, onReuploadImage }) => {
               (current != null && total != null ? ` ${current}/${total}` : '')
           );
         }
-        if (job?.state === 'completed' || job?.state === 'failed') {
+        if (job?.state === 'completed' || job?.state === 'failed' || job?.state === 'cancelled') {
           setJobId(null);
           setJobStage(null);
+          setCancelling(false);
           await refresh({ force: true });
-          if (job.state === 'failed') {
+          if (job.state === 'cancelled') {
+            toast('Emotion image and video generation was cancelled.');
+          } else if (job.state === 'failed') {
             const failures = job?.detail?.failures ?? [];
             toast.error(
               failures.length
@@ -190,12 +164,21 @@ const EmotionMediaStatus = ({ assistantId, hasPortrait, onReuploadImage }) => {
       <div className="w-32 text-center space-y-1.5">
         <p className="text-xs text-white/50 inline-flex items-center gap-1 justify-center">
           <Sparkles className="w-3 h-3 text-amber-300" aria-hidden="true" />
-          {jobStage ?? 'Generating…'}
+          {cancelling ? 'Cancelling…' : jobStage ?? 'Generating…'}
         </p>
         <Loader2
           className="w-4 h-4 mx-auto animate-spin text-amber-300"
           aria-hidden="true"
         />
+        <button
+          type="button"
+          onClick={cancelGeneration}
+          disabled={cancelling}
+          className="w-full inline-flex items-center justify-center gap-1 px-2 py-1 text-xs font-semibold rounded-md border border-white/15 text-white/70 hover:text-red-300 hover:border-red-300/40 hover:bg-red-400/10 disabled:opacity-50"
+        >
+          <Ban className="w-3 h-3" aria-hidden="true" />
+          Cancel
+        </button>
       </div>
     );
   }
@@ -276,11 +259,7 @@ const EmotionMediaStatus = ({ assistantId, hasPortrait, onReuploadImage }) => {
           )}
           starting={starting}
           onCancel={() => setPendingRun(null)}
-          onConfirm={async () => {
-            const run = pendingRun;
-            setPendingRun(null);
-            await startGeneration(run);
-          }}
+          onConfirm={() => startGeneration(pendingRun)}
         />
       )}
       {showFailure && !withheld && Boolean(onReuploadImage) && (

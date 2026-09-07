@@ -1,5 +1,6 @@
 // src/components/ui/Modal.jsx
 import React, { useEffect } from 'react';
+import { createPortal } from 'react-dom';
 import { ArrowLeft, X } from 'lucide-react';
 
 /**
@@ -8,7 +9,9 @@ import { ArrowLeft, X } from 'lucide-react';
  * Same recipe as the portrait and connect-card modals in AvatarSettings — a
  * blurred black overlay and a translucent card — collected once so the New
  * Connector picker, the connect card, and the custom connector form share one
- * implementation of Escape-to-close and click-outside-to-close.
+ * implementation of Escape-to-close and click-outside-to-close. Rendered into
+ * ``document.body`` so a caller nested in a blurred or overflowing card (the
+ * generation confirmation under the portrait) still covers the viewport.
  *
  * @param {Object} parameters
  * @param {boolean} parameters.open Whether the modal is shown.
@@ -37,9 +40,9 @@ const Modal = ({
     return () => document.removeEventListener('keydown', closeOnEscape);
   }, [open, onClose]);
 
-  if (!open) return null;
+  if (!open || typeof document === 'undefined') return null;
 
-  return (
+  return createPortal(
     <div
       className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4"
       onMouseDown={(pressEvent) => {
@@ -79,7 +82,8 @@ const Modal = ({
         )}
         <div className="p-5 overflow-y-auto">{children}</div>
       </div>
-    </div>
+    </div>,
+    document.body
   );
 };
 
