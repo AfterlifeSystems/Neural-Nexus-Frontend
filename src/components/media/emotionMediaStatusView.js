@@ -1,0 +1,129 @@
+// src/components/media/emotionMediaStatusView.js
+//
+// What the emotion-media card under the portrait shows, decided as data.
+//
+// Every flag here is a real boolean. JSX renders a falsy NUMBER — `0 && <p/>`
+// is `0`, not nothing — so a count used directly as a condition paints a
+// literal "0" under the portrait; that is exactly what `failureCount` and
+// `missingAssets` did before this module existed.
+
+import {
+  countEmotionMediaFailures,
+  emotionMediaWasWithheld,
+} from '../../services/emotionMediaFailures.js';
+
+/**
+ * The card's state for one manifest.
+ *
+ * @param {Object|null} manifest A normalized emotion-media manifest.
+ * @returns {{showFailure: boolean, withheld: boolean, isComplete: boolean,
+ *   missingAssets: number, onlyMissing: boolean}} showFailure: the newest run
+ *   left assets missing and said why. withheld: that run was withheld before
+ *   any vendor call, so "generate anyway" is the offer. onlyMissing: a
+ *   generation run should build the absent assets rather than the whole set.
+ */
+export const emotionMediaStatusView = (manifest) => {
+  const lastGeneration = manifest?.lastGeneration ?? null;
+  const { total: failureCount } = countEmotionMediaFailures(
+    lastGeneration?.failures
+  );
+  const missingAssets = manifest?.missing?.length ?? 0;
+  const showFailure = Boolean(lastGeneration) && failureCount > 0 && missingAssets > 0;
+  return {
+    showFailure,
+    withheld: showFailure && Boolean(emotionMediaWasWithheld(lastGeneration)),
+    isComplete: Boolean(manifest?.complete),
+    missingAssets,
+    onlyMissing: !manifest?.complete,
+  };
+};
+
+/**
+ * The generate button's label for that state.
+ *
+ * @param {{isComplete: boolean, missingAssets: number}} view From emotionMediaStatusView.
+ * @param {number} [totalAssets] How many stills and loops a full set holds.
+ * @returns {string} The button label.
+ */
+export const emotionMediaGenerateLabel = (view, totalAssets = 14) => {
+  if (view.isComplete) return 'Regenerate images & videos';
+  if (view.missingAssets > 0 && view.missingAssets < totalAssets) {
+    return 'Generate the missing images & videos';
+  }
+  return 'Generate images & videos';
+};
+
+/**
+ * A US dollar amount, written the way the confirmation shows it.
+ *
+ * @param {number} amount An amount in US dollars.
+ * @returns {string} For example `$3.60`.
+ */
+export const formatUsd = (amount) =>
+  `$${Number(amount ?? 0).toFixed(2)}`;
+
+/**
+ * What the confirmation asks before a generation run spends anything.
+ *
+ * A full rebuild REPLACES every generated still and idle loop the avatar has,
+ * so the wording says so plainly and prices the whole set. A top-up builds
+ * only what is absent and keeps what exists. Without an estimate from the
+ * server (an older API), the cost lines are omitted rather than invented.
+ *
+ * @param {{isComplete: boolean, missingAssets: number, onlyMissing: boolean}} view
+ *   From emotionMediaStatusView.
+ * @param {Object|null} generation The manifest's `generation` block.
+ * @returns {{title: string, description: string, costSummary: string,
+ *   costBreakdown: string[], confirmLabel: string, isReplacement: boolean}}
+ */
+export const emotionMediaGenerationConfirmation = (
+  view,
+  generation,
+  totalAssets = 14
+) => {
+  const isReplacement = !view.onlyMissing;
+  // Nothing generated yet: the run builds the whole set, but replaces nothing.
+  const isFirstBuild = !isReplacement && view.missingAssets >= totalAssets;
+  const cost = isReplacement
+    ? (generation?.costFullRebuild ?? null)
+    : (generation?.costMissingOnly ?? null);
+  const stills = cost?.stills ?? 0;
+  const idleLoops = cost?.idleLoops ?? 0;
+
+  const description = isReplacement
+    ? 'This replaces every emotion image and video this avatar already has. The current videos are deleted and rendered again from the reference image — a regeneration never keeps the old clips.'
+    : isFirstBuild
+      ? `This generates ${stills || 'the'} emotion image${stills === 1 ? '' : 's'} and ${idleLoops || ''} idle video${idleLoops === 1 ? '' : 's'} from the reference image.`
+          .replace(/\s+/g, ' ')
+          .trim()
+      : `This generates only the ${view.missingAssets} missing asset${
+          view.missingAssets === 1 ? '' : 's'
+        }. Everything already generated is kept.`;
+
+  const costBreakdown = cost
+    ? [
+        `${stills} image${stills === 1 ? '' : 's'} × ${formatUsd(cost.imageCostUsd)} = ${formatUsd(cost.stillsUsd)}`,
+        `${idleLoops} video${idleLoops === 1 ? '' : 's'} × ${cost.idleLoopSeconds}s × ${formatUsd(cost.videoCostPerSecondUsd)} per second = ${formatUsd(cost.idleLoopsUsd)}`,
+        'A clip the vendor refuses on content grounds is still charged.',
+      ]
+    : [];
+
+  return {
+    title: isReplacement
+      ? 'Replace every emotion image and video?'
+      : isFirstBuild
+        ? 'Generate the emotion images and videos?'
+        : 'Generate the missing images and videos?',
+    description,
+    costSummary: cost
+      ? `Expected cost: about ${formatUsd(cost.totalUsd)} at the vendor.`
+      : 'The cost of this run could not be estimated.',
+    costBreakdown,
+    confirmLabel: cost
+      ? `${isReplacement ? 'Replace' : 'Generate'} for about ${formatUsd(cost.totalUsd)}`
+      : isReplacement
+        ? 'Replace them'
+        : 'Generate them',
+    isReplacement,
+  };
+};

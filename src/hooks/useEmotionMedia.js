@@ -76,6 +76,26 @@ export function forgetEmotionMedia(assistantId) {
   }
 }
 
+/**
+ * One cost estimate from the manifest, in the client's naming.
+ *
+ * @param {Object|null} cost A `cost_full_rebuild` / `cost_missing_only` block.
+ * @returns {Object|null} The same numbers, camel-cased, or null.
+ */
+function normalizeCost(cost) {
+  if (!cost || typeof cost !== 'object') return null;
+  return {
+    stills: cost.stills ?? 0,
+    idleLoops: cost.idle_loops ?? 0,
+    imageCostUsd: cost.image_cost_usd ?? 0,
+    videoCostPerSecondUsd: cost.video_cost_per_second_usd ?? 0,
+    idleLoopSeconds: cost.idle_loop_seconds ?? 0,
+    stillsUsd: cost.stills_usd ?? 0,
+    idleLoopsUsd: cost.idle_loops_usd ?? 0,
+    totalUsd: cost.total_usd ?? 0,
+  };
+}
+
 function normalizeManifest(manifest) {
   if (!manifest || typeof manifest !== 'object') return null;
   const emotions = {};
@@ -113,6 +133,11 @@ function normalizeManifest(manifest) {
           tierAllows: Boolean(manifest.generation.tier_allows),
           configured: Boolean(manifest.generation.configured),
           allowed: Boolean(manifest.generation.allowed),
+          // What a run costs at the vendor, so the owner confirms a spend
+          // with the arithmetic in front of them rather than a surprise on
+          // the invoice.
+          costFullRebuild: normalizeCost(manifest.generation.cost_full_rebuild),
+          costMissingOnly: normalizeCost(manifest.generation.cost_missing_only),
         }
       : null,
   };

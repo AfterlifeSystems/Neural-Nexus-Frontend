@@ -7,11 +7,13 @@ import {
   getAvatarMediaJob,
   regenerateAvatarEmotionMedia,
 } from '../../services/avatarService';
+import { emotionMediaFailureMessage } from '../../services/emotionMediaFailures';
 import {
-  countEmotionMediaFailures,
-  emotionMediaFailureMessage,
-  emotionMediaWasWithheld,
-} from '../../services/emotionMediaFailures';
+  emotionMediaGenerateLabel,
+  emotionMediaGenerationConfirmation,
+  emotionMediaStatusView,
+} from './emotionMediaStatusView';
+import Modal from '../ui/Modal';
 
 const JOB_POLL_MILLISECONDS = 4000;
 
@@ -20,7 +22,10 @@ const JOB_POLL_MILLISECONDS = 4000;
  * it, and the control that builds them.
  *
  * The generate button appears as soon as a reference image exists, and is the
- * owner's way to spend on the image and video vendor deliberately. The tier
+ * owner's way to spend on the image and video vendor deliberately: pressing it
+ * opens a confirmation that says whether the run REPLACES the existing videos
+ * and what the run is expected to cost, priced from the configured vendor
+ * rates the server reports with the manifest. The tier
  * that may spend is a deployment setting (EMOTION_MEDIA_MINIMUM_TIER, premium
  * by default), and the manifest reports the answer per viewer, so a lower tier
  * sees the button disabled with the plan the feature needs rather than a
@@ -40,11 +45,66 @@ const JOB_POLL_MILLISECONDS = 4000;
  * @param {Function} [parameters.onReuploadImage] Opens the portrait picker;
  *   shown after a miss that is retried by replacing the reference image.
  */
+/**
+ * The spend-and-replace confirmation shown before a generation run starts.
+ *
+ * @param {Object} parameters
+ * @param {Object} parameters.confirmation From emotionMediaGenerationConfirmation.
+ * @param {boolean} parameters.starting Whether the run is already starting.
+ * @param {Function} parameters.onCancel Dismiss without generating.
+ * @param {Function} parameters.onConfirm Start the run.
+ */
+const GenerationConfirmation = ({
+  confirmation,
+  starting,
+  onCancel,
+  onConfirm,
+}) => (
+  <Modal open onClose={onCancel} title={confirmation.title} widthClassName="max-w-md">
+    <div className="px-5 py-4 space-y-3">
+      <p className="text-sm text-neutral-200">{confirmation.description}</p>
+      <div className="rounded-lg border border-amber-400/30 bg-amber-400/5 p-3">
+        <p className="text-sm font-semibold text-amber-200">
+          {confirmation.costSummary}
+        </p>
+        {confirmation.costBreakdown.length > 0 && (
+          <ul className="mt-2 space-y-1 text-xs text-white/70 list-disc list-inside">
+            {confirmation.costBreakdown.map((line) => (
+              <li key={line}>{line}</li>
+            ))}
+          </ul>
+        )}
+      </div>
+      <div className="flex justify-end gap-2 pt-1">
+        <button
+          type="button"
+          onClick={onCancel}
+          className="px-4 py-2 rounded-lg border border-white/20 text-white/80 hover:bg-white/10 transition-colors text-sm"
+        >
+          Cancel
+        </button>
+        <button
+          type="button"
+          onClick={onConfirm}
+          disabled={starting}
+          className="px-4 py-2 rounded-lg bg-amber-400/15 hover:bg-amber-400/25 text-amber-300 border border-amber-400/30 disabled:opacity-50 transition-colors text-sm font-semibold"
+        >
+          {starting ? 'Starting…' : confirmation.confirmLabel}
+        </button>
+      </div>
+    </div>
+  </Modal>
+);
+
 const EmotionMediaStatus = ({ assistantId, hasPortrait, onReuploadImage }) => {
   const { manifest, refresh } = useEmotionMedia(assistantId);
   const [jobId, setJobId] = useState(null);
   const [jobStage, setJobStage] = useState(null);
   const [starting, setStarting] = useState(false);
+  // The run awaiting the owner's confirmation: generation spends real money at
+  // the vendor and a full rebuild deletes the videos that exist, so no run
+  // starts from a single press.
+  const [pendingRun, setPendingRun] = useState(null);
   const pollRef = useRef(null);
 
   /**
@@ -140,23 +200,16 @@ const EmotionMediaStatus = ({ assistantId, hasPortrait, onReuploadImage }) => {
     );
   }
 
-  const lastGeneration = manifest?.lastGeneration;
-  const { total: failureCount } = countEmotionMediaFailures(
-    lastGeneration?.failures
-  );
-  const missingAssets = manifest?.missing?.length ?? 0;
-  const showFailure = Boolean(lastGeneration) && failureCount && missingAssets;
+  const lastGeneration = manifest?.lastGeneration ?? null;
+  // Every flag below is a boolean on purpose: `0 && <p/>` renders the number
+  // zero, so a count used as a condition paints a stray "0" under the portrait.
+  const view = emotionMediaStatusView(manifest);
+  const { showFailure, withheld, onlyMissing } = view;
   const message = showFailure ? emotionMediaFailureMessage(lastGeneration) : '';
-  const withheld = showFailure && emotionMediaWasWithheld(lastGeneration);
 
   // The manifest answers this per viewer: null for anyone but the creator.
   const generation = manifest?.generation ?? null;
-  const isComplete = Boolean(manifest?.complete);
-  const generateLabel = isComplete
-    ? 'Regenerate images & videos'
-    : missingAssets > 0 && missingAssets < 14
-      ? 'Generate the missing images & videos'
-      : 'Generate images & videos';
+  const generateLabel = emotionMediaGenerateLabel(view);
 
   return (
     <div className="w-32 text-left space-y-1.5">
@@ -176,7 +229,7 @@ const EmotionMediaStatus = ({ assistantId, hasPortrait, onReuploadImage }) => {
       {generation && (
         <button
           type="button"
-          onClick={() => startGeneration({ onlyMissing: !isComplete })}
+          onClick={() => setPendingRun({ onlyMissing })}
           disabled={!generation.allowed || starting}
           title={
             generation.allowed
@@ -204,7 +257,7 @@ const EmotionMediaStatus = ({ assistantId, hasPortrait, onReuploadImage }) => {
         <button
           type="button"
           onClick={() =>
-            startGeneration({
+            setPendingRun({
               onlyMissing: true,
               proceedDespiteModerationRisk: true,
             })
@@ -215,7 +268,22 @@ const EmotionMediaStatus = ({ assistantId, hasPortrait, onReuploadImage }) => {
           {starting ? 'Starting…' : 'Generate anyway (at your cost)'}
         </button>
       )}
-      {showFailure && !withheld && onReuploadImage && (
+      {pendingRun && (
+        <GenerationConfirmation
+          confirmation={emotionMediaGenerationConfirmation(
+            { ...view, onlyMissing: pendingRun.onlyMissing },
+            generation
+          )}
+          starting={starting}
+          onCancel={() => setPendingRun(null)}
+          onConfirm={async () => {
+            const run = pendingRun;
+            setPendingRun(null);
+            await startGeneration(run);
+          }}
+        />
+      )}
+      {showFailure && !withheld && Boolean(onReuploadImage) && (
         <button
           type="button"
           onClick={onReuploadImage}
