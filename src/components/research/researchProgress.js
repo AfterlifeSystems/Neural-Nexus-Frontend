@@ -57,6 +57,18 @@ export const describeResearchStage = (event) => {
       return `Adding ${event.facts ?? 0} facts to what this avatar knows…`;
     case 'applied':
       return `Added ${event.applied ?? 0} facts; ${event.proposals ?? 0} need your decision.`;
+    case 'verified_media':
+      return event.media_sources
+        ? `Found ${event.media_sources} verified source${event.media_sources === 1 ? '' : 's'} to learn from directly.`
+        : 'No verified media to learn from.';
+    case 'learning_from_media':
+      return `Reading and transcribing ${event.media_sources ?? 0} verified source${event.media_sources === 1 ? '' : 's'}…`;
+    case 'media_started':
+      // The media batch outlives the research job, so this says where it went
+      // rather than pretending the work is finished.
+      return event.media_batch?.status === 'refused'
+        ? `The verified sources could not be learned from: ${event.media_batch?.detail ?? 'refused'}`
+        : 'The verified sources are being learned from; they appear in this avatar\'s uploaded material as they finish.';
     default:
       return event?.stage ? String(event.stage) : '';
   }

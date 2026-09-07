@@ -77,3 +77,30 @@ test('a contradiction is ignored until a person chooses a version', () => {
     { fact_id: 'c', action: 'ignore' },
   ]);
 });
+
+test('the media hand-off is reported as its own stage', () => {
+  assert.match(
+    describeResearchStage({ stage: 'verified_media', media_sources: 3 }),
+    /3 verified sources to learn from/
+  );
+  assert.equal(
+    describeResearchStage({ stage: 'verified_media', media_sources: 0 }),
+    'No verified media to learn from.'
+  );
+  assert.match(
+    describeResearchStage({ stage: 'learning_from_media', media_sources: 1 }),
+    /transcribing 1 verified source/
+  );
+  // The batch outlives the research job, so the line must not claim it finished.
+  assert.match(
+    describeResearchStage({ stage: 'media_started', media_batch: { status: 'started' } }),
+    /appear in this avatar's uploaded material as they finish/
+  );
+  assert.match(
+    describeResearchStage({
+      stage: 'media_started',
+      media_batch: { status: 'refused', detail: 'no storage left' },
+    }),
+    /could not be learned from: no storage left/
+  );
+});

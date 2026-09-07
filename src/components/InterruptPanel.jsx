@@ -18,6 +18,7 @@ import ConnectAccountCard from './ConnectAccountCard';
 import { useMedia } from '../context/MediaContext';
 import { useAuth } from '../context/AuthContext';
 import { resolveAssistantId } from './utils';
+import { interruptHeadingFor } from './interruptHeading';
 
 // The three things that can be done with one matched document. The order is the
 // order they are offered in; `skip` is last because it is the do-nothing choice.
@@ -259,6 +260,13 @@ const FactCorrectionPanel = ({ interrupt, onResume, isResuming }) => {
       correction_context: decisions[match.index]?.correctedContext ?? '',
     }));
 
+  // The same panel resolves a correction and a researched contradiction, and
+  // each needs its own sentence at the top.
+  const panelWording = interruptHeadingFor({
+    correctionKind: interrupt.correction_kind,
+    matchCount: matches.length,
+  });
+
   const handleApply = () => {
     // Removing a document cannot be undone from here, so it is confirmed
     // separately rather than riding along with the edits.
@@ -273,20 +281,14 @@ const FactCorrectionPanel = ({ interrupt, onResume, isResuming }) => {
     <div className={PANEL_CLASSES}>
       <div className="space-y-1">
         <div className="text-sm font-semibold text-neutral-200">
-          ✏️ I found {matches.length} stored item
-          {matches.length === 1 ? '' : 's'} that might match — choose what to do
-          with each.
+          {panelWording.heading}
         </div>
         {interrupt.inaccurate_information ? (
           <div className="text-xs text-white/60 italic">
             You flagged as inaccurate: {interrupt.inaccurate_information}
           </div>
         ) : null}
-        <div className="text-xs text-white/50">
-          Each item is pre-selected to my recommendation; you can change any of
-          them. Anything I recommend leaving unchanged stays exactly as-is unless
-          you pick another action.
-        </div>
+        <div className="text-xs text-white/50">{panelWording.guidance}</div>
       </div>
 
       <div className="space-y-3">
