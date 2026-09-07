@@ -26,6 +26,13 @@ const STAGE_LABELS = {
   emotion_media_complete: 'Emotion media ready',
   voice_clip_collected: 'Collecting your voice',
   instant_clone_created: 'Voice audio model ready',
+  // The upload is indexed by this point; these stages are the avatar checking
+  // what it just learned against what it already believed.
+  calibrating: 'Fitting your voice profile',
+  verifying_facts: 'Checking what this says against what I already know',
+  extracting: 'Reading the facts out of this',
+  verifying: 'Comparing the facts across sources',
+  facts_verified: 'Facts checked',
 };
 
 /**
