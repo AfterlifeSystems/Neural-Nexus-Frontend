@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { UserPenIcon } from 'lucide-react';
+import { MapPin, UserPenIcon } from 'lucide-react';
 import { toast } from 'react-hot-toast';
 import { useNavigate } from 'react-router-dom';
 import { createAvatar, listUserAvatars } from '../services/avatarService';
@@ -8,11 +8,26 @@ import {
   avatarSettingsPath,
   resolveCreatedAvatar,
 } from './createdAvatarSettings';
+import AvatarLocationPicker from './geo/AvatarLocationPicker';
+import {
+  DEFAULT_GEOFENCE_RADIUS_METERS,
+  isValidCoordinate,
+} from '../services/avatarProximity';
 
 const CreateAvatarModal = ({ setShowCreateModal }) => {
   const [error, setError] = useState(null);
   const [newAvatarName, setNewAvatarName] = useState('');
   const [newAvatarDescription, setNewAvatarDescription] = useState('');
+  // An avatar may be pinned to a real-world place here, but the place is never
+  // required: a memorial or a marker is often placed long after the avatar was
+  // made, from Avatar Settings.
+  const [isPinnedToAPlace, setIsPinnedToAPlace] = useState(false);
+  const [geoLocation, setGeoLocation] = useState({
+    latitude: undefined,
+    longitude: undefined,
+    locationName: '',
+    geofenceRadiusMeters: DEFAULT_GEOFENCE_RADIUS_METERS,
+  });
   const navigate = useNavigate();
   const {
     isLoading,
@@ -27,12 +42,20 @@ const CreateAvatarModal = ({ setShowCreateModal }) => {
       setError('Avatar name is required');
       return;
     }
+    if (
+      isPinnedToAPlace &&
+      !isValidCoordinate(geoLocation.latitude, geoLocation.longitude)
+    ) {
+      setError('Place this avatar on the map, or turn the pin off.');
+      return;
+    }
     setIsLoading(true);
     setError(null);
     try {
       const created = await createAvatar({
         name: newAvatarName,
         description: newAvatarDescription,
+        geoLocation: isPinnedToAPlace ? geoLocation : undefined,
       });
 
       // Refresh the avatar list so the new avatar appears immediately.
@@ -145,6 +168,35 @@ const CreateAvatarModal = ({ setShowCreateModal }) => {
             disabled={isLoading}
           />
         </label>
+        <div className="mb-4">
+          <label className="flex items-start gap-2 text-sm text-neutral-300">
+            <input
+              type="checkbox"
+              checked={isPinnedToAPlace}
+              onChange={(changeEvent) =>
+                setIsPinnedToAPlace(changeEvent.target.checked)
+              }
+              disabled={isLoading}
+              className="mt-1 h-4 w-4 accent-amber-400"
+            />
+            <span className="flex items-center gap-1.5">
+              <MapPin className="h-4 w-4 text-amber-300" aria-hidden="true" />
+              Pin this avatar to a real-world place
+            </span>
+          </label>
+          <p className="mt-1 ml-6 text-xs text-white/40">
+            A pinned avatar appears on the world map, and greets anyone who walks
+            up to the place. You can add or move the place later.
+          </p>
+          {isPinnedToAPlace && (
+            <div className="mt-3">
+              <AvatarLocationPicker
+                value={geoLocation}
+                onChange={setGeoLocation}
+              />
+            </div>
+          )}
+        </div>
         <div className="flex justify-end gap-2">
           <button
             onClick={() => setShowCreateModal(false)}

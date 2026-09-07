@@ -9,6 +9,8 @@ import SharePreviewOutlet from './SharePreviewOutlet';
 import { MediaShareProvider } from '../context/MediaShareContext';
 import { toast } from 'react-hot-toast';
 import { isAmbientCaptureSurface } from '../services/ambientCaptureSurface';
+import { GeoAvatarProvider } from '../context/GeoAvatarContext';
+import { voiceChatPath } from '../services/voiceModePreference';
 
 export default function ProtectedRoute() {
   const { user, isRestoringSession, activeAvatar } = useAuth();
@@ -22,6 +24,13 @@ export default function ProtectedRoute() {
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const location = useLocation();
   const navigate = useNavigate();
+
+  // Reaching a geo-located avatar's place opens that avatar in voice mode with
+  // the live camera behind them, so the avatar appears in the place the person
+  // is standing in.
+  const openAvatarOverTheCamera = (entry) => {
+    navigate(voiceChatPath(entry.assistant_id, { cameraBackground: true }));
+  };
 
   // The sidebar lists conversations wherever an avatar is open in context —
   // the gallery, account settings, billing — but only the chat screen can show
@@ -95,20 +104,21 @@ export default function ProtectedRoute() {
       ambientAllowed
       ambientCaptureAllowed={isConversationSurface}
     >
-      <SharePreviewOutlet />
-      <ConversationSidebar
-        isOpen={isSidebarOpen}
-        onOpen={() => setIsSidebarOpen(true)}
-        onClose={() => setIsSidebarOpen(false)}
-        conversations={conversationList}
-        activeConversationId={activeConversation}
-        onSelectConversation={handleSelectConversation}
-        onStartNewConversation={handleStartNewConversation}
-        avatarName={activeAvatar?.name}
-        showConversations={isViewingAChat}
-        showShareControls
-      />
-      {/* The frame every signed-in screen renders into.
+      <GeoAvatarProvider onTalkNow={openAvatarOverTheCamera}>
+        <SharePreviewOutlet />
+        <ConversationSidebar
+          isOpen={isSidebarOpen}
+          onOpen={() => setIsSidebarOpen(true)}
+          onClose={() => setIsSidebarOpen(false)}
+          conversations={conversationList}
+          activeConversationId={activeConversation}
+          onSelectConversation={handleSelectConversation}
+          onStartNewConversation={handleStartNewConversation}
+          avatarName={activeAvatar?.name}
+          showConversations={isViewingAChat}
+          showShareControls
+        />
+        {/* The frame every signed-in screen renders into.
           `pl-[var(--app-rail-width)]` reserves the collapsed rail's width, so
           left-aligned controls do not slide underneath it as the window
           narrows. Voice mode shortens that variable so the icon rail fits.
@@ -122,9 +132,10 @@ export default function ProtectedRoute() {
           which looks exactly like a page that failed to load.
           `overflow-y-auto` lets a page taller than the window scroll inside the
           frame rather than pushing the fixed rail around. */}
-      <div className="pl-[var(--app-rail-width)] h-full min-w-0 relative z-10 overflow-y-auto overflow-x-hidden">
-        <Outlet />
-      </div>
+        <div className="pl-[var(--app-rail-width)] h-full min-w-0 relative z-10 overflow-y-auto overflow-x-hidden">
+          <Outlet />
+        </div>
+      </GeoAvatarProvider>
     </MediaShareProvider>
   );
 }

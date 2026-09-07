@@ -4,6 +4,7 @@ import {
   consumeVoiceModeSearchParams,
   openVoiceChat,
   readVoiceModePreference,
+  searchRequestsCameraBackground,
   searchRequestsVoiceMode,
   voiceChatPath,
   voiceModeIsOpen,
@@ -60,6 +61,14 @@ test('voiceChatPath opens that avatar on the Chat tab in voice mode', () => {
   assert.equal(voiceChatPath('a/b'), '/chat/a%2Fb?voice=1');
   assert.equal(voiceChatPath(''), '/avatars');
   assert.equal(voiceChatPath(null), '/avatars');
+});
+
+test('a geo-located avatar opens in voice mode over the live camera', () => {
+  assert.equal(voiceChatPath('abc', { cameraBackground: true }), '/chat/abc?voice=1&camera=1');
+  assert.equal(voiceChatPath('abc'), '/chat/abc?voice=1');
+  assert.equal(searchRequestsCameraBackground('?voice=1&camera=1'), true);
+  assert.equal(searchRequestsCameraBackground('?voice=1'), false);
+  assert.equal(searchRequestsCameraBackground(''), false);
 });
 
 test('searchRequestsVoiceMode reads the voice query', () => {

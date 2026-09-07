@@ -12,6 +12,7 @@ import {
 } from './neuralNexusApiClient';
 import { retainOwnedMcpDevices } from './mcpOwnership';
 import { avatarsWithPersonalFirst } from './avatarListOrder';
+import { boundsQuery, geoLocationQuery } from './avatarProximity';
 import { withRateLimitRetry } from './retryRateLimited';
 
 export { retainOwnedMcpDevices } from './mcpOwnership';
@@ -51,6 +52,9 @@ export const listPublicAvatars = async (assistantId) => {
  * @param {string} [options.description] Avatar description.
  * @param {boolean} [options.isPublic] Share the avatar publicly at creation.
  * @param {boolean} [options.isPersonalAvatarOfCreator] The avatar depicts the creator.
+ * @param {Object} [options.geoLocation] Pin the avatar to a real-world place:
+ *   {latitude, longitude, locationName, geofenceRadiusMeters}. Omit to leave the
+ *   avatar unpinned; the place can also be added later through modifyAvatar.
  * @returns {Promise<Object>} The created assistant record.
  */
 export const createAvatar = async ({
@@ -58,6 +62,7 @@ export const createAvatar = async ({
   description,
   isPublic = false,
   isPersonalAvatarOfCreator = false,
+  geoLocation,
 }) => {
   return requestJson('/create_avatar', {
     method: 'POST',
@@ -66,6 +71,7 @@ export const createAvatar = async ({
       description,
       is_public: isPublic,
       is_personal_avatar_of_creator: isPersonalAvatarOfCreator,
+      ...geoLocationQuery(geoLocation),
     },
   });
 };
@@ -79,6 +85,9 @@ export const createAvatar = async ({
  * @param {string} [options.newAvatarName] Replacement name.
  * @param {string} [options.newAvatarDescription] Replacement description.
  * @param {boolean} [options.isPersonalAvatarOfCreator] Update the personal-avatar flag.
+ * @param {Object} [options.geoLocation] Pin the avatar to a real-world place, or
+ *   move an existing pin: {latitude, longitude, locationName, geofenceRadiusMeters}.
+ * @param {boolean} [options.clearGeoLocation] Remove the avatar's pin entirely.
  * @returns {Promise<Object>} The modified assistant record.
  */
 export const modifyAvatar = async ({
@@ -86,6 +95,8 @@ export const modifyAvatar = async ({
   newAvatarName,
   newAvatarDescription,
   isPersonalAvatarOfCreator,
+  geoLocation,
+  clearGeoLocation,
 }) => {
   return requestJson('/modify_avatar', {
     method: 'PATCH',
@@ -94,7 +105,83 @@ export const modifyAvatar = async ({
       new_avatar_name: newAvatarName,
       new_avatar_description: newAvatarDescription,
       is_personal_avatar_of_creator: isPersonalAvatarOfCreator,
+      clear_geo_location: clearGeoLocation,
+      ...geoLocationQuery(geoLocation),
     },
+  });
+};
+
+/**
+ * Every public avatar pinned to a real-world place, for the world globe and the
+ * local map.
+ * GET /avatars/geo
+ *
+ * @param {Object} [options]
+ * @param {Object} [options.bounds] Map viewport {minLatitude, minLongitude, maxLatitude, maxLongitude}; omit for every pin on Earth.
+ * @param {boolean} [options.asAnonymousIdentity] Call without the stored credential.
+ * @returns {Promise<Array>} Pinned avatars ({assistant_id, name, description, geo_location}).
+ */
+export const listGeoAvatars = async ({ bounds, asAnonymousIdentity = false } = {}) => {
+  const response = await requestJson('/avatars/geo', {
+    query: boundsQuery(bounds),
+    asAnonymousIdentity,
+  });
+  return response?.avatars ?? [];
+};
+
+/**
+ * The geo-located avatars around a point, nearest first.
+ * GET /avatars/nearby
+ *
+ * @param {Object} position
+ * @param {number} position.latitude
+ * @param {number} position.longitude
+ * @param {number} [position.accuracyMeters] The accuracy the device reported; widens each geofence so an imprecise reading does not read as "outside".
+ * @param {number} [position.radiusMeters] How far to search; the API defaults and caps this.
+ * @param {Object} [options]
+ * @param {boolean} [options.asAnonymousIdentity] Call without the stored credential.
+ * @returns {Promise<Array>} Entries carrying geo_location, distance_meters, and inside_geofence.
+ */
+export const listNearbyAvatars = async (
+  { latitude, longitude, accuracyMeters, radiusMeters },
+  { asAnonymousIdentity = false } = {}
+) => {
+  const response = await requestJson('/avatars/nearby', {
+    query: {
+      latitude,
+      longitude,
+      accuracy_meters: accuracyMeters,
+      radius_meters: radiusMeters,
+    },
+    asAnonymousIdentity,
+  });
+  return response?.avatars ?? [];
+};
+
+/**
+ * Report the device's position and learn which avatars the person has reached.
+ * POST /geo/checkin
+ *
+ * @param {Object} position
+ * @param {number} position.latitude
+ * @param {number} position.longitude
+ * @param {number} [position.accuracyMeters]
+ * @param {Object} [options]
+ * @param {boolean} [options.asAnonymousIdentity] Call without the stored credential.
+ * @returns {Promise<Object>} {inside_geofence, nearby, notify, visits_recorded, open_avatar_id}.
+ */
+export const geoCheckin = async (
+  { latitude, longitude, accuracyMeters },
+  { asAnonymousIdentity = false } = {}
+) => {
+  return requestJson('/geo/checkin', {
+    method: 'POST',
+    body: {
+      latitude,
+      longitude,
+      accuracy_meters: accuracyMeters ?? null,
+    },
+    asAnonymousIdentity,
   });
 };
 
@@ -1008,6 +1095,22 @@ export const deleteAvatarEmotionMedia = async (assetId) => {
  */
 export const getAvatarMediaJob = async (jobId) => {
   return requestJson(`/avatar_media_jobs/${encodeURIComponent(jobId)}`);
+};
+
+/**
+ * Cancel a running emotion-media (or other avatar media) job.
+ * POST /avatar_media_jobs/{job_id}/cancel
+ *
+ * Stops further image and video vendor calls. A clip already in flight at
+ * the vendor may still complete and be charged.
+ *
+ * @param {string} jobId The job.
+ * @returns {Promise<Object>} `{job_id, state}`.
+ */
+export const cancelAvatarMediaJob = async (jobId) => {
+  return requestJson(`/avatar_media_jobs/${encodeURIComponent(jobId)}/cancel`, {
+    method: 'POST',
+  });
 };
 
 /**

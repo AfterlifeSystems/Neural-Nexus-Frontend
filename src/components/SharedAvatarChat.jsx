@@ -22,7 +22,7 @@
 // check is needed here.
 
 import React, { useEffect, useState } from 'react';
-import { useNavigate, useParams } from 'react-router-dom';
+import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { MessageCircle, Sparkles, User } from 'lucide-react';
 
 import { useAuth } from '../context/AuthContext';
@@ -37,6 +37,10 @@ import {
 } from './utils';
 import LoadingSpinner from './LoadingSpinner';
 import LiveVoiceMode from './LiveVoiceMode';
+import {
+  searchRequestsCameraBackground,
+  searchRequestsVoiceMode,
+} from '../services/voiceModePreference';
 import MessageList from './MessageList';
 import InputBar from './InputBar';
 
@@ -87,7 +91,16 @@ const SharedAvatarChat = () => {
   // `onActivateLiveChat` was simply not passed, so pressing it did nothing at
   // all. A spoken turn is an ordinary turn with the recording attached, so it
   // travels the anonymous message stream this chat already uses.
-  const [isLiveModeOpen, setIsLiveModeOpen] = useState(false);
+  // A visitor who has walked up to this avatar's real-world place arrives with
+  // `?voice=1&camera=1`, so the avatar is already talking, over the live view of
+  // the place they are standing in.
+  const [sharedSearchParams] = useSearchParams();
+  const [isLiveModeOpen, setIsLiveModeOpen] = useState(() =>
+    searchRequestsVoiceMode(sharedSearchParams)
+  );
+  const [opensOverTheCamera] = useState(() =>
+    searchRequestsCameraBackground(sharedSearchParams)
+  );
   // Whether the lookup for this visitor's earlier chats with this avatar has
   // finished. The opening question is offered only for a conversation that is
   // genuinely empty, and the transcript is empty for the moment that lookup
@@ -263,6 +276,7 @@ const SharedAvatarChat = () => {
         avatarName={activeAvatar?.name}
         avatarPortrait={avatarPortrait}
         onClose={() => setIsLiveModeOpen(false)}
+        cameraBackground={opensOverTheCamera}
       />
     )}
     <div className={`h-full w-full min-w-0 p-2 sm:p-4 ${isLiveModeOpen ? 'invisible pointer-events-none' : ''}`}>

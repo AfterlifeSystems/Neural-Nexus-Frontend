@@ -23,6 +23,7 @@ import { subscribeAvatarPortraitChanged } from '../services/avatarPortraitEvents
 import {
   consumeVoiceModeSearchParams,
   readVoiceModePreference,
+  searchRequestsCameraBackground,
   searchRequestsVoiceMode,
   voiceModeIsOpen,
   writeVoiceModePreference,
@@ -61,6 +62,13 @@ const ChatArea = ({ onActivateLiveChat, onEndLiveChat, className }) => {
     setPrefersVoiceMode(preferred);
     writeVoiceModePreference(preferred);
   };
+  // `?camera=1` accompanies `?voice=1` when someone has walked up to a
+  // geo-located avatar's place: the avatar opens over the live camera, so it
+  // appears in the place they are standing in. Read before the first paint for
+  // the same reason the voice query is, and stripped with it.
+  const [opensOverTheCamera] = useState(() =>
+    searchRequestsCameraBackground(searchParams)
+  );
   // const [activeTab, setActiveTab] = useState('avatar-settings');
   const [activeTab, setActiveTab] = useState(() => {
     if (searchRequestsVoiceMode(searchParams)) return 'chat';
@@ -367,6 +375,7 @@ const ChatArea = ({ onActivateLiveChat, onEndLiveChat, className }) => {
           avatarPortrait={avatarPortrait}
           onClose={() => rememberVoiceModePreference(false)}
           onNavigateTab={handleTabChange}
+          cameraBackground={opensOverTheCamera}
         />
       )}
       <div

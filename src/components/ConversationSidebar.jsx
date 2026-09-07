@@ -34,6 +34,7 @@ import { sortConversationsChronologically } from '../services/pinnedConversation
 import SharePreviewSlot from './SharePreviewSlot';
 import SidebarShareControls from './SidebarShareControls';
 import EvanAssistLauncher from './evanAssist/EvanAssistLauncher';
+import SidebarGeoAvatarSection from './geo/SidebarGeoAvatarSection';
 
 /**
  * Name a conversation the way the user would recognize it.
@@ -476,6 +477,8 @@ const ConversationSidebar = ({
                 <SharePreviewSlot name="panel" className="empty:hidden" />
               </div>
             )}
+
+            <SidebarGeoAvatarSection onNavigate={onClose} />
 
             {showConversations && (
               <>

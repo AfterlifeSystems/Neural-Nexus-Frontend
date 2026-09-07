@@ -71,6 +71,8 @@ import {
 import AvatarWorkspaceHeader from './AvatarWorkspaceHeader';
 import useInboxCount from '../hooks/useInboxCount';
 import LoopingVideo from './ui/LoopingVideo';
+import LiveShareVideo from './LiveShareVideo';
+import { useCameraPassthrough } from '../hooks/useCameraPassthrough';
 import useEmotionMedia, { preloadEmotionMedia } from '../hooks/useEmotionMedia';
 import { voiceStageEmotion } from '../hooks/voiceStageEmotion';
 import useMessageActions from '../hooks/useMessageActions';
@@ -249,6 +251,7 @@ const LiveVoiceMode = ({
   avatarPortrait,
   onClose,
   onNavigateTab,
+  cameraBackground = false,
 }) => {
   const {
     messages,
@@ -296,6 +299,23 @@ const LiveVoiceMode = ({
   // Opening live voice is asking to be heard. Mute is only something the
   // person chooses after the stage is already up.
   const [isMicMuted, setIsMicMuted] = useState(false);
+  // The live camera behind the avatar. Turned on for a person who has walked
+  // up to a geo-located avatar's place, and available as a toggle to anyone
+  // else who wants the avatar in the room with them.
+  const [isCameraBackgroundOn, setIsCameraBackgroundOn] =
+    useState(cameraBackground);
+  const { stream: cameraBackgroundStream, error: cameraBackgroundError } =
+    useCameraPassthrough(isCameraBackgroundOn);
+
+  // A refused or missing camera is not a failure of the conversation: the
+  // avatar simply appears against the usual backdrop.
+  useEffect(() => {
+    if (!cameraBackgroundError) return;
+    setIsCameraBackgroundOn(false);
+    toast('Camera unavailable; showing the avatar without the live view.', {
+      id: 'voice-camera-unavailable',
+    });
+  }, [cameraBackgroundError]);
   const [isVideoEnabled, setIsVideoEnabled] = useState(
     Boolean(preferences.videoEnabled)
   );
@@ -1384,6 +1404,16 @@ const LiveVoiceMode = ({
         setSuggestionSheetOpen(false);
       }}
     >
+      {/* The place the person is standing in, behind the avatar. The stage and
+          the portrait well are both transparent, so the avatar composites over
+          this with nothing else to change. */}
+      {cameraBackgroundStream && (
+        <LiveShareVideo
+          stream={cameraBackgroundStream}
+          label="The place around you"
+          className="absolute inset-0 w-full h-full object-cover pointer-events-none"
+        />
+      )}
       {/* Portrait fills the stage and does not reflow when chrome toggles. */}
       <div
         ref={portraitConstraintRef}
@@ -1970,6 +2000,31 @@ const LiveVoiceMode = ({
                   <Sparkles className="w-5 h-5" />
                 </button>
               </div>
+
+              <button
+                type="button"
+                onClick={() =>
+                  setIsCameraBackgroundOn((isOn) => !isOn)
+                }
+                title={
+                  isCameraBackgroundOn
+                    ? 'Hide the live camera behind the avatar'
+                    : 'Show the live camera behind the avatar'
+                }
+                aria-label={
+                  isCameraBackgroundOn
+                    ? 'Hide the live camera behind the avatar'
+                    : 'Show the live camera behind the avatar'
+                }
+                aria-pressed={isCameraBackgroundOn}
+                className={`${CONTROL_CLASSES} ${isCameraBackgroundOn ? ACTIVE_CONTROL_CLASSES : ''}`}
+              >
+                {isCameraBackgroundOn ? (
+                  <Camera className="w-5 h-5" />
+                ) : (
+                  <CameraOff className="w-5 h-5" />
+                )}
+              </button>
 
               <button
                 type="button"

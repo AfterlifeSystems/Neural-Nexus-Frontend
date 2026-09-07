@@ -11,6 +11,7 @@
 import React from 'react';
 import {
   CreditCard,
+  Globe,
   Inbox,
   LogOut,
   Settings,
@@ -237,6 +238,14 @@ const AccountMenu = ({
         badgeCount={iconOnly ? inboxCount : 0}
         onClick={() => openPersonalWorkspace('inbox')}
         isCurrent={isInboxCurrent}
+      />
+      <AccountMenuItem
+        iconOnly={iconOnly}
+        icon={<Globe className={iconClass} />}
+        label="World map"
+        ariaLabel="World map of geo-located avatars"
+        onClick={() => goTo('/map')}
+        isCurrent={currentPath === '/map'}
       />
       <AccountMenuItem
         iconOnly={iconOnly}

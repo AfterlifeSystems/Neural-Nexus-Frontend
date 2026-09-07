@@ -60,6 +60,11 @@ import {
 } from './requestFailureToast';
 import ConnectionsSection from './connections/ConnectionsSection';
 import EmotionMediaStatus from './media/EmotionMediaStatus';
+import GenerationConfirmation from './media/GenerationConfirmation';
+import {
+  emotionMediaGenerationConfirmation,
+  portraitUploadGenerationView,
+} from './media/emotionMediaStatusView';
 import UploadProcessPanel from './media/UploadProcessPanel';
 import ResearchPanel from './research/ResearchPanel';
 import VoicePanel from './voice/VoicePanel';
@@ -67,6 +72,7 @@ import useEmotionMedia, { forgetEmotionMedia } from '../hooks/useEmotionMedia';
 import { subscribeAvatarPortraitChanged } from '../services/avatarPortraitEvents';
 import { emotionMediaRows } from '../hooks/emotionMediaRows';
 import AvatarIdentityFacts from './AvatarIdentityFacts';
+import AvatarPlaceCard from './geo/AvatarPlaceCard';
 import {
   forgetCachedAvatar,
   writeCachedAvatarIcon,
@@ -162,6 +168,10 @@ const AvatarSettings = ({ avatarId, onPortraitChanged }) => {
   });
   const [manualUrl, setManualUrl] = useState('');
   const [portraitUrl, setPortraitUrl] = useState('');
+  // A chosen portrait waiting on Confirm / Cancel before the upload starts
+  // image and video generation.
+  const [pendingPortraitUpload, setPendingPortraitUpload] = useState(null);
+  const [startingPortraitUpload, setStartingPortraitUpload] = useState(false);
   // Bumped whenever something outside the Voice panel changes the voice
   // (a deleted upload, a new reference clip) so the panel re-reads status.
   const [voiceStatusVersion, setVoiceStatusVersion] = useState(0);
@@ -874,11 +884,20 @@ const AvatarSettings = ({ avatarId, onPortraitChanged }) => {
       return;
     }
     setPortraitUrl('');
-    await startSectionUpload({
-      urls: [parsed.url],
-      isReferenceImage: true,
-      confirmStored: confirmPortraitWasStored,
-    });
+    requestPortraitUpload({ urls: [parsed.url], files: [] });
+  };
+
+  const requestPortraitUpload = (payload) => {
+    // A tier that cannot spend stores the portrait and generates nothing, so
+    // there is no generation to confirm. Anyone who may spend must confirm.
+    if (emotionManifest?.generation?.allowed === false) {
+      return startSectionUpload({
+        ...payload,
+        isReferenceImage: true,
+        confirmStored: confirmPortraitWasStored,
+      });
+    }
+    setPendingPortraitUpload(payload);
   };
 
   const handleIconUpload = async (acceptedFiles, fileRejections, dropEvent) => {
@@ -891,15 +910,26 @@ const AvatarSettings = ({ avatarId, onPortraitChanged }) => {
     }
     const [chosenImage] = acceptedFiles ?? [];
     if (chosenImage) {
-      await startSectionUpload({
-        files: [chosenImage],
-        isReferenceImage: true,
-        confirmStored: confirmPortraitWasStored,
-      });
+      requestPortraitUpload({ files: [chosenImage], urls: [] });
       return;
     }
     if (droppedUrlText.trim()) {
       await submitPortraitUrl(droppedUrlText);
+    }
+  };
+
+  const confirmPendingPortraitUpload = async () => {
+    if (!pendingPortraitUpload || startingPortraitUpload) return;
+    setStartingPortraitUpload(true);
+    try {
+      await startSectionUpload({
+        ...pendingPortraitUpload,
+        isReferenceImage: true,
+        confirmStored: confirmPortraitWasStored,
+      });
+      setPendingPortraitUpload(null);
+    } finally {
+      setStartingPortraitUpload(false);
     }
   };
 
@@ -1464,6 +1494,17 @@ const AvatarSettings = ({ avatarId, onPortraitChanged }) => {
               hasPortrait={Boolean(avatarIcon)}
               onReuploadImage={() => openPortraitPickerRef.current?.()}
             />
+            {pendingPortraitUpload && (
+              <GenerationConfirmation
+                confirmation={emotionMediaGenerationConfirmation(
+                  portraitUploadGenerationView(emotionManifest),
+                  emotionManifest?.generation ?? null
+                )}
+                starting={startingPortraitUpload}
+                onCancel={() => setPendingPortraitUpload(null)}
+                onConfirm={confirmPendingPortraitUpload}
+              />
+            )}
           </div>
           {/* Name and Description */}
           <div className="w-full min-w-0 flex-grow space-y-4">
@@ -1910,6 +1951,11 @@ const AvatarSettings = ({ avatarId, onPortraitChanged }) => {
           avatar's control — except for the administrator, who may publish any
           avatar and therefore sees it on all of them. */}
       {canChangeSharing && renderSharingCard()}
+      <AvatarPlaceCard
+        assistantId={assistantId}
+        activeAvatar={activeAvatar}
+        onAvatarChanged={applyAvatarChangeLocally}
+      />
 
       {/* Connections — mailboxes, custom connectors, and machines — reached
           through the personal avatar, so they are not a property of any other

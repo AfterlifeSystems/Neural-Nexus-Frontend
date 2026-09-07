@@ -11,6 +11,15 @@ const VOICE_MODE_PREFERRED_STORAGE_KEY = 'voice_mode_preferred';
 export const VOICE_MODE_QUERY = 'voice';
 
 /**
+ * Query that asks voice mode to put the live camera behind the avatar.
+ *
+ * This is how a person who has walked up to a geo-located avatar's place opens
+ * that avatar: the camera shows the place they are standing in and the avatar
+ * appears over it. Stripped after ChatArea reads it, like the voice query.
+ */
+export const CAMERA_BACKGROUND_QUERY = 'camera';
+
+/**
  * @param {Storage} [storage]
  * @returns {boolean}
  */
@@ -57,9 +66,10 @@ export function voiceModeIsOpen(preferred, activeTab) {
  * @param {string} [assistantId]
  * @returns {string}
  */
-export function voiceChatPath(assistantId) {
+export function voiceChatPath(assistantId, { cameraBackground = false } = {}) {
   if (!assistantId) return '/avatars';
-  return `/chat/${encodeURIComponent(assistantId)}?${VOICE_MODE_QUERY}=1`;
+  const camera = cameraBackground ? `&${CAMERA_BACKGROUND_QUERY}=1` : '';
+  return `/chat/${encodeURIComponent(assistantId)}?${VOICE_MODE_QUERY}=1${camera}`;
 }
 
 /**
@@ -75,6 +85,20 @@ export function searchRequestsVoiceMode(search) {
 }
 
 /**
+ * Whether the URL asks for the live camera behind the avatar.
+ *
+ * @param {string|URLSearchParams|null|undefined} search
+ * @returns {boolean}
+ */
+export function searchRequestsCameraBackground(search) {
+  const params =
+    search instanceof URLSearchParams
+      ? search
+      : new URLSearchParams(search ?? '');
+  return params.get(CAMERA_BACKGROUND_QUERY) === '1';
+}
+
+/**
  * Drop the voice-mode request and any settings/inbox tab so Chat + talking
  * is what the URL describes after the toast (or a bookmark) is followed.
  *
@@ -86,6 +110,7 @@ export function consumeVoiceModeSearchParams(search) {
     search instanceof URLSearchParams ? search : search ?? ''
   );
   params.delete(VOICE_MODE_QUERY);
+  params.delete(CAMERA_BACKGROUND_QUERY);
   params.delete('tab');
   params.delete('section');
   return params;
@@ -109,8 +134,9 @@ export function openVoiceChat(
   {
     storage = globalThis.localStorage,
     assign = (path) => window.location.assign(path),
+    cameraBackground = false,
   } = {}
 ) {
   writeVoiceModePreference(true, storage);
-  assign(voiceChatPath(assistantId));
+  assign(voiceChatPath(assistantId, { cameraBackground }));
 }

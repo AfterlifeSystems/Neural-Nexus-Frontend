@@ -81,6 +81,7 @@ import {
   messageKeyOf,
 } from '../services/messageKey';
 import { withRateLimitRetry } from '../services/retryRateLimited';
+import { isStandingAtPlace } from '../services/standingAtPlaces';
 
 const MediaContext = createContext();
 
@@ -716,6 +717,15 @@ export const MediaProvider = ({ children }) => {
     ambient = false,
   }) {
     const assistantId = resolveAssistantId(avatarForMessage);
+    // Someone standing at the place a geo-located avatar was pinned to is a
+    // visitor who has walked up to it, and the avatar greets them as one. This
+    // is the only chokepoint every turn passes through, so every way of
+    // speaking — typed, spoken, ambient — carries it.
+    // Resuming a paused turn is a decision on a turn already under way, and
+    // that route takes no place flag, so only a fresh turn carries it.
+    if (!path.endsWith('/resume') && isStandingAtPlace(assistantId)) {
+      formData.set('at_place', 'true');
+    }
     const streamingMessageId = `streaming-${Date.now()}`;
     const streamStartedAtMs = performance.now();
     // The turn keeps running wherever the user goes; only its rendering is

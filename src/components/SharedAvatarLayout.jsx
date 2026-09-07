@@ -12,7 +12,7 @@
 // why the panel can list them while the chat below paints them.
 
 import React, { useMemo, useState } from 'react';
-import { Outlet, useLocation, useParams } from 'react-router-dom';
+import { Outlet, useLocation, useNavigate, useParams } from 'react-router-dom';
 import { toast } from 'react-hot-toast';
 
 import { useAuth } from '../context/AuthContext';
@@ -21,6 +21,11 @@ import AnonymousSidebar from './AnonymousSidebar';
 import SharePreviewOutlet from './SharePreviewOutlet';
 import { MediaShareProvider } from '../context/MediaShareContext';
 import { listRememberedSharedAvatarThreadIds } from './utils';
+import { GeoAvatarProvider } from '../context/GeoAvatarContext';
+import {
+  CAMERA_BACKGROUND_QUERY,
+  VOICE_MODE_QUERY,
+} from '../services/voiceModePreference';
 
 const SharedAvatarLayout = () => {
   const { avatarId } = useParams();
@@ -102,25 +107,41 @@ const SharedAvatarLayout = () => {
     setMessages([]);
   };
 
+  const navigate = useNavigate();
+
+  // A visitor following a shared link stays inside the shared-link frame when
+  // they reach a geo-located avatar's place, so the avatar opens on its own
+  // share path rather than on the signed-in chat path.
+  const openAvatarOverTheCamera = (entry) => {
+    navigate(
+      `/share/${encodeURIComponent(entry.assistant_id)}?${VOICE_MODE_QUERY}=1&${CAMERA_BACKGROUND_QUERY}=1`
+    );
+  };
+
   return (
     <MediaShareProvider ambientAllowed={false}>
-      <SharePreviewOutlet />
-      <AnonymousSidebar
-        isOpen={isSidebarOpen}
-        onOpen={() => setIsSidebarOpen(true)}
-        onClose={() => setIsSidebarOpen(false)}
-        billingPath={`/share/${avatarId}/billing`}
-        avatarName={activeAvatar?.name}
-        conversations={visitorConversations}
-        activeConversationId={activeConversation}
-        onSelectConversation={handleSelectConversation}
-        onStartNewConversation={handleStartNewConversation}
-        showConversations={isViewingSharedChat}
-        showShareControls={isViewingSharedChat}
-      />
-      <div className="pl-[var(--app-rail-width)] h-full w-full min-w-0 relative z-10 overflow-y-auto overflow-x-hidden">
-        <Outlet />
-      </div>
+      <GeoAvatarProvider
+        asAnonymousIdentity
+        onTalkNow={openAvatarOverTheCamera}
+      >
+        <SharePreviewOutlet />
+        <AnonymousSidebar
+          isOpen={isSidebarOpen}
+          onOpen={() => setIsSidebarOpen(true)}
+          onClose={() => setIsSidebarOpen(false)}
+          billingPath={`/share/${avatarId}/billing`}
+          avatarName={activeAvatar?.name}
+          conversations={visitorConversations}
+          activeConversationId={activeConversation}
+          onSelectConversation={handleSelectConversation}
+          onStartNewConversation={handleStartNewConversation}
+          showConversations={isViewingSharedChat}
+          showShareControls={isViewingSharedChat}
+        />
+        <div className="pl-[var(--app-rail-width)] h-full w-full min-w-0 relative z-10 overflow-y-auto overflow-x-hidden">
+          <Outlet />
+        </div>
+      </GeoAvatarProvider>
     </MediaShareProvider>
   );
 };

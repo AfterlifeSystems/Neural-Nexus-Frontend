@@ -20,6 +20,7 @@ import ChatArea from './components/ChatArea';
 import AccountSettings from './components/AccountSettings';
 import InboxPanel from './components/inbox/InboxPanel';
 import BillingManagement from './components/BillingManagement';
+import WorldMapScreen from './components/geo/WorldMapScreen';
 import SharedAvatarLayout from './components/SharedAvatarLayout';
 import SharedAvatarChat from './components/SharedAvatarChat';
 import SharedThreadChat from './components/SharedThreadChat';
@@ -141,6 +142,7 @@ createRoot(document.getElementById('root')).render(
               <Route path="/account" element={<AccountSettings />} />
               <Route path="/inbox" element={<InboxPanel />} />
               <Route path="/billing" element={<BillingManagement />} />
+              <Route path="/map" element={<WorldMapScreen />} />
             </Route>
             </Routes>
           </EvanAssistProvider>

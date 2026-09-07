@@ -1,0 +1,45 @@
+// src/components/geo/avatarPinMarker.js
+//
+// Leaflet's default marker icon is loaded from image files next to the library,
+// which a bundler rewrites and Leaflet then cannot find, leaving every marker
+// invisible. These markers are drawn from inline SVG instead, in the amber the
+// rest of the application already uses for a point of interest.
+
+import L from 'leaflet';
+
+const AMBER = '#fbbf24';
+const NEUTRAL = '#d4d4d4';
+
+function pinSvg(fill) {
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="26" height="34" viewBox="0 0 26 34">
+    <path d="M13 0C5.8 0 0 5.8 0 13c0 9.4 11.6 20.1 12.1 20.6a1.3 1.3 0 0 0 1.8 0C14.4 33.1 26 22.4 26 13 26 5.8 20.2 0 13 0z" fill="${fill}" fill-opacity="0.92"/>
+    <circle cx="13" cy="13" r="5" fill="rgba(0,0,0,0.75)"/>
+  </svg>`;
+}
+
+function svgIcon(fill, className) {
+  return L.divIcon({
+    className,
+    html: pinSvg(fill),
+    iconSize: [26, 34],
+    iconAnchor: [13, 34],
+    popupAnchor: [0, -30],
+  });
+}
+
+/** The marker for an avatar standing at a real-world place. */
+export const avatarPinIcon = svgIcon(AMBER, 'neural-nexus-pin');
+
+/** The marker for the pin the creator is currently placing or moving. */
+export const draftPinIcon = svgIcon(NEUTRAL, 'neural-nexus-pin neural-nexus-pin-draft');
+
+/** The marker for where the person holding the device is standing. */
+export const devicePositionIcon = L.divIcon({
+  className: 'neural-nexus-device-position',
+  html: `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 16 16">
+    <circle cx="8" cy="8" r="7" fill="rgba(255,255,255,0.25)"/>
+    <circle cx="8" cy="8" r="4" fill="#ffffff"/>
+  </svg>`,
+  iconSize: [16, 16],
+  iconAnchor: [8, 8],
+});
