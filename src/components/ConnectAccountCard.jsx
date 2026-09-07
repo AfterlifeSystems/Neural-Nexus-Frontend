@@ -267,6 +267,15 @@ const ConnectAccountCard = ({
   const [isWaitingForPopup, setIsWaitingForPopup] = useState(false);
   const [fallbackLink, setFallbackLink] = useState(null);
   const [resultCard, setResultCard] = useState(null);
+  // A second account of the same provider needs a name of its own ("work",
+  // "personal"); a "sign in again" refreshes the record named by the card.
+  const [accountName, setAccountName] = useState(
+    () => prefilledFields?.name ?? ''
+  );
+  // The API may answer that the sign-in needs the address of the page to
+  // sign in on (a bank's own website when Plaid is not configured).
+  const [siteRequest, setSiteRequest] = useState(null);
+  const [siteUrlValue, setSiteUrlValue] = useState('');
   const loginControllerRef = useRef(null);
   const popupRef = useRef(null);
 
@@ -284,10 +293,17 @@ const ConnectAccountCard = ({
     );
   }
 
+  const reconnectAccountKey = (payload.reconnect_connection_key || '')
+    .replace(/^account:/, '');
+  const withLoginExtras = (loginRequest) => ({
+    ...(loginRequest ?? { provider }),
+    ...(accountName.trim() ? { name: accountName.trim() } : {}),
+    ...(reconnectAccountKey ? { reconnect_account_key: reconnectAccountKey } : {}),
+  });
   const effectiveLogin = popupLogin ?? {
     login_mode: payload.login_mode,
     login_endpoint: payload.login_endpoint,
-    login_request: payload.login_request ?? { provider },
+    login_request: withLoginExtras(payload.login_request),
     message: payloadMessage,
   };
 
@@ -373,8 +389,10 @@ const ConnectAccountCard = ({
    * the window posts back (checked against the API origin and this login's
    * nonce) or as a new row for the provider in the connections list.
    */
-  const handlePopupLogin = async () => {
+  const handlePopupLogin = async (loginOverride = null) => {
     if (isSubmitting) return;
+    const login =
+      loginOverride && loginOverride.login_endpoint ? loginOverride : effectiveLogin;
     const popup = openPopupSynchronously(`neural-nexus-login-${provider}`);
     popupRef.current = popup;
     loginControllerRef.current?.abort();
@@ -387,14 +405,24 @@ const ConnectAccountCard = ({
     setFallbackLink(null);
     try {
       const [started, existingRows] = await Promise.all([
-        startConnectionLogin(
-          effectiveLogin.login_endpoint,
-          effectiveLogin.login_request
-        ),
+        startConnectionLogin(login.login_endpoint, withLoginExtras(login.login_request)),
         listConnections()
           .then((listed) => listed?.connections ?? [])
           .catch(() => []),
       ]);
+      if (started?.action === 'needs_site_url') {
+        // The sign-in needs the address of the page to sign in on: close the
+        // window, collect the address, and start again from the button.
+        closePopup(popup);
+        setSiteRequest({
+          login_endpoint: started.login_endpoint || '/connect_account/browser/start',
+          login_request: started.login_request ?? { provider },
+          message: started.message,
+          fields: started.fields ?? [],
+        });
+        setIsSubmitting(false);
+        return;
+      }
       const url = absoluteApiUrl(
         started?.authorization_url ?? started?.link_url ?? started?.view_url,
         NEURAL_NEXUS_API_BASE_URL
@@ -674,11 +702,54 @@ const ConnectAccountCard = ({
 
       {stage === 'signing_in' && loginPath === 'popup' && (
         <div className="mt-4 space-y-3">
-          {effectiveLogin.message && (
+          {effectiveLogin.message && !siteRequest && (
             <p className="text-white/60 text-sm whitespace-normal break-words">
               {effectiveLogin.message}
             </p>
           )}
+
+          {siteRequest && (
+            <div className="space-y-2">
+              <p className="text-white/60 text-sm whitespace-normal break-words">
+                {siteRequest.message}
+              </p>
+              <label
+                htmlFor={`connect-${provider}-site-url`}
+                className="block text-white/70 text-sm"
+              >
+                Sign-in page address
+              </label>
+              <input
+                id={`connect-${provider}-site-url`}
+                type="url"
+                value={siteUrlValue}
+                placeholder="https://www.yourbank.com/"
+                onChange={(changeEvent) => setSiteUrlValue(changeEvent.target.value)}
+                className="w-full px-4 py-2.5 bg-black/50 border border-white/10 rounded-lg text-neutral-200 placeholder-white/40 focus:outline-none focus:ring-2 focus:ring-amber-400/50"
+              />
+            </div>
+          )}
+
+          {(siteRequest || alreadyConnected.length > 0 || effectiveLogin.login_mode === 'browser_session') &&
+            !reconnectAccountKey && (
+              <div>
+                <label
+                  htmlFor={`connect-${provider}-account-name`}
+                  className="block text-white/70 text-sm mb-1"
+                >
+                  Account name{' '}
+                  <span className="text-white/40">(optional; tells accounts apart)</span>
+                </label>
+                <input
+                  id={`connect-${provider}-account-name`}
+                  type="text"
+                  value={accountName}
+                  placeholder={alreadyConnected.length > 0 ? 'work, personal, …' : displayName || ''}
+                  onChange={(changeEvent) => setAccountName(changeEvent.target.value)}
+                  className="w-full px-4 py-2.5 bg-black/50 border border-white/10 rounded-lg text-neutral-200 placeholder-white/40 focus:outline-none focus:ring-2 focus:ring-amber-400/50"
+                />
+              </div>
+            )}
 
           {isWaitingForPopup && !errorMessage && (
             <p className="text-amber-200/90 text-sm inline-flex items-center gap-2">
@@ -712,7 +783,19 @@ const ConnectAccountCard = ({
           <div className="flex items-center gap-2 flex-wrap">
             <button
               type="button"
-              onClick={handlePopupLogin}
+              disabled={Boolean(siteRequest) && !siteUrlValue.trim()}
+              onClick={() =>
+                siteRequest
+                  ? handlePopupLogin({
+                      login_endpoint: siteRequest.login_endpoint,
+                      login_request: {
+                        ...siteRequest.login_request,
+                        site_url: siteUrlValue.trim(),
+                      },
+                      login_mode: 'browser_session',
+                    })
+                  : handlePopupLogin()
+              }
               disabled={isSubmitting}
               className="px-4 py-2 rounded-lg bg-neutral-100/10 hover:bg-neutral-100/15 disabled:opacity-40 disabled:hover:bg-neutral-100/10 border border-neutral-700 text-neutral-300 text-sm font-medium transition-colors inline-flex items-center gap-2"
             >
