@@ -6,6 +6,7 @@ import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 
 import UserSettingsMenu from './UserSettingsMenu';
+import UsageAnalyticsSection from './analytics/UsageAnalyticsSection';
 
 const AccountSettings = ({ activeTab }) => {
   const { user, requestPasswordReset, rotateApiKey, deleteAccount } = useAuth();
@@ -203,6 +204,10 @@ const AccountSettings = ({ activeTab }) => {
           Update
         </button>
       </div> */}
+
+      {/* Opt-in usage analytics: the same account-level switch the personal
+          avatar's settings show. */}
+      <UsageAnalyticsSection source="account_settings" />
 
       {/* Managing the account itself: the credential, the password, and
           leaving. These are the three operations the API supports on an

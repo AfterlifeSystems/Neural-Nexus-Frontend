@@ -20,6 +20,7 @@
     "axios": "^1.13.2",
     "framer-motion": "^12.23.0",
     "globe.gl": "^2.46.2",
+    "html2canvas": "^1.4.1",
     "leaflet": "^1.9.4",
     "lucide-react": "^0.511.0",
     "ogl": "^1.0.11",

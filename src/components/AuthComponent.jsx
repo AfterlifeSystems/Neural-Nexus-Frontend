@@ -83,6 +83,8 @@ const AuthComponent = ({ initialView = 'login' }) => {
   const [password, setPassword] = useState('');
   const [username, setUsername] = useState('');
   const [isPasswordVisible, setIsPasswordVisible] = useState(false);
+  // Opt-in usage analytics, offered on the signup form and off until ticked.
+  const [usageAnalyticsOptIn, setUsageAnalyticsOptIn] = useState(false);
   // The key from the signup response, held only for as long as this screen is
   // showing it. It is never persisted: the user saves it, this application does
   // not need it, and the session runs on the refresh token instead.
@@ -238,7 +240,9 @@ const AuthComponent = ({ initialView = 'login' }) => {
         // screen can watch for the verification without asking for the password
         // again. Auth0 issues tokens to an unverified account, which is what
         // makes that possible.
-        const signupResponse = await signUp(email, password, username);
+        const signupResponse = await signUp(email, password, username, {
+          usageAnalyticsOptIn,
+        });
         setApiKeyToPresent(signupResponse?.api_key ?? '');
         setModalView('verifyEmail');
         toast.success(
@@ -488,6 +492,31 @@ const AuthComponent = ({ initialView = 'login' }) => {
                   Forgot password?
                 </button>
               </div>
+            )}
+
+            {/* Opt-in usage analytics. Off by default: the person chooses to
+                help, and can change the choice later in avatar settings or
+                account settings. The label says what is recorded so the tick
+                is informed consent, not a dark pattern. */}
+            {modalView === 'signup' && (
+              <label className="flex items-start gap-3 text-left text-sm text-white/70 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={usageAnalyticsOptIn}
+                  onChange={(changeEvent) =>
+                    setUsageAnalyticsOptIn(changeEvent.target.checked)
+                  }
+                  className="mt-1 h-4 w-4 shrink-0 rounded border-white/20 bg-black/50 accent-amber-400"
+                  data-usage-analytics-opt-in="signup"
+                />
+                <span>
+                  Help Neural Nexus improve by sharing usage analytics: the
+                  actions you take in the application and periodic captures of
+                  this page, described by an AI model. Only this page is
+                  captured, never other windows or passwords. You can turn
+                  this off at any time in settings.
+                </span>
+              </label>
             )}
 
             {/* Submit Button */}

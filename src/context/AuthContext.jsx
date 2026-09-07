@@ -51,10 +51,19 @@ export const AuthProvider = ({ children }) => {
    *
    * @returns {Promise<Object>} The /signup response ({api_key, message, verification}).
    */
-  const signUp = async (email, password, name) => {
+  const signUp = async (email, password, name, { usageAnalyticsOptIn } = {}) => {
     return requestJson('/signup', {
       method: 'POST',
-      body: { email, password, name },
+      body: {
+        email,
+        password,
+        name,
+        // The signup form's usage-analytics choice. Sent only when the form
+        // offered the choice; the API records consent under the new account.
+        ...(usageAnalyticsOptIn === undefined
+          ? {}
+          : { usage_analytics_opt_in: Boolean(usageAnalyticsOptIn) }),
+      },
     });
   };
 

@@ -59,6 +59,7 @@ import {
   isBillingRefusal,
 } from './requestFailureToast';
 import ConnectionsSection from './connections/ConnectionsSection';
+import UsageAnalyticsSection from './analytics/UsageAnalyticsSection';
 import ReportsSection from './reports/ReportsSection';
 import EmotionMediaStatus from './media/EmotionMediaStatus';
 import GenerationConfirmation from './media/GenerationConfirmation';
@@ -1971,6 +1972,7 @@ const AvatarSettings = ({ avatarId, onPortraitChanged }) => {
         assistantId={assistantId}
         activeAvatar={activeAvatar}
         onAvatarChanged={applyAvatarChangeLocally}
+        canClearDeviceLocation={isPersonalAvatar}
       />
 
       {/* Connections — mailboxes, custom connectors, and machines — reached
@@ -1978,6 +1980,11 @@ const AvatarSettings = ({ avatarId, onPortraitChanged }) => {
           avatar. One section, one row shape; the catalog and the connect card
           are read from the API so a new provider needs no change here. */}
       {isPersonalAvatar && <ConnectionsSection />}
+
+      {/* Opt-in usage analytics. Consent belongs to the account, and the
+          personal avatar is the account's own avatar, so the switch lives
+          here (and in account settings) rather than on every avatar. */}
+      {isPersonalAvatar && <UsageAnalyticsSection source="avatar_settings" />}
 
       {/* The reports the personal avatar has written — scheduled analytics,
           website audits, saved analyses. `?section=reports` scrolls here the

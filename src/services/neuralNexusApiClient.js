@@ -14,6 +14,8 @@
 // API ever expects a different token from the login response, only that one
 // function changes.
 
+import { notifyApiRequest } from './apiRequestObservers';
+
 export const NEURAL_NEXUS_API_BASE_URL =
   import.meta.env.VITE_NEURAL_NEXUS_API_BASE_URL ?? 'http://localhost:8080';
 
@@ -205,6 +207,24 @@ export function isEmailNotVerifiedDescription(description) {
 }
 
 /**
+ * Tell the request observers (the usage-analytics recorder) how one request
+ * went. The recorder's own calls to /usage_analytics/* are left out so
+ * recording never records the act of recording.
+ */
+function reportApiRequest(path, method, status, startedAt, error) {
+  if (String(path).startsWith('/usage_analytics')) return;
+  notifyApiRequest({
+    path,
+    method,
+    status,
+    ok: status != null && status >= 200 && status < 400,
+    failed: Boolean(error) || (status != null && status >= 400),
+    durationMs: Date.now() - startedAt,
+    aborted: error?.name === 'AbortError',
+  });
+}
+
+/**
  * Issue a request to the Neural Nexus API and parse the response.
  *
  * `credentials: 'include'` is set on every request. The API no longer sets or
@@ -233,6 +253,9 @@ export async function requestJson(path, options = {}) {
     formData,
     signal,
     asAnonymousIdentity = false,
+    // Let the request outlive the page: used by the usage-analytics recorder
+    // to flush its last events while the tab is closing.
+    keepalive = false,
   } = options;
 
   const headers = buildAuthenticationHeaders(asAnonymousIdentity);
@@ -245,16 +268,25 @@ export async function requestJson(path, options = {}) {
     headers['Content-Type'] = 'application/json';
   }
 
-  const response = await fetch(
-    `${NEURAL_NEXUS_API_BASE_URL}${appendQueryParameters(path, query)}`,
-    {
-      method,
-      headers,
-      credentials: 'include',
-      body: formData ?? (body === undefined ? undefined : JSON.stringify(body)),
-      signal,
-    }
-  );
+  const startedAt = Date.now();
+  let response;
+  try {
+    response = await fetch(
+      `${NEURAL_NEXUS_API_BASE_URL}${appendQueryParameters(path, query)}`,
+      {
+        method,
+        headers,
+        credentials: 'include',
+        body: formData ?? (body === undefined ? undefined : JSON.stringify(body)),
+        signal,
+        keepalive: keepalive || undefined,
+      }
+    );
+  } catch (networkError) {
+    reportApiRequest(path, method, null, startedAt, networkError);
+    throw networkError;
+  }
+  reportApiRequest(path, method, response.status, startedAt, null);
 
   if (!response.ok) {
     await raiseApiError(response, sessionCredentialWasSent);
@@ -315,10 +347,18 @@ export async function streamServerSentEvents(path, options = {}) {
   const sessionCredentialWasSent = 'Authorization' in headers;
   headers.Accept = 'text/event-stream';
 
-  const response = await fetch(
-    `${NEURAL_NEXUS_API_BASE_URL}${appendQueryParameters(path, query)}`,
-    { method, headers, credentials: 'include', body: formData, signal }
-  );
+  const startedAt = Date.now();
+  let response;
+  try {
+    response = await fetch(
+      `${NEURAL_NEXUS_API_BASE_URL}${appendQueryParameters(path, query)}`,
+      { method, headers, credentials: 'include', body: formData, signal }
+    );
+  } catch (networkError) {
+    reportApiRequest(path, method, null, startedAt, networkError);
+    throw networkError;
+  }
+  reportApiRequest(path, method, response.status, startedAt, null);
 
   if (!response.ok) {
     await raiseApiError(response, sessionCredentialWasSent);
@@ -422,16 +462,24 @@ export async function requestBinary(path, options = {}) {
     headers['Content-Type'] = 'application/json';
   }
 
-  const response = await fetch(
-    `${NEURAL_NEXUS_API_BASE_URL}${appendQueryParameters(path, query)}`,
-    {
-      method,
-      headers,
-      credentials: 'include',
-      body: formData ?? (body === undefined ? undefined : JSON.stringify(body)),
-      signal,
-    }
-  );
+  const startedAt = Date.now();
+  let response;
+  try {
+    response = await fetch(
+      `${NEURAL_NEXUS_API_BASE_URL}${appendQueryParameters(path, query)}`,
+      {
+        method,
+        headers,
+        credentials: 'include',
+        body: formData ?? (body === undefined ? undefined : JSON.stringify(body)),
+        signal,
+      }
+    );
+  } catch (networkError) {
+    reportApiRequest(path, method, null, startedAt, networkError);
+    throw networkError;
+  }
+  reportApiRequest(path, method, response.status, startedAt, null);
 
   if (!response.ok) {
     await raiseApiError(response, sessionCredentialWasSent);
