@@ -1,7 +1,7 @@
 // src/components/icons/ConnectorIcon.jsx
 import React from 'react';
 import {
-  BrainCircuit,
+  Bot,
   Calendar,
   Facebook,
   Globe,
@@ -26,6 +26,7 @@ import { FaXTwitter } from 'react-icons/fa6';
 import {
   SiAnthropic,
   SiClaude,
+  SiCoinbase,
   SiGoogleanalytics,
   SiLangchain,
   SiVercel,
@@ -76,10 +77,11 @@ const CONNECTOR_ICONS = {
   website: { Icon: Globe, tint: 'text-sky-300', ring: 'border-sky-300/30' },
   github: { Icon: FaGithub, tint: 'text-neutral-200', ring: 'border-white/20' },
   bank: { Icon: Landmark, tint: 'text-emerald-300', ring: 'border-emerald-300/30' },
-  langsmith: { Icon: SiLangchain, tint: 'text-lime-300', ring: 'border-lime-300/30' },
+  coinbase: { Icon: SiCoinbase, tint: 'text-blue-400', ring: 'border-blue-400/30' },
+  langsmith: { Icon: SiLangchain, tint: 'text-sky-300', ring: 'border-sky-300/30' },
   // The OpenAI mark is not in the icon set this app ships; a neutral circuit
   // stands in so the card still names the provider at a glance.
-  openai: { Icon: BrainCircuit, tint: 'text-neutral-200', ring: 'border-white/20' },
+  openai: { Icon: Bot, tint: 'text-neutral-100', ring: 'border-white/20' },
   anthropic: { Icon: SiAnthropic, tint: 'text-orange-200', ring: 'border-orange-200/30' },
   vercel: { Icon: SiVercel, tint: 'text-neutral-100', ring: 'border-white/20' },
   google_analytics: {
