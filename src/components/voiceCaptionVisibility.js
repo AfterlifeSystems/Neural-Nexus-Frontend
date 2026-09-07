@@ -4,6 +4,9 @@
 // face is on stage. Otherwise the line appears, then the lip-sync clip
 // lands a few seconds later.
 
+import { isAmbientNotice } from '../services/ambientNotice.js';
+import { isConnectionCardOnly } from '../services/connectionCards.js';
+
 const isAvatarLike = (message) => {
   const type = message?.type || message?.sender;
   return type === 'ai' || type === 'assistant' || type === 'avatar';
@@ -84,6 +87,13 @@ export function shouldShowVoiceStageText({
 export function captionForVoiceStage(message, { holdNewCaptions, revealedIds }) {
   if (!message) return null;
   if (!isAvatarLike(message)) return message;
+  // A notice is a card with a decision, not a spoken caption waiting on the
+  // talking face. Holding it behind typing dots hid the thumbs.
+  if (isAmbientNotice(message)) return message;
+  // A connect card is likewise something to act on, not words waiting on
+  // the talking face; typing dots in place of the card would hide the
+  // sign-in button.
+  if (isConnectionCardOnly(message)) return message;
   if (message.isLoading || message.isPending) return message;
   if (!holdNewCaptions) return message;
   if (message.id && revealedIds.has(message.id)) return message;

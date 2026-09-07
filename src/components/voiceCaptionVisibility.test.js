@@ -41,6 +41,22 @@ test('a finished avatar line stays hidden until the talking face is revealed', (
   assert.notEqual(held.content, reply.content);
 });
 
+test('a notice card is not held behind typing dots', () => {
+  const notice = {
+    id: 'n1',
+    type: 'ai',
+    content: 'I noticed your Thunderbird inbox is open.',
+    ambient: { decision: 'notify', summary: 'Thunderbird shows an inbox.' },
+  };
+  assert.deepEqual(
+    captionForVoiceStage(notice, {
+      holdNewCaptions: true,
+      revealedIds: new Set(),
+    }),
+    notice
+  );
+});
+
 test('the finished line appears once the clip (or loop) has been revealed', () => {
   const reply = { id: 'a2', type: 'ai', content: 'Nice to meet you' };
   assert.deepEqual(
@@ -194,4 +210,18 @@ test('only the talking clip releases a wait, not the emotion loop', () => {
     false
   );
   assert.equal(stagePresentationIsClip(undefined, clipUrl), false);
+});
+
+test('a connect card is shown while new captions are held', () => {
+  const card = {
+    id: 'pause-1',
+    type: 'ai',
+    content: '',
+    connections: [{ provider: 'gmail', status: 'pending_login', pending: true }],
+  };
+  const shown = captionForVoiceStage(card, {
+    holdNewCaptions: true,
+    revealedIds: new Set(),
+  });
+  assert.equal(shown, card);
 });

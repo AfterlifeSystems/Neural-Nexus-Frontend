@@ -274,6 +274,7 @@ const InputBar = ({
 
           <textarea
             ref={textareaRef}
+            data-composer-input
             rows={1}
             style={{ lineHeight: '1.5rem', maxHeight: '9rem' }}
             className="w-full min-w-0 resize-none overflow-y-auto max-h-40 px-3 py-2 text-neutral-200 bg-transparent placeholder-neutral-400 scrollbar-thin scrollbar-thumb-neutral-600 focus:outline-none border-none"

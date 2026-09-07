@@ -8,6 +8,7 @@ import {
   artifactText,
   formatArtifactSize,
 } from '../services/createdArtifacts';
+import MarkdownText from './ui/MarkdownText';
 
 /**
  * The files an analysis turn produced, painted under the avatar's reply.
@@ -22,12 +23,19 @@ import {
  * @param {Object[]} properties.artifacts Records from `createdArtifactsOf`.
  * @param {boolean} [properties.compact] Smaller images and collapsed reports,
  *   for the voice-mode caption strip.
+ * @param {Set<string>|string[]} [properties.hiddenNames] Artifact names to
+ *   leave out: the PNG of a chart that is drawn interactively above. The
+ *   chart card offers that file's download instead.
  */
-const CreatedArtifacts = ({ artifacts, compact = false }) => {
-  if (!artifacts?.length) return null;
+const CreatedArtifacts = ({ artifacts, compact = false, hiddenNames = null }) => {
+  const hidden = hiddenNames ? new Set(hiddenNames) : null;
+  const shown = (artifacts ?? []).filter(
+    (artifact) => !hidden || !hidden.has(artifact?.name)
+  );
+  if (!shown.length) return null;
   return (
     <div className="mt-2 space-y-2">
-      {artifacts.map((artifact, index) => {
+      {shown.map((artifact, index) => {
         const name = artifact.name || `artifact-${index + 1}`;
         const key = `${name}-${index}`;
         const dataUrl = artifactDataUrl(artifact);
@@ -90,9 +98,15 @@ const CreatedArtifacts = ({ artifacts, compact = false }) => {
                   Download
                 </a>
               </summary>
-              <pre className="px-2 py-2 whitespace-pre-wrap break-words text-xs text-neutral-200 max-h-72 overflow-y-auto">
-                {artifactText(artifact)}
-              </pre>
+              {artifact.mime_type === 'text/markdown' ? (
+                <div className="px-3 py-2 max-h-72 overflow-y-auto">
+                  <MarkdownText text={artifactText(artifact)} compact={compact} />
+                </div>
+              ) : (
+                <pre className="px-2 py-2 whitespace-pre-wrap break-words text-xs text-neutral-200 max-h-72 overflow-y-auto">
+                  {artifactText(artifact)}
+                </pre>
+              )}
             </details>
           );
         }

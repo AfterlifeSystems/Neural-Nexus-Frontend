@@ -1597,3 +1597,179 @@ export const recordAmbientPreference = async (
     },
   });
 };
+
+/**
+ * Record a thumb or a note on one avatar reply.
+ * POST /message_feedback
+ *
+ * The record lives under the person's own namespace for this avatar, so the
+ * transcript puts the rating back on the reply after a reload.
+ *
+ * @param {Object} feedback `{assistantId, threadId, messageId, requestId, type, comment, content, observation}`;
+ *   `observation` (`{observationId, observationKind, summary}`) names the
+ *   ambient observation the reply answered, when there is one, so the thumb
+ *   is also learned as precedent for that kind of scene.
+ * @returns {Promise<Object>} `{recorded, message_id, request_id, feedback, ambient_decision}`.
+ */
+export const recordMessageFeedback = async ({
+  assistantId,
+  threadId,
+  messageId,
+  requestId,
+  type,
+  comment,
+  content,
+  observation = null,
+}) => {
+  return requestJson('/message_feedback', {
+    method: 'POST',
+    body: {
+      assistant_id: assistantId,
+      thread_id: threadId ?? null,
+      message_id: messageId ?? null,
+      request_id: requestId ?? null,
+      feedback_type: type,
+      comment: comment ?? null,
+      content: content ?? null,
+      observation_id: observation?.observationId ?? null,
+      observation_kind: observation?.observationKind ?? null,
+      observation_summary: observation?.summary ?? null,
+    },
+  });
+};
+
+/**
+ * Everything the person has told one avatar through thumbs and notes.
+ * GET /avatar_preferences/{assistant_id}
+ *
+ * @param {string} assistantId The avatar.
+ * @param {Object} [options]
+ * @param {string|null} [options.threadId] Narrow reply ratings to one thread.
+ * @returns {Promise<Object>} `{message_feedback, ambient_decisions}`.
+ */
+export const fetchAvatarPreferences = async (assistantId, { threadId } = {}) => {
+  return requestJson(
+    `/avatar_preferences/${encodeURIComponent(assistantId)}`,
+    { query: threadId ? { thread_id: threadId } : undefined }
+  );
+};
+
+/**
+ * Turn an allowed offer on a notification card into the avatar's next turn.
+ * POST /message/{assistant_id} with the `ambient_action_*` fields; the server
+ * writes the hidden instruction and stamps the reply with the observation.
+ *
+ * @param {string} assistantId The avatar that offered.
+ * @param {Object} actionFields See `ambientActionFields` in ambientNotice.js.
+ * @param {Object} [options]
+ * @param {string|null} [options.threadId] The open conversation.
+ * @param {string} [options.userTimezone]
+ * @param {boolean} [options.voiceMode]
+ * @returns {{path: string, formData: FormData}}
+ */
+export const buildAmbientActionRequest = (
+  assistantId,
+  actionFields,
+  { threadId, userTimezone, voiceMode = false } = {}
+) => {
+  const formData = new FormData();
+  formData.append('message', '');
+  formData.append('stream', 'true');
+  formData.append('voice_mode', voiceMode ? 'true' : 'false');
+  for (const [fieldName, fieldValue] of Object.entries(actionFields ?? {})) {
+    formData.append(fieldName, fieldValue ?? '');
+  }
+  if (threadId) {
+    formData.append('thread_id', threadId);
+  }
+  if (userTimezone) {
+    formData.append('user_timezone', userTimezone);
+  }
+  return {
+    path: `/message/${encodeURIComponent(assistantId)}`,
+    formData,
+  };
+};
+
+/**
+ * Begin a popup sign-in for a provider whose connect card is not a form.
+ *
+ * The card names the endpoint and the body: `/connect_account/oauth/start`
+ * answers `{authorization_url, nonce, expires_in}`, the Plaid endpoint
+ * `{link_url, nonce, expires_in}`, and the browser-session endpoint
+ * `{login_id, view_url, nonce, expires_in}`. The Plaid and browser URLs are
+ * paths on the API origin; see `absoluteApiUrl` in `connectionOauthPopup`.
+ * POST {loginEndpoint}
+ *
+ * @param {string} loginEndpoint The card's `login_endpoint`.
+ * @param {Object} loginRequest The card's `login_request`.
+ * @returns {Promise<Object>} The endpoint's answer.
+ */
+export const startConnectionLogin = async (loginEndpoint, loginRequest) => {
+  return requestJson(loginEndpoint || '/connect_account/oauth/start', {
+    method: 'POST',
+    body: loginRequest ?? {},
+  });
+};
+
+/**
+ * The reports the personal avatar has written: scheduled analytics, audits,
+ * and the summaries an analysis turn saved.
+ * GET /reports
+ *
+ * @param {Object} [parameters]
+ * @param {string} [parameters.assistantId] Limit to one avatar.
+ * @param {string} [parameters.query] Free-text search over title and summary.
+ * @param {string} [parameters.kind] One report kind.
+ * @param {string} [parameters.from] ISO date; reports created on or after.
+ * @param {string} [parameters.to] ISO date; reports created on or before.
+ * @param {number} [parameters.limit]
+ * @param {number} [parameters.offset]
+ * @returns {Promise<Object>} `{reports, total?}`.
+ */
+export const listReports = async ({
+  assistantId,
+  query,
+  kind,
+  from,
+  to,
+  limit = 20,
+  offset = 0,
+} = {}) => {
+  return requestJson('/reports', {
+    query: {
+      assistant_id: assistantId || undefined,
+      q: query || undefined,
+      kind: kind || undefined,
+      from: from || undefined,
+      to: to || undefined,
+      limit,
+      offset,
+    },
+  });
+};
+
+/**
+ * One report in full.
+ * GET /reports/{report_id}
+ *
+ * @param {string} reportId
+ * @returns {Promise<Object>} The report record (possibly under `report`).
+ */
+export const getReport = async (reportId) => {
+  const response = await requestJson(`/reports/${encodeURIComponent(reportId)}`);
+  return response?.report ?? response;
+};
+
+/**
+ * Delete one report.
+ * DELETE /reports/{report_id}
+ *
+ * @param {string} reportId
+ * @returns {Promise<Object>}
+ */
+export const deleteReport = async (reportId) => {
+  return requestJson(`/reports/${encodeURIComponent(reportId)}`, {
+    method: 'DELETE',
+  });
+};

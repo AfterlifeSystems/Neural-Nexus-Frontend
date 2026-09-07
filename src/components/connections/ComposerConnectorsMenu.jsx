@@ -1,13 +1,14 @@
 // src/components/connections/ComposerConnectorsMenu.jsx
 import React, { useCallback, useEffect, useState } from 'react';
 import { toast } from 'react-hot-toast';
-import { ChevronRight, Plug, Plus, Settings2 } from 'lucide-react';
+import { ChevronRight, Plug, Plus, RotateCcw, Settings2 } from 'lucide-react';
 import MenuPanel, { MenuRow } from '../ui/MenuPanel';
 import Switch from '../ui/Switch';
 import Modal from '../ui/Modal';
 import ConnectorIcon from '../icons/ConnectorIcon';
-import ConnectAccountCard from '../ConnectAccountCard';
 import NewConnectorPicker from './NewConnectorPicker';
+import { useMedia } from '../../context/MediaContext';
+import { connectionKeyOfCard } from '../../services/connectionCards';
 import {
   deviceIdFromConnection,
   disconnectDataServer,
@@ -39,9 +40,14 @@ import {
  * connectors"). File attach lives on the paperclip beside this menu, not here.
  *
  * Connections are fetched when the menu opens rather than on every render of
- * the composer, so an owner who never opens it costs nothing. The switch is a
- * disconnect (the credential is deleted after a confirmation); switching a
- * disconnected account back on opens its connect card here, in a modal.
+ * the composer, so an owner who never opens the menu costs nothing. The
+ * switch is a disconnect (the credential is deleted after a confirmation).
+ * Adding a connector, switching a disconnected account back on, and signing
+ * in again after a credential stopped working all put the connect card IN
+ * THE TRANSCRIPT — the same card the avatar raises when a turn needs an
+ * account — rather than in a modal over the composer. Once the card
+ * connects, the card stack sends the acknowledgement turn, and the avatar
+ * greets the new account in the conversation.
  *
  * @param {Object} parameters
  * @param {boolean} parameters.open Whether the menu is shown.
@@ -59,12 +65,16 @@ const ComposerConnectorsMenu = ({
   onManageConnectors,
   menuId = 'composer-menu',
 }) => {
+  const {
+    insertConnectionCard,
+    settleConnectionCard,
+    sendConnectionAcknowledgement,
+  } = useMedia();
   const [isSubmenuOpen, setIsSubmenuOpen] = useState(false);
   const [connections, setConnections] = useState([]);
   const [providers, setProviders] = useState([]);
   const [busyKey, setBusyKey] = useState(null);
   const [isPickerOpen, setIsPickerOpen] = useState(false);
-  const [cardBeingConnected, setCardBeingConnected] = useState(null);
 
   const refresh = useCallback(async () => {
     const [connectionsResult, providersResult, mcpResult] = await Promise.allSettled([
@@ -99,11 +109,67 @@ const ComposerConnectorsMenu = ({
     return () => clearInterval(poll);
   }, [open, showConnectors, isSubmenuOpen, refresh]);
 
-  const openCardFor = async (provider) => {
-    if (!provider) return;
+  /**
+   * The accounts already connected for a provider, for the card's
+   * "Already connected" line.
+   *
+   * @param {string} providerName
+   * @returns {Object[]}
+   */
+  const alreadyConnectedFor = (providerName) =>
+    connections
+      .filter(
+        (connection) =>
+          connection.provider === providerName && connection.connected
+      )
+      .map((connection) => ({
+        account_key: connection.connection_key,
+        display_label: connection.display_label,
+        account_address: connection.sub_label,
+      }));
+
+  /**
+   * Put a connect card in the transcript and close the menu.
+   *
+   * @param {Object} providerCard A catalog row, a `card` from a connect
+   *   answer, or a popup card a form handed back.
+   */
+  const placeCardInTranscript = (providerCard) => {
+    if (!providerCard) return;
     setIsPickerOpen(false);
     onClose?.();
+    insertConnectionCard({
+      ...providerCard,
+      already_connected:
+        providerCard.already_connected ??
+        alreadyConnectedFor(providerCard.provider),
+    });
+  };
+
+  /**
+   * A form in the picker connected on its own (a custom server, a website):
+   * the transcript gets the settled card, the avatar is told, and the list
+   * is refreshed.
+   *
+   * @param {Object} record The settled card record.
+   */
+  const recordFormConnection = async (record) => {
+    setIsPickerOpen(false);
+    onClose?.();
+    const cardMessageId = insertConnectionCard(record);
+    settleConnectionCard(cardMessageId, record);
+    const connectionKey = connectionKeyOfCard(record);
+    if (connectionKey) {
+      await sendConnectionAcknowledgement(connectionKey, { cardMessageId });
+    }
+    await refresh();
+  };
+
+  const openCardFor = async (provider) => {
+    if (!provider) return;
     if (isMcpConnectorProvider(provider)) {
+      setIsPickerOpen(false);
+      onClose?.();
       if (provider.availability === 'coming_soon') return;
       const connector = mcpConnectorFromProvider(provider);
       const alreadyListed = connections.find(
@@ -123,18 +189,7 @@ const ComposerConnectorsMenu = ({
       await handleToggle(pending, true);
       return;
     }
-    setCardBeingConnected({
-      ...provider,
-      already_connected: connections
-        .filter(
-          (connection) =>
-            connection.provider === provider.provider && connection.connected
-        )
-        .map((connection) => ({
-          display_label: connection.display_label,
-          account_address: connection.sub_label,
-        })),
-    });
+    placeCardInTranscript(provider);
   };
 
   const handleToggle = async (connection, next) => {
@@ -177,8 +232,7 @@ const ComposerConnectorsMenu = ({
     try {
       const response = await setConnectionState(connection.connection_key, next);
       if (response?.action === 'open_connect_card' && response.card) {
-        onClose?.();
-        setCardBeingConnected({ ...response.card });
+        placeCardInTranscript({ ...response.card });
       } else {
         toast.success(
           next
@@ -192,6 +246,30 @@ const ComposerConnectorsMenu = ({
     } finally {
       setBusyKey(null);
     }
+  };
+
+  /**
+   * A saved credential stopped working: the provider's connect card goes in
+   * the transcript so the owner can sign in again. A provider the catalog
+   * no longer lists falls back to switching the connection on, which asks
+   * the API for the card.
+   *
+   * @param {Object} connection A `needs_reconnect` row.
+   */
+  const handleSignInAgain = async (connection) => {
+    const provider = providers.find(
+      (candidate) => candidate.provider === connection.provider
+    );
+    if (provider && !isMcpConnectorProvider(provider)) {
+      placeCardInTranscript({
+        ...provider,
+        already_connected: [],
+        reconnect_connection_key: connection.connection_key,
+        message: `The saved credential for ${connection.display_label} stopped working. Sign in again to reconnect.`,
+      });
+      return;
+    }
+    await handleToggle(connection, true);
   };
 
   const handleRemoveDevice = async (connection) => {
@@ -272,6 +350,13 @@ const ComposerConnectorsMenu = ({
                   const isOnline = Boolean(connection.online);
                   const isBound =
                     Boolean(connection.connected) && !connection.pending;
+                  const needsReconnect =
+                    !isDevice && connection.status === 'needs_reconnect';
+                  const subLabel = isDevice
+                    ? formatDeviceMetadata(connection)
+                    : needsReconnect
+                      ? 'Sign-in stopped working'
+                      : connection.sub_label;
                   return (
                   <div
                     key={connection.connection_key}
@@ -279,14 +364,25 @@ const ComposerConnectorsMenu = ({
                   >
                     <ConnectorIcon iconKey={connection.icon_key} size="sm" />
                     <span
-                      className="flex-grow min-w-0 text-sm text-white/80 truncate"
+                      className="flex-grow min-w-0 flex flex-col"
                       title={
                         isDevice
                           ? formatDeviceMetadata(connection)
-                          : connection.display_label
+                          : connection.sub_label || connection.display_label
                       }
                     >
-                      {connection.display_label}
+                      <span className="text-sm text-white/80 truncate">
+                        {connection.display_label}
+                      </span>
+                      {subLabel && (
+                        <span
+                          className={`text-[11px] truncate ${
+                            needsReconnect ? 'text-amber-300' : 'text-white/45'
+                          }`}
+                        >
+                          {subLabel}
+                        </span>
+                      )}
                     </span>
                     {isDevice ? (
                       <>
@@ -321,9 +417,19 @@ const ComposerConnectorsMenu = ({
                           </>
                         )}
                       </>
+                    ) : needsReconnect ? (
+                      <button
+                        type="button"
+                        disabled={busyKey === connection.connection_key}
+                        onClick={() => handleSignInAgain(connection)}
+                        className="inline-flex items-center gap-1 text-xs text-amber-300 hover:text-amber-200 shrink-0"
+                      >
+                        <RotateCcw className="w-3 h-3" aria-hidden="true" />
+                        Sign in again
+                      </button>
                     ) : (
                       <Switch
-                        checked={connection.connected && connection.status !== 'needs_reconnect'}
+                        checked={Boolean(connection.connected)}
                         busy={busyKey === connection.connection_key}
                         showLabel
                         onLabel="Disconnect"
@@ -367,34 +473,9 @@ const ComposerConnectorsMenu = ({
           providers={withMcpConnectorProviders(providers)}
           connections={connections}
           onPick={openCardFor}
+          onConnected={recordFormConnection}
+          onNeedsLogin={placeCardInTranscript}
         />
-      </Modal>
-
-      <Modal
-        open={Boolean(cardBeingConnected)}
-        onClose={() => setCardBeingConnected(null)}
-        title={
-          cardBeingConnected?.provider === 'custom_mcp'
-            ? 'Custom Connector'
-            : cardBeingConnected?.display_name
-        }
-        widthClassName="max-w-md"
-      >
-        {cardBeingConnected && (
-          <ConnectAccountCard
-            key={cardBeingConnected.provider}
-            interrupt={cardBeingConnected}
-            startOpen
-            className="w-full"
-            onDecision={async (decision) => {
-              if (decision === 'apply') {
-                await refresh();
-                return;
-              }
-              setCardBeingConnected(null);
-            }}
-          />
-        )}
       </Modal>
     </>
   );

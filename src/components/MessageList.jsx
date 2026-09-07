@@ -18,7 +18,25 @@ import MessageActionBar from './media/MessageActionBar';
 import { isConversationSuggestionList } from '../services/conversationSuggestions';
 import { messageKeyOf } from '../services/messageKey';
 import AmbientNotificationCard from './AmbientNotificationCard';
+import {
+  isAmbientNotice,
+  isNoticeDismissed,
+} from '../services/ambientNotice';
+import { noticeDecisionFor } from '../services/avatarPreferences';
+import { focusComposer } from '../services/composerFocus';
 import CreatedArtifacts from './CreatedArtifacts';
+import ChartCard from './ChartCard';
+import ConnectionCardStack from './connections/ConnectionCardStack';
+import {
+  connectionsOf,
+  isConnectionCardOnly,
+} from '../services/connectionCards';
+import {
+  artifactNamesRenderedByCharts,
+  chartHasRenderableData,
+  chartsOf,
+  pngArtifactFor,
+} from '../services/chartSpecs';
 import SpeakerScript from './SpeakerScript';
 import { editableScriptText, hasSpeakerScript } from './speakerScript';
 import {
@@ -102,7 +120,15 @@ const MessageList = ({
   assistantId,
   readOnly = false,
 }) => {
-  const { assistantActivity } = useMedia();
+  const {
+    assistantActivity,
+    avatarPreferences,
+    refreshAvatarPreferences,
+    allowAmbientAction,
+    noteNoticeInteraction,
+    dismissNotice,
+    dismissedNoticeIds,
+  } = useMedia();
   const { userPortrait, activeAvatar, user } = useAuth();
   const location = useLocation();
   const readerIsAnonymous = isSharedAvatarChatPath(location.pathname);
@@ -199,9 +225,13 @@ const MessageList = ({
 
           // Something the avatar noticed through ambient vision and decided
           // the person should hear about. It is the avatar's own message, but
-          // it renders as a card with the Agent Inbox choices — dismiss or
-          // reply — rather than as a bubble in the exchange.
-          if (isFromAvatar && msg.ambient?.decision === 'notify') {
+          // it renders as a card with Reply and the same thumbs grouping a
+          // chat bubble uses — like and dislike become a preference — rather
+          // than as a bubble in the exchange.
+          if (isFromAvatar && isAmbientNotice(msg)) {
+            if (isNoticeDismissed(msg, dismissedNoticeIds)) {
+              return null;
+            }
             return (
               <div key={messageKey} className="self-start w-full max-w-[85%] min-w-0">
                 <AmbientNotificationCard
@@ -209,24 +239,49 @@ const MessageList = ({
                   assistantId={resolvedAssistantId}
                   avatarName={avatarName}
                   readOnly={readOnly}
-                  onReply={() => {
-                    document
-                      .querySelector('[data-composer-input], textarea')
-                      ?.focus();
-                  }}
+                  onReply={() => focusComposer()}
+                  storedDecision={noticeDecisionFor(avatarPreferences, msg)}
+                  onRecorded={refreshAvatarPreferences}
+                  onAllowAction={allowAmbientAction}
+                  onInteract={noteNoticeInteraction}
+                  onDismiss={dismissNotice}
                 />
               </div>
             );
           }
           const noticedAmbiently =
             isFromAvatar && msg.ambient?.decision === 'respond';
+          // The avatar carried out an offer the person allowed on a card.
+          const actedOnRequest =
+            isFromAvatar && msg.ambient?.decision === 'act';
+
+          // A connect card with no words around the card — the pause the
+          // avatar raised for an account, or a card placed from the "+"
+          // menu — stands alone, without a bubble or a portrait beside an
+          // empty box. The card is interactive while the message is the
+          // current pause or the card still waits for a sign-in.
+          if (isFromAvatar && isConnectionCardOnly(msg)) {
+            return (
+              <ConnectionCardStack
+                key={messageKey}
+                message={msg}
+                assistantId={resolvedAssistantId}
+                readOnly={readOnly}
+              />
+            );
+          }
+          const connectionCards = isFromAvatar ? connectionsOf(msg) : [];
+          const charts = isFromAvatar
+            ? chartsOf(msg).filter(chartHasRenderableData)
+            : [];
+          const createdArtifacts = isFromAvatar ? createdArtifactsOf(msg) : [];
 
           return (
+            <React.Fragment key={messageKey}>
             <div
-              key={messageKey}
               className={`flex items-end gap-2 max-w-[85%] min-w-0 ${
                   isFromUser ? 'self-end flex-row-reverse' : 'self-start'
-                }`}
+                } ${charts.length > 0 ? 'w-full' : ''}`}
               >
                 {(isFromUser || isFromAvatar) && (
                   <MessageAuthorIcon
@@ -239,6 +294,8 @@ const MessageList = ({
                 )}
                 <div
                   className={`p-2 rounded-lg min-w-0 break-words [overflow-wrap:anywhere] transition-all duration-150 ${
+                    charts.length > 0 ? 'w-full flex-grow' : ''
+                  } ${
                     isFromUser
                       ? 'bg-neutral-900 border border-white/10 text-neutral-200'
                       : isFromAvatar
@@ -268,6 +325,11 @@ const MessageList = ({
                       {noticedAmbiently && (
                         <div className="mb-1 text-[11px] uppercase tracking-wide text-amber-300/80">
                           Noticed on your webcam or screen
+                        </div>
+                      )}
+                      {actedOnRequest && (
+                        <div className="mb-1 text-[11px] uppercase tracking-wide text-sky-300/80">
+                          Done at your request
                         </div>
                       )}
                       {isFromUser && editingKey === messageKey ? (
@@ -331,8 +393,21 @@ const MessageList = ({
                           model's own attachment link to them is stripped from
                           the text above because a browser cannot fetch it;
                           this is where the files actually appear. */}
+                      {/* The charts an analytics turn drew, interactive;
+                          the PNG of each is left out of the file list
+                          below and offered from the chart instead. */}
+                      {charts.map((chart, index) => (
+                        <ChartCard
+                          key={chart.chart_id ?? `${messageKey}-chart-${index}`}
+                          chart={chart}
+                          pngArtifact={pngArtifactFor(chart, createdArtifacts)}
+                        />
+                      ))}
                       {isFromAvatar && (
-                        <CreatedArtifacts artifacts={createdArtifactsOf(msg)} />
+                        <CreatedArtifacts
+                          artifacts={createdArtifacts}
+                          hiddenNames={artifactNamesRenderedByCharts(charts)}
+                        />
                       )}
 
                       <MessageMedia media={msg.media} />
@@ -402,6 +477,18 @@ const MessageList = ({
                   )}
                 </div>
               </div>
+              {/* The connect cards a reply carries — the record of an
+                  account added during the turn, or the card a paused turn
+                  is waiting on — under the words, not inside the bubble. */}
+              {connectionCards.length > 0 && (
+                <ConnectionCardStack
+                  message={msg}
+                  assistantId={resolvedAssistantId}
+                  readOnly={readOnly}
+                  className="self-start w-full max-w-[85%] min-w-0 pl-10"
+                />
+              )}
+            </React.Fragment>
           );
         })}
 

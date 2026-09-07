@@ -2,11 +2,12 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { toast } from 'react-hot-toast';
 import { useSearchParams } from 'react-router-dom';
-import { Plug, Sparkles } from 'lucide-react';
+import { Plug, RotateCcw, Sparkles } from 'lucide-react';
 import ConnectorIcon from '../icons/ConnectorIcon';
-import ConnectAccountCard from '../ConnectAccountCard';
 import Modal from '../ui/Modal';
 import Switch from '../ui/Switch';
+import { useMedia } from '../../context/MediaContext';
+import { connectionKeyOfCard } from '../../services/connectionCards';
 import ConnectionPresence from './ConnectionPresence';
 import ConnectorBrowseControls from './ConnectorBrowseControls';
 import NewConnectorPicker from './NewConnectorPicker';
@@ -48,19 +49,43 @@ import { showRequestFailureToast } from '../requestFailureToast';
  * Machines are listed once they have been added. Online/offline is their
  * status. Disconnecting a machine offers Remove so it leaves this list.
  * Adding a machine is installing the connector, not pasting an MCP URL.
+ *
+ * Adding an account puts the connect card IN THE TRANSCRIPT — the same card
+ * the avatar raises when a turn needs the account — and switches to the chat
+ * tab so the owner sees the card; no modal opens here. Once the card
+ * connects, the card stack sends the acknowledgement turn and the avatar
+ * greets the new account.
  */
 const ConnectionsSection = ({ onConnectionsChanged }) => {
+  const {
+    insertConnectionCard,
+    settleConnectionCard,
+    sendConnectionAcknowledgement,
+  } = useMedia();
   const [connections, setConnections] = useState([]);
   const [providers, setProviders] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
   const [query, setQuery] = useState('');
   const [categoryFilter, setCategoryFilter] = useState('all');
   const [isPickerOpen, setIsPickerOpen] = useState(false);
-  const [cardBeingConnected, setCardBeingConnected] = useState(null);
   const [busyConnectionKey, setBusyConnectionKey] = useState(null);
   const [importingAccountKey, setImportingAccountKey] = useState(null);
   const sectionRef = useRef(null);
-  const [searchParams] = useSearchParams();
+  const [searchParams, setSearchParams] = useSearchParams();
+
+  /**
+   * Leave the settings tab for the chat, where the card just placed sits.
+   *
+   * `/chat/:id` with no `tab` is the chat tab; dropping `tab` and `section`
+   * from the URL is how the workspace is told to switch.
+   */
+  const showChatTab = () => {
+    if (!searchParams.has('tab') && !searchParams.has('section')) return;
+    const nextParams = new URLSearchParams(searchParams);
+    nextParams.delete('tab');
+    nextParams.delete('section');
+    setSearchParams(nextParams, { replace: true });
+  };
 
   const refresh = useCallback(async () => {
     const [connectionsResult, providersResult, mcpResult] = await Promise.allSettled([
@@ -138,7 +163,6 @@ const ConnectionsSection = ({ onConnectionsChanged }) => {
         normalizePlatform(row.platform) === connector.platform
     );
     setIsPickerOpen(false);
-    setCardBeingConnected(null);
     if (alreadyListed) {
       await handleDeviceConnect(alreadyListed);
       return;
@@ -152,26 +176,94 @@ const ConnectionsSection = ({ onConnectionsChanged }) => {
     await handleDeviceConnect(pending);
   };
 
+  /**
+   * The accounts already connected for a provider, for the card's
+   * "Already connected" line.
+   *
+   * @param {string} providerName
+   * @returns {Object[]}
+   */
+  const alreadyConnectedFor = (providerName) =>
+    connections
+      .filter(
+        (connection) =>
+          connection.provider === providerName && connection.connected
+      )
+      .map((connection) => ({
+        account_key: connection.connection_key,
+        display_label: connection.display_label,
+        account_address: connection.sub_label,
+      }));
+
+  /**
+   * Put a connect card in the transcript and show the chat tab.
+   *
+   * @param {Object} providerCard A catalog row, a `card` from a connect
+   *   answer, or a popup card a form handed back.
+   */
+  const placeCardInTranscript = (providerCard) => {
+    if (!providerCard) return;
+    setIsPickerOpen(false);
+    insertConnectionCard({
+      ...providerCard,
+      already_connected:
+        providerCard.already_connected ??
+        alreadyConnectedFor(providerCard.provider),
+    });
+    showChatTab();
+  };
+
+  /**
+   * A form in the picker connected on its own (a custom server, a website):
+   * the transcript gets the settled card, the avatar is told, and the list
+   * is refreshed.
+   *
+   * @param {Object} record The settled card record.
+   */
+  const recordFormConnection = async (record) => {
+    setIsPickerOpen(false);
+    const cardMessageId = insertConnectionCard(record);
+    settleConnectionCard(cardMessageId, record);
+    showChatTab();
+    const connectionKey = connectionKeyOfCard(record);
+    if (connectionKey) {
+      await sendConnectionAcknowledgement(connectionKey, { cardMessageId });
+    }
+    await refresh();
+    onConnectionsChanged?.();
+  };
+
   const openCardFor = (provider) => {
     if (!provider) return;
     if (isMcpConnectorProvider(provider)) {
       addMcpConnector(provider);
       return;
     }
-    setIsPickerOpen(false);
-    setCardBeingConnected({
-      ...provider,
-      already_connected: connections
-        .filter(
-          (connection) =>
-            connection.provider === provider.provider && connection.connected
-        )
-        .map((connection) => ({
-          account_key: connection.connection_key,
-          display_label: connection.display_label,
-          account_address: connection.sub_label,
-        })),
-    });
+    placeCardInTranscript(provider);
+  };
+
+  /**
+   * A saved credential stopped working: the provider's connect card goes in
+   * the transcript so the owner can sign in again. A provider the catalog
+   * no longer lists falls back to switching the connection on, which asks
+   * the API for the card.
+   *
+   * @param {Object} connection A `needs_reconnect` row.
+   */
+  const handleSignInAgain = async (connection) => {
+    const provider = catalogProviders.find(
+      (candidate) => candidate.provider === connection.provider
+    );
+    if (provider && !isMcpConnectorProvider(provider)) {
+      placeCardInTranscript({
+        ...provider,
+        already_connected: [],
+        reconnect_connection_key: connection.connection_key,
+        message: `The saved credential for ${connection.display_label} stopped working. Sign in again to reconnect.`,
+      });
+      return;
+    }
+    await handleToggle(connection, true);
   };
 
   const handleToggle = async (connection, nextConnected) => {
@@ -196,7 +288,7 @@ const ConnectionsSection = ({ onConnectionsChanged }) => {
         nextConnected
       );
       if (response?.action === 'open_connect_card' && response.card) {
-        setCardBeingConnected({ ...response.card });
+        placeCardInTranscript({ ...response.card });
       } else {
         toast.success(
           nextConnected
@@ -397,18 +489,30 @@ const ConnectionsSection = ({ onConnectionsChanged }) => {
             <p className="text-neutral-200 truncate">
               {connection.display_label}
             </p>
-            <p
-              className={`text-xs truncate ${
-                needsReconnect ? 'text-amber-300' : 'text-white/50'
-              }`}
-            >
-              {needsReconnect
-                ? 'The saved credential stopped working — reconnect'
-                : connection.sub_label}
-            </p>
+            {connection.sub_label && (
+              <p className="text-xs text-white/50 truncate">
+                {connection.sub_label}
+              </p>
+            )}
+            {needsReconnect && (
+              <p className="text-xs text-amber-300 truncate">
+                The saved credential stopped working — sign in again
+              </p>
+            )}
           </div>
         </div>
         <div className="flex items-center justify-end gap-2 shrink-0">
+          {needsReconnect && (
+            <button
+              type="button"
+              onClick={() => handleSignInAgain(connection)}
+              disabled={isBusy}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm bg-amber-400/15 hover:bg-amber-400/25 text-amber-200 rounded-lg border border-amber-400/30 transition-colors disabled:opacity-50"
+            >
+              <RotateCcw className="w-3.5 h-3.5" aria-hidden="true" />
+              Sign in again
+            </button>
+          )}
           {isMailbox && isOn && (
             <button
               type="button"
@@ -562,39 +666,9 @@ const ConnectionsSection = ({ onConnectionsChanged }) => {
           providers={catalogProviders}
           connections={connections}
           onPick={openCardFor}
+          onConnected={recordFormConnection}
+          onNeedsLogin={placeCardInTranscript}
         />
-      </Modal>
-
-      <Modal
-        open={Boolean(cardBeingConnected)}
-        onClose={() => setCardBeingConnected(null)}
-        onBack={() => {
-          setCardBeingConnected(null);
-          setIsPickerOpen(true);
-        }}
-        title={
-          cardBeingConnected?.provider === 'custom_mcp'
-            ? 'Custom Connector'
-            : cardBeingConnected?.display_name
-        }
-        widthClassName="max-w-md"
-      >
-        {cardBeingConnected && (
-          <ConnectAccountCard
-            key={cardBeingConnected.provider}
-            interrupt={cardBeingConnected}
-            startOpen
-            className="w-full"
-            onDecision={async (decision) => {
-              if (decision === 'apply') {
-                await refresh();
-                onConnectionsChanged?.();
-                return;
-              }
-              setCardBeingConnected(null);
-            }}
-          />
-        )}
       </Modal>
     </div>
   );

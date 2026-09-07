@@ -10,6 +10,7 @@
 
 import React, {
   createContext,
+  useCallback,
   useContext,
   useState,
   useRef,
@@ -41,12 +42,48 @@ import {
   saveMessageAttachments,
 } from '../services/attachmentArchive';
 import {
+  buildAmbientActionRequest,
   buildAmbientMessageRequest,
   buildSpokenTurnRequest,
   deleteConversationThread,
+  fetchAvatarPreferences,
+  listConnections,
+  recordAmbientPreference,
+  recordMessageFeedback,
   stopAssistantReply,
   updateConversationThread,
 } from '../services/avatarService';
+import {
+  CONNECT_ACCOUNT_INTERRUPT_KIND,
+  cardFromConnectionRow,
+  connectionCardMessage,
+  pendingCardFromInterrupt,
+  resolvePendingCards,
+  settlePendingCards,
+} from '../services/connectionCards';
+import {
+  accountKeyOfRow,
+  pollUntilConnected,
+  rowMatchesLogin,
+} from '../services/connectionOauthPopup';
+import {
+  ambientActionFields,
+  ambientPreferencePayload,
+  isAmbientNotice,
+  isNoticeDismissed,
+  loadDismissedNoticeIds,
+  noticeDismissId,
+  noticeWasDecided,
+  persistDismissedNoticeIds,
+  ratedObservationOf,
+} from '../services/ambientNotice';
+import {
+  emptyAvatarPreferences,
+  noticeDecisionFor,
+  normalizeAvatarPreferences,
+  storedMessageIdOf,
+  withStoredFeedback,
+} from '../services/avatarPreferences';
 import {
   STOP_FALLBACK_ABORT_DELAY_MS,
   buildLocallyStoppedDoneFrame,
@@ -313,6 +350,9 @@ function normalizeThreadMessages(storedMessages, threadId = null) {
         null;
       return {
         id: storedMessage.id ?? messageKeyOf({ timestamp }),
+        // The id the server stores this row under, which is what a rating is
+        // recorded against. A row the server never named has none.
+        stored_id: storedMessage.id ?? null,
         type: storedMessage.type,
         // The triage record of an ambient observation this reply answers
         // (`decision` of respond or notify); a notify reply renders as a card.
@@ -328,6 +368,15 @@ function normalizeThreadMessages(storedMessages, threadId = null) {
             ? withoutModelFacingAttachmentText(messageText)
             : messageText,
         response_metadata: responseMetadata,
+        // The connect cards this reply carries ("Gmail · Added · 6 tools")
+        // and the chart specs an analytics turn drew, both kept on the row
+        // so a reopened conversation shows them where they were.
+        connections: Array.isArray(responseMetadata.connections)
+          ? responseMetadata.connections
+          : null,
+        charts: Array.isArray(responseMetadata.charts)
+          ? responseMetadata.charts
+          : null,
         // The reply's classified emotion, which picks the avatar's emotion
         // still beside the bubble. Absent on human turns and on replies made
         // before sentiment was recorded.
@@ -375,6 +424,13 @@ export const MediaProvider = ({ children }) => {
   // Set when the graph pauses for human approval (an `interrupt` frame). A
   // future approval interface resumes via POST /message/{assistant_id}/resume.
   const [pendingInterrupt, setPendingInterrupt] = useState(null);
+  // The same pause, readable from an effect or a poll without a stale
+  // closure: the auto-resume below and a card's own finish can both try to
+  // answer one pause, and only the first may.
+  const pendingInterruptRef = useRef(null);
+  useEffect(() => {
+    pendingInterruptRef.current = pendingInterrupt;
+  }, [pendingInterrupt]);
   // What the avatar is doing right now, shown beside the typing indicator. Null
   // between turns.
   const [assistantActivity, setAssistantActivity] = useState(null);
@@ -432,6 +488,180 @@ export const MediaProvider = ({ children }) => {
   useEffect(() => {
     onScreenAssistantIdRef.current = resolveAssistantId(activeAvatar);
   }, [activeAvatar]);
+
+  // What the person has told this avatar through thumbs and notes, as the
+  // server stores it per user and avatar. Read when the avatar or the
+  // conversation changes and again after every press, so a lit thumb is a
+  // stored thumb and a refresh shows the same state.
+  const [avatarPreferences, setAvatarPreferences] = useState(() =>
+    emptyAvatarPreferences()
+  );
+  const preferencesRequestRef = useRef(0);
+
+  const refreshAvatarPreferences = useCallback(async () => {
+    const assistantId = resolveAssistantId(activeAvatar);
+    if (!assistantId || !user || isSharedAvatarChatPath()) {
+      setAvatarPreferences(emptyAvatarPreferences());
+      return null;
+    }
+    const requestNumber = (preferencesRequestRef.current += 1);
+    try {
+      const payload = await fetchAvatarPreferences(assistantId, {
+        threadId: activeConversation ?? null,
+      });
+      if (preferencesRequestRef.current !== requestNumber) return null;
+      const preferences = normalizeAvatarPreferences(payload);
+      setAvatarPreferences(preferences);
+      setMessages((previousMessages) =>
+        withStoredFeedback(previousMessages, preferences)
+      );
+      return preferences;
+    } catch (preferencesError) {
+      console.error('Could not load the avatar preferences:', preferencesError);
+      return null;
+    }
+  }, [activeAvatar, activeConversation, user]);
+
+  useEffect(() => {
+    refreshAvatarPreferences();
+  }, [refreshAvatarPreferences]);
+
+  // Cards the person has touched this session (a thumb, a note, Reply, an
+  // allowed offer), by observation id, so a card is never recorded as left
+  // alone while its own save is still in flight. Cards already recorded as
+  // left alone are here too, so the record is made once.
+  const touchedNoticeIdsRef = useRef(new Set());
+  const [dismissedNoticeIds, setDismissedNoticeIds] = useState(
+    () => loadDismissedNoticeIds()
+  );
+
+  /**
+   * Remember that the person did something with a notification card.
+   *
+   * @param {string|null|undefined} observationId The card's observation.
+   */
+  function noteNoticeInteraction(observationId) {
+    if (observationId) touchedNoticeIdsRef.current.add(String(observationId));
+  }
+
+  /**
+   * Take a notification off the screen. Folding only tucks the body; this
+   * removes the card. Remembered on this browser so a refresh does not put
+   * it back.
+   *
+   * @param {Object|null|undefined} message The notice.
+   */
+  function dismissNotice(message) {
+    const id = noticeDismissId(message);
+    if (!id) return;
+    noteNoticeInteraction(message?.ambient?.observation_id);
+    setDismissedNoticeIds((previous) => {
+      if (previous.has(id)) return previous;
+      const next = new Set(previous);
+      next.add(id);
+      persistDismissedNoticeIds(next);
+      return next;
+    });
+  }
+
+  /**
+   * Record every undecided notification card on screen as left alone.
+   *
+   * Called when the person moves on: a typed or spoken turn goes out while a
+   * card nobody chose anything on is still showing. Leaving a notice alone is
+   * one of the outcomes the next triage learns from, alongside allowing the
+   * offer, replying in person, and the thumbs. Fire-and-forget: a failed
+   * record changes nothing on screen.
+   */
+  function markUndecidedNoticesLeftAlone() {
+    const assistantId = resolveAssistantId(activeAvatar);
+    if (!assistantId || !user || isSharedAvatarChatPath()) return;
+    for (const message of messages) {
+      if (message?.type !== 'ai' || !isAmbientNotice(message)) continue;
+      if (message.isLoading || message.isPending) continue;
+      const observationId = message.ambient?.observation_id;
+      if (!observationId) continue;
+      if (touchedNoticeIdsRef.current.has(String(observationId))) continue;
+      if (isNoticeDismissed(message, dismissedNoticeIds)) continue;
+      if (noticeWasDecided(noticeDecisionFor(avatarPreferences, message))) {
+        continue;
+      }
+      touchedNoticeIdsRef.current.add(String(observationId));
+      recordAmbientPreference(
+        assistantId,
+        ambientPreferencePayload(message, { type: 'left_alone', args: null })
+      ).catch((leftAloneError) => {
+        console.error('Could not record the notice as left alone:', leftAloneError);
+      });
+    }
+  }
+
+  /**
+   * Let the avatar do what a notification card offered.
+   *
+   * The offer becomes the avatar's next turn: the server writes the hidden
+   * instruction, the reply streams as an ordinary bubble stamped with the
+   * observation (so a thumb on the reply is learned against the card), and
+   * the card records that the avatar was allowed to act.
+   *
+   * @param {Object} noticeMessage The card whose offer was allowed.
+   * @returns {Promise<{reply: string, threadId: string|null}|null>}
+   */
+  async function allowAmbientAction(noticeMessage) {
+    const assistantId = resolveAssistantId(activeAvatar);
+    const fields = ambientActionFields(noticeMessage);
+    if (!assistantId || !fields) return null;
+    noteNoticeInteraction(noticeMessage?.ambient?.observation_id);
+    const threadId =
+      activeConversation && activeConversation !== NEW_CONVERSATION_ID
+        ? activeConversation
+        : null;
+    const { path, formData } = buildAmbientActionRequest(assistantId, fields, {
+      threadId,
+      userTimezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+    });
+    const actionRecord = {
+      decision: 'act',
+      observation_id: fields.ambient_action_observation_id,
+      observation_kind: fields.ambient_action_kind,
+      summary: fields.ambient_action_summary,
+      action: fields.ambient_action,
+      action_description: fields.ambient_action_description,
+    };
+    setPendingSendCount((count) => count + 1);
+    try {
+      const recording = recordAmbientPreference(
+        assistantId,
+        ambientPreferencePayload(noticeMessage, {
+          type: 'act',
+          args: { action: 'avatar' },
+        })
+      ).catch((actionError) => {
+        console.error('Could not record the allowed action:', actionError);
+        toast.error('Could not save that choice.');
+      });
+      const outcome = await runAssistantTurnStream({
+        _user: user,
+        avatarForMessage: activeAvatar,
+        threadId,
+        path,
+        formData,
+        bubbleDecorator: () => ({ ambient: actionRecord }),
+      });
+      await recording;
+      await refreshAvatarPreferences();
+      return {
+        reply: outcome?.reply ?? '',
+        threadId: outcome?.threadId ?? null,
+      };
+    } catch (actionError) {
+      console.error('The avatar could not carry out the action:', actionError);
+      toast.error('Your avatar could not do that.');
+      return null;
+    } finally {
+      setPendingSendCount((count) => Math.max(0, count - 1));
+    }
+  }
 
   const [inputMessage, setInputMessage] = useState('');
 
@@ -577,6 +807,36 @@ export const MediaProvider = ({ children }) => {
       threadId
     );
 
+    // A thread reopened mid-login is still paused on the API. The card is put
+    // back where the reply would go and the pause re-armed, so the owner can
+    // finish signing in — or, when the sign-in already finished in the popup,
+    // the poll below notices the account and resumes the turn on its own.
+    const pendingFromTranscript = messagesResponse?.pending_interrupt;
+    const restoredInterrupt = pendingFromTranscript?.interrupt;
+    if (restoredInterrupt?.kind === CONNECT_ACCOUNT_INTERRUPT_KIND) {
+      const pauseMessageId = `pending-interrupt-${threadId}`;
+      storedMessages.push({
+        id: pauseMessageId,
+        type: 'ai',
+        content: '',
+        connections: [pendingCardFromInterrupt(restoredInterrupt)],
+        connectionPauseId: pauseMessageId,
+        interrupt: restoredInterrupt,
+        interruptThreadId: pendingFromTranscript.thread_id ?? threadId,
+        interruptAssistantId: resolveAssistantId(avatarForMessages),
+        timestamp: new Date().toISOString(),
+      });
+      interruptSequenceRef.current += 1;
+      setPendingInterrupt({
+        sequence: interruptSequenceRef.current,
+        threadId: pendingFromTranscript.thread_id ?? threadId,
+        assistantId: resolveAssistantId(avatarForMessages),
+        interrupt: restoredInterrupt,
+        pauseMessageId,
+        restoredFromTranscript: true,
+      });
+    }
+
     // Put the attachments back. The server returns none — an upload is read
     // into text and the bytes dropped — so anything shown here comes from this
     // browser's own archive, matched to messages by their order in the thread.
@@ -715,6 +975,7 @@ export const MediaProvider = ({ children }) => {
     onExtraEvent = null,
     bubbleDecorator = null,
     ambient = false,
+    connectionPauseMessageId = null,
   }) {
     const assistantId = resolveAssistantId(avatarForMessage);
     // Someone standing at the place a geo-located avatar was pinned to is a
@@ -964,6 +1225,15 @@ export const MediaProvider = ({ children }) => {
     }
 
     if (terminalFrame?.type === 'interrupt') {
+      // A connect card is the pause's whole answer, so the placeholder that
+      // would otherwise be dropped for holding no words is kept and given the
+      // card. A deferred turn (spoken, ambient) may not have painted the
+      // bubble yet; the card needs a message to live on.
+      const isConnectAccountPause =
+        terminalFrame.interrupt?.kind === CONNECT_ACCOUNT_INTERRUPT_KIND;
+      if (isConnectAccountPause) {
+        paintBubble();
+      }
       // Finalize the bubble the tokens were streaming into, exactly as the
       // `done` branch does. Without this the placeholder keeps `isLoading`
       // forever and a paused turn leaves a typing indicator bouncing with no
@@ -997,11 +1267,20 @@ export const MediaProvider = ({ children }) => {
               interrupt: terminalFrame.interrupt ?? null,
               interruptThreadId: terminalFrame.thread_id ?? threadId ?? null,
               interruptAssistantId: assistantId,
+              ...(isConnectAccountPause
+                ? {
+                    connections: [
+                      pendingCardFromInterrupt(terminalFrame.interrupt),
+                    ],
+                    connectionPauseId: streamingMessageId,
+                  }
+                : {}),
             };
           })
           .filter(
             (message) =>
               message.id !== streamingMessageId ||
+              isConnectAccountPause ||
               (message.content ?? '').trim() !== ''
           )
       );
@@ -1018,6 +1297,9 @@ export const MediaProvider = ({ children }) => {
         threadId: terminalFrame.thread_id,
         assistantId,
         interrupt: terminalFrame.interrupt,
+        // The message the connect card sits on, so the card can be settled
+        // the moment the owner finishes with the card.
+        pauseMessageId: isConnectAccountPause ? streamingMessageId : null,
       });
     } else if (terminalFrame?.type === 'done') {
       const leakedSuggestions = parseConversationSuggestionList(
@@ -1058,6 +1340,9 @@ export const MediaProvider = ({ children }) => {
               stopped: terminalFrameWasStopped(terminalFrame),
               usage: timed.usage,
               request_id: terminalFrame.request_id ?? null,
+              // The id the reply is stored under, so a thumb pressed on this
+              // bubble is recorded against the row the transcript reloads.
+              stored_id: terminalFrame.message_id ?? message.stored_id ?? null,
               // This turn's LangSmith run, so the debug link under the bubble
               // opens this reply's own trace rather than the whole thread.
               run_id: terminalFrame.run_id ?? null,
@@ -1071,6 +1356,16 @@ export const MediaProvider = ({ children }) => {
               // avatar's icon to the matching emotion still, and voice mode
               // picks the emotion's idle loop and lip-sync still from it.
               sentiment: terminalFrame.response_metadata?.sentiment ?? null,
+              // The connect cards this turn settled and the charts the turn
+              // drew: the transcript's record of both, as a reload shows.
+              connections: Array.isArray(
+                terminalFrame.response_metadata?.connections
+              )
+                ? terminalFrame.response_metadata.connections
+                : (message.connections ?? null),
+              charts: Array.isArray(terminalFrame.response_metadata?.charts)
+                ? terminalFrame.response_metadata.charts
+                : (message.charts ?? null),
             };
             rememberAvatarResponseMetrics(
               terminalFrame.thread_id ?? threadId,
@@ -1079,6 +1374,46 @@ export const MediaProvider = ({ children }) => {
             return finalized;
           })
         );
+        // A reply that settled a connect card now carries the record; the
+        // pause message's copy of the card is removed so the card shows
+        // once, where a reload will show the card.
+        const settledConnectionCards =
+          terminalFrame.response_metadata?.connections;
+        if (
+          connectionPauseMessageId &&
+          Array.isArray(settledConnectionCards) &&
+          settledConnectionCards.length > 0
+        ) {
+          updateMessagesIfStillOnScreen((previousMessages) =>
+            resolvePendingCards(previousMessages, {
+              pauseMessageId: connectionPauseMessageId,
+              cards: settledConnectionCards,
+            })
+          );
+        }
+        // A deferred turn that answered with a card and no words still needs
+        // a message for the card to sit on.
+        if (
+          !bubblePainted &&
+          Array.isArray(settledConnectionCards) &&
+          settledConnectionCards.length > 0
+        ) {
+          paintBubble();
+          updateMessagesIfStillOnScreen((previousMessages) =>
+            previousMessages.map((message) =>
+              message.id === streamingMessageId
+                ? {
+                    ...message,
+                    isLoading: false,
+                    streamingText: false,
+                    stored_id: terminalFrame.message_id ?? null,
+                    response_metadata: terminalFrame.response_metadata ?? {},
+                    connections: settledConnectionCards,
+                  }
+                : message
+            )
+          );
+        }
         // A reply stopped before its first word is not a reply: the bubble
         // that was waiting for it is removed rather than left empty.
         if (
@@ -1235,6 +1570,116 @@ export const MediaProvider = ({ children }) => {
   }, [ambientHold]);
 
   /**
+   * Put a connect card in the transcript before any turn asked for one.
+   *
+   * The "+" menu and the settings picker used to open the card in a modal;
+   * the card now lives in the conversation, where the avatar's own request
+   * for the same account would have put the card. The message is client-side
+   * only until the account connects and the acknowledgement turn records the
+   * card on a reply.
+   *
+   * @param {Object} providerCard A `GET /connectable_providers` row, or the
+   *   `card` from a connect answer.
+   * @returns {string} The id of the message holding the card.
+   */
+  function insertConnectionCard(providerCard) {
+    const nonce = `${Date.now().toString(36)}-${Math.random()
+      .toString(36)
+      .slice(2, 8)}`;
+    const cardMessage = connectionCardMessage(providerCard, nonce);
+    setMessages((previousMessages) => [...previousMessages, cardMessage]);
+    return cardMessage.id;
+  }
+
+  /**
+   * Flip a client-side connect card to its outcome.
+   *
+   * @param {string} cardMessageId The id `insertConnectionCard` returned.
+   * @param {Object|null} resultCard The connected record, or null when the
+   *   owner closed the card.
+   */
+  function settleConnectionCard(cardMessageId, resultCard) {
+    setMessages((previousMessages) =>
+      settlePendingCards(previousMessages, {
+        pauseMessageId: cardMessageId,
+        resultCard,
+      })
+    );
+  }
+
+  /**
+   * Drop a client-side connect card the owner closed without connecting.
+   *
+   * @param {string} cardMessageId The id `insertConnectionCard` returned.
+   */
+  function removeConnectionCard(cardMessageId) {
+    setMessages((previousMessages) =>
+      previousMessages.filter(
+        (message) => String(message?.id) !== String(cardMessageId)
+      )
+    );
+  }
+
+  /**
+   * Tell the avatar an account was connected from the connectors menu.
+   *
+   * A hidden turn through the ordinary message stream: no words from the
+   * owner (the server writes the instruction and hides the human turn), and
+   * the reply arrives with the card in `response_metadata.connections`, which
+   * replaces the client-side card so the transcript matches a reload.
+   *
+   * @param {string} connectionKey The `account:<key>` the account is listed
+   *   under.
+   * @param {Object} [options]
+   * @param {string} [options.cardMessageId] The client-side card to replace.
+   * @returns {Promise<{success: boolean, reply: string, threadId: string|null}>}
+   */
+  async function sendConnectionAcknowledgement(
+    connectionKey,
+    { cardMessageId = null } = {}
+  ) {
+    if (!connectionKey || !activeAvatar) {
+      return { success: false, reply: '', threadId: null };
+    }
+    const formData = new FormData();
+    formData.append('message', '');
+    formData.append('stream', 'true');
+    formData.append('turn_kind', 'connection_acknowledgement');
+    formData.append('connection_key', connectionKey);
+    const threadId = activeConversation;
+    if (threadId && threadId !== NEW_CONVERSATION_ID) {
+      formData.append('thread_id', threadId);
+    }
+    const userTimezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+    if (userTimezone) {
+      formData.append('user_timezone', userTimezone);
+    }
+    setPendingSendCount((count) => count + 1);
+    try {
+      return await runAssistantTurnStream({
+        _user: user,
+        avatarForMessage: activeAvatar,
+        threadId,
+        path: `/message/${encodeURIComponent(resolveAssistantId(activeAvatar))}`,
+        formData,
+        deferBubbleUntilFirstToken: true,
+        connectionPauseMessageId: cardMessageId,
+      });
+    } catch (acknowledgementError) {
+      console.error(
+        'The connection acknowledgement could not be sent:',
+        acknowledgementError
+      );
+      return { success: false, reply: '', threadId: null };
+    } finally {
+      setPendingSendCount((count) => Math.max(0, count - 1));
+      if (!turnPausedForUserRef.current) {
+        setAssistantActivity(null);
+      }
+    }
+  }
+
+  /**
    * Answer the question a paused turn asked, and stream the continuation.
    * POST /message/{assistant_id}/resume
    *
@@ -1252,10 +1697,25 @@ export const MediaProvider = ({ children }) => {
    *   named here is skipped by the server, so omitting this changes nothing.
    * @returns {Promise<{success: boolean, reply: string, threadId: string|null}>}
    */
-  async function resumePendingInterrupt(decision, items) {
-    const interruptToResume = pendingInterrupt;
+  async function resumePendingInterrupt(decision, items, resultCard = null) {
+    const interruptToResume = pendingInterruptRef.current ?? pendingInterrupt;
     if (!interruptToResume) {
       return { success: false, reply: '', threadId: null };
+    }
+    // Claimed synchronously: a card's own finish and the reload poll can both
+    // arrive for one pause, and the second must find nothing to answer.
+    pendingInterruptRef.current = null;
+
+    // The connect card flips to its outcome now rather than when the resumed
+    // turn answers, so the card does not sit on "Waiting for sign-in" while
+    // the avatar composes a reply.
+    if (interruptToResume.pauseMessageId) {
+      setMessages((previousMessages) =>
+        settlePendingCards(previousMessages, {
+          pauseMessageId: interruptToResume.pauseMessageId,
+          resultCard: decision === 'apply' ? resultCard : null,
+        })
+      );
     }
 
     const formData = new FormData();
@@ -1290,6 +1750,7 @@ export const MediaProvider = ({ children }) => {
           interruptToResume.assistantId
         )}/resume`,
         formData,
+        connectionPauseMessageId: interruptToResume.pauseMessageId ?? null,
       });
     } catch (resumeError) {
       console.error('Failed to resume the paused turn:', resumeError);
@@ -1313,6 +1774,47 @@ export const MediaProvider = ({ children }) => {
       }
     }
   }
+
+  // The newest `resumePendingInterrupt`, for the poll below: the function is
+  // remade every render, and the poll must call the one that sees the
+  // current pause without restarting on every render.
+  const resumePendingInterruptRef = useRef(null);
+  resumePendingInterruptRef.current = resumePendingInterrupt;
+
+  // A connect card restored from a reloaded transcript: the sign-in may have
+  // finished in the popup while the page was away, so the connections list is
+  // watched and the turn resumed on its own once the account exists. A pause
+  // raised live is not watched here — the card's own flow finishes those.
+  useEffect(() => {
+    if (!pendingInterrupt?.restoredFromTranscript) return undefined;
+    const restoredInterrupt = pendingInterrupt.interrupt;
+    if (restoredInterrupt?.kind !== CONNECT_ACCOUNT_INTERRUPT_KIND) {
+      return undefined;
+    }
+    const controller = new AbortController();
+    const knownAccountKeys = (restoredInterrupt.already_connected ?? [])
+      .map((account) => accountKeyOfRow(account))
+      .filter(Boolean);
+    pollUntilConnected({
+      listConnections: () =>
+        listConnections().then((listed) => listed?.connections ?? []),
+      matches: (row) =>
+        rowMatchesLogin(row, {
+          provider: restoredInterrupt.provider,
+          knownAccountKeys,
+        }),
+      signal: controller.signal,
+    }).then((row) => {
+      if (!row || controller.signal.aborted) return;
+      if (pendingInterruptRef.current !== pendingInterrupt) return;
+      resumePendingInterruptRef.current?.(
+        'apply',
+        null,
+        cardFromConnectionRow(row, pendingCardFromInterrupt(restoredInterrupt))
+      );
+    });
+    return () => controller.abort();
+  }, [pendingInterrupt]);
 
   /**
    * Report a turn that could not be carried out.
@@ -1399,6 +1901,7 @@ export const MediaProvider = ({ children }) => {
       console.log('Missing required data for sending message');
       return;
     }
+    markUndecidedNoticesLeftAlone();
 
     const temporaryUserMessageId = `temp-${Date.now()}`;
     // Which of the user's messages this turn will be, counted before the
@@ -1577,36 +2080,55 @@ export const MediaProvider = ({ children }) => {
   /**
    * Record thumbs / written feedback on an avatar reply.
    *
-   * The API currently accepts like/dislike as inert form fields on a new
-   * message; the rating is stored on the bubble so the UI is live even when
-   * persist is deferred. A dedicated persist call is attempted and ignored
-   * when the endpoint is absent.
+   * The bubble lights at once; the rating is then recorded under the
+   * person's own namespace for this avatar, against the id the reply is
+   * stored under (or the request it streamed under), and the stored
+   * preferences are read back so what is shown is what is saved. A reply the
+   * server never named cannot be recorded, and says so.
    *
    * @param {string} messageId The assistant message.
    * @param {Object} feedback `{ type: 'like'|'dislike', comment?: string }`
    */
   async function submitMessageFeedback(messageId, feedback) {
     const rated = messages.find((message) => message.id === messageId);
+    const previousFeedback = rated?.feedback ?? null;
     setMessages((previousMessages) =>
       previousMessages.map((message) =>
         message.id === messageId ? { ...message, feedback } : message
       )
     );
-    if (!rated?.request_id || !activeAvatar) return;
+    const assistantId = resolveAssistantId(activeAvatar);
+    if (!rated || !assistantId || !feedback?.type) return;
+    const storedId = storedMessageIdOf(rated);
+    if (!storedId && !rated.request_id) {
+      toast.error('This reply cannot be rated until the conversation reloads.');
+      return;
+    }
     try {
-      await requestJson('/message_feedback', {
-        method: 'POST',
-        body: {
-          request_id: rated.request_id,
-          assistant_id: resolveAssistantId(activeAvatar),
-          thread_id: activeConversation,
-          feedback_type: feedback.type,
-          comment: feedback.comment ?? null,
-        },
+      const observation = ratedObservationOf(rated);
+      noteNoticeInteraction(observation?.observationId);
+      await recordMessageFeedback({
+        assistantId,
+        threadId: activeConversation ?? null,
+        messageId: storedId,
+        requestId: rated.request_id ?? null,
+        type: feedback.type,
+        comment: feedback.comment ?? null,
+        content:
+          typeof rated.content === 'string' ? rated.content.slice(0, 600) : null,
+        observation,
       });
-    } catch {
-      // Persist is optional until the API wires FeedbackData; the UI already
-      // reflects the rating on this message.
+      await refreshAvatarPreferences();
+    } catch (feedbackError) {
+      console.error('Could not record the message feedback:', feedbackError);
+      toast.error('Could not save that feedback.');
+      setMessages((previousMessages) =>
+        previousMessages.map((message) =>
+          message.id === messageId
+            ? { ...message, feedback: previousFeedback }
+            : message
+        )
+      );
     }
   }
 
@@ -1810,6 +2332,7 @@ export const MediaProvider = ({ children }) => {
     if (!activeAvatar || !recording) {
       return { reply: '', sentiment: null, decision: null, speakers: null };
     }
+    markUndecidedNoticesLeftAlone();
     const extraFiles = Array.isArray(attachedFiles) ? attachedFiles : [];
     const threadId =
       activeConversation && activeConversation !== NEW_CONVERSATION_ID
@@ -1941,6 +2464,7 @@ export const MediaProvider = ({ children }) => {
     if (!activeAvatar || (!words && files.length === 0)) {
       return { reply: '', sentiment: null };
     }
+    markUndecidedNoticesLeftAlone();
     const humanMessageOrdinal = messages.filter(
       (existingMessage) => existingMessage.type === 'human'
     ).length;
@@ -2000,6 +2524,7 @@ export const MediaProvider = ({ children }) => {
     if (!activeAvatar || !recordedAudio) {
       return '';
     }
+    markUndecidedNoticesLeftAlone();
     const temporaryUserMessageId = `temp-${Date.now()}`;
     setPendingSendCount((count) => count + 1);
     try {
@@ -2216,6 +2741,10 @@ export const MediaProvider = ({ children }) => {
         pendingInterrupt,
         setPendingInterrupt,
         resumePendingInterrupt,
+        insertConnectionCard,
+        settleConnectionCard,
+        removeConnectionCard,
+        sendConnectionAcknowledgement,
         assistantActivity,
         sendVoiceTurn,
         sendSpokenTurn,
@@ -2230,6 +2759,12 @@ export const MediaProvider = ({ children }) => {
         resendFromUserMessage,
         regenerateAvatarReply,
         submitMessageFeedback,
+        avatarPreferences,
+        refreshAvatarPreferences,
+        allowAmbientAction,
+        noteNoticeInteraction,
+        dismissNotice,
+        dismissedNoticeIds,
         fetchConversationSuggestions,
         pinConversation,
         renameConversation,

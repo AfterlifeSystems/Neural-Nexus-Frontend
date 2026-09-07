@@ -93,6 +93,27 @@ import { speakerLabelsDefaultOn } from '../config/voiceSpeakerLabels';
 import ComposerConnectorsMenu from './connections/ComposerConnectorsMenu';
 import ComposerAttachmentStrip from './ComposerAttachmentStrip';
 import MessageMedia from './MessageMedia';
+import ChartCard from './ChartCard';
+import ConnectionCardStack from './connections/ConnectionCardStack';
+import PendingConnectionCard from './connections/PendingConnectionCard';
+import {
+  connectionsOf,
+  isConnectionCardOnly,
+} from '../services/connectionCards';
+import {
+  artifactNamesRenderedByCharts,
+  chartHasRenderableData,
+  chartsOf,
+  pngArtifactFor,
+} from '../services/chartSpecs';
+import AmbientNotificationCard from './AmbientNotificationCard';
+import InterruptPanel from './InterruptPanel';
+import {
+  isAmbientNotice,
+  isNoticeDismissed,
+} from '../services/ambientNotice';
+import { noticeDecisionFor } from '../services/avatarPreferences';
+import { focusComposer } from '../services/composerFocus';
 import { composerHasSendableDraft } from './composerSendState';
 import { canCaptureMicrophone, recordOneTurn } from '../services/voiceSession';
 import { startVoiceActivityListening } from '../services/voiceActivity';
@@ -174,6 +195,8 @@ const AVATAR_BUBBLE_CLASSES =
   'max-w-[min(100%,28rem)] sm:max-w-[85%] px-4 py-2 rounded-2xl text-[15px] leading-relaxed self-start bg-black/55 backdrop-blur-md border border-white/15 text-neutral-100 whitespace-pre-wrap';
 const CAPTION_DOCK_CLASSES =
   'absolute left-0 right-0 max-h-[min(28vh,16rem)] overflow-y-auto px-3 sm:px-6 pb-2';
+const CARD_DOCK_CLASSES =
+  'absolute left-0 right-0 max-h-[min(50vh,28rem)] overflow-y-auto px-3 sm:px-6 pb-2';
 const CAPTION_COLUMN_CLASSES = 'mx-auto max-w-3xl flex flex-col gap-3 py-2';
 const SPEAKING_BUBBLE_HIGHLIGHT =
   'ring-2 ring-amber-400/80 border-amber-400/50 bg-amber-400/10';
@@ -268,6 +291,13 @@ const LiveVoiceMode = ({
     setAmbientHold,
     assistantActivity,
     stopAssistantTurn,
+    pendingInterrupt,
+    avatarPreferences,
+    refreshAvatarPreferences,
+    allowAmbientAction,
+    noteNoticeInteraction,
+    dismissNotice,
+    dismissedNoticeIds,
   } = useMedia();
   const {
     ambientEnabled,
@@ -309,6 +339,12 @@ const LiveVoiceMode = ({
     useState(cameraBackground);
   const { stream: cameraBackgroundStream, error: cameraBackgroundError } =
     useCameraPassthrough(isCameraBackgroundOn);
+
+  // Arrival and departure turn the live place view on and off. A manual
+  // toggle still wins until the standing-at flag itself changes.
+  useEffect(() => {
+    setIsCameraBackgroundOn(cameraBackground);
+  }, [cameraBackground]);
   const canShowTheCameraBehindTheAvatar = canShowCameraBackground();
 
   // A refused or missing camera is not a failure of the conversation: the
@@ -377,6 +413,7 @@ const LiveVoiceMode = ({
   const avatarAudioIsActiveRef = useRef(false);
   const avatarEchoSuspicionUntilRef = useRef(0);
   const fileInputRef = useRef(null);
+  const composerInputRef = useRef(null);
   const mediaFilesRef = useRef(mediaFiles);
   mediaFilesRef.current = mediaFiles;
   const takePendingAttachments = useCallback(() => {
@@ -467,6 +504,14 @@ const LiveVoiceMode = ({
       ),
     [spokenExchange, holdNewCaptions, captionGeneration]
   );
+  const noticeMessages = spokenExchange.filter(
+    (message) =>
+      isAvatarMessage(message) &&
+      isAmbientNotice(message) &&
+      !isNoticeDismissed(message, dismissedNoticeIds)
+  );
+  const hasVoiceCards =
+    noticeMessages.length > 0 || Boolean(pendingInterrupt);
 
   useEffect(() => {
     transcriptEndRef.current?.scrollIntoView({
@@ -1319,6 +1364,38 @@ const LiveVoiceMode = ({
     </button>
   );
 
+  const replyToNotice = () => {
+    setIsMessageBarCollapsed(false);
+    const focus = () => {
+      if (composerInputRef.current) {
+        composerInputRef.current.focus();
+        return;
+      }
+      focusComposer();
+    };
+    requestAnimationFrame(() => requestAnimationFrame(focus));
+  };
+
+  const renderNoticeCard = (message, messageKey) => (
+    <div
+      key={messageKey}
+      className="self-start w-full max-w-[min(100%,28rem)] sm:max-w-[85%] caption-actions pointer-events-auto"
+    >
+      <AmbientNotificationCard
+        message={message}
+        assistantId={assistantId}
+        avatarName={avatarName}
+        onReply={replyToNotice}
+        defaultCollapsed
+        storedDecision={noticeDecisionFor(avatarPreferences, message)}
+        onRecorded={refreshAvatarPreferences}
+        onAllowAction={allowAmbientAction}
+        onInteract={noteNoticeInteraction}
+        onDismiss={dismissNotice}
+      />
+    </div>
+  );
+
   const generatingStopRow =
     showGeneratingStopRow && !generatingCaption ? (
       <AssistantActivityLine
@@ -1559,16 +1636,19 @@ const LiveVoiceMode = ({
           dock until the next send or reply fades it out and takes the
           slot. A folded bar with the avatar audible is a clean stage —
           mute, or no voice model, is what puts the words back. */}
-      {shouldShowVoiceStageText({
-        messageBarCollapsed: isMessageBarCollapsed,
-        captionsShown: showCaptions,
-        avatarMuted: isAvatarMuted,
-        hasVoiceModel:
-          canPlayAvatarVoice && !speech.notReady && !speech.blocked,
-      }) &&
-        (stageFlash || assistantActivity || showGeneratingStopRow) && (
+      {((!showCaptions && hasVoiceCards) ||
+        (shouldShowVoiceStageText({
+          messageBarCollapsed: isMessageBarCollapsed,
+          captionsShown: showCaptions,
+          avatarMuted: isAvatarMuted,
+          hasVoiceModel:
+            canPlayAvatarVoice && !speech.notReady && !speech.blocked,
+        }) &&
+          (stageFlash || assistantActivity || showGeneratingStopRow))) && (
         <div
-          className={`${CAPTION_DOCK_CLASSES} z-20 pointer-events-none`}
+          className={`${hasVoiceCards ? CARD_DOCK_CLASSES : CAPTION_DOCK_CLASSES} z-20 ${
+            hasVoiceCards ? 'pointer-events-auto' : 'pointer-events-none'
+          }`}
           style={{ bottom: composerDockHeight }}
         >
           <div
@@ -1607,6 +1687,19 @@ const LiveVoiceMode = ({
                 {stageFlash.text}
               </div>
             )}
+            {!showCaptions &&
+              noticeMessages.map((message) =>
+                renderNoticeCard(
+                  message,
+                  messageKeyOf(message) ??
+                    `temp-${message.timestamp || Date.now()}`
+                )
+              )}
+            {!showCaptions && <InterruptPanel />}
+            {/* With captions hidden the paused turn's connect card has no
+                strip to sit in; the one card is shown here, above the
+                composer dock, until the account connects. */}
+            {!showCaptions && <PendingConnectionCard assistantId={assistantId} />}
             {generatingStopRow}
           </div>
         </div>
@@ -1616,7 +1709,7 @@ const LiveVoiceMode = ({
           dock on the bottom edge so toggling captions never lifts it. */}
       {showCaptions && (
         <div
-          className={`${CAPTION_DOCK_CLASSES} pointer-events-none ${
+          className={`${hasVoiceCards ? CARD_DOCK_CLASSES : CAPTION_DOCK_CLASSES} pointer-events-none ${
             editingKey ? 'z-40' : 'z-20'
           }`}
           style={{ bottom: composerDockHeight }}
@@ -1632,6 +1725,32 @@ const LiveVoiceMode = ({
               const isHuman = isHumanMessage(message);
               const isFromAvatar = isAvatarMessage(message);
               const isLoading = message.isLoading || message.isPending;
+              if (isFromAvatar && isAmbientNotice(message) && !isLoading) {
+                if (isNoticeDismissed(message, dismissedNoticeIds)) {
+                  return null;
+                }
+                return renderNoticeCard(message, messageKey);
+              }
+              // A connect card with no words around the card stands alone
+              // in the strip, compact, interactive while the turn is
+              // paused on the card.
+              if (isFromAvatar && !isLoading && isConnectionCardOnly(message)) {
+                return (
+                  <ConnectionCardStack
+                    key={messageKey}
+                    message={message}
+                    assistantId={assistantId}
+                    compact
+                    className="self-start w-full max-w-[min(100%,28rem)] sm:max-w-[85%] caption-actions pointer-events-auto"
+                  />
+                );
+              }
+              const messageCharts = isFromAvatar
+                ? chartsOf(message).filter(chartHasRenderableData)
+                : [];
+              const messageConnectionCards = isFromAvatar
+                ? connectionsOf(message)
+                : [];
               const isGeneratingThis = voiceMessageIsGenerating(message, {
                 turnActive: textTurnIsGenerating,
               });
@@ -1653,7 +1772,7 @@ const LiveVoiceMode = ({
                     isHuman ? HUMAN_BUBBLE_CLASSES : AVATAR_BUBBLE_CLASSES
                   } ${isSpeakingThis ? SPEAKING_BUBBLE_HIGHLIGHT : ''} ${
                     isEditingThis ? 'relative z-40' : ''
-                  }`}
+                  } ${messageCharts.length > 0 ? 'w-full' : ''}`}
                 >
                   {isLoading ? (
                     <div className="flex items-center justify-between gap-3">
@@ -1697,6 +1816,17 @@ const LiveVoiceMode = ({
                     </div>
                   ) : (
                     <>
+                      {isFromAvatar &&
+                        message.ambient?.decision === 'respond' && (
+                          <div className="mb-1 text-[11px] uppercase tracking-wide text-amber-300/80">
+                            Noticed on your webcam or screen
+                          </div>
+                        )}
+                      {isFromAvatar && message.ambient?.decision === 'act' && (
+                        <div className="mb-1 text-[11px] uppercase tracking-wide text-sky-300/80">
+                          Done at your request
+                        </div>
+                      )}
                       {isHuman && hasSpeakerScript(message) ? (
                         <SpeakerScript
                           speakers={message.speakers}
@@ -1708,10 +1838,32 @@ const LiveVoiceMode = ({
                         <div className="whitespace-pre-wrap">…</div>
                       )}
                       <MessageMedia media={message.media} />
+                      {messageCharts.map((chart, index) => (
+                        <ChartCard
+                          key={chart.chart_id ?? `${messageKey}-chart-${index}`}
+                          chart={chart}
+                          compact
+                          pngArtifact={pngArtifactFor(
+                            chart,
+                            createdArtifactsOf(message)
+                          )}
+                        />
+                      ))}
                       {isFromAvatar && (
                         <CreatedArtifacts
                           artifacts={createdArtifactsOf(message)}
                           compact
+                          hiddenNames={artifactNamesRenderedByCharts(
+                            messageCharts
+                          )}
+                        />
+                      )}
+                      {messageConnectionCards.length > 0 && (
+                        <ConnectionCardStack
+                          message={message}
+                          assistantId={assistantId}
+                          compact
+                          className="mt-2 w-full min-w-0 caption-actions pointer-events-auto"
                         />
                       )}
                     </>
@@ -1797,6 +1949,7 @@ const LiveVoiceMode = ({
               );
             })}
             {generatingStopRow}
+            <InterruptPanel />
             <div ref={transcriptEndRef} />
           </div>
         </div>
@@ -1870,6 +2023,8 @@ const LiveVoiceMode = ({
             }}
           >
             <input
+              ref={composerInputRef}
+              data-composer-input
               type="text"
               value={draft}
               onChange={(event) => setDraft(event.target.value)}

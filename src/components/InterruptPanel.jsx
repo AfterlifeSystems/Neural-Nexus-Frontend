@@ -14,7 +14,6 @@
 
 import React, { useMemo, useState } from 'react';
 import { AlertTriangle } from 'lucide-react';
-import ConnectAccountCard from './ConnectAccountCard';
 import { useMedia } from '../context/MediaContext';
 import { useAuth } from '../context/AuthContext';
 import { resolveAssistantId } from './utils';
@@ -283,18 +282,15 @@ const InterruptPanel = () => {
   // edits.
   const panelKey = pendingInterrupt.sequence;
 
-  // Connecting an account is its own card: the credential is posted to the
-  // endpoint that verifies and encrypts it, and only then is the turn resumed,
-  // carrying a decision and nothing else. See the note in ConnectAccountCard on
-  // why a credential must never travel as an interrupt's resume value.
+  // Connecting an account is its own card, and the card lives on the message
+  // that paused — MessageList renders the card in place from the message's
+  // `connections` (see `ConnectionCardStack`), so nothing is drawn here. The
+  // credential is posted to the endpoint that verifies and encrypts it, and
+  // only then is the turn resumed, carrying a decision and a record of the
+  // outcome; see the note in ConnectAccountCard on why a credential must
+  // never travel as an interrupt's resume value.
   if (interrupt.kind === 'connect_account') {
-    return (
-      <ConnectAccountCard
-        key={panelKey}
-        interrupt={interrupt}
-        onDecision={handleResume}
-      />
-    );
+    return null;
   }
 
   const PanelForKind =

@@ -1,44 +1,231 @@
 // src/components/ConnectAccountCard.jsx
-import React, { useState } from 'react';
-import { Check, ExternalLink, Loader2 } from 'lucide-react';
+import React, { useEffect, useRef, useState } from 'react';
+import { Check, ExternalLink, Loader2, RotateCcw } from 'lucide-react';
 import ConnectorIcon from './icons/ConnectorIcon';
-import { connectAccount, isDeviceProvider } from '../services/avatarService';
+import {
+  connectAccount,
+  isDeviceProvider,
+  listConnections,
+  startConnectionLogin,
+} from '../services/avatarService';
+import { NEURAL_NEXUS_API_BASE_URL } from '../services/neuralNexusApiClient';
+import {
+  absoluteApiUrl,
+  accountKeyOfRow,
+  apiOriginOf,
+  closePopup,
+  navigatePopup,
+  openPopupSynchronously,
+  parseLoginResultMessage,
+  pollUntilConnected,
+  rowMatchesLogin,
+} from '../services/connectionOauthPopup';
+import {
+  CARD_STATUS_CANCELLED,
+  CARD_STATUS_CONNECTED,
+  CARD_STATUS_FAILED,
+  CARD_STATUS_PENDING_LOGIN,
+  cardFromConnectResponse,
+  cardFromConnectionRow,
+  cardFromLoginResult,
+  cardStatusLine,
+} from '../services/connectionCards';
 import AddDevicePanel from './connections/AddDevicePanel';
+
+// How long a closed popup is given to still deliver a result (a result posts
+// in the popup's last moments, and the connections list lags by a poll).
+const CLOSED_POPUP_GRACE_MS = 6_000;
+
+const GOOGLE_PROVIDERS = new Set([
+  'gmail',
+  'google_calendar',
+  'google_analytics',
+  'youtube',
+]);
+
+/**
+ * The path a card takes to a connected account, from the provider's
+ * `login_mode`: a credential form, a popup window, or installing a device.
+ *
+ * @param {Object} payload The card payload.
+ * @returns {'form'|'popup'|'device'}
+ */
+function loginPathOf(payload) {
+  if (isDeviceProvider(payload)) return 'device';
+  const loginMode = payload?.login_mode;
+  if (loginMode === 'form') return 'form';
+  if (loginMode && loginMode !== 'none') return 'popup';
+  return payload?.uses_form === false ? 'popup' : 'form';
+}
+
+/**
+ * The host of the site a browser-session card signs in on.
+ *
+ * @param {Object} payload The card payload.
+ * @returns {string} The host, or an empty string.
+ */
+function siteHostOf(payload) {
+  const candidate = payload?.site_url || payload?.login_request?.site_url || '';
+  if (!candidate) return '';
+  try {
+    return new URL(candidate).host;
+  } catch {
+    return String(candidate).replace(/^https?:\/\//, '').split('/')[0];
+  }
+}
+
+/**
+ * What the popup button says, by provider and login mode.
+ *
+ * @param {Object} payload The card payload.
+ * @param {string} loginMode The effective login mode.
+ * @returns {string}
+ */
+function popupButtonLabel(payload, loginMode) {
+  const provider = String(payload?.provider ?? '');
+  if (GOOGLE_PROVIDERS.has(provider) || provider.startsWith('google')) {
+    return 'Sign in with Google';
+  }
+  if (loginMode === 'plaid_link') return 'Connect bank';
+  if (loginMode === 'browser_session') {
+    const host = siteHostOf(payload);
+    return host ? `Sign in on ${host}` : 'Sign in on the site';
+  }
+  return 'Sign in';
+}
+
+const STATUS_PILL = {
+  [CARD_STATUS_CONNECTED]: {
+    label: 'Added',
+    className: 'bg-emerald-500/20 border-emerald-500/30 text-emerald-300',
+    showCheck: true,
+  },
+  [CARD_STATUS_PENDING_LOGIN]: {
+    label: 'Waiting for sign-in',
+    className: 'bg-amber-400/15 border-amber-400/30 text-amber-200',
+  },
+  [CARD_STATUS_FAILED]: {
+    label: 'Sign-in failed',
+    className: 'bg-red-500/15 border-red-500/30 text-red-200',
+  },
+  [CARD_STATUS_CANCELLED]: {
+    label: 'Not connected',
+    className: 'bg-white/10 border-white/10 text-white/60',
+  },
+};
+
+const StatusPill = ({ status, compact }) => {
+  const pill = STATUS_PILL[status] ?? STATUS_PILL[CARD_STATUS_CANCELLED];
+  return (
+    <span
+      className={`shrink-0 inline-flex items-center gap-1 rounded-full border ${
+        compact ? 'px-2 py-0.5 text-xs' : 'px-3 py-1.5 text-sm'
+      } ${pill.className}`}
+    >
+      {pill.showCheck && <Check className="w-4 h-4" aria-hidden="true" />}
+      {pill.label}
+    </span>
+  );
+};
+
+/**
+ * A card that has been acted on: the record the transcript keeps.
+ *
+ * "✓ Added · 6 tools · Connected as evan" for a connection, or the reason
+ * nothing was connected. Nothing here can be pressed; the owner acts on the
+ * connection from the connectors menu.
+ */
+const ConnectionRecordCard = ({ card, compact, className }) => {
+  const status = card?.status ?? CARD_STATUS_CANCELLED;
+  const statusLine = cardStatusLine(card);
+  const detail = statusLine.includes(' · ')
+    ? statusLine.slice(statusLine.indexOf(' · ') + 3)
+    : statusLine;
+  const toolNames = Array.isArray(card?.tool_names) ? card.tool_names : [];
+  return (
+    <div
+      className={`${className} bg-black/60 backdrop-blur-lg rounded-2xl border border-white/10 ${
+        compact ? 'p-2.5' : 'p-4'
+      }`}
+      data-connection-card={card?.provider ?? ''}
+    >
+      <div className="flex items-center gap-3">
+        <ConnectorIcon iconKey={card?.icon_key} size={compact ? 'sm' : 'md'} />
+        <div className="min-w-0 flex-grow">
+          <p className="text-neutral-200 font-medium truncate">
+            {card?.display_name ?? card?.provider ?? 'Account'}
+          </p>
+          <p className="text-white/60 text-xs truncate" title={statusLine}>
+            {detail}
+          </p>
+        </div>
+        <StatusPill status={status} compact={compact} />
+      </div>
+      {!compact && status === CARD_STATUS_CONNECTED && toolNames.length > 0 && (
+        <p className="mt-2 text-white/40 text-xs break-words">
+          Tools: {toolNames.slice(0, 8).join(', ')}
+          {toolNames.length > 8 ? '…' : ''}
+        </p>
+      )}
+      {status === CARD_STATUS_FAILED && card?.error && (
+        <p className="mt-2 text-red-300 text-xs break-words">{card.error}</p>
+      )}
+    </div>
+  );
+};
 
 /**
  * The connect card the avatar raises when it needs an account connected.
  *
- * Rendered from an `interrupt` frame whose kind is `connect_account`, or from
- * the same description served by `GET /connectable_providers`. Every label,
- * field, help string, and the endpoint to post to comes from that payload rather
- * than from this file, so a provider added to the backend registry — a mailbox,
- * a custom Model Context Protocol server, whatever comes next — renders here
- * with no change. That is the whole reason the payload is shaped the way it is.
+ * Rendered from an `interrupt` frame whose kind is `connect_account`, from a
+ * "+"-menu pick, or from the same description served by
+ * `GET /connectable_providers`. Every label, field, help string, and the
+ * endpoint to post to comes from that payload rather than from this file, so
+ * a provider added to the backend registry renders here with no change.
+ *
+ * THREE WAYS IN, BY `login_mode`
+ *   `form`            — a credential form posted to `connect_endpoint`.
+ *   `oauth_popup`,
+ *   `plaid_link`,
+ *   `browser_session` — a popup window opened in the click handler (popup
+ *                       blockers allow nothing else), then navigated to the
+ *                       page the login endpoint names. The popup finishes by
+ *                       posting a result back; the connections list is polled
+ *                       in parallel for a popup whose opener was blocked.
+ *   `none`            — a device: installing the connector, not a form.
  *
  * THE CREDENTIAL DOES NOT GO THROUGH THE RESUME
- *   It would be simpler to hand what the owner types back as the interrupt's
- *   resume value and let the graph store it. That must never be built: a resume
- *   value is written into the graph's checkpointer, so the password would come
- *   to rest in the conversation's stored state and be readable by anything that
- *   replays the thread. The card posts the credential to the endpoint the
- *   payload names, which verifies and encrypts it, and only then resumes the
- *   turn — carrying a decision and nothing else.
+ *   A resume value is written into the graph's checkpointer, so a password
+ *   handed back that way would come to rest in the conversation's stored
+ *   state. The card posts the credential to the endpoint the payload names,
+ *   which verifies and encrypts it, and only then resumes the turn — carrying
+ *   a decision and a record of the outcome, never a secret.
  *
  * @param {Object} parameters
- * @param {Object} parameters.interrupt The `connect_account` payload.
- * @param {Function} parameters.onDecision Called with `apply` or `cancel` once
- *   the owner has finished with the card; resumes the paused turn.
- * @param {boolean} [parameters.startOpen] Skip the offer step and show the form
- *   immediately. The settings screen uses this: the owner already pressed a
- *   Connect button there, so asking a second time would be a step for nothing.
+ * @param {Object} [parameters.interrupt] The interactive `connect_account`
+ *   payload. When absent, `card` is rendered read-only.
+ * @param {Object} [parameters.card] A persisted card record (from
+ *   `response_metadata.connections`), shown read-only.
+ * @param {Function} [parameters.onDecision] Called with `('apply', null,
+ *   resultCard)` once an account is connected, or `('cancel')` when the owner
+ *   closes the card.
+ * @param {boolean} [parameters.startOpen] Skip the offer step.
  * @param {string} [parameters.className] Layout classes for the outer card.
+ * @param {boolean} [parameters.compact] The voice-mode caption strip: tighter
+ *   spacing, no description.
+ * @param {boolean} [parameters.readOnly] Render the payload as a record even
+ *   when interactive.
  */
 const ConnectAccountCard = ({
   interrupt,
+  card,
   onDecision,
   startOpen = false,
   className = 'self-start w-full max-w-[85%]',
+  compact = false,
+  readOnly = false,
 }) => {
+  const payload = interrupt ?? card ?? {};
   const {
     provider,
     display_name: displayName,
@@ -48,25 +235,61 @@ const ConnectAccountCard = ({
     credential_help_url: credentialHelpUrl,
     connect_endpoint: connectEndpoint,
     availability,
-    uses_form: usesForm = true,
     fields = [],
     already_connected: alreadyConnected = [],
-  } = interrupt ?? {};
+    prefilled_fields: prefilledFields = {},
+    message: payloadMessage,
+  } = payload;
 
   const isComingSoon = availability === 'coming_soon';
   const isMailbox = fields.some((field) => field.name === 'app_password');
-  const isDevice = isDeviceProvider(interrupt);
+  const isDevice = isDeviceProvider(payload);
+  const initialLoginPath = loginPathOf(payload);
 
-  // 'offer' → 'signing_in' → 'connected', or 'dismissed'. Held here rather than
-  // derived from the turn, because the turn resumes the moment the account is
-  // connected and the card must keep showing what it did.
+  // 'offer' → 'signing_in' → 'connected' | 'failed', or 'dismissed'. Held here
+  // rather than derived from the turn, because the turn resumes the moment the
+  // account is connected and the card must keep showing what it did.
   const [stage, setStage] = useState(
-    startOpen && usesForm && !isComingSoon ? 'signing_in' : 'offer'
+    startOpen && initialLoginPath !== 'device' && !isComingSoon
+      ? 'signing_in'
+      : 'offer'
   );
-  const [fieldValues, setFieldValues] = useState({});
+  // 'form' or 'popup'. A form provider can switch to the popup path when the
+  // API answers `open_login_popup` (a custom connector that demands OAuth, a
+  // site that signs in on its own page).
+  const [loginPath, setLoginPath] = useState(initialLoginPath);
+  const [popupLogin, setPopupLogin] = useState(null);
+  const [fieldValues, setFieldValues] = useState(() => ({
+    ...(prefilledFields ?? {}),
+  }));
   const [errorMessage, setErrorMessage] = useState(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [connectedLabel, setConnectedLabel] = useState(null);
+  const [isWaitingForPopup, setIsWaitingForPopup] = useState(false);
+  const [fallbackLink, setFallbackLink] = useState(null);
+  const [resultCard, setResultCard] = useState(null);
+  const loginControllerRef = useRef(null);
+  const popupRef = useRef(null);
+
+  useEffect(
+    () => () => {
+      loginControllerRef.current?.abort();
+      closePopup(popupRef.current);
+    },
+    []
+  );
+
+  if (!interrupt || readOnly) {
+    return (
+      <ConnectionRecordCard card={payload} compact={compact} className={className} />
+    );
+  }
+
+  const effectiveLogin = popupLogin ?? {
+    login_mode: payload.login_mode,
+    login_endpoint: payload.login_endpoint,
+    login_request: payload.login_request ?? { provider },
+    message: payloadMessage,
+  };
 
   const setFieldValue = (name, value) =>
     setFieldValues((previous) => ({ ...previous, [name]: value }));
@@ -75,12 +298,22 @@ const ConnectAccountCard = ({
     .filter((field) => field.required !== false)
     .every((field) => String(fieldValues[field.name] ?? '').trim());
 
+  const finishConnected = (connected) => {
+    setResultCard(connected);
+    setErrorMessage(null);
+    setIsWaitingForPopup(false);
+    setStage('connected');
+    onDecision?.('apply', null, connected);
+  };
+
   const handleDismiss = () => {
+    loginControllerRef.current?.abort();
+    closePopup(popupRef.current);
     setStage('dismissed');
     onDecision?.('cancel');
   };
 
-  const handleSubmit = async (submitEvent) => {
+  const handleSubmitForm = async (submitEvent) => {
     submitEvent?.preventDefault();
     if (isSubmitting || !everyRequiredFieldFilled) return;
 
@@ -92,28 +325,175 @@ const ConnectAccountCard = ({
         fields: fieldValues,
         endpoint: connectEndpoint || '/connect_account',
       });
-      const account = response?.account ?? {};
-      setConnectedLabel(
-        account.display_label ??
-          account.account_address ??
-          fieldValues.email_address ??
-          fieldValues.name ??
-          displayName
-      );
+      if (response?.action === 'open_login_popup') {
+        // The API cannot connect this one from a form: the server demands a
+        // sign-in, or the site signs in on its own page. The next press opens
+        // the window — a popup can only be opened from a click.
+        setPopupLogin({
+          login_mode: response.login_mode ?? response.card?.login_mode,
+          login_endpoint: response.login_endpoint ?? response.card?.login_endpoint,
+          login_request:
+            response.login_request ?? response.card?.login_request ?? { provider },
+          message: response.message ?? response.card?.message ?? null,
+        });
+        setLoginPath('popup');
+        return;
+      }
+      const connected = cardFromConnectResponse(response, {
+        ...payload,
+        display_name: displayName,
+      });
+      if (!connected.display_label && !connected.account_address) {
+        connected.display_label =
+          fieldValues.email_address ?? fieldValues.name ?? displayName;
+      }
       // Drop the secret from component state the instant it is no longer
-      // needed, so it does not sit in memory for the rest of the conversation.
+      // needed, so the secret does not sit in memory for the rest of the
+      // conversation.
       setFieldValues({});
-      setStage('connected');
-      onDecision?.('apply');
+      finishConnected(connected);
     } catch (connectError) {
-      // Shown as written. The API's rejection names what was wrong — for Gmail,
-      // that an app password is required and the account password will never
-      // work; for a custom server, that the address did not answer — and
-      // replacing it with a generic failure is what sends someone back to
-      // retype the same wrong thing.
+      // Shown as written. The API's rejection names what was wrong — for
+      // Gmail, that an app password is required and the account password will
+      // never work; for a custom server, that the address did not answer.
       setErrorMessage(
         connectError?.message ??
           `${displayName ?? 'That account'} could not be connected.`
+      );
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  /**
+   * Open the sign-in window and wait for the account to appear.
+   *
+   * The window is opened first, synchronously, then the login endpoint is
+   * asked where the window should go. Success arrives either as the result
+   * the window posts back (checked against the API origin and this login's
+   * nonce) or as a new row for the provider in the connections list.
+   */
+  const handlePopupLogin = async () => {
+    if (isSubmitting) return;
+    const popup = openPopupSynchronously(`neural-nexus-login-${provider}`);
+    popupRef.current = popup;
+    loginControllerRef.current?.abort();
+    const controller = new AbortController();
+    loginControllerRef.current = controller;
+    const { signal } = controller;
+
+    setIsSubmitting(true);
+    setErrorMessage(null);
+    setFallbackLink(null);
+    try {
+      const [started, existingRows] = await Promise.all([
+        startConnectionLogin(
+          effectiveLogin.login_endpoint,
+          effectiveLogin.login_request
+        ),
+        listConnections()
+          .then((listed) => listed?.connections ?? [])
+          .catch(() => []),
+      ]);
+      const url = absoluteApiUrl(
+        started?.authorization_url ?? started?.link_url ?? started?.view_url,
+        NEURAL_NEXUS_API_BASE_URL
+      );
+      if (!url) {
+        throw new Error('The sign-in page could not be opened.');
+      }
+      if (!navigatePopup(popup, url)) {
+        // The browser refused the window: offer the page as a link that opens
+        // in a tab. The poll below notices the account when the sign-in ends.
+        setFallbackLink(url);
+      }
+      setIsWaitingForPopup(true);
+
+      const nonce = started?.nonce;
+      const expectedOrigin = apiOriginOf(NEURAL_NEXUS_API_BASE_URL);
+      const knownAccountKeys = existingRows.map(accountKeyOfRow);
+
+      const resultFromWindow = new Promise((resolve) => {
+        const onMessage = (messageEvent) => {
+          const result = parseLoginResultMessage(messageEvent, {
+            expectedOrigin,
+            nonce,
+          });
+          if (result) resolve({ kind: 'message', result });
+        };
+        window.addEventListener('message', onMessage, { signal });
+        signal.addEventListener('abort', () => resolve({ kind: 'aborted' }), {
+          once: true,
+        });
+      });
+
+      const resultFromList = pollUntilConnected({
+        listConnections: () =>
+          listConnections().then((listed) => listed?.connections ?? []),
+        matches: (row) =>
+          rowMatchesLogin(row, { provider, knownAccountKeys }),
+        signal,
+      }).then((row) => (row ? { kind: 'row', row } : { kind: 'timeout' }));
+
+      const resultFromClosedWindow = new Promise((resolve) => {
+        if (!popup) return;
+        const watch = setInterval(() => {
+          if (signal.aborted) {
+            clearInterval(watch);
+            return;
+          }
+          let closed = false;
+          try {
+            closed = Boolean(popup.closed);
+          } catch {
+            closed = false;
+          }
+          if (closed) {
+            clearInterval(watch);
+            setTimeout(() => resolve({ kind: 'closed' }), CLOSED_POPUP_GRACE_MS);
+          }
+        }, 1_000);
+        signal.addEventListener('abort', () => clearInterval(watch), {
+          once: true,
+        });
+      });
+
+      const outcome = await Promise.race([
+        resultFromWindow,
+        resultFromList,
+        resultFromClosedWindow,
+      ]);
+      controller.abort();
+      if (outcome.kind === 'aborted') return;
+
+      if (outcome.kind === 'message') {
+        if (outcome.result.ok) {
+          closePopup(popup);
+          finishConnected(cardFromLoginResult(outcome.result, payload));
+          return;
+        }
+        setIsWaitingForPopup(false);
+        setErrorMessage(
+          outcome.result.error ?? `${displayName ?? 'The account'} was not connected.`
+        );
+        return;
+      }
+      if (outcome.kind === 'row') {
+        closePopup(popup);
+        finishConnected(cardFromConnectionRow(outcome.row, payload));
+        return;
+      }
+      setIsWaitingForPopup(false);
+      setErrorMessage(
+        outcome.kind === 'closed'
+          ? 'The sign-in window closed before the account was connected.'
+          : 'The sign-in did not finish. Try again.'
+      );
+    } catch (loginError) {
+      closePopup(popup);
+      setIsWaitingForPopup(false);
+      setErrorMessage(
+        loginError?.message ?? 'The sign-in could not be started.'
       );
     } finally {
       setIsSubmitting(false);
@@ -124,40 +504,51 @@ const ConnectAccountCard = ({
     return null;
   }
 
+  const padding = compact ? 'p-3' : 'p-4';
+  const popupLabel = popupButtonLabel(
+    { ...payload, login_request: effectiveLogin.login_request },
+    effectiveLogin.login_mode
+  );
+
   return (
     <div
-      className={`${className} bg-black/60 backdrop-blur-lg rounded-2xl border border-white/10 p-4`}
+      className={`${className} bg-black/60 backdrop-blur-lg rounded-2xl border border-white/10 ${padding}`}
+      data-connection-card={provider ?? ''}
     >
       <div className="flex items-center gap-3">
-        <ConnectorIcon iconKey={iconKey} />
+        <ConnectorIcon iconKey={iconKey} size={compact ? 'sm' : 'md'} />
         <div className="min-w-0 flex-grow">
           <p className="text-neutral-200 font-medium whitespace-normal break-words">
             {isDevice ? 'Add a device' : (displayName ?? provider)}
           </p>
-          {cardDescription && !isDevice && (
+          {cardDescription && !isDevice && !compact && (
             <p className="text-white/60 text-sm whitespace-normal break-words">
               {cardDescription}
             </p>
           )}
-          {Number.isFinite(toolCount) && toolCount > 0 && (
-            <p className="text-white/40 text-xs">
-              {toolCount} {toolCount === 1 ? 'tool' : 'tools'}
+          {stage === 'connected' ? (
+            <p className="text-white/60 text-xs truncate">
+              {cardStatusLine(resultCard).replace(/^[^·]*· /, '')}
             </p>
+          ) : (
+            Number.isFinite(toolCount) &&
+            toolCount > 0 && (
+              <p className="text-white/40 text-xs">
+                {toolCount} {toolCount === 1 ? 'tool' : 'tools'}
+              </p>
+            )
           )}
         </div>
 
         {stage === 'connected' ? (
-          <span className="shrink-0 inline-flex items-center gap-1 px-3 py-1.5 rounded-full bg-emerald-500/20 border border-emerald-500/30 text-emerald-300 text-sm">
-            <Check className="w-4 h-4" aria-hidden="true" />
-            Added
-          </span>
+          <StatusPill status={CARD_STATUS_CONNECTED} compact={compact} />
         ) : isComingSoon ? (
           <span className="shrink-0 px-3 py-1.5 rounded-full bg-white/10 border border-white/10 text-white/60 text-xs">
             Coming soon
           </span>
         ) : (
           stage === 'offer' &&
-          usesForm && (
+          loginPath !== 'device' && (
             <button
               type="button"
               onClick={() => setStage('signing_in')}
@@ -169,8 +560,14 @@ const ConnectAccountCard = ({
         )}
       </div>
 
+      {payloadMessage && stage !== 'connected' && !popupLogin && (
+        <p className="mt-2 text-white/60 text-sm whitespace-normal break-words">
+          {payloadMessage}
+        </p>
+      )}
+
       {/* Adding a machine is installing the connector, not an MCP URL form. */}
-      {isDevice && stage !== 'connected' && (
+      {loginPath === 'device' && stage !== 'connected' && (
         <div className="mt-3">
           <AddDevicePanel />
         </div>
@@ -191,12 +588,12 @@ const ConnectAccountCard = ({
           onClick={handleDismiss}
           className="mt-3 text-white/40 hover:text-white/70 text-xs underline transition-colors"
         >
-          {isComingSoon || isDevice ? 'Close' : 'Not now'}
+          {isComingSoon || loginPath === 'device' ? 'Close' : 'Not now'}
         </button>
       )}
 
-      {stage === 'signing_in' && (
-        <form onSubmit={handleSubmit} className="mt-4 space-y-3">
+      {stage === 'signing_in' && loginPath === 'form' && (
+        <form onSubmit={handleSubmitForm} className="mt-4 space-y-3">
           {fields.map((field) => (
             <div key={field.name}>
               <label
@@ -219,7 +616,7 @@ const ConnectAccountCard = ({
                 }
                 className="w-full px-4 py-2.5 bg-black/50 border border-white/10 rounded-lg text-neutral-200 placeholder-white/40 focus:outline-none focus:ring-2 focus:ring-amber-400/50"
               />
-              {field.help_text && (
+              {field.help_text && !compact && (
                 <p className="mt-1 text-white/50 text-xs">{field.help_text}</p>
               )}
             </div>
@@ -275,9 +672,87 @@ const ConnectAccountCard = ({
         </form>
       )}
 
-      {stage === 'connected' && connectedLabel && (
+      {stage === 'signing_in' && loginPath === 'popup' && (
+        <div className="mt-4 space-y-3">
+          {effectiveLogin.message && (
+            <p className="text-white/60 text-sm whitespace-normal break-words">
+              {effectiveLogin.message}
+            </p>
+          )}
+
+          {isWaitingForPopup && !errorMessage && (
+            <p className="text-amber-200/90 text-sm inline-flex items-center gap-2">
+              <Loader2 className="w-4 h-4 animate-spin" aria-hidden="true" />
+              Finish signing in in the window that opened. This card updates on
+              its own.
+            </p>
+          )}
+
+          {fallbackLink && (
+            <a
+              href={fallbackLink}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-1 text-amber-300 hover:text-amber-200 text-sm underline"
+            >
+              The window was blocked — open the sign-in page in a new tab
+              <ExternalLink className="w-3 h-3" aria-hidden="true" />
+            </a>
+          )}
+
+          {errorMessage && (
+            <p
+              role="alert"
+              className="text-red-300 text-sm bg-red-500/10 border border-red-500/30 rounded-lg px-3 py-2"
+            >
+              {errorMessage}
+            </p>
+          )}
+
+          <div className="flex items-center gap-2 flex-wrap">
+            <button
+              type="button"
+              onClick={handlePopupLogin}
+              disabled={isSubmitting}
+              className="px-4 py-2 rounded-lg bg-neutral-100/10 hover:bg-neutral-100/15 disabled:opacity-40 disabled:hover:bg-neutral-100/10 border border-neutral-700 text-neutral-300 text-sm font-medium transition-colors inline-flex items-center gap-2"
+            >
+              {isSubmitting ? (
+                <Loader2 className="w-4 h-4 animate-spin" aria-hidden="true" />
+              ) : errorMessage ? (
+                <RotateCcw className="w-4 h-4" aria-hidden="true" />
+              ) : null}
+              {isSubmitting
+                ? isWaitingForPopup
+                  ? 'Waiting for sign-in…'
+                  : 'Opening…'
+                : errorMessage
+                  ? 'Try again'
+                  : popupLabel}
+            </button>
+            <button
+              type="button"
+              onClick={handleDismiss}
+              className="px-4 py-2 rounded-lg text-white/50 hover:text-white/80 text-sm transition-colors"
+            >
+              {isWaitingForPopup ? 'Stop waiting' : 'Cancel'}
+            </button>
+          </div>
+        </div>
+      )}
+
+      {stage === 'connected' && !compact && (
         <p className="mt-3 text-white/60 text-sm">
-          Connected as <span className="text-neutral-200">{connectedLabel}</span>.
+          {resultCard?.display_label || resultCard?.account_address ? (
+            <>
+              Connected as{' '}
+              <span className="text-neutral-200">
+                {resultCard.display_label ?? resultCard.account_address}
+              </span>
+              .
+            </>
+          ) : (
+            'Connected.'
+          )}
           {isMailbox
             ? ' The avatar can now read this mailbox, draft in your voice, and send when you ask.'
             : ' Its tools are available to the avatar now.'}

@@ -59,6 +59,7 @@ import {
   isBillingRefusal,
 } from './requestFailureToast';
 import ConnectionsSection from './connections/ConnectionsSection';
+import ReportsSection from './reports/ReportsSection';
 import EmotionMediaStatus from './media/EmotionMediaStatus';
 import GenerationConfirmation from './media/GenerationConfirmation';
 import {
@@ -1007,11 +1008,23 @@ const AvatarSettings = ({ avatarId, onPortraitChanged }) => {
    */
   const applyAvatarChangeLocally = (changedFields) => {
     const updatedAvatar = { ...(activeAvatar ?? {}), ...changedFields };
+    if (Object.prototype.hasOwnProperty.call(changedFields, 'metadata')) {
+      updatedAvatar.metadata = {
+        ...(activeAvatar?.metadata ?? {}),
+        ...changedFields.metadata,
+      };
+    }
     setActiveAvatar(updatedAvatar);
     setUserAvatars((previousAvatars) =>
       (previousAvatars ?? []).map((candidate) =>
         (candidate.assistant_id ?? candidate.avatar_id) === assistantId
-          ? { ...candidate, ...changedFields }
+        ? {
+            ...candidate,
+            ...changedFields,
+            ...(updatedAvatar.metadata !== undefined
+              ? { metadata: updatedAvatar.metadata }
+              : {}),
+          }
           : candidate
       )
     );
@@ -1965,6 +1978,16 @@ const AvatarSettings = ({ avatarId, onPortraitChanged }) => {
           avatar. One section, one row shape; the catalog and the connect card
           are read from the API so a new provider needs no change here. */}
       {isPersonalAvatar && <ConnectionsSection />}
+
+      {/* The reports the personal avatar has written — scheduled analytics,
+          website audits, saved analyses. `?section=reports` scrolls here the
+          way `?section=connections` scrolls to the connectors. */}
+      {isPersonalAvatar && (
+        <ReportsSection
+          assistantId={assistantId}
+          avatarName={activeAvatar?.name}
+        />
+      )}
 
       {/* What the avatar has learned about itself. Creator-only by
           construction (this whole return is behind canAdministerAvatar) and
