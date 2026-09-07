@@ -88,6 +88,51 @@ export const formatUsd = (amount) =>
   `$${Number(amount ?? 0).toFixed(2)}`;
 
 /**
+ * The manifest's `generation` block in the shape this view layer reads.
+ *
+ * The API answers in snake_case, and every reader here is camelCase. Without
+ * this the tier sentence read "the undefined plan" and the confirmation priced
+ * a run that spends real money at $0.00 — so the mapping is done once, here,
+ * rather than at each of the dozen read sites. A block already in camelCase is
+ * passed through, which keeps older callers and the fixtures below working.
+ *
+ * @param {Object|null|undefined} generation The block as the API sent it.
+ * @returns {Object|null} The camelCase block, or null when the caller may not generate.
+ */
+export const normalizeGenerationBlock = (generation) => {
+  if (!generation) return null;
+
+  const normalizeCost = (cost) => {
+    if (!cost) return null;
+    return {
+      stills: cost.stills ?? 0,
+      idleLoops: cost.idleLoops ?? cost.idle_loops ?? 0,
+      imageCostUsd: cost.imageCostUsd ?? cost.image_cost_usd ?? 0,
+      videoCostPerSecondUsd:
+        cost.videoCostPerSecondUsd ?? cost.video_cost_per_second_usd ?? 0,
+      idleLoopSeconds: cost.idleLoopSeconds ?? cost.idle_loop_seconds ?? 0,
+      stillsUsd: cost.stillsUsd ?? cost.stills_usd ?? 0,
+      idleLoopsUsd: cost.idleLoopsUsd ?? cost.idle_loops_usd ?? 0,
+      totalUsd: cost.totalUsd ?? cost.total_usd ?? 0,
+    };
+  };
+
+  return {
+    tier: generation.tier ?? null,
+    requiredTier: generation.requiredTier ?? generation.required_tier ?? null,
+    tierAllows: generation.tierAllows ?? generation.tier_allows ?? false,
+    configured: generation.configured ?? false,
+    allowed: generation.allowed ?? false,
+    costFullRebuild: normalizeCost(
+      generation.costFullRebuild ?? generation.cost_full_rebuild
+    ),
+    costMissingOnly: normalizeCost(
+      generation.costMissingOnly ?? generation.cost_missing_only
+    ),
+  };
+};
+
+/**
  * What the confirmation asks before a generation run spends anything.
  *
  * A full rebuild REPLACES every generated still and idle loop the avatar has,

@@ -13,6 +13,7 @@ import {
   emotionMediaGenerateLabel,
   emotionMediaGenerationConfirmation,
   emotionMediaStatusView,
+  normalizeGenerationBlock,
 } from './emotionMediaStatusView';
 import GenerationConfirmation from './GenerationConfirmation';
 
@@ -191,7 +192,8 @@ const EmotionMediaStatus = ({ assistantId, hasPortrait, onReuploadImage }) => {
   const message = showFailure ? emotionMediaFailureMessage(lastGeneration) : '';
 
   // The manifest answers this per viewer: null for anyone but the creator.
-  const generation = manifest?.generation ?? null;
+  // The API answers in snake_case; every read below is camelCase.
+  const generation = normalizeGenerationBlock(manifest?.generation);
   const generateLabel = emotionMediaGenerateLabel(view);
 
   return (

@@ -4,6 +4,7 @@ import {
   emotionMediaGenerateLabel,
   emotionMediaGenerationConfirmation,
   emotionMediaStatusView,
+  normalizeGenerationBlock,
   portraitUploadGenerationView,
 } from './emotionMediaStatusView.js';
 
@@ -194,4 +195,73 @@ test('a new portrait replaces existing clips and first-builds an empty set', () 
     emotionMediaGenerationConfirmation(replacing, {}).title,
     'Replace every emotion image and video?'
   );
+});
+
+test('the generation block is read whichever case the API answers in', () => {
+  // What GET /avatar_emotion_media actually returns.
+  const fromTheApi = normalizeGenerationBlock({
+    tier: 'pro',
+    required_tier: 'premium',
+    tier_allows: false,
+    configured: true,
+    allowed: false,
+    cost_full_rebuild: {
+      stills: 6,
+      idle_loops: 7,
+      image_cost_usd: 0.04,
+      video_cost_per_second_usd: 0.08,
+      idle_loop_seconds: 6,
+      stills_usd: 0.24,
+      idle_loops_usd: 3.36,
+      total_usd: 3.6,
+    },
+    cost_missing_only: null,
+  });
+
+  // The tier sentence used to read "the undefined plan".
+  assert.equal(fromTheApi.requiredTier, 'premium');
+  assert.equal(fromTheApi.tierAllows, false);
+  assert.equal(fromTheApi.allowed, false);
+  // The confirmation used to price a real spend at $0.00.
+  assert.equal(fromTheApi.costFullRebuild.totalUsd, 3.6);
+  assert.equal(fromTheApi.costFullRebuild.idleLoops, 7);
+  assert.equal(fromTheApi.costFullRebuild.idleLoopSeconds, 6);
+  assert.equal(fromTheApi.costMissingOnly, null);
+
+  // A block already in camelCase passes through unchanged.
+  const alreadyCamelCase = normalizeGenerationBlock({
+    requiredTier: 'premium',
+    tierAllows: true,
+    allowed: true,
+    configured: true,
+    costFullRebuild: { totalUsd: 3.6 },
+  });
+  assert.equal(alreadyCamelCase.requiredTier, 'premium');
+  assert.equal(alreadyCamelCase.costFullRebuild.totalUsd, 3.6);
+
+  // Anyone who is not the creator gets no block at all.
+  assert.equal(normalizeGenerationBlock(null), null);
+  assert.equal(normalizeGenerationBlock(undefined), null);
+});
+
+test('the confirmation prices a run from the API block', () => {
+  const generation = normalizeGenerationBlock({
+    cost_full_rebuild: {
+      stills: 6,
+      idle_loops: 7,
+      image_cost_usd: 0.04,
+      video_cost_per_second_usd: 0.08,
+      idle_loop_seconds: 6,
+      stills_usd: 0.24,
+      idle_loops_usd: 3.36,
+      total_usd: 3.6,
+    },
+  });
+  const confirmation = emotionMediaGenerationConfirmation(
+    { isComplete: true, missingAssets: 0, onlyMissing: false },
+    generation
+  );
+  assert.match(confirmation.costSummary, /3\.60/);
+  assert.equal(confirmation.costBreakdown.length, 3);
+  assert.match(confirmation.costBreakdown[1], /7 videos × 6s/);
 });

@@ -72,7 +72,10 @@ import AvatarWorkspaceHeader from './AvatarWorkspaceHeader';
 import useInboxCount from '../hooks/useInboxCount';
 import LoopingVideo from './ui/LoopingVideo';
 import LiveShareVideo from './LiveShareVideo';
-import { useCameraPassthrough } from '../hooks/useCameraPassthrough';
+import {
+  canShowCameraBackground,
+  useCameraPassthrough,
+} from '../hooks/useCameraPassthrough';
 import useEmotionMedia, { preloadEmotionMedia } from '../hooks/useEmotionMedia';
 import { voiceStageEmotion } from '../hooks/voiceStageEmotion';
 import useMessageActions from '../hooks/useMessageActions';
@@ -306,6 +309,7 @@ const LiveVoiceMode = ({
     useState(cameraBackground);
   const { stream: cameraBackgroundStream, error: cameraBackgroundError } =
     useCameraPassthrough(isCameraBackgroundOn);
+  const canShowTheCameraBehindTheAvatar = canShowCameraBackground();
 
   // A refused or missing camera is not a failure of the conversation: the
   // avatar simply appears against the usual backdrop.
@@ -1375,6 +1379,34 @@ const LiveVoiceMode = ({
           <Mic className="w-5 h-5" />
         )}
       </button>
+      {/* The camera belongs in this cluster rather than in the composer's
+          control row: that row lives inside the message bar, and touching the
+          stage to look at the place collapses the bar — which is exactly when
+          someone wants the camera off again. */}
+      {canShowTheCameraBehindTheAvatar && (
+        <button
+          type="button"
+          onClick={() => setIsCameraBackgroundOn((isOn) => !isOn)}
+          title={
+            isCameraBackgroundOn
+              ? 'Hide the live camera behind the avatar'
+              : 'Show the live camera behind the avatar'
+          }
+          aria-label={
+            isCameraBackgroundOn
+              ? 'Hide the live camera behind the avatar'
+              : 'Show the live camera behind the avatar'
+          }
+          aria-pressed={isCameraBackgroundOn}
+          className={`${CONTROL_CLASSES} ${isCameraBackgroundOn ? ACTIVE_CONTROL_CLASSES : ''}`}
+        >
+          {isCameraBackgroundOn ? (
+            <Camera className="w-5 h-5" />
+          ) : (
+            <CameraOff className="w-5 h-5" />
+          )}
+        </button>
+      )}
     </div>
   );
 
@@ -2000,31 +2032,6 @@ const LiveVoiceMode = ({
                   <Sparkles className="w-5 h-5" />
                 </button>
               </div>
-
-              <button
-                type="button"
-                onClick={() =>
-                  setIsCameraBackgroundOn((isOn) => !isOn)
-                }
-                title={
-                  isCameraBackgroundOn
-                    ? 'Hide the live camera behind the avatar'
-                    : 'Show the live camera behind the avatar'
-                }
-                aria-label={
-                  isCameraBackgroundOn
-                    ? 'Hide the live camera behind the avatar'
-                    : 'Show the live camera behind the avatar'
-                }
-                aria-pressed={isCameraBackgroundOn}
-                className={`${CONTROL_CLASSES} ${isCameraBackgroundOn ? ACTIVE_CONTROL_CLASSES : ''}`}
-              >
-                {isCameraBackgroundOn ? (
-                  <Camera className="w-5 h-5" />
-                ) : (
-                  <CameraOff className="w-5 h-5" />
-                )}
-              </button>
 
               <button
                 type="button"

@@ -13,6 +13,19 @@
 import { useEffect, useState } from 'react';
 
 /**
+ * Whether this browser can put a live camera behind the avatar at all.
+ *
+ * `getUserMedia` is absent on an insecure origin and in some in-app browsers,
+ * so the toggle is only offered where pressing it could do something.
+ *
+ * @returns {boolean}
+ */
+export function canShowCameraBackground() {
+  if (typeof navigator === 'undefined') return false;
+  return typeof navigator.mediaDevices?.getUserMedia === 'function';
+}
+
+/**
  * @param {boolean} enabled Whether the camera should be running.
  * @returns {{stream: MediaStream|null, error: Error|null}}
  */
