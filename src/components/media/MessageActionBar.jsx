@@ -27,6 +27,33 @@ export { formatMessageMetrics };
 export const ACTION_BUTTON_CLASSES =
   'inline-flex items-center justify-center p-0.5 rounded text-neutral-400 hover:text-neutral-100 hover:bg-white/10 transition-colors focus:outline-none focus:ring-2 focus:ring-amber-400/50 disabled:opacity-40';
 
+// A reaction the person has chosen. The glyph is filled and sits on a tinted
+// pill so the choice reads as pressed at a glance and stays that way after a
+// refresh, rather than as a faint colour change on a 12-pixel outline.
+const PRESSED_REACTION_CLASSES = {
+  like: 'text-amber-300 bg-amber-400/20 ring-1 ring-amber-400/60 hover:text-amber-200 hover:bg-amber-400/25',
+  dislike:
+    'text-amber-300 bg-amber-400/20 ring-1 ring-amber-400/60 hover:text-amber-200 hover:bg-amber-400/25',
+  feels_real:
+    'text-emerald-300 bg-emerald-400/20 ring-1 ring-emerald-400/60 hover:text-emerald-200 hover:bg-emerald-400/25',
+  feels_fake:
+    'text-rose-300 bg-rose-400/20 ring-1 ring-rose-400/60 hover:text-rose-200 hover:bg-rose-400/25',
+};
+
+/**
+ * Class list for a reaction button: the shared action style, plus the
+ * pressed style when the person chose this reaction.
+ *
+ * @param {'like'|'dislike'|'feels_real'|'feels_fake'} reaction
+ * @param {boolean} pressed
+ * @returns {string}
+ */
+export function reactionButtonClasses(reaction, pressed) {
+  return pressed
+    ? `${ACTION_BUTTON_CLASSES} ${PRESSED_REACTION_CLASSES[reaction]}`
+    : ACTION_BUTTON_CLASSES;
+}
+
 /**
  * Copy, regenerate, rate, speak, edit, and retry — the same controls the
  * message list shows under a bubble. In Vite development, the administrator
@@ -102,6 +129,12 @@ const MessageActionBar = ({
   if (!actionText) return null;
 
   const metrics = isFromAvatar ? formatMessageMetrics(message) : null;
+  // The reactions the person chose on this reply, kept on the row by the
+  // stored preferences, so a lit button is a stored one.
+  const liked = message.feedback?.type === 'like';
+  const disliked = message.feedback?.type === 'dislike';
+  const feltReal = message.feedback?.feels === 'feels_real';
+  const feltOff = message.feedback?.feels === 'feels_fake';
   const showAvatarActions = isFromAvatar;
   const showUserActions = isFromUser && editingKey !== messageKey && !readOnly;
   const timestamp = message.timestamp
@@ -159,22 +192,28 @@ const MessageActionBar = ({
                   onClick={onLike}
                   title="Good"
                   aria-label="Good response"
-                  className={`${ACTION_BUTTON_CLASSES} ${
-                    message.feedback?.type === 'like' ? 'text-amber-300' : ''
-                  }`}
+                  aria-pressed={liked}
+                  className={reactionButtonClasses('like', liked)}
                 >
-                  <ThumbsUp className="w-3 h-3" aria-hidden="true" />
+                  <ThumbsUp
+                    className="w-3 h-3"
+                    fill={liked ? 'currentColor' : 'none'}
+                    aria-hidden="true"
+                  />
                 </button>
                 <button
                   type="button"
                   onClick={onDislike}
                   title="Bad"
                   aria-label="Bad response"
-                  className={`${ACTION_BUTTON_CLASSES} ${
-                    message.feedback?.type === 'dislike' ? 'text-amber-300' : ''
-                  }`}
+                  aria-pressed={disliked}
+                  className={reactionButtonClasses('dislike', disliked)}
                 >
-                  <ThumbsDown className="w-3 h-3" aria-hidden="true" />
+                  <ThumbsDown
+                    className="w-3 h-3"
+                    fill={disliked ? 'currentColor' : 'none'}
+                    aria-hidden="true"
+                  />
                 </button>
                 {onFeelsReal && (
                   <button
@@ -182,14 +221,14 @@ const MessageActionBar = ({
                     onClick={onFeelsReal}
                     title="Feels real"
                     aria-label="This feels real"
-                    aria-pressed={message.feedback?.feels === 'feels_real'}
-                    className={`${ACTION_BUTTON_CLASSES} ${
-                      message.feedback?.feels === 'feels_real'
-                        ? 'text-emerald-300'
-                        : ''
-                    }`}
+                    aria-pressed={feltReal}
+                    className={reactionButtonClasses('feels_real', feltReal)}
                   >
-                    <Sparkles className="w-3 h-3" aria-hidden="true" />
+                    <Sparkles
+                      className="w-3 h-3"
+                      fill={feltReal ? 'currentColor' : 'none'}
+                      aria-hidden="true"
+                    />
                   </button>
                 )}
                 {onFeelsOff && (
@@ -198,14 +237,14 @@ const MessageActionBar = ({
                     onClick={onFeelsOff}
                     title="Feels off"
                     aria-label="This feels off"
-                    aria-pressed={message.feedback?.feels === 'feels_fake'}
-                    className={`${ACTION_BUTTON_CLASSES} ${
-                      message.feedback?.feels === 'feels_fake'
-                        ? 'text-rose-300'
-                        : ''
-                    }`}
+                    aria-pressed={feltOff}
+                    className={reactionButtonClasses('feels_fake', feltOff)}
                   >
-                    <Ghost className="w-3 h-3" aria-hidden="true" />
+                    <Ghost
+                      className="w-3 h-3"
+                      fill={feltOff ? 'currentColor' : 'none'}
+                      aria-hidden="true"
+                    />
                   </button>
                 )}
                 <button

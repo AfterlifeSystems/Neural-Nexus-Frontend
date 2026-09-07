@@ -504,6 +504,11 @@ export const MediaProvider = ({ children }) => {
 
   const refreshAvatarPreferences = useCallback(async () => {
     const assistantId = resolveAssistantId(activeAvatar);
+  // The thread a rating is filed under: the server's id, never the sentinel
+  // that names a conversation the server has not heard of yet.
+  const storedThreadIdOf = (threadId) =>
+    threadId && threadId !== NEW_CONVERSATION_ID ? threadId : null;
+
     if (!assistantId || !user || isSharedAvatarChatPath()) {
       setAvatarPreferences(emptyAvatarPreferences());
       return null;
@@ -511,7 +516,9 @@ export const MediaProvider = ({ children }) => {
     const requestNumber = (preferencesRequestRef.current += 1);
     try {
       const payload = await fetchAvatarPreferences(assistantId, {
-        threadId: activeConversation ?? null,
+        // A conversation that has not been sent yet has no thread on the
+        // server; asking for that sentinel would filter every rating out.
+        threadId: storedThreadIdOf(activeConversation),
       });
       if (preferencesRequestRef.current !== requestNumber) return null;
       const preferences = normalizeAvatarPreferences(payload);
@@ -1106,8 +1113,7 @@ export const MediaProvider = ({ children }) => {
     const abortController = new AbortController();
     const activeTurn = {
       assistantId,
-      threadId:
-        threadId && threadId !== NEW_CONVERSATION_ID ? threadId : null,
+      threadId: threadId && threadId !== NEW_CONVERSATION_ID ? threadId : null,
       requestId: null,
       abortController,
       asAnonymousIdentity,
@@ -2123,7 +2129,7 @@ export const MediaProvider = ({ children }) => {
       noteNoticeInteraction(observation?.observationId);
       await recordMessageFeedback({
         assistantId,
-        threadId: activeConversation ?? null,
+        threadId: storedThreadIdOf(activeConversation),
         messageId: storedId,
         requestId: rated.request_id ?? null,
         type: wireType,
