@@ -459,6 +459,10 @@ export const MediaProvider = ({ children }) => {
   const [pendingSendCount, setPendingSendCount] = useState(0);
   // Voice mode raises this while the person is speaking or the avatar is, so
   // ambient capture never sends a snapshot into the middle of an exchange.
+  // The composer's "send as feedback" toggle: the next message is stored as
+  // feedback about the avatar (used from the very next reply) and still
+  // answered as a normal turn.
+  const [sendAsFeedback, setSendAsFeedback] = useState(false);
   const [ambientHold, setAmbientHold] = useState(false);
   // Attachments belonging to a turn that is still in flight. Clearing
   // `mediaFiles` the moment a message is sent took the only sign that a file
@@ -890,6 +894,10 @@ export const MediaProvider = ({ children }) => {
     // thread_id is exactly how a new conversation is requested.
     if (threadId && threadId !== NEW_CONVERSATION_ID) {
       formData.append('thread_id', threadId);
+    if (sendAsFeedback) {
+      formData.append('feedback', 'true');
+      setSendAsFeedback(false);
+    }
     }
     for (const attachedFile of attachedFiles) {
       formData.append('files', attachedFile);
@@ -2087,18 +2095,24 @@ export const MediaProvider = ({ children }) => {
    * server never named cannot be recorded, and says so.
    *
    * @param {string} messageId The assistant message.
-   * @param {Object} feedback `{ type: 'like'|'dislike', comment?: string }`
+   * @param {Object} feedback One press: `{ type: 'like'|'dislike' }` (a thumb),
+   *   `{ feels: 'feels_real'|'feels_fake' }` (what this reply feels like), or
+   *   `{ comment }` (a note). What is not in the press keeps its stored value.
    */
   async function submitMessageFeedback(messageId, feedback) {
     const rated = messages.find((message) => message.id === messageId);
     const previousFeedback = rated?.feedback ?? null;
     setMessages((previousMessages) =>
       previousMessages.map((message) =>
-        message.id === messageId ? { ...message, feedback } : message
+        message.id === messageId
+          ? { ...message, feedback: nextFeedback }
+          : message
       )
     );
     const assistantId = resolveAssistantId(activeAvatar);
-    if (!rated || !assistantId || !feedback?.type) return;
+    if (!rated || !assistantId) return;
+    if (wireType === 'comment' && !String(feedback?.comment ?? '').trim())
+      return;
     const storedId = storedMessageIdOf(rated);
     if (!storedId && !rated.request_id) {
       toast.error('This reply cannot be rated until the conversation reloads.');
@@ -2112,9 +2126,17 @@ export const MediaProvider = ({ children }) => {
         threadId: activeConversation ?? null,
         messageId: storedId,
         requestId: rated.request_id ?? null,
-        type: feedback.type,
-        comment: feedback.comment ?? null,
+        type: wireType,
+        comment: feedback?.comment ?? null,
         content:
+    const nextFeedback = {
+      type: feedback?.type ?? previousFeedback?.type ?? null,
+      feels: feedback?.feels ?? previousFeedback?.feels ?? null,
+      comment: feedback?.comment ?? previousFeedback?.comment ?? null,
+    };
+    // The server's feedback_type for this press: the thumb, else the
+    // feels-real mark, else a note on its own.
+    const wireType = feedback?.type ?? feedback?.feels ?? 'comment';
           typeof rated.content === 'string' ? rated.content.slice(0, 600) : null,
         observation,
       });
@@ -2778,3 +2800,5 @@ export const MediaProvider = ({ children }) => {
 };
 
 export const useMedia = () => useContext(MediaContext);
+        sendAsFeedback,
+        setSendAsFeedback,

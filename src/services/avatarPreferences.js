@@ -16,6 +16,11 @@ export function emptyAvatarPreferences() {
     messageFeedbackByMessageId: {},
     messageFeedbackByRequestId: {},
     ambientDecisionsByObservationId: {},
+    // What the avatar has learned about the person: dictated and inferred
+    // preferences, written feedback messages, and what feels real or off.
+    learnedPreferences: [],
+    feedbackMessages: [],
+    whatFeelsReal: [],
   };
 }
 
@@ -29,8 +34,14 @@ export function normalizeAvatarPreferences(payload) {
   const preferences = emptyAvatarPreferences();
   for (const record of payload?.message_feedback ?? []) {
     const feedback = record?.feedback;
-    if (!feedback?.type) continue;
-    const view = { type: feedback.type, comment: feedback.comment ?? null };
+    if (!feedback?.type && !feedback?.feels && !feedback?.comment) continue;
+    const view = {
+      type: feedback.type ?? null,
+      // What the person said this reply feels like: `feels_real`, `feels_fake`,
+      // or null when the person only rated or noted the reply.
+      feels: feedback.feels ?? null,
+      comment: feedback.comment ?? null,
+    };
     if (record.message_id) {
       preferences.messageFeedbackByMessageId[String(record.message_id)] = view;
     }
@@ -40,18 +51,28 @@ export function normalizeAvatarPreferences(payload) {
   }
   for (const decision of payload?.ambient_decisions ?? []) {
     if (!decision?.observation_id) continue;
-    preferences.ambientDecisionsByObservationId[String(decision.observation_id)] =
-      {
-        rating: noticeRatingForAmbientDecision(decision.rating),
-        note: decision.note ?? null,
-        // Who acted on the card: `avatar_replied` (the person allowed the
-        // avatar's offer) or `owner_replied` (the person replied in person).
-        actionTaken: decision.action_taken ?? null,
-        // The thumb on the avatar's reply after the avatar was allowed to act.
-        ratedAfterAction: decision.rated_after_action ?? null,
-        leftAlone: Boolean(decision.left_alone),
-      };
+    preferences.ambientDecisionsByObservationId[
+      String(decision.observation_id)
+    ] = {
+      rating: noticeRatingForAmbientDecision(decision.rating),
+      note: decision.note ?? null,
+      // Who acted on the card: `avatar_replied` (the person allowed the
+      // avatar's offer) or `owner_replied` (the person replied in person).
+      actionTaken: decision.action_taken ?? null,
+      // The thumb on the avatar's reply after the avatar was allowed to act.
+      ratedAfterAction: decision.rated_after_action ?? null,
+      leftAlone: Boolean(decision.left_alone),
+    };
   }
+  preferences.learnedPreferences = Array.isArray(payload?.learned_preferences)
+    ? payload.learned_preferences
+    : [];
+  preferences.feedbackMessages = Array.isArray(payload?.feedback_messages)
+    ? payload.feedback_messages
+    : [];
+  preferences.whatFeelsReal = Array.isArray(payload?.what_feels_real)
+    ? payload.what_feels_real
+    : [];
   return preferences;
 }
 
@@ -76,7 +97,7 @@ export function storedMessageIdOf(message) {
  *
  * @param {Object} preferences See `emptyAvatarPreferences`.
  * @param {Object|null|undefined} message A transcript row.
- * @returns {{type: string, comment: string|null}|null}
+ * @returns {{type: string|null, feels: string|null, comment: string|null}|null}
  */
 export function feedbackForMessage(preferences, message) {
   if (!preferences || !message) return null;
@@ -110,7 +131,8 @@ export function withStoredFeedback(messages, preferences) {
     if (!stored) return message;
     const current = message.feedback;
     if (
-      current?.type === stored.type &&
+      (current?.type ?? null) === (stored.type ?? null) &&
+      (current?.feels ?? null) === (stored.feels ?? null) &&
       (current?.comment ?? null) === (stored.comment ?? null)
     ) {
       return message;

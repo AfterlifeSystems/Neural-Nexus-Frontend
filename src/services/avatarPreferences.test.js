@@ -21,6 +21,18 @@ const payload = {
     },
     { message_id: null, request_id: 'req-2', feedback: { type: 'dislike' } },
     { message_id: 'lc_run--3', request_id: null, feedback: null },
+    {
+      message_id: 'lc_run--4',
+      request_id: 'req-4',
+      feedback: { type: null, feels: 'feels_real', comment: null },
+    },
+  ],
+  learned_preferences: [
+    { id: 'p1', text: 'The user prefers to be called Sam.' },
+  ],
+  feedback_messages: [],
+  what_feels_real: [
+    { id: 'w1', text: 'The teasing feels real.', polarity: 'feels_real' },
   ],
   ambient_decisions: [
     {
@@ -38,20 +50,36 @@ const payload = {
 test('a stored rating is found by stored id first, then by request id', () => {
   const preferences = normalizeAvatarPreferences(payload);
   assert.deepEqual(
-    feedbackForMessage(preferences, { id: 'lc_run--1', stored_id: 'lc_run--1' }),
-    { type: 'like', comment: 'more of this' }
+    feedbackForMessage(preferences, {
+      id: 'lc_run--1',
+      stored_id: 'lc_run--1',
+    }),
+    { type: 'like', feels: null, comment: 'more of this' }
   );
   assert.deepEqual(
     feedbackForMessage(preferences, { id: 'client-7', request_id: 'req-2' }),
-    { type: 'dislike', comment: null }
+    { type: 'dislike', feels: null, comment: null }
   );
   assert.equal(feedbackForMessage(preferences, { id: 'lc_run--3' }), null);
+  // A feels-real mark alone is a stored reaction too.
+  assert.deepEqual(
+    feedbackForMessage(preferences, {
+      id: 'lc_run--4',
+      stored_id: 'lc_run--4',
+    }),
+    { type: null, feels: 'feels_real', comment: null }
+  );
+  assert.equal(preferences.learnedPreferences.length, 1);
+  assert.equal(preferences.whatFeelsReal[0].polarity, 'feels_real');
   assert.equal(feedbackForMessage(emptyAvatarPreferences(), { id: 'x' }), null);
 });
 
 test('the stored id is only what the server named', () => {
   assert.equal(storedMessageIdOf({ id: 'client-7' }), null);
-  assert.equal(storedMessageIdOf({ id: 'client-7', stored_id: 'lc_run--9' }), 'lc_run--9');
+  assert.equal(
+    storedMessageIdOf({ id: 'client-7', stored_id: 'lc_run--9' }),
+    'lc_run--9'
+  );
   assert.equal(storedMessageIdOf(null), null);
 });
 
@@ -70,7 +98,11 @@ test('stored ratings replace the bubble state and leave unrated rows alone', () 
   assert.notEqual(merged, messages);
   assert.equal(merged[0], unrated);
   assert.equal(merged[1], pending);
-  assert.deepEqual(merged[2].feedback, { type: 'like', comment: 'more of this' });
+  assert.deepEqual(merged[2].feedback, {
+    type: 'like',
+    feels: null,
+    comment: 'more of this',
+  });
   // Nothing to change: the same array comes back, so React does not re-render.
   assert.equal(withStoredFeedback(merged, preferences), merged);
 });

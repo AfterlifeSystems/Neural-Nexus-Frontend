@@ -4,9 +4,11 @@ import {
   Check,
   Copy,
   ExternalLink,
+  Ghost,
   MessageSquare,
   Pencil,
   RefreshCw,
+  Sparkles,
   ThumbsDown,
   ThumbsUp,
 } from 'lucide-react';
@@ -50,6 +52,8 @@ export const ACTION_BUTTON_CLASSES =
  * @param {Function} parameters.onRegenerate
  * @param {Function} parameters.onLike
  * @param {Function} parameters.onDislike
+ * @param {Function} [parameters.onFeelsReal] Mark this reply as feeling like the real person.
+ * @param {Function} [parameters.onFeelsOff] Mark this reply as feeling fake or off.
  * @param {Function} parameters.onToggleFeedback
  * @param {Function} parameters.onFeedbackDraftChange
  * @param {Function} parameters.onSubmitFeedback
@@ -76,6 +80,8 @@ const MessageActionBar = ({
   onRegenerate,
   onLike,
   onDislike,
+  onFeelsReal,
+  onFeelsOff,
   onToggleFeedback,
   onFeedbackDraftChange,
   onSubmitFeedback,
@@ -170,6 +176,38 @@ const MessageActionBar = ({
                 >
                   <ThumbsDown className="w-3 h-3" aria-hidden="true" />
                 </button>
+                {onFeelsReal && (
+                  <button
+                    type="button"
+                    onClick={onFeelsReal}
+                    title="Feels real"
+                    aria-label="This feels real"
+                    aria-pressed={message.feedback?.feels === 'feels_real'}
+                    className={`${ACTION_BUTTON_CLASSES} ${
+                      message.feedback?.feels === 'feels_real'
+                        ? 'text-emerald-300'
+                        : ''
+                    }`}
+                  >
+                    <Sparkles className="w-3 h-3" aria-hidden="true" />
+                  </button>
+                )}
+                {onFeelsOff && (
+                  <button
+                    type="button"
+                    onClick={onFeelsOff}
+                    title="Feels off"
+                    aria-label="This feels off"
+                    aria-pressed={message.feedback?.feels === 'feels_fake'}
+                    className={`${ACTION_BUTTON_CLASSES} ${
+                      message.feedback?.feels === 'feels_fake'
+                        ? 'text-rose-300'
+                        : ''
+                    }`}
+                  >
+                    <Ghost className="w-3 h-3" aria-hidden="true" />
+                  </button>
+                )}
                 <button
                   type="button"
                   onClick={onToggleFeedback}
@@ -270,11 +308,12 @@ const MessageActionBar = ({
             className="w-full px-2 py-1.5 bg-black/50 border border-white/10 rounded-md text-neutral-200 text-sm placeholder-white/40 focus:outline-none focus:ring-2 focus:ring-amber-400/50"
           />
           <p className="text-xs text-white/40">
-            Select thumbs up or down before submitting
+            Your note teaches the avatar from the very next reply. Thumbs and
+            feels-real marks are optional.
           </p>
           <button
             type="button"
-            disabled={!message.feedback?.type || !feedbackDraft.trim()}
+            disabled={!feedbackDraft.trim()}
             onClick={onSubmitFeedback}
             className="voice-text-btn px-2 py-1 rounded-md bg-sky-500/20 text-sky-200 text-xs border border-sky-400/30 disabled:opacity-40"
           >

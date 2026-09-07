@@ -437,15 +437,21 @@ const MessageList = ({
                         }
                         onRegenerate={(key) => regenerateAvatarReply?.(key)}
                         onLike={() =>
-                          submitMessageFeedback?.(messageKey, {
-                            type: 'like',
-                            comment: msg.feedback?.comment,
-                          })
+                          submitMessageFeedback?.(messageKey, { type: 'like' })
                         }
                         onDislike={() =>
                           submitMessageFeedback?.(messageKey, {
                             type: 'dislike',
-                            comment: msg.feedback?.comment,
+                          })
+                        }
+                        onFeelsReal={() =>
+                          submitMessageFeedback?.(messageKey, {
+                            feels: 'feels_real',
+                          })
+                        }
+                        onFeelsOff={() =>
+                          submitMessageFeedback?.(messageKey, {
+                            feels: 'feels_fake',
                           })
                         }
                         onToggleFeedback={() => {
@@ -457,7 +463,6 @@ const MessageList = ({
                         onFeedbackDraftChange={setFeedbackDraft}
                         onSubmitFeedback={() => {
                           submitMessageFeedback?.(messageKey, {
-                            type: msg.feedback.type,
                             comment: feedbackDraft.trim(),
                           });
                           setFeedbackKey(null);

@@ -1901,6 +1901,12 @@ const LiveVoiceMode = ({
                         toggleSpeech(
                           messageKey,
                           isFromAvatar
+                        submitMessageFeedback?.(messageKey, { type: 'like' })
+                      }
+                      onDislike={() =>
+                        submitMessageFeedback?.(messageKey, { type: 'dislike' })
+                      }
+                      onFeelsReal={() =>
                             ? speakableReplyText(message.content)
                             : editableScriptText(message),
                           {
@@ -1911,14 +1917,12 @@ const LiveVoiceMode = ({
                       onRegenerate={(key) => regenerateAvatarReply?.(key)}
                       onLike={() =>
                         submitMessageFeedback?.(messageKey, {
-                          type: 'like',
-                          comment: message.feedback?.comment,
+                          feels: 'feels_real',
                         })
                       }
-                      onDislike={() =>
+                      onFeelsOff={() =>
                         submitMessageFeedback?.(messageKey, {
-                          type: 'dislike',
-                          comment: message.feedback?.comment,
+                          feels: 'feels_fake',
                         })
                       }
                       onToggleFeedback={() => {
@@ -1930,7 +1934,6 @@ const LiveVoiceMode = ({
                       onFeedbackDraftChange={setFeedbackDraft}
                       onSubmitFeedback={() => {
                         submitMessageFeedback?.(messageKey, {
-                          type: message.feedback.type,
                           comment: feedbackDraft.trim(),
                         });
                         setFeedbackKey(null);

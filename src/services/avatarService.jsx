@@ -1613,6 +1613,8 @@ export const recordAmbientPreference = async (
  */
 export const recordMessageFeedback = async ({
   assistantId,
+ *   `type` is the server's `feedback_type`: `like`, `dislike`, `rating`,
+ *   `comment`, `feels_real`, or `feels_fake`;
   threadId,
   messageId,
   requestId,
