@@ -1,11 +1,10 @@
 // src/hooks/useSpeech.js
 import { useCallback, useEffect, useRef, useState } from 'react';
-import {
-  isBillingRefusal,
-  showRequestFailureToast,
-} from '../components/requestFailureToast';
+import { toast } from 'react-hot-toast';
+import { showRequestFailureToast } from '../components/requestFailureToast';
 import { showVoiceNotReadyToast } from '../components/showVoiceNotReadyToast';
 import { speakText } from '../services/avatarService';
+import { speakFailureKind } from '../services/voiceSpeakFailure';
 
 /**
  * Speak text in the avatar's cloned voice, one utterance at a time.
@@ -14,15 +13,16 @@ import { speakText } from '../services/avatarService';
  * single `Audio` element, so starting a new utterance stops the previous one
  * and there is never more than one voice speaking. `voice_not_ready` (no clone
  * yet) surfaces as `notReady` with the server's progress so the caller can open
- * the Voice panel rather than showing a generic failure. `voice_blocked` (a
- * clone ElevenLabs has banned) is reported through `blocked` and NOT toasted:
- * the ban is permanent, so a notice on every reply would repeat something the
- * reader can do nothing about, and live voice mode simply answers in text as it
- * does for an avatar with no voice audio model. The settings Voice panel is
- * where the ban is explained. Any other speak failure is treated as a missing
- * voice model and shown once, with a route to avatar settings — a speak button
- * that spins and then does nothing at all leaves the reader with no way to tell
- * a broken voice from a silent one, and a new toast on every retry would stack.
+ * the Voice panel rather than showing a generic failure. That is not the same
+ * as `voice_blocked` (a clone ElevenLabs has banned): a banned voice was
+ * uploaded and then refused, and more recording will not clear it. Blocked is
+ * reported through `blocked` and NOT toasted — a notice on every reply would
+ * repeat something the reader can do nothing about, and live voice mode
+ * answers in text. The settings Voice panel is where the ban is explained.
+ * Only a voice that has not yet been uploaded gets the missing-voice-model
+ * toast (once, with a route to settings). Every other failure is toasted as a
+ * failed utterance — a speak button that spins and then does nothing at all
+ * leaves the reader with no way to tell a broken voice from a silent one.
  *
  * @param {Object} [options]
  * @param {boolean} [options.asAnonymousIdentity] Public chat: withhold the credential.
@@ -143,31 +143,29 @@ export default function useSpeech({
         return true;
       } catch (speakError) {
         if (controller.signal.aborted) return false;
-        if (speakError?.body?.error === 'voice_blocked') {
-          // Silent on purpose. The avatar has no usable voice, which is a
-          // standing fact about the avatar and not a failure of this reply, so
-          // the reply stays text and nothing is announced here.
+        const kind = speakFailureKind(speakError);
+        if (kind === 'blocked') {
+          // Silent on purpose. A banned clone is not "no voice uploaded" —
+          // the model exists and the vendor has refused it. The reply stays
+          // text and the Voice panel is where the ban is explained.
           setBlocked(true);
-        } else if (isBillingRefusal(speakError)) {
+        } else if (kind === 'billing') {
           showRequestFailureToast(speakError);
-        } else {
+        } else if (kind === 'not_ready') {
           const collectedSeconds = speakError?.body?.collected_seconds ?? 0;
           setNotReady({
             collectedSeconds,
             minimumSeconds: speakError?.body?.instant_minimum_seconds ?? 60,
             detail: speakError?.body?.detail ?? speakError?.message,
           });
-          if (
-            speakError?.status !== 409 &&
-            speakError?.body?.error !== 'voice_not_ready'
-          ) {
-            console.error('Speech failed:', speakError);
-          }
           showVoiceNotReadyToast({
             assistantId,
             avatarName,
             collectedSeconds,
           });
+        } else {
+          console.error('Speech failed:', speakError);
+          toast.error('The avatar could not speak that message.');
         }
         setIsSpeaking(false);
         setSpeakingKey(null);
