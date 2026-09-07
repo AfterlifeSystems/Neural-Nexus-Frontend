@@ -99,3 +99,18 @@ test('a long thread id is shortened for the label', () => {
   assert.equal(shortenThreadId('abcd'), 'abcd');
   assert.equal(shortenThreadId(''), '');
 });
+
+test('a reply links to its own run inside the thread', () => {
+  // Without a run the link can only open the thread; the reader then has to
+  // hunt for the turn among every run in the conversation.
+  const threadOnly = new URL(buildLangsmithThreadUrl({ threadId: 'thread-1' }));
+  assert.equal(threadOnly.searchParams.get('peekedConversationId'), 'thread-1');
+  assert.equal(threadOnly.searchParams.get('run_id'), null);
+
+  const withRun = new URL(
+    buildLangsmithThreadUrl({ threadId: 'thread-1', runId: 'run-9' })
+  );
+  assert.equal(withRun.searchParams.get('peekedConversationId'), 'thread-1');
+  assert.equal(withRun.searchParams.get('run_id'), 'run-9');
+  assert.equal(withRun.searchParams.get('conversationTab'), 'trace');
+});

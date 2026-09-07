@@ -1058,6 +1058,9 @@ export const MediaProvider = ({ children }) => {
               stopped: terminalFrameWasStopped(terminalFrame),
               usage: timed.usage,
               request_id: terminalFrame.request_id ?? null,
+              // This turn's LangSmith run, so the debug link under the bubble
+              // opens this reply's own trace rather than the whole thread.
+              run_id: terminalFrame.run_id ?? null,
               total_response_time_ms: timed.total_response_time_ms,
               response_metadata: timed.response_metadata,
               ambient:

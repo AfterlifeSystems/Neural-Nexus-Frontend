@@ -84,15 +84,20 @@ const MessageActionBar = ({
 }) => {
   const { user } = useAuth();
   const { activeConversation } = useMedia();
-  const langsmithHref = langsmithDebugLinkFor(user, activeConversation);
+  // The reply's own run when the API reported one, so the link lands on this
+  // turn inside the thread rather than on the thread's newest run.
+  const langsmithHref = langsmithDebugLinkFor(
+    user,
+    activeConversation,
+    message?.run_id ?? null
+  );
 
   const actionText = editableScriptText(message);
   if (!actionText) return null;
 
   const metrics = isFromAvatar ? formatMessageMetrics(message) : null;
   const showAvatarActions = isFromAvatar;
-  const showUserActions =
-    isFromUser && editingKey !== messageKey && !readOnly;
+  const showUserActions = isFromUser && editingKey !== messageKey && !readOnly;
   const timestamp = message.timestamp
     ? new Date(message.timestamp).toLocaleTimeString(undefined, {
         hour: '2-digit',
@@ -230,7 +235,11 @@ const MessageActionBar = ({
               href={langsmithHref}
               target="_blank"
               rel="noopener noreferrer"
-              title={`Open thread ${activeConversation} in LangSmith`}
+              title={
+                message?.run_id
+                  ? `Open this reply's run in LangSmith`
+                  : `Open thread ${activeConversation} in LangSmith`
+              }
               aria-label={`Open conversation thread ${activeConversation} in LangSmith`}
               className={`${ACTION_BUTTON_CLASSES} gap-1 text-[11px] font-mono ${
                 overlay ? 'text-amber-200/80' : 'text-amber-300/80'

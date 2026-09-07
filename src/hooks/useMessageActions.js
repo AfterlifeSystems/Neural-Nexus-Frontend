@@ -1,8 +1,7 @@
 // src/hooks/useMessageActions.js
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { toast } from 'react-hot-toast';
 import { useMedia } from '../context/MediaContext';
-import { showVoiceNotReadyToast } from '../components/showVoiceNotReadyToast';
 import useSpeech from './useSpeech';
 
 /**
@@ -30,23 +29,13 @@ export default function useMessageActions({
     submitMessageFeedback,
     pendingSendCount,
   } = useMedia();
-  const speech = useSpeech({ asAnonymousIdentity });
+  const speech = useSpeech({ asAnonymousIdentity, avatarName });
   const [loadingSpeechKey, setLoadingSpeechKey] = useState(null);
   const [copiedKey, setCopiedKey] = useState(null);
   const [editingKey, setEditingKey] = useState(null);
   const [editDraft, setEditDraft] = useState('');
   const [feedbackKey, setFeedbackKey] = useState(null);
   const [feedbackDraft, setFeedbackDraft] = useState('');
-
-  useEffect(() => {
-    if (speech.notReady) {
-      showVoiceNotReadyToast({
-        assistantId,
-        avatarName,
-        collectedSeconds: speech.notReady.collectedSeconds,
-      });
-    }
-  }, [speech.notReady, avatarName, assistantId]);
 
   const toggleSpeech = async (messageKey, text, { alsoStopKeys = [] } = {}) => {
     if (!speechPlaybackEnabled) return;

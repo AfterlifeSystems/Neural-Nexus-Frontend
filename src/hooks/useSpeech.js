@@ -1,6 +1,10 @@
 // src/hooks/useSpeech.js
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { toast } from 'react-hot-toast';
+import {
+  isBillingRefusal,
+  showRequestFailureToast,
+} from '../components/requestFailureToast';
+import { showVoiceNotReadyToast } from '../components/showVoiceNotReadyToast';
 import { speakText } from '../services/avatarService';
 
 /**
@@ -15,12 +19,14 @@ import { speakText } from '../services/avatarService';
  * the ban is permanent, so a notice on every reply would repeat something the
  * reader can do nothing about, and live voice mode simply answers in text as it
  * does for an avatar with no voice audio model. The settings Voice panel is
- * where the ban is explained. Every other failure is toasted — a speak button
+ * where the ban is explained. Any other speak failure is treated as a missing
+ * voice model and shown once, with a route to avatar settings — a speak button
  * that spins and then does nothing at all leaves the reader with no way to tell
- * a broken voice from a silent one.
+ * a broken voice from a silent one, and a new toast on every retry would stack.
  *
  * @param {Object} [options]
  * @param {boolean} [options.asAnonymousIdentity] Public chat: withhold the credential.
+ * @param {string} [options.avatarName] Shown on the missing-voice-model toast.
  * @returns {{
  *   speak: (assistantId: string, text: string, handlers?: {onStart?: Function, onEnd?: Function}) => Promise<boolean>,
  *   stop: () => void,
@@ -30,7 +36,10 @@ import { speakText } from '../services/avatarService';
  *   blocked: boolean,
  * }}
  */
-export default function useSpeech({ asAnonymousIdentity = false } = {}) {
+export default function useSpeech({
+  asAnonymousIdentity = false,
+  avatarName,
+} = {}) {
   const audioRef = useRef(null);
   const objectUrlRef = useRef(null);
   const abortRef = useRef(null);
@@ -139,18 +148,26 @@ export default function useSpeech({ asAnonymousIdentity = false } = {}) {
           // standing fact about the avatar and not a failure of this reply, so
           // the reply stays text and nothing is announced here.
           setBlocked(true);
-        } else if (
-          speakError?.status === 409 ||
-          speakError?.body?.error === 'voice_not_ready'
-        ) {
+        } else if (isBillingRefusal(speakError)) {
+          showRequestFailureToast(speakError);
+        } else {
+          const collectedSeconds = speakError?.body?.collected_seconds ?? 0;
           setNotReady({
-            collectedSeconds: speakError?.body?.collected_seconds ?? 0,
+            collectedSeconds,
             minimumSeconds: speakError?.body?.instant_minimum_seconds ?? 60,
             detail: speakError?.body?.detail ?? speakError?.message,
           });
-        } else {
-          console.error('Speech failed:', speakError);
-          toast.error('The avatar could not speak that message.');
+          if (
+            speakError?.status !== 409 &&
+            speakError?.body?.error !== 'voice_not_ready'
+          ) {
+            console.error('Speech failed:', speakError);
+          }
+          showVoiceNotReadyToast({
+            assistantId,
+            avatarName,
+            collectedSeconds,
+          });
         }
         setIsSpeaking(false);
         setSpeakingKey(null);
@@ -158,7 +175,7 @@ export default function useSpeech({ asAnonymousIdentity = false } = {}) {
         return false;
       }
     },
-    [asAnonymousIdentity, blocked, release, stop]
+    [asAnonymousIdentity, avatarName, blocked, release, stop]
   );
 
   return { speak, stop, isSpeaking, speakingKey, notReady, blocked };
