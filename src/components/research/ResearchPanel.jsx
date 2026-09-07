@@ -11,7 +11,7 @@
 // stay searchable and editable. Only the contradictions arrive here, because
 // only a contradiction needs a person to choose a version.
 
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { toast } from 'react-hot-toast';
 import {
   AlertTriangle,
@@ -29,12 +29,15 @@ import {
   streamResearchProgress,
 } from '../../services/avatarService';
 import {
-  buildResolutionItems,
-  defaultDecisionForProposal,
   describeResearchOutcome,
   describeResearchStage,
-  hostnameOf,
 } from './researchProgress';
+import { FactReviewCard } from '../factReview/FactReviewCard';
+import {
+  RESEARCH_ACTION_LABELS,
+  buildProposalResolutions,
+  researchProposalAsCard,
+} from '../factReview/researchProposalCard';
 import {
   activeResearchJobIdFor,
   forgetResearchJob,
@@ -63,7 +66,6 @@ const ResearchPanel = ({ assistantId, avatarName, onFactsApplied }) => {
   const [progressMessage, setProgressMessage] = useState('');
   const [proposals, setProposals] = useState([]);
   const [decisions, setDecisions] = useState({});
-  const [editedTexts, setEditedTexts] = useState({});
   const [isLoadingProposals, setIsLoadingProposals] = useState(false);
   const [isApplying, setIsApplying] = useState(false);
   const factsAppliedRef = useRef(onFactsApplied);
@@ -75,14 +77,9 @@ const ResearchPanel = ({ assistantId, avatarName, onFactsApplied }) => {
     try {
       const pending = await listResearchProposals(assistantId);
       setProposals(pending);
-      setDecisions((previous) => {
-        const next = {};
-        for (const proposal of pending) {
-          next[proposal.fact_id] =
-            previous[proposal.fact_id] ?? defaultDecisionForProposal();
-        }
-        return next;
-      });
+      // Every contradiction starts on "decide later": accepting one is the
+      // owner's choice, never a default.
+      setDecisions({});
     } catch (loadError) {
       console.error('Loading researched facts failed:', loadError);
     } finally {
@@ -178,12 +175,11 @@ const ResearchPanel = ({ assistantId, avatarName, onFactsApplied }) => {
     try {
       const result = await resolveResearchProposals(
         assistantId,
-        buildResolutionItems(proposals, decisions, editedTexts)
+        buildProposalResolutions(proposals, decisions)
       );
       toast.success(
         `${result.accepted + result.edited} facts added, ${result.ignored} ignored.`
       );
-      setEditedTexts({});
       if (result.accepted + result.edited > 0) factsAppliedRef.current?.();
       await loadProposals();
     } catch (applyError) {
@@ -194,10 +190,18 @@ const ResearchPanel = ({ assistantId, avatarName, onFactsApplied }) => {
     }
   };
 
+  const proposalCards = useMemo(
+    () => proposals.map((proposal, index) => researchProposalAsCard(index, proposal)),
+    [proposals]
+  );
+
   const setEveryDecision = (action) => {
     setDecisions(
       Object.fromEntries(
-        proposals.map((proposal) => [proposal.fact_id, action])
+        proposals.map((_proposal, index) => [
+          index,
+          { action, correctedText: '', correctedContext: '' },
+        ])
       )
     );
   };
@@ -278,10 +282,10 @@ const ResearchPanel = ({ assistantId, avatarName, onFactsApplied }) => {
             </button>
             <button
               type="button"
-              onClick={() => setEveryDecision('ignore')}
+              onClick={() => setEveryDecision('remove')}
               className="px-2 py-1 rounded bg-white/10 hover:bg-white/20 text-neutral-200"
             >
-              Ignore all
+              Discard all
             </button>
             <button
               type="button"
@@ -291,86 +295,28 @@ const ResearchPanel = ({ assistantId, avatarName, onFactsApplied }) => {
               <RefreshCw className="w-3 h-3" aria-hidden="true" /> Refresh
             </button>
           </div>
-          <ul className="space-y-3 max-h-[28rem] overflow-y-auto pr-1">
-            {proposals.map((proposal) => {
-              const action =
-                decisions[proposal.fact_id] ?? defaultDecisionForProposal();
-              return (
-                <li
-                  key={proposal.fact_id}
-                  className="rounded-xl border border-white/10 bg-black/50 p-3"
-                >
-                  {action === 'edit' ? (
-                    <textarea
-                      value={editedTexts[proposal.fact_id] ?? proposal.fact}
-                      onChange={(event) =>
-                        setEditedTexts((previous) => ({
-                          ...previous,
-                          [proposal.fact_id]: event.target.value,
-                        }))
-                      }
-                      rows={2}
-                      aria-label="Corrected fact"
-                      className="w-full p-2 rounded bg-black/60 text-neutral-200 border border-white/10 text-sm"
-                    />
-                  ) : (
-                    <p className="text-neutral-200">{proposal.fact}</p>
-                  )}
-                  {proposal.existing_fact && (
-                    <p className="text-xs text-white/60 mt-1">
-                      This avatar currently says: {proposal.existing_fact}
-                    </p>
-                  )}
-                  {proposal.conflicting_statements?.length > 0 && (
-                    <p className="text-xs text-red-300/90 mt-1">
-                      Other sources say:{' '}
-                      {proposal.conflicting_statements.join(' / ')}
-                    </p>
-                  )}
-                  {proposal.fact_context && (
-                    <p className="text-xs text-white/50 mt-1">
-                      {proposal.fact_context}
-                    </p>
-                  )}
-                  <div className="flex flex-wrap items-center gap-3 mt-2 text-xs">
-                    {['accept', 'edit', 'ignore'].map((candidate) => (
-                      <label
-                        key={candidate}
-                        className="flex items-center gap-1 cursor-pointer text-neutral-300"
-                      >
-                        <input
-                          type="radio"
-                          name={`research-decision-${proposal.fact_id}`}
-                          checked={action === candidate}
-                          onChange={() =>
-                            setDecisions((previous) => ({
-                              ...previous,
-                              [proposal.fact_id]: candidate,
-                            }))
-                          }
-                        />
-                        {candidate}
-                      </label>
-                    ))}
-                    <span className="ml-auto flex flex-wrap gap-2">
-                      {(proposal.supporting_source_urls ?? []).map((url) => (
-                        <a
-                          key={url}
-                          href={url}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="underline text-amber-300/80 truncate max-w-[12rem]"
-                          title={url}
-                        >
-                          {hostnameOf(url)}
-                        </a>
-                      ))}
-                    </span>
-                  </div>
-                </li>
-              );
-            })}
-          </ul>
+          {/* The same card the conversation shows when the avatar pauses to
+              have a fact settled, so this control is learned once. */}
+          <div className="space-y-3 max-h-[28rem] overflow-y-auto pr-1">
+            {proposalCards.map((card) => (
+              <FactReviewCard
+                key={card.key}
+                match={card}
+                decision={
+                  decisions[card.index] ?? {
+                    action: 'skip',
+                    correctedText: '',
+                    correctedContext: '',
+                  }
+                }
+                actionLabels={RESEARCH_ACTION_LABELS}
+                onChange={(next) =>
+                  setDecisions((previous) => ({ ...previous, [card.index]: next }))
+                }
+                isResuming={isApplying}
+              />
+            ))}
+          </div>
           <div className="flex items-center gap-3 mt-3">
             <button
               type="button"

@@ -97,34 +97,3 @@ export const describeResearchOutcome = (snapshot) => {
   } what the sources or this avatar already say — review ${proposals === 1 ? 'it' : 'them'} below.`;
 };
 
-/**
- * What a proposal's decision starts as.
- *
- * Every proposal in this list is a contradiction, so nothing is accepted for
- * the owner: a contradicted claim is ignored until a person chooses a version.
- *
- * @returns {'ignore'} The starting decision.
- */
-export const defaultDecisionForProposal = () => 'ignore';
-
-/**
- * The request body items for POST /avatar/{id}/research/resolve.
- *
- * @param {Array<Object>} proposals The proposals shown.
- * @param {Object} decisions Decision per fact id.
- * @param {Object} editedTexts Edited wording per fact id.
- * @returns {Array<Object>} One item per proposal.
- */
-export const buildResolutionItems = (proposals, decisions, editedTexts) =>
-  proposals.map((proposal) => {
-    const action = decisions?.[proposal.fact_id] ?? defaultDecisionForProposal();
-    const item = { fact_id: proposal.fact_id, action };
-    if (action === 'edit') {
-      item.corrected_text = (
-        editedTexts?.[proposal.fact_id] ??
-        proposal.fact ??
-        ''
-      ).trim();
-    }
-    return item;
-  });

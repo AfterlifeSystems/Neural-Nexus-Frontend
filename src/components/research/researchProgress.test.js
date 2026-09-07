@@ -1,8 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import {
-  buildResolutionItems,
-  defaultDecisionForProposal,
   describeResearchOutcome,
   describeResearchStage,
 } from './researchProgress.js';
@@ -55,27 +53,6 @@ test('a finished job says what was learned and what needs a decision', () => {
     describeResearchOutcome({ status: 'error', error: 'no key' }),
     'Research failed: no key'
   );
-});
-
-test('a contradiction is ignored until a person chooses a version', () => {
-  assert.equal(defaultDecisionForProposal(), 'ignore');
-
-  const proposals = [
-    { fact_id: 'a', fact: 'I was born in 1979.' },
-    { fact_id: 'b', fact: 'I trained in Leeds.' },
-    { fact_id: 'c', fact: 'I never left the county.' },
-  ];
-  const items = buildResolutionItems(
-    proposals,
-    { a: 'accept', b: 'edit' },
-    { b: '  I trained in Bradford. ' }
-  );
-
-  assert.deepEqual(items, [
-    { fact_id: 'a', action: 'accept' },
-    { fact_id: 'b', action: 'edit', corrected_text: 'I trained in Bradford.' },
-    { fact_id: 'c', action: 'ignore' },
-  ]);
 });
 
 test('the media hand-off is reported as its own stage', () => {
