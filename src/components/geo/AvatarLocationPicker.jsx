@@ -23,6 +23,7 @@ import {
 } from '../../services/avatarProximity';
 import { describeLocationError, readDevicePositionOnce } from '../../services/deviceLocation';
 import { draftPinIcon } from './avatarPinMarker';
+import 'leaflet/dist/leaflet.css';
 import './leafletMapStyles.css';
 
 // Somewhere recognisable to start from when the browser will not say where the

@@ -1,11 +1,15 @@
 /* src/components/geo/leafletMapStyles.css
  *
- * Leaflet's own stylesheet plus the small amount needed to seat a raster street
- * map inside the black-glass surfaces the rest of the application uses. Only
- * the tiles are re-toned; no new palette colour is introduced.
+ * The small amount needed to seat a raster street map inside the black-glass
+ * surfaces the rest of the application uses. Only the tiles are re-toned; no
+ * new palette colour is introduced.
+ *
+ * Leaflet's own stylesheet is imported from the components in JavaScript rather
+ * than with an @import here. A CSS @import that cannot be resolved fails inside
+ * Tailwind's stylesheet generation — which builds the styles for every screen —
+ * so one missing package left the whole application unstyled instead of just
+ * breaking the map.
  */
-
-@import 'leaflet/dist/leaflet.css';
 
 .neural-nexus-map {
   background: transparent;

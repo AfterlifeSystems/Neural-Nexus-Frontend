@@ -14,6 +14,7 @@ import { Compass, MapPin, RefreshCw } from 'lucide-react';
 import { MAP_TILE_ATTRIBUTION, MAP_TILE_URL } from '../../config/maps';
 import { describeDistance } from '../../services/avatarProximity';
 import { avatarPinIcon, devicePositionIcon } from './avatarPinMarker';
+import 'leaflet/dist/leaflet.css';
 import './leafletMapStyles.css';
 
 /**
