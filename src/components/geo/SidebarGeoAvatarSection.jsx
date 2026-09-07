@@ -28,7 +28,34 @@ const SidebarGeoAvatarSection = ({ onNavigate }) => {
     refreshPosition,
   } = useGeoAvatars();
 
-  if (!canWatch) return null;
+  // Saying why is better than vanishing: a browser on an insecure origin used
+  // to make the whole section disappear, which reads as a missing feature
+  // rather than a browser that will not report a position.
+  if (!canWatch) {
+    return (
+      <div className="space-y-2 border-b border-white/10 pb-4">
+        <h2 className="flex items-center gap-1.5 text-sm font-semibold uppercase tracking-wide text-white/60">
+          <MapPin className="h-3.5 w-3.5" aria-hidden="true" />
+          Avatars near you
+        </h2>
+        <p className="px-1 text-xs text-white/50">
+          This browser will not say where the device is. Location needs a secure
+          (https) connection.
+        </p>
+        <button
+          type="button"
+          onClick={() => {
+            onNavigate?.();
+            navigate('/map');
+          }}
+          className="inline-flex items-center gap-1 px-1 text-xs text-white/50 hover:text-neutral-200 focus:outline-none focus:ring-2 focus:ring-amber-400/50"
+        >
+          <Globe className="h-3.5 w-3.5" aria-hidden="true" />
+          World map
+        </button>
+      </div>
+    );
+  }
 
   const openAvatar = (entry) => {
     onNavigate?.();
@@ -59,7 +86,9 @@ const SidebarGeoAvatarSection = ({ onNavigate }) => {
         <input
           type="checkbox"
           checked={isWatchEnabled}
-          onChange={(changeEvent) => setWatchEnabled(changeEvent.target.checked)}
+          onChange={(changeEvent) =>
+            setWatchEnabled(changeEvent.target.checked)
+          }
           className="mt-0.5 h-3.5 w-3.5 accent-amber-400"
         />
         <span>Notify me when I reach an avatar&rsquo;s place</span>

@@ -32,7 +32,11 @@ function groupingDegreesForAltitude(altitude) {
  * @param {boolean} [props.asAnonymousIdentity] Load the pins without the stored credential.
  * @param {(avatar: Object) => void} props.onOpenAvatar Open one avatar.
  */
-const WorldAvatarGlobe = ({ asAnonymousIdentity = false, onOpenAvatar }) => {
+const WorldAvatarGlobe = ({
+  asAnonymousIdentity = false,
+  devicePosition = null,
+  onOpenAvatar,
+}) => {
   const containerRef = useRef(null);
   const globeRef = useRef(null);
   const [avatars, setAvatars] = useState([]);
@@ -40,6 +44,7 @@ const WorldAvatarGlobe = ({ asAnonymousIdentity = false, onOpenAvatar }) => {
   const [loadError, setLoadError] = useState('');
   const [groupingDegrees, setGroupingDegrees] = useState(5);
   const [hoveredGroup, setHoveredGroup] = useState(null);
+  const hasFlownToDeviceRef = useRef(false);
 
   useEffect(() => {
     let isMounted = true;
@@ -49,7 +54,9 @@ const WorldAvatarGlobe = ({ asAnonymousIdentity = false, onOpenAvatar }) => {
         if (isMounted) setAvatars(pinned);
       } catch {
         if (isMounted) {
-          setLoadError('The pinned avatars could not be loaded. Try again shortly.');
+          setLoadError(
+            'The pinned avatars could not be loaded. Try again shortly.'
+          );
         }
       } finally {
         if (isMounted) setIsLoading(false);
@@ -144,7 +151,9 @@ const WorldAvatarGlobe = ({ asAnonymousIdentity = false, onOpenAvatar }) => {
       .pointLat('latitude')
       .pointLng('longitude')
       .pointAltitude((group) => 0.01 + Math.min(0.12, group.count * 0.012))
-      .pointRadius((group) => 0.25 + Math.min(1.2, Math.log2(group.count + 1) * 0.35))
+      .pointRadius(
+        (group) => 0.25 + Math.min(1.2, Math.log2(group.count + 1) * 0.35)
+      )
       .pointColor(() => '#fbbf24')
       .pointLabel((group) =>
         group.count === 1
@@ -159,6 +168,32 @@ const WorldAvatarGlobe = ({ asAnonymousIdentity = false, onOpenAvatar }) => {
       .onPointClick(openGroup);
   }, [groups, openGroup]);
 
+  useEffect(() => {
+    const globeInstance = globeRef.current;
+    if (!globeInstance || !devicePosition) return;
+    globeInstance
+      .ringsData([devicePosition])
+      .ringLat('latitude')
+      .ringLng('longitude')
+      .ringColor(() => () => 'rgba(255,255,255,0.85)')
+      .ringMaxRadius(2.5)
+      .ringPropagationSpeed(1.2)
+      .ringRepeatPeriod(1400);
+    // Fly to the person once, on the first fix: doing it on every update would
+    // fight anyone who has since spun the globe somewhere else.
+    if (hasFlownToDeviceRef.current) return;
+    hasFlownToDeviceRef.current = true;
+    globeInstance.controls().autoRotate = false;
+    globeInstance.pointOfView(
+      {
+        lat: devicePosition.latitude,
+        lng: devicePosition.longitude,
+        altitude: 0.6,
+      },
+      1200
+    );
+  }, [devicePosition]);
+
   return (
     <div className="relative h-full w-full overflow-hidden rounded-xl border border-white/10 bg-black/60 backdrop-blur-lg">
       <div ref={containerRef} className="h-full w-full" />
@@ -172,8 +207,9 @@ const WorldAvatarGlobe = ({ asAnonymousIdentity = false, onOpenAvatar }) => {
           </span>
         ) : (
           <span>
-            {avatars.length} {avatars.length === 1 ? 'avatar stands' : 'avatars stand'} in
-            the world
+            {avatars.length}{' '}
+            {avatars.length === 1 ? 'avatar stands' : 'avatars stand'} in the
+            world
           </span>
         )}
       </div>
