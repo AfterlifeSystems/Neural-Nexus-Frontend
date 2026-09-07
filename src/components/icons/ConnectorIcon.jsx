@@ -10,7 +10,6 @@ import {
   Linkedin,
   Mail,
   Plug,
-  Sparkles,
   Twitch,
   Youtube,
 } from 'lucide-react';
@@ -88,7 +87,6 @@ const CONNECTOR_ICONS = {
     tint: 'text-amber-300',
     ring: 'border-amber-300/30',
   },
-  neural_nexus: { Icon: Sparkles, tint: 'text-amber-300', ring: 'border-amber-300/30' },
   claude_code: { Icon: SiClaude, tint: 'text-orange-300', ring: 'border-orange-300/30' },
 };
 
