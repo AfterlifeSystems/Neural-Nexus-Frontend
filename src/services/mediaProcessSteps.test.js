@@ -189,3 +189,113 @@ test('voice pipeline collects speech, then indexes the transcript', () => {
   applyMediaProgress(steps, { stage: 'indexing', current: 1, total: 1 });
   assert.equal(steps.find((step) => step.id === 'index').state, 'done');
 });
+
+test('refused emotion videos mark the loops step in error with the reason', () => {
+  const steps = portrait();
+  applyMediaProgress(steps, { stage: 'upload', current: 1, total: 1 });
+  applyMediaProgress(steps, { stage: 'converting', current: 1, total: 1 });
+  applyMediaProgress(steps, { stage: 'emotion_stills', current: 6, total: 6 });
+  applyMediaProgress(steps, { stage: 'idle_loops', current: 0, total: 7 });
+  applyMediaProgress(steps, {
+    stage: 'emotion_media_complete',
+    complete: false,
+    failures: 7,
+    failed_stills: 0,
+    failed_loops: 7,
+    moderated: 7,
+    failure_message: "xAI's content moderation refused 7 emotion videos.",
+  });
+
+  assert.deepEqual(counts(steps), {
+    upload: 'done:1/1',
+    convert: 'done:1/1',
+    stills: 'done:6/6',
+    loops: 'error:0/7',
+  });
+  assert.equal(
+    steps.find((step) => step.id === 'loops').detail,
+    "xAI's content moderation refused 7 emotion videos."
+  );
+  // Finishing the job keeps the error visible rather than ticking it done.
+  finalizePipelineSteps(steps, 'portrait');
+  assert.equal(steps.find((step) => step.id === 'loops').state, 'error');
+  applyMediaProgress(steps, { stage: 'converting_complete', indexed: 1 });
+  assert.equal(steps.find((step) => step.id === 'loops').state, 'error');
+});
+
+test('one refused portrait leaves the stills step short and the loops honest', () => {
+  const steps = portrait();
+  applyMediaProgress(steps, { stage: 'upload', current: 1, total: 1 });
+  applyMediaProgress(steps, { stage: 'converting', current: 1, total: 1 });
+  applyMediaProgress(steps, { stage: 'emotion_stills', current: 5, total: 6 });
+  applyMediaProgress(steps, { stage: 'idle_loops', current: 6, total: 7 });
+  applyMediaProgress(steps, {
+    stage: 'emotion_media_complete',
+    complete: false,
+    failures: 2,
+    failed_stills: 1,
+    failed_loops: 1,
+    moderated: 0,
+    failure_message: '1 portrait and 1 emotion video could not be generated.',
+  });
+  assert.deepEqual(counts(steps), {
+    upload: 'done:1/1',
+    convert: 'done:1/1',
+    stills: 'error:5/6',
+    loops: 'error:6/7',
+  });
+});
+
+test('a blind-retry sentence on the complete frame is rewritten to re-upload', () => {
+  const steps = portrait();
+  applyMediaProgress(steps, {
+    stage: 'emotion_media_complete',
+    complete: false,
+    failures: 13,
+    failed_stills: 6,
+    failed_loops: 7,
+    moderated: 0,
+    failure_message:
+      '6 portraits and 7 emotion videos could not be generated. Retrying is reasonable.',
+  });
+  const detail = '6 portraits and 7 emotion videos could not be generated. Re-upload the image to retry.';
+  assert.equal(steps.find((step) => step.id === 'stills').detail, detail);
+  assert.equal(steps.find((step) => step.id === 'loops').detail, detail);
+});
+
+test('a completion frame without failures still finishes the loops', () => {
+  const steps = portrait();
+  applyMediaProgress(steps, { stage: 'idle_loops', current: 7, total: 7 });
+  applyMediaProgress(steps, {
+    stage: 'emotion_media_complete',
+    complete: true,
+    failures: 0,
+    failed_stills: 0,
+    failed_loops: 0,
+  });
+  assert.equal(steps.find((step) => step.id === 'loops').state, 'done');
+});
+
+test('a withheld run marks both emotion steps in error with the warning, nothing done', () => {
+  const steps = portrait();
+  applyMediaProgress(steps, { stage: 'upload', current: 1, total: 1 });
+  applyMediaProgress(steps, { stage: 'converting', current: 1, total: 1 });
+  applyMediaProgress(steps, {
+    stage: 'emotion_media_complete',
+    complete: false,
+    failures: 13,
+    failed_stills: 6,
+    failed_loops: 7,
+    moderated: 0,
+    predicted: 13,
+    withheld: true,
+    failure_message: 'Emotion media was not generated and nothing was charged.',
+  });
+  assert.deepEqual(counts(steps), {
+    upload: 'done:1/1',
+    convert: 'done:1/1',
+    stills: 'error:0/6',
+    loops: 'error:0/7',
+  });
+  assert.match(steps.find((step) => step.id === 'stills').detail, /nothing was charged/);
+});

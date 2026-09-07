@@ -1,9 +1,11 @@
 // src/services/evanAssistSession.js
 //
 // The Evan help overlay talks to one public avatar on its own thread, so a
-// conversation the person is already having is not overwritten. Screen
-// observations use the same ambient message shape the rest of the app uses;
-// they only run while the overlay is open and a screen share is live.
+// conversation the person is already having is not overwritten. Screen and
+// webcam observations use the same ambient message shape the rest of the app
+// uses; they only run while the overlay is open and a share is live, and they
+// are background context alone — a snapshot never rides along with a message
+// the person typed or spoke.
 //
 // This file is the pure half — request builders and stream folding — so the
 // Node test runner can load it without Vite or the API client. The fetch
@@ -18,21 +20,30 @@ export const INITIAL_EVAN_STREAM = Object.freeze({
   ambientSummary: null,
   observationId: null,
   threadId: null,
+  // The id the first frame announces, so an observation still streaming can be
+  // ended through the stop route the moment the person sends a message.
+  requestId: null,
 });
 
 /**
- * Whether Evan should be sent screen observations right now.
+ * Whether Evan should be sent ambient observations right now.
  *
- * Observations start when the help window is open and a screen share is live,
- * and they stop when either of those ends. There is no separate switch.
+ * Observations start when the help window is open and either the screen or the
+ * webcam is live, and they stop when the window closes or the last share ends.
+ * There is no separate switch.
  *
  * @param {Object} conditions
  * @param {boolean} conditions.windowOpen The help overlay is on screen.
- * @param {boolean} conditions.hasScreenShare A display stream is live.
+ * @param {boolean} [conditions.hasScreenShare] A display stream is live.
+ * @param {boolean} [conditions.hasWebcam] A webcam stream is live.
  * @returns {boolean}
  */
-export function isEvanScreenObservationActive({ windowOpen, hasScreenShare }) {
-  return Boolean(windowOpen && hasScreenShare);
+export function isEvanObservationActive({
+  windowOpen,
+  hasScreenShare = false,
+  hasWebcam = false,
+}) {
+  return Boolean(windowOpen && (hasScreenShare || hasWebcam));
 }
 
 /**
@@ -61,40 +72,6 @@ export function describeEvanAmbientStatus(status, nextInMs) {
     return seconds > 0 ? `${label} · next in ${seconds}s` : label;
   }
   return seconds > 0 ? `First look in ${seconds}s` : 'Looking…';
-}
-
-/**
- * One-at-a-time gate so a screen look and a typed/spoken turn never share
- * the same Evan thread at once. The server parks a run per thread; a second
- * POST while a look is open is refused, which the person reads as "unable
- * to send" right after "Evan is looking".
- *
- * @returns {{busy: boolean, run: Function}}
- */
-export function createTurnGate() {
-  let tail = Promise.resolve();
-  let pending = 0;
-  return {
-    get busy() {
-      return pending > 0;
-    },
-    run(task) {
-      pending += 1;
-      const runThis = async () => {
-        try {
-          return await task();
-        } finally {
-          pending -= 1;
-        }
-      };
-      const scheduled = tail.then(runThis, runThis);
-      tail = scheduled.then(
-        () => undefined,
-        () => undefined
-      );
-      return scheduled;
-    },
-  };
 }
 
 /**
@@ -195,26 +172,48 @@ export function shouldOfferEvanAssist({
  * where in Neural Nexus the person is standing so Evan can talk about the
  * screen they are looking at.
  *
+ * No snapshot travels with the turn: the shares reach Evan as background
+ * observations on their own timer, so the message goes out the instant it is
+ * typed. The note only tells Evan which shares he is already watching, so he
+ * can answer "what do you see" from the looks already in the thread.
+ *
  * @param {Object} options
  * @param {string} [options.text] What the person typed or said.
  * @param {string} [options.locationLabel] A short place name.
- * @param {boolean} [options.screenShared] A screen still will travel with the turn.
+ * @param {boolean} [options.screenShared] The screen is being shared right now.
+ * @param {boolean} [options.webcamShared] The webcam is on right now.
  * @returns {{displayText: string, apiText: string}}
  */
 export function buildEvanUserMessage({
   text = '',
   locationLabel = '',
   screenShared = false,
+  webcamShared = false,
 } = {}) {
   const displayText = String(text ?? '').trim();
+  const sharing = Boolean(screenShared || webcamShared);
   const notes = [];
   if (locationLabel) {
     notes.push(`[Neural Nexus] The person is looking at ${locationLabel}.`);
   }
-  if (screenShared) {
-    notes.push('[Neural Nexus] A live screen share is attached.');
+  if (screenShared && webcamShared) {
+    notes.push(
+      '[Neural Nexus] The person is sharing the screen and the webcam with you ' +
+        'right now; you are being sent looks at both in the background.'
+    );
+  } else if (screenShared) {
+    notes.push(
+      '[Neural Nexus] The person is sharing the screen with you right now; ' +
+        'you are being sent looks at it in the background.'
+    );
+  } else if (webcamShared) {
+    notes.push(
+      '[Neural Nexus] The person is sharing the webcam with you right now; ' +
+        'you are being sent looks at it in the background.'
+    );
   }
-  const spoken = displayText || (screenShared ? 'What do you see, and how can you help?' : '');
+  const spoken =
+    displayText || (sharing ? 'What do you see, and how can you help?' : '');
   const apiText = [...notes, spoken].filter(Boolean).join('\n');
   return { displayText: spoken, apiText };
 }
@@ -292,6 +291,12 @@ export function buildEvanResumeRequest(
 export function reduceEvanStreamEvent(status, event) {
   const current = status ?? INITIAL_EVAN_STREAM;
   switch (event?.type) {
+    case 'turn_started':
+      return {
+        ...current,
+        requestId: event.request_id ?? current.requestId,
+        threadId: event.thread_id ?? current.threadId,
+      };
     case 'assistant_token':
       return {
         ...current,

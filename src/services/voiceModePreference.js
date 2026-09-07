@@ -7,6 +7,9 @@
 
 const VOICE_MODE_PREFERRED_STORAGE_KEY = 'voice_mode_preferred';
 
+/** Query that opens the Chat tab in voice mode. Stripped after ChatArea reads it. */
+export const VOICE_MODE_QUERY = 'voice';
+
 /**
  * @param {Storage} [storage]
  * @returns {boolean}
@@ -48,4 +51,66 @@ export function writeVoiceModePreference(
  */
 export function voiceModeIsOpen(preferred, activeTab) {
   return Boolean(preferred) && activeTab === 'chat';
+}
+
+/**
+ * @param {string} [assistantId]
+ * @returns {string}
+ */
+export function voiceChatPath(assistantId) {
+  if (!assistantId) return '/avatars';
+  return `/chat/${encodeURIComponent(assistantId)}?${VOICE_MODE_QUERY}=1`;
+}
+
+/**
+ * @param {string|URLSearchParams|null|undefined} search
+ * @returns {boolean}
+ */
+export function searchRequestsVoiceMode(search) {
+  const params =
+    search instanceof URLSearchParams
+      ? search
+      : new URLSearchParams(search ?? '');
+  return params.get(VOICE_MODE_QUERY) === '1';
+}
+
+/**
+ * Drop the voice-mode request and any settings/inbox tab so Chat + talking
+ * is what the URL describes after the toast (or a bookmark) is followed.
+ *
+ * @param {string|URLSearchParams|null|undefined} search
+ * @returns {URLSearchParams}
+ */
+export function consumeVoiceModeSearchParams(search) {
+  const params = new URLSearchParams(
+    search instanceof URLSearchParams ? search : search ?? ''
+  );
+  params.delete(VOICE_MODE_QUERY);
+  params.delete('tab');
+  params.delete('section');
+  return params;
+}
+
+/**
+ * Remember talking, then go to that avatar's voice chat.
+ *
+ * The toast host sits outside the router (see main.jsx), so this is a full
+ * navigation rather than a hook. `?voice=1` makes the URL different from a
+ * chat already open, so the assign is not a no-op, and ChatArea can open
+ * voice mode even when localStorage refused the preference write.
+ *
+ * @param {string} [assistantId]
+ * @param {Object} [options]
+ * @param {Storage} [options.storage]
+ * @param {Function} [options.assign]
+ */
+export function openVoiceChat(
+  assistantId,
+  {
+    storage = globalThis.localStorage,
+    assign = (path) => window.location.assign(path),
+  } = {}
+) {
+  writeVoiceModePreference(true, storage);
+  assign(voiceChatPath(assistantId));
 }

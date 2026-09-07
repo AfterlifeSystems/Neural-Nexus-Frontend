@@ -4,9 +4,18 @@ import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import CircularGallery from './CircularGallery';
 import { idleLoopFor, loadEmotionMedia } from '../hooks/useEmotionMedia';
+import { useAvatarFaceSourceRevision } from '../hooks/useAvatarFaceSource';
+import {
+  galleryIdleLoopUrl,
+  showsGeneratedFace,
+} from '../config/avatarFaceSource';
 import {
   Search,
   CirclePlus,
+  EyeOff,
+  Inbox,
+  Settings,
+  Plus,
   LogOut,
   Edit,
   User,
@@ -28,6 +37,25 @@ import {
   getAvatarReferenceImage,
   listUserAvatars,
 } from '../services/avatarService';
+import {
+  avatarsWithPersonalFirst,
+  startingCarouselIndex,
+} from '../services/avatarListOrder';
+import {
+  avatarsOnCarousel,
+  canHideAvatarOnCarousel,
+  carouselAvatarId,
+  carouselCompanionAction,
+  clampCarouselIndex,
+  hideAvatarOnCarousel,
+  readHiddenCarouselAvatarIds,
+  showAvatarOnCarousel,
+  writeHiddenCarouselAvatarIds,
+} from '../services/avatarCarouselMembership';
+import { buildAvatarSearchSuggestions } from './avatarSearchSuggestions';
+import { avatarSettingsPath } from './createdAvatarSettings';
+import { personalAvatarWorkspacePath } from './personalAvatarWorkspace';
+import useInboxCount from '../hooks/useInboxCount';
 
 /**
  * Whether two avatar lists say the same thing.
@@ -62,6 +90,8 @@ const AvatarSelectionComponent = ({}) => {
   } = useAuth();
 
   const { setActiveConversation } = useMedia();
+  const faceSourceRevision = useAvatarFaceSourceRevision();
+  const inboxCount = useInboxCount();
   const navigate = useNavigate();
   const [currentCardIndex, setCurrentCardIndex] = useState(0);
   const [searchQuery, setSearchQuery] = useState('');
@@ -74,11 +104,27 @@ const AvatarSelectionComponent = ({}) => {
   // onto the element keeps the card glued to the slot without a React render
   // per frame.
   const createCardOverlayRef = useRef(null);
-  const handleCreateCardMove = useCallback(({ x, visible }) => {
+  const cardActionsRef = useRef(null);
+  const createCardIsFrontRef = useRef(false);
+  const [createCardIsFront, setCreateCardIsFront] = useState(false);
+  const handleCreateCardMove = useCallback(({ x, frontX, visible, isFront }) => {
     const overlay = createCardOverlayRef.current;
-    if (!overlay) return;
-    overlay.style.transform = `translate(calc(-50% + ${x}px), -50%)`;
-    overlay.style.visibility = visible ? 'visible' : 'hidden';
+    if (overlay) {
+      overlay.style.transform = `translate(calc(-50% + ${x}px), -50%)`;
+      overlay.style.visibility = visible ? 'visible' : 'hidden';
+    }
+    const createIsFront = Boolean(isFront);
+    const actions = cardActionsRef.current;
+    if (actions) {
+      const underFrontCard = Number.isFinite(frontX) ? frontX : 0;
+      actions.style.transform = `translateX(calc(-50% + ${underFrontCard}px))`;
+      actions.style.visibility = createIsFront ? 'hidden' : '';
+      actions.style.pointerEvents = createIsFront ? 'none' : '';
+    }
+    if (createCardIsFrontRef.current !== createIsFront) {
+      createCardIsFrontRef.current = createIsFront;
+      setCreateCardIsFront(createIsFront);
+    }
   }, []);
   const handleGalleryIndexChange = useCallback((index) => {
     setCurrentCardIndex(index);
@@ -103,6 +149,7 @@ const AvatarSelectionComponent = ({}) => {
   // a WebGL canvas that renders an empty ring until avatars arrive, which is
   // indistinguishable from an account that has none.
   const [isLoadingAvatars, setIsLoadingAvatars] = useState(false);
+  const [hiddenCarouselIds, setHiddenCarouselIds] = useState([]);
 
   // Revalidate each avatar's portrait against the API.
   //
@@ -236,7 +283,7 @@ const AvatarSelectionComponent = ({}) => {
     if (!cardData.type) {
       const matchingCard = authenticatedCards.find(
         (card) =>
-          card.id === cardData.avatar_data.assistant_id ||
+          card.id === carouselAvatarId(cardData.avatar_data) ||
           (cardData.text && card.text === cardData.text)
       );
       if (matchingCard) actualCardData = matchingCard;
@@ -244,28 +291,31 @@ const AvatarSelectionComponent = ({}) => {
 
     if (actualCardData.type === 'avatar') {
       const avatarId =
-        actualCardData.avatar_data.assistant_id ||
-        userAvatars?.find((avatar) => avatar.name === actualCardData.text)
-          ?.assistant_id;
+        carouselAvatarId(actualCardData.avatar_data) ||
+        carouselAvatarId(
+          carouselAvatars.find((avatar) => avatar.name === actualCardData.text)
+        );
       if (!avatarId) {
         toast.error('Avatar ID not found');
         return;
       }
 
-      const avatarIndex = userAvatars.findIndex(
-        (avatar) => avatar.assistant_id === avatarId
+      const avatarIndex = carouselAvatars.findIndex(
+        (avatar) => carouselAvatarId(avatar) === avatarId
       );
 
-      setCurrentCardIndex(avatarIndex);
-      if (galleryRef.current) {
-        galleryRef.current.setCurrentIndex(avatarIndex);
+      if (avatarIndex >= 0) {
+        setCurrentCardIndex(avatarIndex);
+        if (galleryRef.current) {
+          galleryRef.current.setCurrentIndex(avatarIndex);
+        }
+        localStorage.setItem('last_used_avatar_index', avatarIndex);
       }
-      localStorage.setItem('last_used_avatar_index', avatarIndex);
       localStorage.setItem('last_used_avatar_id', avatarId);
 
-      const selectedAvatar = userAvatars.find(
-        (avatar) => avatar.assistant_id === avatarId
-      );
+      const selectedAvatar =
+        carouselAvatars.find((avatar) => carouselAvatarId(avatar) === avatarId) ??
+        orderedAvatars.find((avatar) => carouselAvatarId(avatar) === avatarId);
 
       cacheAvatarPosition(avatarId, avatarIndex);
       const selectedAvatarIcon = avatarIconsById[avatarId];
@@ -336,12 +386,22 @@ const AvatarSelectionComponent = ({}) => {
     };
   }, [userAvatars]);
 
+  const orderedAvatars = useMemo(
+    () => avatarsWithPersonalFirst(userAvatars),
+    [userAvatars]
+  );
+  const carouselAvatars = useMemo(
+    () => avatarsOnCarousel(orderedAvatars, hiddenCarouselIds),
+    [orderedAvatars, hiddenCarouselIds]
+  );
+
   const authenticatedCards = useMemo(() => {
     const avatarCards =
-      userAvatars?.map((avatar) => {
+      carouselAvatars.map((avatar) => {
         const assistantId = avatar.assistant_id ?? avatar.avatar_id;
         const iconSource = avatarIconsById[assistantId];
-        const pairReady = loopLookupDone;
+        const showGenerated = showsGeneratedFace(assistantId);
+        const pairReady = !showGenerated || loopLookupDone;
         return {
           id: assistantId,
           component: (
@@ -357,7 +417,9 @@ const AvatarSelectionComponent = ({}) => {
             pairReady && iconSource && isValidImageUrl(iconSource)
               ? iconSource
               : null,
-          video: pairReady ? (neutralLoopsById[assistantId] ?? null) : null,
+          video: pairReady
+            ? galleryIdleLoopUrl(neutralLoopsById[assistantId], showGenerated)
+            : null,
           avatar_data: avatar,
         };
       }) || [];
@@ -371,7 +433,13 @@ const AvatarSelectionComponent = ({}) => {
     });
 
     return avatarCards;
-  }, [userAvatars, avatarIconsById, neutralLoopsById, loopLookupDone]);
+  }, [
+    carouselAvatars,
+    avatarIconsById,
+    neutralLoopsById,
+    loopLookupDone,
+    faceSourceRevision,
+  ]);
 
   const getCachedAvatarPosition = (avatarId = null) => {
     try {
@@ -434,54 +502,26 @@ const AvatarSelectionComponent = ({}) => {
   }, [user, setUserAvatars]);
 
   useEffect(() => {
-    if (hasInitialized.current || !userAvatars?.length) return;
-    const lastId = localStorage.getItem('last_used_avatar_id');
-    const stored = Number.parseInt(
-      localStorage.getItem('current_card_index'),
-      10
-    );
-    let targetIndex = 0;
-    if (lastId) {
-      const byId = userAvatars.findIndex(
-        (avatar) => (avatar.assistant_id ?? avatar.avatar_id) === lastId
-      );
-      if (byId >= 0) targetIndex = byId;
-    } else if (Number.isInteger(stored) && stored >= 0) {
-      targetIndex = Math.min(stored, userAvatars.length);
+    if (!user?.id) {
+      setHiddenCarouselIds([]);
+      return;
     }
+    setHiddenCarouselIds(readHiddenCarouselAvatarIds(user.id));
+  }, [user?.id]);
+
+  useEffect(() => {
+    if (hasInitialized.current || !carouselAvatars.length) return;
+    const targetIndex = startingCarouselIndex(carouselAvatars);
     setCurrentCardIndex(targetIndex);
-    galleryRef.current?.setCurrentIndex(targetIndex);
+    galleryRef.current?.setCurrentIndex(targetIndex, false);
     hasInitialized.current = true;
-    // if (!hasInitialized.current) {
-    //   let targetIndex = 0;
+  }, [user, carouselAvatars]);
 
-    // const cachedLastAvatarId = localStorage.getItem('last_used_avatar_id');
-
-    // if (cachedLastAvatarId) {
-    //   const cachedPosition = getCachedAvatarPosition(cachedLastAvatarId);
-    //   if (cachedPosition && cachedPosition.avatarIndex < userAvatars.length) {
-    //     targetIndex = cachedPosition.avatarIndex;
-    //   }
-    // } else if (lastUsedAvatar) {
-    //   const lastUsedIndex = userAvatars.findIndex(
-    //     (avatar) => avatar.avatar_id === lastUsedAvatar
-    //   );
-    //   if (lastUsedIndex !== -1) {
-    //     targetIndex = lastUsedIndex;
-    //   }
-    // }
-
-    //   setCurrentCardIndex(targetIndex);
-    //   if (galleryRef.current) {
-    //     galleryRef.current.setCurrentIndex(targetIndex);
-    //   }
-    //   hasInitialized.current = true;
-    // }
-
-    // if (!user || !userAvatars?.length) {
-    //   hasInitialized.current = false;
-    // }
-  }, [user, userAvatars]);
+  useEffect(() => {
+    setCurrentCardIndex((current) =>
+      clampCarouselIndex(current, authenticatedCards.length)
+    );
+  }, [authenticatedCards.length]);
 
 
   useEffect(() => {
@@ -551,85 +591,33 @@ const AvatarSelectionComponent = ({}) => {
     }));
   };
 
+  const listSearchSuggestions = (query, hiddenIds = hiddenCarouselIds) =>
+    buildAvatarSearchSuggestions({
+      avatars: orderedAvatars,
+      query,
+      hiddenIds,
+      iconsById: avatarIconsById,
+    });
+
+  const persistHiddenCarouselIds = (hiddenIds) => {
+    setHiddenCarouselIds(hiddenIds);
+    writeHiddenCarouselAvatarIds(user?.id, hiddenIds);
+    if (isDropdownOpen) {
+      setSuggestions(listSearchSuggestions(searchQuery, hiddenIds));
+    }
+    return hiddenIds;
+  };
+
   const handleSearch = (e) => {
     const value = e.target.value;
     setSearchQuery(value);
     setHighlightedIndex(-1);
-
-    const allCards = [
-      ...(userAvatars?.map((avatar, idx) => ({
-        id: avatar.assistant_id ?? avatar.avatar_id,
-        type: 'avatar',
-        text: avatar.name,
-        image: avatarIconsById[avatar.assistant_id ?? avatar.avatar_id] ?? null,
-        originalIndex: idx,
-      })) || []),
-      {
-        id: 'create-avatar',
-        type: 'create',
-        text: 'Create Avatar',
-        image: null,
-        originalIndex: authenticatedCards.length - 1,
-      },
-    ];
-
-    const filteredSuggestions = allCards
-      .filter((card) => card.text.toLowerCase().includes(value.toLowerCase()))
-      .map((card) => ({
-        ...card,
-        originalIndex: card.originalIndex ?? authenticatedCards.length - 1,
-      }));
-
-    setSuggestions(
-      value && filteredSuggestions.length === 0
-        ? [
-            {
-              id: 'create-avatar',
-              type: 'create',
-              text: 'Create Avatar',
-              image: null,
-              originalIndex: authenticatedCards.length - 1,
-            },
-          ]
-        : filteredSuggestions
-    );
+    setSuggestions(listSearchSuggestions(value));
     setIsDropdownOpen(true);
   };
 
   const handleSearchFocus = () => {
-    const allCards = [
-      ...(userAvatars?.map((avatar, idx) => ({
-        id: avatar.assistant_id ?? avatar.avatar_id,
-        type: 'avatar',
-        text: avatar.name,
-        image: avatarIconsById[avatar.assistant_id ?? avatar.avatar_id] ?? null,
-        originalIndex: idx,
-      })) || []),
-      {
-        id: 'create-avatar',
-        type: 'create',
-        text: 'Create Avatar',
-        image: null,
-        originalIndex: authenticatedCards.length - 1,
-      },
-    ];
-
-    setSuggestions(
-      searchQuery &&
-        allCards.every(
-          (card) => !card.text.toLowerCase().includes(searchQuery.toLowerCase())
-        )
-        ? [
-            {
-              id: 'create-avatar',
-              type: 'create',
-              text: 'Create Avatar',
-              image: null,
-              originalIndex: authenticatedCards.length - 1,
-            },
-          ]
-        : allCards
-    );
+    setSuggestions(listSearchSuggestions(searchQuery));
     setIsDropdownOpen(true);
   };
 
@@ -648,16 +636,30 @@ const AvatarSelectionComponent = ({}) => {
    * coming back to it should find the gallery where the user left it, on the
    * avatar they chose, rather than back where it was before they searched.
    *
-   * @param {number} index Position in `authenticatedCards`, carried on the
-   *   suggestion as `originalIndex`.
+   * @param {Object} suggestion A row from {@link buildAvatarSearchSuggestions}.
    */
-  const handleSuggestionSelect = (index) => {
-    const selectedCard = authenticatedCards[index];
-    setCurrentCardIndex(index);
-    if (galleryRef.current) {
-      galleryRef.current.setCurrentIndex(index);
+  const handleSuggestionSelect = (suggestion) => {
+    if (suggestion?.type === 'avatar' && suggestion.originalIndex < 0) {
+      setSearchQuery(suggestion.text || '');
+      setIsDropdownOpen(false);
+      setHighlightedIndex(-1);
+      handleClick({
+        type: 'avatar',
+        text: suggestion.text,
+        avatar_data: suggestion.avatar,
+      });
+      return;
     }
-    setSearchQuery(selectedCard?.text || '');
+
+    const index = suggestion?.originalIndex;
+    const selectedCard = authenticatedCards[index];
+    if (typeof index === 'number' && index >= 0) {
+      setCurrentCardIndex(index);
+      if (galleryRef.current) {
+        galleryRef.current.setCurrentIndex(index);
+      }
+    }
+    setSearchQuery(selectedCard?.text || suggestion?.text || '');
     setIsDropdownOpen(false);
     setHighlightedIndex(-1);
     if (selectedCard) {
@@ -665,11 +667,92 @@ const AvatarSelectionComponent = ({}) => {
     }
   };
 
+  const handleAddAvatarToCarousel = (avatar) => {
+    const assistantId = carouselAvatarId(avatar);
+    if (!assistantId) return;
+    const nextHidden = persistHiddenCarouselIds(
+      showAvatarOnCarousel(assistantId, hiddenCarouselIds)
+    );
+    const nextCards = avatarsOnCarousel(orderedAvatars, nextHidden);
+    const nextIndex = nextCards.findIndex(
+      (card) => carouselAvatarId(card) === assistantId
+    );
+    if (nextIndex >= 0) {
+      setCurrentCardIndex(nextIndex);
+      galleryRef.current?.setCurrentIndex(nextIndex);
+    }
+  };
+
+  const handleHideAvatarFromCarousel = (avatar) => {
+    if (!canHideAvatarOnCarousel(avatar)) return;
+    const assistantId = carouselAvatarId(avatar);
+    if (!assistantId) return;
+    const nextHidden = hideAvatarOnCarousel(avatar, hiddenCarouselIds);
+    persistHiddenCarouselIds(nextHidden);
+    const nextCount = avatarsOnCarousel(orderedAvatars, nextHidden).length + 1;
+    const nextIndex = clampCarouselIndex(currentCardIndex, nextCount);
+    setCurrentCardIndex(nextIndex);
+    galleryRef.current?.setCurrentIndex(nextIndex);
+    try {
+      localStorage.setItem('current_card_index', String(nextIndex));
+    } catch {
+      // quota or private mode — the strip still follows the live index
+    }
+  };
+
+  const handleHideFrontAvatar = () => {
+    const frontCard = authenticatedCards[currentCardIndex];
+    if (frontCard?.type !== 'avatar') return;
+    handleHideAvatarFromCarousel(frontCard.avatar_data);
+  };
+
+  const handleOpenAvatarSettings = (avatar) => {
+    const selectedAvatar =
+      avatar && typeof avatar === 'object'
+        ? avatar
+        : orderedAvatars.find(
+            (candidate) => carouselAvatarId(candidate) === carouselAvatarId(avatar)
+          );
+    const settingsPath = avatarSettingsPath(selectedAvatar ?? avatar);
+    if (!settingsPath) {
+      toast.error('Avatar settings are not available.');
+      return;
+    }
+    if (selectedAvatar?.metadata?.user_id) {
+      setActiveAvatar(selectedAvatar);
+    }
+    navigate(settingsPath);
+  };
+
+  const handleOpenFrontAvatarSettings = () => {
+    const frontCard = authenticatedCards[currentCardIndex];
+    if (frontCard?.type !== 'avatar') return;
+    handleOpenAvatarSettings(frontCard.avatar_data ?? frontCard.id);
+  };
+
+  const handleOpenFrontAvatarInbox = () => {
+    const frontCard = authenticatedCards[currentCardIndex];
+    const avatar = frontCard?.avatar_data;
+    if (carouselCompanionAction(avatar) !== 'inbox') return;
+    const inboxPath = personalAvatarWorkspacePath(
+      carouselAvatarId(avatar),
+      'inbox'
+    );
+    if (!inboxPath) {
+      toast.error('Inbox is not available.');
+      return;
+    }
+    if (avatar?.metadata?.user_id) {
+      setActiveAvatar(avatar);
+    }
+    navigate(inboxPath);
+  };
+
   const handleKeyDown = (e) => {
     if (e.key === 'Enter' && suggestions.length > 0 && highlightedIndex >= 0) {
-      handleSuggestionSelect(suggestions[highlightedIndex].originalIndex);
+      handleSuggestionSelect(suggestions[highlightedIndex]);
     } else if (e.key === 'Enter' && suggestions.length > 0) {
-      handleSuggestionSelect(suggestions[0].originalIndex);
+      handleSuggestionSelect(suggestions[0]);
     } else if (e.key === 'ArrowDown') {
       e.preventDefault();
       setHighlightedIndex((prev) =>
@@ -738,6 +821,10 @@ const AvatarSelectionComponent = ({}) => {
     }
   }, [user, currentCardIndex, authenticatedCards, isDropdownOpen]);
 
+  const frontCompanionAction = carouselCompanionAction(
+    authenticatedCards[currentCardIndex]?.avatar_data
+  );
+
   return (
     <div className="flex flex-col items-center justify-start p-4 relative mx-auto min-h-screen w-full">
       {isLoadingAvatars && (
@@ -761,20 +848,35 @@ const AvatarSelectionComponent = ({}) => {
           />
           <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-white/80" />
           {isDropdownOpen && suggestions.length > 0 && (
-            <ul className="absolute z-10 w-full bg-black/50 rounded-lg border border-white/10 mt-1 max-h-60 overflow-auto">
+            <ul className="absolute z-30 w-full bg-black/50 rounded-lg border border-white/10 mt-1 max-h-60 overflow-auto">
               {suggestions.map((suggestion, idx) => (
                 <li
                   key={suggestion.id}
-                  onClick={() =>
-                    handleSuggestionSelect(suggestion.originalIndex)
-                  }
-                  className={`px-4 py-2 text-neutral-200 cursor-pointer ${
+                  onClick={() => handleSuggestionSelect(suggestion)}
+                  className={`px-4 py-2 text-neutral-200 cursor-pointer flex items-center gap-2 ${
                     idx === highlightedIndex
                       ? 'bg-white/10'
                       : 'hover:bg-white/10'
                   }`}
                 >
-                  {suggestion.text}
+                  <span className="flex-grow min-w-0 truncate">
+                    {suggestion.text}
+                  </span>
+                  {suggestion.canAddToCarousel && (
+                    <button
+                      type="button"
+                      data-search-add-avatar
+                      onClick={(clickEvent) => {
+                        clickEvent.stopPropagation();
+                        handleAddAvatarToCarousel(suggestion.avatar);
+                      }}
+                      className="shrink-0 p-1 rounded-md text-white/40 hover:text-neutral-100 hover:bg-white/10"
+                      aria-label={`Add ${suggestion.text} to the carousel`}
+                      title={`Add ${suggestion.text} to the carousel`}
+                    >
+                      <Plus className="w-4 h-4" />
+                    </button>
+                  )}
                 </li>
               ))}
             </ul>
@@ -815,6 +917,66 @@ const AvatarSelectionComponent = ({}) => {
             onIndexChange={handleGalleryIndexChange}
             onCreateCardMove={handleCreateCardMove}
           />
+          {authenticatedCards[currentCardIndex]?.type === 'avatar' &&
+            !createCardIsFront && (
+            <div
+              ref={cardActionsRef}
+              className="absolute left-1/2 z-20 flex items-center gap-3 pointer-events-none"
+              style={{
+                top: 'calc(50% + 30% + 0.35rem)',
+                transform: 'translateX(-50%)',
+              }}
+              data-carousel-card-actions
+            >
+              {frontCompanionAction === 'hide' ? (
+                <button
+                  type="button"
+                  data-carousel-hide-avatar
+                  onMouseDown={(event) => event.stopPropagation()}
+                  onTouchStart={(event) => event.stopPropagation()}
+                  onClick={handleHideFrontAvatar}
+                  className="pointer-events-auto p-1.5 rounded-md text-white/40 hover:text-neutral-100 hover:bg-white/10 transition-colors"
+                  aria-label="Hide avatar from the carousel"
+                  title="Hide avatar from the carousel"
+                >
+                  <EyeOff className="w-5 h-5" />
+                </button>
+              ) : frontCompanionAction === 'inbox' ? (
+                <button
+                  type="button"
+                  data-carousel-avatar-inbox
+                  onMouseDown={(event) => event.stopPropagation()}
+                  onTouchStart={(event) => event.stopPropagation()}
+                  onClick={handleOpenFrontAvatarInbox}
+                  className="pointer-events-auto relative p-1.5 rounded-md text-white/40 hover:text-neutral-100 hover:bg-white/10 transition-colors"
+                  aria-label="Open avatar inbox"
+                  title="Open avatar inbox"
+                >
+                  <Inbox className="w-5 h-5" />
+                  {inboxCount > 0 && (
+                    <span
+                      aria-label={`${inboxCount} items waiting`}
+                      className="absolute -top-0.5 -right-0.5 min-w-[0.875rem] h-3.5 px-0.5 rounded-full bg-amber-400 text-neutral-900 text-[9px] font-semibold flex items-center justify-center"
+                    >
+                      {inboxCount > 9 ? '9+' : inboxCount}
+                    </span>
+                  )}
+                </button>
+              ) : null}
+              <button
+                type="button"
+                data-carousel-avatar-settings
+                onMouseDown={(event) => event.stopPropagation()}
+                onTouchStart={(event) => event.stopPropagation()}
+                onClick={handleOpenFrontAvatarSettings}
+                className="pointer-events-auto p-1.5 rounded-md text-white/40 hover:text-neutral-100 hover:bg-white/10 transition-colors"
+                aria-label="Open avatar settings"
+                title="Open avatar settings"
+              >
+                <Settings className="w-5 h-5" />
+              </button>
+            </div>
+          )}
         </div>
         <div className="flex flex-col items-center w-full gap-2 z-10">
           {/* <button

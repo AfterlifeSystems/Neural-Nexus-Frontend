@@ -11,8 +11,14 @@ test('an unset or empty setting uses the default interval', () => {
     ambientCaptureIntervalMilliseconds(undefined),
     DEFAULT_AMBIENT_CAPTURE_INTERVAL_SECONDS * 1000
   );
-  assert.equal(ambientCaptureIntervalMilliseconds(''), 30_000);
-  assert.equal(ambientCaptureIntervalMilliseconds('   '), 30_000);
+  assert.equal(
+    ambientCaptureIntervalMilliseconds(''),
+    DEFAULT_AMBIENT_CAPTURE_INTERVAL_SECONDS * 1000
+  );
+  assert.equal(
+    ambientCaptureIntervalMilliseconds('   '),
+    DEFAULT_AMBIENT_CAPTURE_INTERVAL_SECONDS * 1000
+  );
 });
 
 test('a numeric setting is honoured in seconds', () => {
@@ -25,7 +31,16 @@ test('a value below the floor or not a number never speeds capture up', () => {
     ambientCaptureIntervalMilliseconds('1'),
     MINIMUM_AMBIENT_CAPTURE_INTERVAL_SECONDS * 1000
   );
-  assert.equal(ambientCaptureIntervalMilliseconds('0'), 30_000);
-  assert.equal(ambientCaptureIntervalMilliseconds('-3'), 30_000);
-  assert.equal(ambientCaptureIntervalMilliseconds('fast'), 30_000);
+  assert.equal(
+    ambientCaptureIntervalMilliseconds('0'),
+    DEFAULT_AMBIENT_CAPTURE_INTERVAL_SECONDS * 1000
+  );
+  assert.equal(
+    ambientCaptureIntervalMilliseconds('-3'),
+    DEFAULT_AMBIENT_CAPTURE_INTERVAL_SECONDS * 1000
+  );
+  assert.equal(
+    ambientCaptureIntervalMilliseconds('fast'),
+    DEFAULT_AMBIENT_CAPTURE_INTERVAL_SECONDS * 1000
+  );
 });

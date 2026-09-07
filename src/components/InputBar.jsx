@@ -2,60 +2,17 @@ import { useRef, useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   AudioLines,
-  FileAudio,
   Square,
-  FileSpreadsheet,
-  FileText,
-  FileVideo,
-  Image as ImageIcon,
   Paperclip,
   Plus,
 } from 'lucide-react';
 import { useMedia } from '../context/MediaContext';
 import { useAuth } from '../context/AuthContext';
 import ComposerConnectorsMenu from './connections/ComposerConnectorsMenu';
+import ComposerAttachmentStrip from './ComposerAttachmentStrip';
 import { composerHasSendableDraft } from './composerSendState';
 import ConversationSuggestions from './ConversationSuggestions';
 import Dock from './Dock';
-import { HiXMark } from 'react-icons/hi2';
-import { describeDocumentKind } from './AvatarDocumentRow';
-
-// How an attachment is drawn in the composer before it is sent. An image shows
-// itself; everything else shows what kind of file it is, because a document has
-// no thumbnail and an <img> pointed at one renders a broken tile.
-const ATTACHMENT_PRESENTATION = {
-  image: { Icon: ImageIcon, label: 'Image', tileClassName: 'bg-neutral-500' },
-  audio: { Icon: FileAudio, label: 'Audio', tileClassName: 'bg-emerald-500' },
-  video: { Icon: FileVideo, label: 'Video', tileClassName: 'bg-rose-500' },
-  data: { Icon: FileSpreadsheet, label: 'Data', tileClassName: 'bg-lime-600' },
-  text: { Icon: FileText, label: 'Document', tileClassName: 'bg-blue-500' },
-  document: { Icon: FileText, label: 'Document', tileClassName: 'bg-blue-500' },
-};
-
-/**
- * Say what an attachment is, for the chip that stands in for it.
- *
- * The browser's own media type is trusted first and the filename consulted only
- * when it says nothing useful: a .csv arrives as text/csv from one operating
- * system and application/octet-stream from another, and the extension is the
- * only thing both have in common.
- *
- * @param {File} attachedFile A file waiting in the composer.
- * @returns {{Icon: Function, label: string, tileClassName: string}} How to draw it.
- */
-const describeAttachment = (attachedFile) => {
-  const mediaType = attachedFile.type || '';
-  const kindFromMediaType = mediaType.startsWith('image/')
-    ? 'image'
-    : mediaType.startsWith('audio/')
-      ? 'audio'
-      : mediaType.startsWith('video/')
-        ? 'video'
-        : null;
-  const kind =
-    kindFromMediaType ?? describeDocumentKind(attachedFile.name) ?? 'document';
-  return ATTACHMENT_PRESENTATION[kind] ?? ATTACHMENT_PRESENTATION.document;
-};
 
 const InputBar = ({
   onActivateLiveChat,
@@ -143,31 +100,6 @@ const InputBar = ({
   // still sends — a second message can be queued behind the reply — but the
   // button's one job during a reply is to end it.
   const isReplyStoppable = (stoppableTurnCount ?? 0) > 0;
-
-  // One object URL per attached image, minted when the attachment list changes
-  // and revoked when it changes again. These used to be created inline while
-  // rendering, which minted a fresh URL for every image on every keystroke and
-  // released none of them.
-  // Files still being composed come first, then the files of a turn that is
-  // already sent and still running; the two lists are shown as one strip so an
-  // attachment never blinks out of existence between pressing send and the
-  // reply arriving.
-  const composerAttachments = [...mediaFiles, ...(attachmentsInFlight ?? [])];
-  const [attachmentPreviewUrls, setAttachmentPreviewUrls] = useState([]);
-  useEffect(() => {
-    const createdUrls = [...mediaFiles, ...(attachmentsInFlight ?? [])].map(
-      (attachedFile) =>
-        (attachedFile.type || '').startsWith('image/')
-          ? URL.createObjectURL(attachedFile)
-          : null
-    );
-    setAttachmentPreviewUrls(createdUrls);
-    return () => {
-      createdUrls.forEach(
-        (objectUrl) => objectUrl && URL.revokeObjectURL(objectUrl)
-      );
-    };
-  }, [mediaFiles, attachmentsInFlight]);
 
   // Typed text or an attached file is a message. A live webcam or screen
   // share is not: those stay on while talking, so an empty box still offers
@@ -334,83 +266,11 @@ const InputBar = ({
       <div className="flex flex-row items-end gap-2 mb-2 min-w-0">
         {/* Input Container */}
         <div className="flex-1 min-w-0 relative border border-neutral-700 rounded-lg bg-black/60 focus-within:border-neutral-300 transition-colors">
-          {composerAttachments.length > 0 && (
-            <div className="p-3 border-b border-neutral-700/50">
-              <div className="flex gap-3 overflow-x-auto scrollbar-thin scrollbar-thumb-neutral-600">
-                {composerAttachments.map((file, index) => {
-                  // Anything past the composed files belongs to a turn already
-                  // under way: it is shown, but cannot be taken back.
-                  const isBeingSent = index >= mediaFiles.length;
-                  const imagePreviewUrl = attachmentPreviewUrls[index];
-                  const { Icon, label, tileClassName } =
-                    describeAttachment(file);
-                  return (
-                    <div
-                      key={`${file.name}-${file.lastModified}-${index}`}
-                      className={`relative flex-shrink-0 group ${
-                        isBeingSent ? 'opacity-60' : ''
-                      }`}
-                    >
-                      {imagePreviewUrl ? (
-                        <>
-                          <img
-                            src={imagePreviewUrl}
-                            alt={file.name}
-                            title={file.name}
-                            className="h-16 w-16 object-cover rounded-lg border border-neutral-600 group-hover:border-neutral-200 transition-colors"
-                          />
-                          {isBeingSent && (
-                            <span className="absolute inset-x-0 bottom-0 rounded-b-lg bg-black/70 text-[10px] text-center text-neutral-200 py-0.5">
-                              Sending…
-                            </span>
-                          )}
-                          {!isBeingSent && (
-                            <button
-                              type="button"
-                              onClick={() => handleRemoveFile(index)}
-                              aria-label={`Remove ${file.name}`}
-                              className="absolute top-1 right-1 p-0! w-4 h-4 rounded-full flex items-center justify-center bg-black/70 text-neutral-200 hover:bg-red-500 transition-colors z-20"
-                            >
-                              <HiXMark className="w-2.5 h-2.5" />
-                            </button>
-                          )}
-                        </>
-                      ) : (
-                        <div
-                          title={file.name}
-                          className="h-16 flex items-center gap-2 pl-2 pr-2 rounded-lg border border-neutral-600 bg-black/60 group-hover:border-neutral-200 transition-colors"
-                        >
-                          <span
-                            className={`w-9 h-9 shrink-0 rounded-lg flex items-center justify-center ${tileClassName}`}
-                          >
-                            <Icon size={18} className="text-neutral-200" />
-                          </span>
-                          <span className="min-w-0">
-                            <span className="block max-w-[10rem] truncate text-sm text-neutral-200">
-                              {file.name}
-                            </span>
-                            <span className="block text-xs text-neutral-400">
-                              {isBeingSent ? 'Sending…' : label}
-                            </span>
-                          </span>
-                          {!isBeingSent && (
-                            <button
-                              type="button"
-                              onClick={() => handleRemoveFile(index)}
-                              aria-label={`Remove ${file.name}`}
-                              className="shrink-0 p-0! w-5 h-5 rounded-full flex items-center justify-center text-neutral-400 hover:text-neutral-100 hover:bg-red-500 transition-colors"
-                            >
-                              <HiXMark className="w-3 h-3" />
-                            </button>
-                          )}
-                        </div>
-                      )}
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-          )}
+          <ComposerAttachmentStrip
+            mediaFiles={mediaFiles}
+            attachmentsInFlight={attachmentsInFlight}
+            onRemove={handleRemoveFile}
+          />
 
           <textarea
             ref={textareaRef}

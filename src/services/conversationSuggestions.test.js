@@ -1,11 +1,15 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import {
+  SUGGESTION_PROMPT_MARKER,
+  buildSuggestionHarvestPrompt,
+  conversationExcerptForSuggestions,
   isConversationSuggestionList,
   localFollowUpSuggestions,
   looksLikeLeakedModelJson,
   OPENING_STARTERS,
   parseConversationSuggestionList,
+  parseHarvestedSuggestions,
 } from './conversationSuggestions.js';
 
 test('a JSON array of short prompts is a suggestion list', () => {
@@ -84,4 +88,43 @@ test('a re-roll skips the prompts already on screen', () => {
     rerolled.some((prompt) => first.includes(prompt)),
     false
   );
+});
+
+test('a harvest excerpt is the spoken turns, not a leaked JSON list', () => {
+  const excerpt = conversationExcerptForSuggestions([
+    { type: 'human', content: 'hey mom' },
+    {
+      type: 'ai',
+      content: '["Hi! What’s going on?", "Are you okay?"]',
+    },
+    { type: 'ai', content: 'Hey kiddo, what’s going on?' },
+  ]);
+  assert.match(excerpt, /Person: hey mom/);
+  assert.match(excerpt, /Avatar: Hey kiddo/);
+  assert.equal(excerpt.includes('Are you okay?'), false);
+});
+
+test('the harvest prompt asks for replies grounded in the conversation', () => {
+  const messages = [
+    { type: 'human', content: 'I got the job' },
+    { type: 'ai', content: 'Oh honey, I am so proud of you.' },
+  ];
+  const prompt = buildSuggestionHarvestPrompt(messages, {
+    exclude: ['Tell me more'],
+  });
+  assert.equal(prompt.startsWith(SUGGESTION_PROMPT_MARKER), true);
+  assert.match(prompt, /I got the job/);
+  assert.match(prompt, /so proud of you/);
+  assert.match(prompt, /Do not repeat/);
+  assert.match(prompt, /Tell me more/);
+});
+
+test('a harvest reply wrapped in a sentence still yields the list', () => {
+  assert.deepEqual(
+    parseHarvestedSuggestions(
+      'Sure — ["That means a lot", "I start Monday", "I wanted you to hear it first"]'
+    ),
+    ['That means a lot', 'I start Monday', 'I wanted you to hear it first']
+  );
+  assert.deepEqual(parseHarvestedSuggestions('no list here'), []);
 });

@@ -2,8 +2,15 @@
 //
 // The Evan help overlay: a conversation with the public Evan avatar that sits
 // on top of Neural Nexus. It has its own thread, so the chat the person
-// already has open is left alone. Sharing the screen from this overlay sends
-// ambient observations to Evan until the overlay is closed or the share ends.
+// already has open is left alone. Sharing the screen or the webcam from this
+// overlay sends ambient observations to Evan until the overlay is closed or
+// the last share ends.
+//
+// The shares are background context alone. Snapshots go out as hidden
+// observations on their own timer and never ride along with a typed or spoken
+// message, so a message the person sends goes out the instant they send it: a
+// look still in flight is stopped for it rather than waited on, and the API
+// enforces the same order on its side.
 
 import React, {
   createContext,
@@ -30,10 +37,12 @@ import { startVoiceActivityListening } from '../services/voiceActivity';
 import {
   getAvatarReferenceImage,
   listPublicAvatars,
+  stopAssistantReply,
   transcribeRecording,
 } from '../services/avatarService';
 import {
   INITIAL_AMBIENT_STATUS,
+  isObservationYield,
   nextCaptureInMs,
   reduceAmbientEvent,
   retryAfterMillisecondsFromError,
@@ -41,11 +50,14 @@ import {
   shouldReportRepeatedFailures,
 } from '../services/ambientCaptureScheduler';
 import {
+  STOP_FALLBACK_ABORT_DELAY_MS,
+  resolveStopStrategy,
+} from '../services/assistantTurnStop';
+import {
   buildEvanMessageRequest,
   buildEvanResumeRequest,
   buildEvanUserMessage,
-  createTurnGate,
-  isEvanScreenObservationActive,
+  isEvanObservationActive,
   pickEvanAvatar,
 } from '../services/evanAssistSession';
 import {
@@ -136,6 +148,7 @@ export function EvanAssistProvider({ children }) {
   const [isSending, setIsSending] = useState(false);
   const [draft, setDraft] = useState('');
   const [screenStream, setScreenStream] = useState(null);
+  const [webcamStream, setWebcamStream] = useState(null);
   const [ambientStatus, setAmbientStatus] = useState(INITIAL_AMBIENT_STATUS);
   const [ambientNextInMs, setAmbientNextInMs] = useState(0);
   const [isLiveListening, setIsLiveListening] = useState(false);
@@ -144,6 +157,7 @@ export function EvanAssistProvider({ children }) {
   const [micLevel, setMicLevel] = useState(0);
 
   const screenStreamRef = useRef(null);
+  const webcamStreamRef = useRef(null);
   const listenerRef = useRef(null);
   const threadIdRef = useRef(threadId);
   const evanRef = useRef(evan);
@@ -152,7 +166,8 @@ export function EvanAssistProvider({ children }) {
   const sendInFlightRef = useRef(false);
   const observationInFlightRef = useRef(false);
   const isExpandedRef = useRef(false);
-  const turnGateRef = useRef(createTurnGate());
+  // The look being streamed right now, so the person's own turn can end it.
+  const observationTurnRef = useRef(null);
   const draftRef = useRef('');
   draftRef.current = draft;
   threadIdRef.current = threadId;
@@ -239,6 +254,12 @@ export function EvanAssistProvider({ children }) {
     setScreenStream(null);
   }, []);
 
+  const stopWebcam = useCallback(() => {
+    webcamStreamRef.current?.getTracks().forEach((track) => track.stop());
+    webcamStreamRef.current = null;
+    setWebcamStream(null);
+  }, []);
+
   const stopLiveListening = useCallback(() => {
     listenerRef.current?.stop();
     listenerRef.current = null;
@@ -253,13 +274,15 @@ export function EvanAssistProvider({ children }) {
     setIsExpanded(false);
     stopLiveListening();
     stopScreenShare();
+    stopWebcam();
     setActivity(null);
-  }, [stopLiveListening, stopScreenShare]);
+  }, [stopLiveListening, stopScreenShare, stopWebcam]);
 
   useEffect(
     () => () => {
       listenerRef.current?.stop();
       screenStreamRef.current?.getTracks().forEach((track) => track.stop());
+      webcamStreamRef.current?.getTracks().forEach((track) => track.stop());
     },
     []
   );
@@ -350,9 +373,53 @@ export function EvanAssistProvider({ children }) {
     [isExpanded]
   );
 
-  const captureScreenStill = useCallback(async () => {
-    const still = await snapshotStream(screenStreamRef.current, 'screen.jpg');
-    return still ? [still] : [];
+  /**
+   * One JPEG per live share, for the background look. The file names are the
+   * ones the ambient request builder reads to label each snapshot's source.
+   */
+  const captureShareStills = useCallback(async () => {
+    const stills = await Promise.all([
+      snapshotStream(webcamStreamRef.current, 'webcam.jpg'),
+      snapshotStream(screenStreamRef.current, 'screen.jpg'),
+    ]);
+    return stills.filter(Boolean);
+  }, []);
+
+  /**
+   * End the look still in flight so the person's own turn goes out at once.
+   *
+   * A look is disposable context; a message the person typed or spoke is not.
+   * The stop is fired and never awaited — the message must not wait on it —
+   * and the API enforces the same order on its side, holding the typed turn
+   * until the observation's run has wound down. The look treats the resulting
+   * stopped `done`, or the aborted fetch, as a quiet end rather than a
+   * failure.
+   */
+  const yieldObservationToPerson = useCallback(() => {
+    const observation = observationTurnRef.current;
+    if (!observation || observation.stopRequested) return;
+    observation.stopRequested = true;
+    if (resolveStopStrategy(observation) === 'abort') {
+      observation.abortController.abort();
+      return;
+    }
+    observation.fallbackTimer = setTimeout(() => {
+      observation.fallbackTimer = null;
+      observation.abortController.abort();
+    }, STOP_FALLBACK_ABORT_DELAY_MS);
+    stopAssistantReply({
+      assistantId: observation.assistantId,
+      requestId: observation.requestId,
+      threadId: observation.threadId,
+      asAnonymousIdentity: observation.asAnonymousIdentity,
+    }).catch((stopError) => {
+      console.warn('Could not stop the look in flight:', stopError);
+      if (observation.fallbackTimer) {
+        clearTimeout(observation.fallbackTimer);
+        observation.fallbackTimer = null;
+      }
+      observation.abortController.abort();
+    });
   }, []);
 
   const sendTurn = useCallback(
@@ -361,128 +428,124 @@ export function EvanAssistProvider({ children }) {
       if (sendInFlightRef.current) return;
       sendInFlightRef.current = true;
       setIsSending(true);
-      setActivity(
-        ambientStatusRef.current.inFlight
-          ? 'Sending when this look finishes'
-          : 'Thinking'
-      );
+      setActivity('Thinking');
       setDraft('');
+      // Nothing is captured for this turn and nothing is waited on: the look
+      // in flight is told to end, and the message goes out at once.
+      yieldObservationToPerson();
 
       try {
-        await turnGateRef.current.run(async () => {
-          let resolved;
-          try {
-            resolved = await ensureEvan();
-          } catch {
-            return;
-          }
-          const assistantId = resolveAssistantId(resolved);
-          const stills = await captureScreenStill();
-          const composed = buildEvanUserMessage({
-            text: words,
-            locationLabel: describeAssistLocation(
-              location.pathname,
-              location.search,
-              activeAvatar?.name
-            ),
-            screenShared: stills.length > 0,
-          });
-          if (!composed.apiText.trim()) return;
-
-          const humanId = `evan-human-${Date.now()}`;
-          const streamingId = `evan-ai-${Date.now()}`;
-          setMessages((current) => [
-            ...current,
-            {
-              id: humanId,
-              type: 'human',
-              content: composed.displayText,
-              timestamp: new Date().toISOString(),
-            },
-            {
-              id: streamingId,
-              type: 'ai',
-              content: '',
-              isLoading: true,
-              timestamp: new Date().toISOString(),
-            },
-          ]);
-          setActivity('Thinking');
-
-          try {
-            const request = buildEvanMessageRequest(assistantId, {
-              message: composed.apiText,
-              threadId: threadIdRef.current,
-              files: stills,
-              userTimezone: userTimezone(),
-            });
-            const outcome = await streamEvanTurn(request, {
-              asAnonymousIdentity,
-              onUpdate: (state) => {
-                setActivity(state.activity);
-                if (state.streamedText) {
-                  setMessages((current) =>
-                    current.map((message) =>
-                      message.id === streamingId
-                        ? {
-                            ...message,
-                            isLoading: false,
-                            content: state.streamedText,
-                          }
-                        : message
-                    )
-                  );
-                }
-              },
-            });
-            adoptThreadId(outcome.threadId);
-            if (outcome.interrupt) {
-              setPendingInterrupt({
-                threadId: outcome.threadId ?? threadIdRef.current,
-                assistantId,
-                interrupt: outcome.interrupt,
-              });
-            }
-            setMessages((current) =>
-              current
-                .map((message) =>
-                  message.id === streamingId
-                    ? {
-                        ...message,
-                        isLoading: false,
-                        content: outcome.streamedText || message.content,
-                        ambient: outcome.ambientDecision
-                          ? {
-                              decision: outcome.ambientDecision,
-                              summary: outcome.ambientSummary,
-                              observation_id: outcome.observationId,
-                            }
-                          : message.ambient,
-                      }
-                    : message
-                )
-                .filter(
-                  (message) =>
-                    message.id !== streamingId ||
-                    (message.content ?? '').trim() !== '' ||
-                    outcome.interrupt
-                )
-            );
-            if (outcome.streamedText) {
-              expand();
-            }
-          } catch (turnError) {
-            setMessages((current) =>
-              current.filter(
-                (message) =>
-                  message.id !== humanId && message.id !== streamingId
-              )
-            );
-            showRequestFailureToast(turnError, {
-              fallbackMessage: 'Evan could not answer just then.',
-            });
-          }
+        let resolved;
+        try {
+          resolved = await ensureEvan();
+        } catch {
+          return;
+        }
+        const assistantId = resolveAssistantId(resolved);
+        const composed = buildEvanUserMessage({
+          text: words,
+          locationLabel: describeAssistLocation(
+            location.pathname,
+            location.search,
+            activeAvatar?.name
+          ),
+          screenShared: Boolean(screenStreamRef.current),
+          webcamShared: Boolean(webcamStreamRef.current),
         });
+        if (!composed.apiText.trim()) return;
+
+        const humanId = `evan-human-${Date.now()}`;
+        const streamingId = `evan-ai-${Date.now()}`;
+        setMessages((current) => [
+          ...current,
+          {
+            id: humanId,
+            type: 'human',
+            content: composed.displayText,
+            timestamp: new Date().toISOString(),
+          },
+          {
+            id: streamingId,
+            type: 'ai',
+            content: '',
+            isLoading: true,
+            timestamp: new Date().toISOString(),
+          },
+        ]);
+        setActivity('Thinking');
+
+        try {
+          const request = buildEvanMessageRequest(assistantId, {
+            message: composed.apiText,
+            threadId: threadIdRef.current,
+            userTimezone: userTimezone(),
+          });
+          const outcome = await streamEvanTurn(request, {
+            asAnonymousIdentity,
+            onUpdate: (state) => {
+              setActivity(state.activity);
+              if (state.streamedText) {
+                setMessages((current) =>
+                  current.map((message) =>
+                    message.id === streamingId
+                      ? {
+                          ...message,
+                          isLoading: false,
+                          content: state.streamedText,
+                        }
+                      : message
+                  )
+                );
+              }
+            },
+          });
+          adoptThreadId(outcome.threadId);
+          if (outcome.interrupt) {
+            setPendingInterrupt({
+              threadId: outcome.threadId ?? threadIdRef.current,
+              assistantId,
+              interrupt: outcome.interrupt,
+            });
+          }
+          setMessages((current) =>
+            current
+              .map((message) =>
+                message.id === streamingId
+                  ? {
+                      ...message,
+                      isLoading: false,
+                      content: outcome.streamedText || message.content,
+                      ambient: outcome.ambientDecision
+                        ? {
+                            decision: outcome.ambientDecision,
+                            summary: outcome.ambientSummary,
+                            observation_id: outcome.observationId,
+                          }
+                        : message.ambient,
+                    }
+                  : message
+              )
+              .filter(
+                (message) =>
+                  message.id !== streamingId ||
+                  (message.content ?? '').trim() !== '' ||
+                  outcome.interrupt
+              )
+          );
+          if (outcome.streamedText) {
+            expand();
+          }
+        } catch (turnError) {
+          setMessages((current) =>
+            current.filter(
+              (message) =>
+                message.id !== humanId && message.id !== streamingId
+            )
+          );
+          showRequestFailureToast(turnError, {
+            fallbackMessage: 'Evan could not answer just then.',
+          });
+        }
       } finally {
         sendInFlightRef.current = false;
         setIsSending(false);
@@ -493,11 +556,11 @@ export function EvanAssistProvider({ children }) {
       activeAvatar?.name,
       adoptThreadId,
       asAnonymousIdentity,
-      captureScreenStill,
       ensureEvan,
       expand,
       location.pathname,
       location.search,
+      yieldObservationToPerson,
     ]
   );
 
@@ -508,92 +571,97 @@ export function EvanAssistProvider({ children }) {
       setPendingInterrupt(null);
       setIsSending(true);
       setActivity('Thinking');
+      yieldObservationToPerson();
       try {
-        await turnGateRef.current.run(async () => {
-          let resolved;
-          try {
-            resolved = await ensureEvan();
-          } catch {
-            return;
-          }
-          const assistantId = resolveAssistantId(resolved);
-          const streamingId = `evan-ai-${Date.now()}`;
-          setMessages((current) => [
-            ...current,
-            {
-              id: streamingId,
-              type: 'ai',
-              content: '',
-              isLoading: true,
-              timestamp: new Date().toISOString(),
+        let resolved;
+        try {
+          resolved = await ensureEvan();
+        } catch {
+          return;
+        }
+        const assistantId = resolveAssistantId(resolved);
+        const streamingId = `evan-ai-${Date.now()}`;
+        setMessages((current) => [
+          ...current,
+          {
+            id: streamingId,
+            type: 'ai',
+            content: '',
+            isLoading: true,
+            timestamp: new Date().toISOString(),
+          },
+        ]);
+        try {
+          const request = buildEvanResumeRequest(assistantId, {
+            threadId: paused.threadId,
+            decision,
+            userTimezone: userTimezone(),
+          });
+          const outcome = await streamEvanTurn(request, {
+            asAnonymousIdentity,
+            onUpdate: (state) => {
+              setActivity(state.activity);
+              if (state.streamedText) {
+                setMessages((current) =>
+                  current.map((message) =>
+                    message.id === streamingId
+                      ? {
+                          ...message,
+                          isLoading: false,
+                          content: state.streamedText,
+                        }
+                      : message
+                  )
+                );
+              }
             },
-          ]);
-          try {
-            const request = buildEvanResumeRequest(assistantId, {
-              threadId: paused.threadId,
-              decision,
-              userTimezone: userTimezone(),
-            });
-            const outcome = await streamEvanTurn(request, {
-              asAnonymousIdentity,
-              onUpdate: (state) => {
-                setActivity(state.activity);
-                if (state.streamedText) {
-                  setMessages((current) =>
-                    current.map((message) =>
-                      message.id === streamingId
-                        ? {
-                            ...message,
-                            isLoading: false,
-                            content: state.streamedText,
-                          }
-                        : message
-                    )
-                  );
-                }
-              },
-            });
-            adoptThreadId(outcome.threadId);
-            if (outcome.interrupt) {
-              setPendingInterrupt({
-                threadId: outcome.threadId ?? paused.threadId,
-                assistantId,
-                interrupt: outcome.interrupt,
-              });
-            }
-            setMessages((current) =>
-              current
-                .map((message) =>
-                  message.id === streamingId
-                    ? {
-                        ...message,
-                        isLoading: false,
-                        content: outcome.streamedText || message.content,
-                      }
-                    : message
-                )
-                .filter(
-                  (message) =>
-                    message.id !== streamingId ||
-                    (message.content ?? '').trim() !== ''
-                )
-            );
-          } catch (resumeError) {
-            setPendingInterrupt(paused);
-            setMessages((current) =>
-              current.filter((message) => message.id !== streamingId)
-            );
-            showRequestFailureToast(resumeError, {
-              fallbackMessage: 'Could not send that decision. Try again.',
+          });
+          adoptThreadId(outcome.threadId);
+          if (outcome.interrupt) {
+            setPendingInterrupt({
+              threadId: outcome.threadId ?? paused.threadId,
+              assistantId,
+              interrupt: outcome.interrupt,
             });
           }
-        });
+          setMessages((current) =>
+            current
+              .map((message) =>
+                message.id === streamingId
+                  ? {
+                      ...message,
+                      isLoading: false,
+                      content: outcome.streamedText || message.content,
+                    }
+                  : message
+              )
+              .filter(
+                (message) =>
+                  message.id !== streamingId ||
+                  (message.content ?? '').trim() !== ''
+              )
+          );
+        } catch (resumeError) {
+          setPendingInterrupt(paused);
+          setMessages((current) =>
+            current.filter((message) => message.id !== streamingId)
+          );
+          showRequestFailureToast(resumeError, {
+            fallbackMessage: 'Could not send that decision. Try again.',
+          });
+        }
       } finally {
         setIsSending(false);
         setActivity(null);
       }
     },
-    [adoptThreadId, asAnonymousIdentity, ensureEvan, pendingInterrupt]
+    [
+      adoptThreadId,
+      asAnonymousIdentity,
+      ensureEvan,
+      pendingInterrupt,
+      yieldObservationToPerson,
+    ]
   );
 
   const toggleScreenShare = useCallback(async () => {
@@ -628,6 +696,39 @@ export function EvanAssistProvider({ children }) {
       toast.error('Could not share the screen.');
     }
   }, [ensureEvan, expand, stopScreenShare]);
+
+  const toggleWebcam = useCallback(async () => {
+    if (webcamStreamRef.current) {
+      stopWebcam();
+      return;
+    }
+    if (!navigator.mediaDevices?.getUserMedia) {
+      toast.error('This browser cannot use the webcam here.');
+      return;
+    }
+    try {
+      await ensureEvan();
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: true,
+        audio: false,
+      });
+      stream.getVideoTracks()[0]?.addEventListener('ended', () => {
+        webcamStreamRef.current = null;
+        setWebcamStream(null);
+      });
+      webcamStreamRef.current = stream;
+      setWebcamStream(stream);
+      setAmbientStatus({ ...INITIAL_AMBIENT_STATUS });
+      expand();
+    } catch (webcamError) {
+      if (webcamError?.name === 'AbortError') return;
+      toast.error(
+        webcamError?.name === 'NotAllowedError'
+          ? 'Webcam access was refused. Allow it in your browser to share it.'
+          : 'Could not turn on the webcam.'
+      );
+    }
+  }, [ensureEvan, expand, stopWebcam]);
 
   const transcribe = useCallback(
     async (file) => {
@@ -690,9 +791,10 @@ export function EvanAssistProvider({ children }) {
     else startLiveListening();
   }, [isLiveListening, startLiveListening, stopLiveListening]);
 
-  const observationEnabled = isEvanScreenObservationActive({
+  const observationEnabled = isEvanObservationActive({
     windowOpen: isOpen,
     hasScreenShare: Boolean(screenStream),
+    hasWebcam: Boolean(webcamStream),
   });
 
   const ambientHold =
@@ -712,7 +814,7 @@ export function EvanAssistProvider({ children }) {
     pendingInterrupt,
     ambientHold,
     adoptThreadId,
-    captureScreenStill,
+    captureShareStills,
     expand,
   };
 
@@ -741,10 +843,9 @@ export function EvanAssistProvider({ children }) {
         !conditions.enabled ||
         observationInFlightRef.current ||
         sendInFlightRef.current ||
-        turnGateRef.current.busy ||
         !shouldCaptureNow({
           enabled: true,
-          hasWebcam: false,
+          hasWebcam: Boolean(webcamStreamRef.current),
           hasScreen: Boolean(screenStreamRef.current),
           inFlight: status.inFlight,
           pendingSendCount: sendInFlightRef.current ? 1 : 0,
@@ -767,64 +868,99 @@ export function EvanAssistProvider({ children }) {
       };
       apply({ type: 'capture_started', at: now });
       observationInFlightRef.current = true;
+      const assistantId =
+        resolveAssistantId(evanRef.current) ?? conditions.evanId;
+      // The look is remembered while it streams so a message the person sends
+      // can end it (see `yieldObservationToPerson`).
+      const observation = {
+        abortController: new AbortController(),
+        assistantId,
+        requestId: null,
+        threadId: threadIdRef.current,
+        asAnonymousIdentity: conditions.asAnonymousIdentity,
+        stopRequested: false,
+        fallbackTimer: null,
+      };
+      observationTurnRef.current = observation;
       try {
-        await turnGateRef.current.run(async () => {
-          if (sendInFlightRef.current || draftRef.current.trim()) {
-            apply({ type: 'done' });
-            return;
-          }
-          const stills = await conditions.captureScreenStill();
-          if (!stills.length) {
-            apply({ type: 'done' });
-            return;
-          }
-          const assistantId =
-            resolveAssistantId(evanRef.current) ?? conditions.evanId;
-          const outcome = await streamEvanObservation(assistantId, stills, {
-            threadId: threadIdRef.current,
-            voiceMode: conditions.isLiveListening,
-            asAnonymousIdentity: conditions.asAnonymousIdentity,
-          });
-          conditions.adoptThreadId(outcome.threadId);
-          if (outcome.ambientDecision) {
-            apply({
-              type: 'ambient_decision',
-              decision: outcome.ambientDecision,
-              summary: outcome.ambientSummary,
-              observation_id: outcome.observationId,
-            });
-          }
+        if (sendInFlightRef.current || draftRef.current.trim()) {
           apply({ type: 'done' });
-          if (
-            outcome.streamedText &&
-            (outcome.ambientDecision === 'respond' ||
-              outcome.ambientDecision === 'notify')
-          ) {
-            setMessages((current) => [
-              ...current,
-              {
-                id: `evan-ambient-${Date.now()}`,
-                type: 'ai',
-                content: outcome.streamedText,
-                timestamp: new Date().toISOString(),
-                ambient: {
-                  decision: outcome.ambientDecision,
-                  summary: outcome.ambientSummary,
-                  observation_id: outcome.observationId,
-                },
-              },
-            ]);
-            conditions.expand();
-          }
-          if (outcome.interrupt) {
-            setPendingInterrupt({
-              threadId: outcome.threadId ?? threadIdRef.current,
-              assistantId,
-              interrupt: outcome.interrupt,
-            });
-          }
+          return;
+        }
+        const stills = await conditions.captureShareStills();
+        if (!stills.length) {
+          apply({ type: 'done' });
+          return;
+        }
+        const outcome = await streamEvanObservation(assistantId, stills, {
+          threadId: threadIdRef.current,
+          voiceMode: conditions.isLiveListening,
+          asAnonymousIdentity: conditions.asAnonymousIdentity,
+          signal: observation.abortController.signal,
+          onUpdate: (state) => {
+            // The first frame names the run, which is what the stop route
+            // needs to end this look for the person's own turn.
+            if (state.requestId) observation.requestId = state.requestId;
+            if (state.threadId) {
+              observation.threadId = state.threadId;
+              // A first look mints the conversation. The thread is adopted as
+              // soon as it is named, not when the look ends, so a message the
+              // person sends mid-look joins that conversation instead of
+              // minting a second one.
+              conditions.adoptThreadId(state.threadId);
+            }
+          },
         });
+        conditions.adoptThreadId(outcome.threadId);
+        if (outcome.ambientDecision) {
+          apply({
+            type: 'ambient_decision',
+            decision: outcome.ambientDecision,
+            summary: outcome.ambientSummary,
+            observation_id: outcome.observationId,
+          });
+        }
+        apply({ type: 'done' });
+        if (observation.stopRequested) {
+          // The look was ended for the person's turn; whatever partial reply
+          // arrived belongs to a snapshot nobody is waiting on.
+          return;
+        }
+        if (
+          outcome.streamedText &&
+          (outcome.ambientDecision === 'respond' ||
+            outcome.ambientDecision === 'notify')
+        ) {
+          setMessages((current) => [
+            ...current,
+            {
+              id: `evan-ambient-${Date.now()}`,
+              type: 'ai',
+              content: outcome.streamedText,
+              timestamp: new Date().toISOString(),
+              ambient: {
+                decision: outcome.ambientDecision,
+                summary: outcome.ambientSummary,
+                observation_id: outcome.observationId,
+              },
+            },
+          ]);
+          conditions.expand();
+        }
+        if (outcome.interrupt) {
+          setPendingInterrupt({
+            threadId: outcome.threadId ?? threadIdRef.current,
+            assistantId,
+            interrupt: outcome.interrupt,
+          });
+        }
       } catch (observationError) {
+        if (isObservationYield(observationError) || observation.stopRequested) {
+          // The person typed or spoke while this look was in flight and the
+          // look was ended for it: a quiet end, not a failure.
+          apply({ type: 'done' });
+          return;
+        }
         const retryAfterMs = retryAfterMillisecondsFromError(observationError);
         const next = apply({
           type: 'failed',
@@ -838,10 +974,17 @@ export function EvanAssistProvider({ children }) {
         }
         if (shouldReportRepeatedFailures(next)) {
           toast.error(
-            'Evan cannot see the screen right now. He will keep trying while you share it.'
+            'Evan cannot see your share right now. He will keep trying while you share it.'
           );
         }
       } finally {
+        if (observation.fallbackTimer) {
+          clearTimeout(observation.fallbackTimer);
+          observation.fallbackTimer = null;
+        }
+        if (observationTurnRef.current === observation) {
+          observationTurnRef.current = null;
+        }
         observationInFlightRef.current = false;
       }
     };
@@ -870,7 +1013,9 @@ export function EvanAssistProvider({ children }) {
     draft,
     setDraft,
     screenStream,
+    webcamStream,
     isSharingScreen: Boolean(screenStream),
+    isSharingWebcam: Boolean(webcamStream),
     observationEnabled,
     ambientStatus,
     ambientNextInMs,
@@ -887,6 +1032,7 @@ export function EvanAssistProvider({ children }) {
     sendTurn,
     resumeInterrupt,
     toggleScreenShare,
+    toggleWebcam,
     toggleMicrophone,
   };
 

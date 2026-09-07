@@ -26,7 +26,7 @@ import { useMedia } from '../context/MediaContext';
 import { useAuth } from '../context/AuthContext';
 import { isValidImageUrl } from './utils';
 import AccountMenu, {
-  usePersonalAvatarSettingsNavigation,
+  usePersonalAvatarWorkspaceNavigation,
 } from './AccountMenu';
 import qrCode from '../assets/qr-neuralnexus.png';
 import { toast } from 'react-hot-toast';
@@ -283,10 +283,9 @@ const ConversationSidebar = ({
     onClose?.();
     navigate('/welcome');
   };
-  // The signed-in person's portrait and email lead to the settings of the
-  // avatar that depicts them — the same place the account menu's entry goes.
-  const openPersonalAvatarSettings =
-    usePersonalAvatarSettingsNavigation(onClose);
+  // The signed-in person's portrait and email open the chat of the avatar
+  // that depicts them. Settings stay on the account-menu entry.
+  const openPersonalAvatarChat = usePersonalAvatarWorkspaceNavigation(onClose);
 
   // The unsent conversation is not in the server's list, so it is prepended
   // here — otherwise starting one would empty the panel's selection.
@@ -429,9 +428,9 @@ const ConversationSidebar = ({
           <div className="shrink-0 flex justify-between items-center gap-2">
             <button
               type="button"
-              onClick={openPersonalAvatarSettings}
-              title="Open your avatar's settings"
-              aria-label="Open your avatar's settings"
+              onClick={() => openPersonalAvatarChat('chat')}
+              title="Open your avatar's chat"
+              aria-label="Open your avatar's chat"
               className="flex items-center gap-2 min-w-0 -ml-1 pl-1 pr-2 py-1 rounded-lg text-left hover:bg-white/10 transition-colors focus:outline-none focus:ring-2 focus:ring-white/20"
             >
               <div className="w-9 h-9 shrink-0 rounded-full bg-black/50 border border-white/10 overflow-hidden flex items-center justify-center">

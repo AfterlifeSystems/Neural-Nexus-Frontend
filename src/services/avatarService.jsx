@@ -11,6 +11,8 @@ import {
   streamServerSentEvents,
 } from './neuralNexusApiClient';
 import { retainOwnedMcpDevices } from './mcpOwnership';
+import { avatarsWithPersonalFirst } from './avatarListOrder';
+import { withRateLimitRetry } from './retryRateLimited';
 
 export { retainOwnedMcpDevices } from './mcpOwnership';
 
@@ -21,7 +23,8 @@ export { retainOwnedMcpDevices } from './mcpOwnership';
  * @returns {Promise<Array>} Assistant records ({assistant_id, name, description, ...}).
  */
 export const listUserAvatars = async () => {
-  return requestJson('/list_user_avatars');
+  const avatars = await requestJson('/list_user_avatars');
+  return avatarsWithPersonalFirst(avatars);
 };
 
 /**
@@ -763,6 +766,10 @@ const normalizeIdentityFact = (row) => ({
   key: row.key ?? null,
   createdAt: row.created_at ?? null,
   correctedFrom: row.corrected_from ?? null,
+  // Deep research names the pages a fact was verified against, and how the
+  // sources agreed; both are absent on every other kind of fact.
+  sourceUrls: Array.isArray(row.source_urls) ? row.source_urls : [],
+  verificationStatus: row.verification_status ?? null,
 });
 
 /**
@@ -774,7 +781,7 @@ const normalizeIdentityFact = (row) => ({
  *
  * @param {string} assistantId The avatar.
  * @returns {Promise<{facts: Array<Object>, counts: Object}>} Normalized rows and
- *   a per-group count (`conversation`, `media`, `analysis`, `memory`).
+ *   a per-group count (`conversation`, `media`, `research`, `analysis`, `memory`).
  */
 export const listAvatarIdentityFacts = async (assistantId) => {
   const response = await requestJson('/avatar_identity_facts', {
@@ -858,16 +865,123 @@ export const getAvatarEmotionMedia = async (
  * @param {string} assistantId The avatar.
  * @param {Object} [options]
  * @param {boolean} [options.onlyMissing] Retry only what failed (default true).
+ * @param {boolean} [options.proceedDespiteModerationRisk] The owner's explicit
+ *   "generate anyway" after the server predicted a moderation refusal from the
+ *   reference image and withheld the run; the vendor calls are attempted at
+ *   the owner's own cost.
  * @returns {Promise<Object>} `{job_id, status_url}`.
  */
 export const regenerateAvatarEmotionMedia = async (
   assistantId,
-  { onlyMissing = true } = {}
+  { onlyMissing = true, proceedDespiteModerationRisk = false } = {}
 ) => {
   return requestJson('/avatar_emotion_media/regenerate', {
     method: 'POST',
-    body: { assistant_id: assistantId, only_missing: onlyMissing },
+    body: {
+      assistant_id: assistantId,
+      only_missing: onlyMissing,
+      ...(proceedDespiteModerationRisk
+        ? { proceed_despite_moderation_risk: true }
+        : {}),
+    },
   });
+};
+
+/**
+ * Research the avatar's subject on the web and verify the facts across sources.
+ *
+ * Runs as a background job: facts the sources agree on (and facts a single
+ * source states) are added to what the avatar has learned as soon as the job
+ * finishes, and only the contradictions wait for the creator in
+ * `listResearchProposals`.
+ * POST /avatar/{assistant_id}/deep_research (responds 202 {job_id})
+ *
+ * @param {string} assistantId The avatar to research.
+ * @param {Object} [options]
+ * @param {string} [options.researchHint] Words that narrow the subject.
+ * @returns {Promise<Object>} `{job_id, status_url, progress_url, proposals_url}`.
+ */
+export const startAvatarDeepResearch = async (
+  assistantId,
+  { researchHint } = {}
+) => {
+  return requestJson(
+    `/avatar/${encodeURIComponent(assistantId)}/deep_research`,
+    {
+      method: 'POST',
+      body: { ...(researchHint ? { research_hint: researchHint } : {}) },
+    }
+  );
+};
+
+/**
+ * Follow a research job's progress until the job finishes; the final frame has
+ * `type: 'research_done'`.
+ * GET /research_job/{job_id}/progress (server-sent events)
+ *
+ * @param {string} jobId The research job.
+ * @param {Function} onEvent Called with each progress frame.
+ * @param {AbortSignal} [signal] Stops following.
+ * @returns {Promise<void>}
+ */
+export const streamResearchProgress = async (jobId, onEvent, signal) => {
+  return streamServerSentEvents(
+    `/research_job/${encodeURIComponent(jobId)}/progress`,
+    { method: 'GET', onEvent, signal }
+  );
+};
+
+/**
+ * One research job's status and result.
+ * GET /research_job/{job_id}
+ *
+ * @param {string} jobId The research job.
+ * @returns {Promise<Object>} `{status, result, latest_stage, ...}`.
+ */
+export const getResearchJob = async (jobId) => {
+  return requestJson(`/research_job/${encodeURIComponent(jobId)}`);
+};
+
+/**
+ * Ask a running research job to stop at the next stage boundary.
+ * POST /research_job/{job_id}/cancel
+ *
+ * @param {string} jobId The research job.
+ * @returns {Promise<Object>} `{job_id, status, message}`.
+ */
+export const cancelResearchJob = async (jobId) => {
+  return requestJson(`/research_job/${encodeURIComponent(jobId)}/cancel`, {
+    method: 'POST',
+  });
+};
+
+/**
+ * The researched facts the sources disagree on, waiting for a decision.
+ * GET /avatar/{assistant_id}/research/proposals
+ *
+ * @param {string} assistantId The avatar.
+ * @returns {Promise<Array>} Proposals, contradictions first.
+ */
+export const listResearchProposals = async (assistantId) => {
+  const response = await requestJson(
+    `/avatar/${encodeURIComponent(assistantId)}/research/proposals`
+  );
+  return response?.proposals ?? [];
+};
+
+/**
+ * Apply the creator's decisions on the contradicted facts.
+ * POST /avatar/{assistant_id}/research/resolve
+ *
+ * @param {string} assistantId The avatar.
+ * @param {Array<{fact_id: string, action: 'accept'|'edit'|'ignore', corrected_text?: string}>} items
+ * @returns {Promise<Object>} `{accepted, edited, ignored, missing, accepted_source_urls}`.
+ */
+export const resolveResearchProposals = async (assistantId, items) => {
+  return requestJson(
+    `/avatar/${encodeURIComponent(assistantId)}/research/resolve`,
+    { method: 'POST', body: { items } }
+  );
 };
 
 /**
@@ -1019,13 +1133,15 @@ export const transcribeRecording = async (
   audio,
   { asAnonymousIdentity = false } = {}
 ) => {
-  const formData = new FormData();
-  formData.append('assistant_id', assistantId);
-  formData.append('audio', audio, audio.name ?? 'utterance.webm');
-  return requestJson('/transcribe', {
-    method: 'POST',
-    formData,
-    asAnonymousIdentity,
+  return withRateLimitRetry(async () => {
+    const formData = new FormData();
+    formData.append('assistant_id', assistantId);
+    formData.append('audio', audio, audio.name ?? 'utterance.webm');
+    return requestJson('/transcribe', {
+      method: 'POST',
+      formData,
+      asAnonymousIdentity,
+    });
   });
 };
 
@@ -1034,7 +1150,10 @@ export const transcribeRecording = async (
  *
  * Resolves to an audio Blob. A 409 `voice_not_ready` (no clone yet) is thrown
  * as an ApiError whose `detail` says so and whose `body.collected_seconds`
- * reports progress, so the caller can open the Voice panel.
+ * reports progress, so the caller can open the Voice panel. A 409
+ * `voice_blocked` (ElevenLabs has banned the clone) is thrown the same way and
+ * is permanent: no further recording clears it, and the voice model has to be
+ * deleted and rebuilt from speech the avatar's owner may clone.
  * POST /speak
  *
  * @param {string} assistantId The avatar.

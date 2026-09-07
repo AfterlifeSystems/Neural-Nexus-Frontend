@@ -76,7 +76,7 @@ export function buildAuthenticationHeaders(asAnonymousIdentity = false) {
 }
 
 export class ApiError extends Error {
-  constructor(status, detail, body = null) {
+  constructor(status, detail, body = null, headers = null) {
     super(detail);
     this.name = 'ApiError';
     this.status = status;
@@ -84,6 +84,8 @@ export class ApiError extends Error {
     // structured refusal (for example `voice_not_ready` with the seconds of
     // voice collected so far) instead of parsing the sentence.
     this.body = body;
+    // Response headers, so a 429/409 can honour Retry-After.
+    this.headers = headers;
   }
 }
 
@@ -185,7 +187,7 @@ async function raiseApiError(response, sessionCredentialWasSent) {
     clearSessionCredential();
   }
 
-  throw new ApiError(response.status, description, errorBody);
+  throw new ApiError(response.status, description, errorBody, response.headers);
 }
 
 /**

@@ -18,9 +18,12 @@ import {
 } from '../services/avatarService';
 import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import useEmotionMedia, { stillFor } from '../hooks/useEmotionMedia';
+import useAvatarFaceSource from '../hooks/useAvatarFaceSource';
 import { subscribeAvatarPortraitChanged } from '../services/avatarPortraitEvents';
 import {
+  consumeVoiceModeSearchParams,
   readVoiceModePreference,
+  searchRequestsVoiceMode,
   voiceModeIsOpen,
   writeVoiceModePreference,
 } from '../services/voiceModePreference';
@@ -41,22 +44,26 @@ const ChatArea = ({ onActivateLiveChat, onEndLiveChat, className }) => {
   // The open avatar's portrait, shown beside its name. Avatar records carry no
   // imagery, so it comes from GET /avatar_reference_image like everywhere else.
   const [avatarPortrait, setAvatarPortrait] = useState(null);
+  const { avatarId } = useParams(); // from /chat/:avatarId
+  const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
   // Live mode is a different way into the same conversation, so it opens over
   // this screen rather than navigating away from it. The choice is a browser
   // preference: settings and inbox are other tabs on this workspace, and
   // returning to Chat should still be talking if that is how they left it.
+  // A toast (or bookmark) can land here with `?voice=1`. Read that before the
+  // first paint so the stage is up immediately, not after a flash of the
+  // transcript. The query is stripped once it has been honoured.
   const [prefersVoiceMode, setPrefersVoiceMode] = useState(
-    readVoiceModePreference
+    () => readVoiceModePreference() || searchRequestsVoiceMode(searchParams)
   );
   const rememberVoiceModePreference = (preferred) => {
     setPrefersVoiceMode(preferred);
     writeVoiceModePreference(preferred);
   };
-  const { avatarId } = useParams(); // from /chat/:avatarId
-  const navigate = useNavigate();
-  const [searchParams, setSearchParams] = useSearchParams();
   // const [activeTab, setActiveTab] = useState('avatar-settings');
   const [activeTab, setActiveTab] = useState(() => {
+    if (searchRequestsVoiceMode(searchParams)) return 'chat';
     const requestedTab = searchParams.get('tab');
     if (requestedTab === 'settings') return 'avatar-settings';
     if (requestedTab === 'inbox') return 'inbox';
@@ -81,31 +88,59 @@ const ChatArea = ({ onActivateLiveChat, onEndLiveChat, className }) => {
     activeAvatar?.metadata?.is_personal_avatar_of_creator === true;
   const inboxCount = useInboxCount();
   const isLiveModeOpen = voiceModeIsOpen(prefersVoiceMode, activeTab);
+  const openAvatarId = activeAvatar?.assistant_id ?? activeAvatar?.avatar_id;
+  const routeAvatarIsResolved = !avatarId || openAvatarId === avatarId;
   // A visitor who was already on the settings tab when the avatar changed must
   // not be left looking at controls that no longer belong to them. The inbox
   // tab is the same: it only exists on the personal avatar.
+  //
+  // Wait until the URL's avatar is the one in context. Create (and a bookmark
+  // with `?tab=settings`) lands here before that resolve finishes; bouncing
+  // then would flash Chat and lose the settings tab the URL asked for.
   useEffect(() => {
+    if (!routeAvatarIsResolved) {
+      return;
+    }
     if (!canOpenAvatarSettings && activeTab === 'avatar-settings') {
       setActiveTab('chat');
     }
     if (!isPersonalAvatar && activeTab === 'inbox') {
       setActiveTab('chat');
     }
-  }, [canOpenAvatarSettings, isPersonalAvatar, activeTab]);
+  }, [
+    canOpenAvatarSettings,
+    isPersonalAvatar,
+    activeTab,
+    routeAvatarIsResolved,
+  ]);
 
   // `?tab=settings` opens this screen on the settings tab. The account menu
   // uses it to send someone straight to their own avatar's settings, which
   // otherwise takes a detour through the chat and a second click.
   // `?tab=inbox` does the same for the personal avatar's inbox.
+  // `?voice=1` wins over those: the ready toast asked for talking, not
+  // settings, and the stage only belongs on Chat.
   useEffect(() => {
+    if (searchRequestsVoiceMode(searchParams)) {
+      rememberVoiceModePreference(true);
+      setActiveTab('chat');
+      setSearchParams(consumeVoiceModeSearchParams(searchParams), {
+        replace: true,
+      });
+      return;
+    }
     const requestedTab = searchParams.get('tab');
     if (requestedTab === 'settings' && canOpenAvatarSettings) {
       setActiveTab('avatar-settings');
-    }
-    if (requestedTab === 'inbox' && isPersonalAvatar) {
+    } else if (requestedTab === 'inbox' && isPersonalAvatar) {
       setActiveTab('inbox');
+    } else if (!requestedTab) {
+      // `/chat/:id` with no tab is Chat. Honour that when the same workspace
+      // stays mounted — for example the sidebar portrait sending someone here
+      // from settings or inbox — instead of leaving the previous tab up.
+      setActiveTab('chat');
     }
-  }, [searchParams, canOpenAvatarSettings, isPersonalAvatar]);
+  }, [searchParams, canOpenAvatarSettings, isPersonalAvatar, setSearchParams]);
 
   // Make the URL sufficient to open a chat.
   //
@@ -215,17 +250,18 @@ const ChatArea = ({ onActivateLiveChat, onEndLiveChat, className }) => {
   // The header face follows the most recent reply's emotion, so the avatar
   // "looks" the way it last spoke. Neutral, or an avatar with no generated
   // media, shows the portrait.
-  const { manifest: emotionMedia } = useEmotionMedia(
-    activeAvatar?.assistant_id ?? avatarId
-  );
+  const headerAssistantId = activeAvatar?.assistant_id ?? avatarId;
+  const { manifest: emotionMedia } = useEmotionMedia(headerAssistantId);
+  const { showGenerated } = useAvatarFaceSource(headerAssistantId);
   const lastReplyEmotion = [...messages]
     .reverse()
     .find((message) => message.type === 'ai' && message.sentiment?.base_emotion)
     ?.sentiment?.base_emotion;
-  const headerFace =
-    (lastReplyEmotion && lastReplyEmotion !== 'neutral'
-      ? stillFor(emotionMedia, lastReplyEmotion)
-      : null) ?? avatarPortrait;
+  const headerFace = showGenerated
+    ? ((lastReplyEmotion && lastReplyEmotion !== 'neutral'
+        ? stillFor(emotionMedia, lastReplyEmotion)
+        : null) ?? avatarPortrait)
+    : avatarPortrait;
 
   // Load the open avatar's conversation.
   //
@@ -238,7 +274,6 @@ const ChatArea = ({ onActivateLiveChat, onEndLiveChat, className }) => {
   // paints the wrong conversation; a stale load now finds its generation
   // superseded and drops its result.
   const loadGeneration = useRef(0);
-  const openAvatarId = activeAvatar?.assistant_id ?? activeAvatar?.avatar_id;
 
   useEffect(() => {
     // Wait for context and the URL to agree on which avatar is open. In the
@@ -389,7 +424,9 @@ const ChatArea = ({ onActivateLiveChat, onEndLiveChat, className }) => {
             </div>
           )}
 
-          {activeTab === 'avatar-settings' && canOpenAvatarSettings && (
+          {activeTab === 'avatar-settings' &&
+            canOpenAvatarSettings &&
+            routeAvatarIsResolved && (
             <div className="flex flex-col flex-grow p-2 sm:p-4 relative overflow-y-auto">
               <AvatarSettings
                 avatarId={activeAvatar?.assistant_id ?? avatarId}

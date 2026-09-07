@@ -6,9 +6,8 @@ import {
   buildEvanMessageRequest,
   buildEvanResumeRequest,
   buildEvanUserMessage,
-  createTurnGate,
   describeEvanAmbientStatus,
-  isEvanScreenObservationActive,
+  isEvanObservationActive,
   pickEvanAvatar,
   reduceEvanStreamEvent,
   shouldOfferEvanAssist,
@@ -35,37 +34,29 @@ test('a failed look does not read as if the person could not send', () => {
   );
 });
 
-test('the turn gate runs one task at a time', async () => {
-  const gate = createTurnGate();
-  const order = [];
-  const first = gate.run(async () => {
-    order.push('start-a');
-    await new Promise((resolve) => setTimeout(resolve, 20));
-    order.push('end-a');
-    return 'a';
-  });
-  assert.equal(gate.busy, true);
-  const second = gate.run(async () => {
-    order.push('start-b');
-    order.push('end-b');
-    return 'b';
-  });
-  assert.deepEqual(await Promise.all([first, second]), ['a', 'b']);
-  assert.deepEqual(order, ['start-a', 'end-a', 'start-b', 'end-b']);
-  assert.equal(gate.busy, false);
-});
-
-test('screen observations run only while the help window is open and a share is live', () => {
+test('observations run only while the help window is open and a share is live', () => {
   assert.equal(
-    isEvanScreenObservationActive({ windowOpen: true, hasScreenShare: true }),
+    isEvanObservationActive({ windowOpen: true, hasScreenShare: true }),
     true
   );
   assert.equal(
-    isEvanScreenObservationActive({ windowOpen: false, hasScreenShare: true }),
+    isEvanObservationActive({ windowOpen: true, hasWebcam: true }),
+    true
+  );
+  assert.equal(
+    isEvanObservationActive({ windowOpen: false, hasScreenShare: true }),
     false
   );
   assert.equal(
-    isEvanScreenObservationActive({ windowOpen: true, hasScreenShare: false }),
+    isEvanObservationActive({ windowOpen: false, hasWebcam: true }),
+    false
+  );
+  assert.equal(
+    isEvanObservationActive({
+      windowOpen: true,
+      hasScreenShare: false,
+      hasWebcam: false,
+    }),
     false
   );
 });
@@ -124,13 +115,28 @@ test('a spoken line keeps its words in the bubble and names the place for Evan',
   });
   assert.equal(built.displayText, 'What is this button?');
   assert.match(built.apiText, /avatar gallery/);
-  assert.match(built.apiText, /screen share/);
+  assert.match(built.apiText, /sharing the screen/);
   assert.match(built.apiText, /What is this button\?/);
 });
 
-test('an empty turn with a live share still asks Evan about the screen', () => {
-  const built = buildEvanUserMessage({ screenShared: true });
-  assert.match(built.displayText, /see/);
+test('a live share is named as background watching, never as an attachment', () => {
+  const both = buildEvanUserMessage({
+    text: 'Any ideas?',
+    screenShared: true,
+    webcamShared: true,
+  });
+  assert.match(both.apiText, /screen and the webcam/);
+  assert.match(both.apiText, /in the background/);
+  assert.doesNotMatch(both.apiText, /attached/);
+
+  const webcamOnly = buildEvanUserMessage({ text: 'Hi', webcamShared: true });
+  assert.match(webcamOnly.apiText, /sharing the webcam/);
+});
+
+test('an empty turn with a live share still asks Evan what he can see', () => {
+  assert.match(buildEvanUserMessage({ screenShared: true }).displayText, /see/);
+  assert.match(buildEvanUserMessage({ webcamShared: true }).displayText, /see/);
+  assert.equal(buildEvanUserMessage({}).displayText, '');
 });
 
 test('the message request streams and omits a missing thread id', () => {
@@ -154,6 +160,16 @@ test('a resume request names the paused thread and the decision', () => {
   assert.equal(request.path, '/message/evan-1/resume');
   assert.equal(request.formData.get('thread_id'), 'thread-9');
   assert.equal(request.formData.get('decision'), 'apply');
+});
+
+test('the first frame names the run so a look can be stopped for the person', () => {
+  const state = reduceEvanStreamEvent(INITIAL_EVAN_STREAM, {
+    type: 'turn_started',
+    request_id: 'request-7',
+    thread_id: 'thread-7',
+  });
+  assert.equal(state.requestId, 'request-7');
+  assert.equal(state.threadId, 'thread-7');
 });
 
 test('stream frames grow the reply and record a pause', () => {

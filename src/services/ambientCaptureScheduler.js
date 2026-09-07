@@ -182,15 +182,27 @@ export const RATE_LIMIT_RETRY_MS = 15_000;
  * @returns {number|null} Milliseconds to wait, or null when the error was
  *   neither a rate limit nor a busy conversation.
  */
-export function retryAfterMillisecondsFromError(error) {
-  if (!error || (error.status !== 429 && error.status !== 409)) return null;
+/**
+ * The Retry-After the server sent, in milliseconds.
+ *
+ * @param {Object} error An API error that may carry headers.
+ * @returns {number|null}
+ */
+export function readRetryAfterHeaderMs(error) {
   const headerValue =
-    error.headers?.get?.('retry-after') ??
-    error.headers?.['retry-after'] ??
-    error.retryAfter ??
+    error?.headers?.get?.('retry-after') ??
+    error?.headers?.['retry-after'] ??
+    error?.retryAfter ??
     null;
   const seconds = Number.parseFloat(String(headerValue ?? '').trim());
   if (Number.isFinite(seconds) && seconds > 0) return Math.round(seconds * 1000);
+  return null;
+}
+
+export function retryAfterMillisecondsFromError(error) {
+  if (!error || (error.status !== 429 && error.status !== 409)) return null;
+  const fromHeader = readRetryAfterHeaderMs(error);
+  if (fromHeader != null) return fromHeader;
   return error.status === 409 ? BUSY_THREAD_RETRY_MS : RATE_LIMIT_RETRY_MS;
 }
 

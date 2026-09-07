@@ -11,9 +11,10 @@
 // this screen does not need. The module exposes start/stop/pause/resume so a
 // model-based detector can replace it behind the same surface later.
 //
-// While the avatar is speaking, the caller keeps listening: speech above the
-// threshold is reported as a barge-in so playback can stop and the new
-// utterance becomes the next turn.
+// The caller decides when this listens. Live voice mode pauses it for the
+// whole of a spoken reply: everything a speaker plays is something this
+// module would otherwise hear, transcribe, and hand back as a turn, which is
+// how an avatar ends up answering its own last sentence.
 
 // Tunables. Milliseconds unless noted.
 export const VOICE_ACTIVITY_CALIBRATION_MS = 500;

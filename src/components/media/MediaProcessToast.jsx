@@ -9,7 +9,10 @@ import { Check, Circle, Loader2, X } from 'lucide-react';
  *
  * @param {Object} parameters
  * @param {string} parameters.title What is being processed.
- * @param {Array<{id: string, label: string, state: string, current?: number, total?: number}>} parameters.steps
+ * @param {Array<{id: string, label: string, state: string, current?: number, total?: number, detail?: string}>} parameters.steps
+ *   A step in `error` may carry `detail`: the sentence saying why (for the
+ *   emotion videos, that xAI's moderation refused them, or that re-uploading
+ *   the image is how to generate the missing portraits and videos).
  * @param {'running'|'success'|'error'} parameters.status
  * @param {string} [parameters.error]
  */
@@ -30,7 +33,7 @@ const MediaProcessToast = ({ title, steps, status, error }) => {
           return (
             <li
               key={step.id}
-              className={`flex items-center gap-2 text-sm ${
+              className={`flex items-start gap-2 text-sm ${
                 isDone
                   ? 'text-neutral-200'
                   : isActive
@@ -52,7 +55,14 @@ const MediaProcessToast = ({ title, steps, status, error }) => {
               ) : (
                 <Circle className="w-3.5 h-3.5 shrink-0" aria-hidden="true" />
               )}
-              <span className="flex-1 min-w-0">{step.label}</span>
+              <span className="flex-1 min-w-0">
+                {step.label}
+                {isError && step.detail && (
+                  <span className="block mt-0.5 text-xs font-normal text-red-200/80 whitespace-normal">
+                    {step.detail}
+                  </span>
+                )}
+              </span>
               {counted && (
                 <span className="tabular-nums text-xs text-white/50 shrink-0">
                   {counted}

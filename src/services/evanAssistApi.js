@@ -40,7 +40,10 @@ export async function streamEvanTurn(
 }
 
 /**
- * Send one ambient screen observation to Evan.
+ * Send one ambient observation — the screen, the webcam, or both — to Evan.
+ *
+ * The caller passes a `signal` so a look still in flight can be cut short the
+ * moment the person sends a message of their own.
  *
  * @param {string} assistantId
  * @param {File[]} files
@@ -48,13 +51,20 @@ export async function streamEvanTurn(
  * @param {string|null} [options.threadId]
  * @param {boolean} [options.voiceMode]
  * @param {boolean} [options.asAnonymousIdentity]
+ * @param {AbortSignal} [options.signal]
  * @param {Function} [options.onUpdate]
  * @returns {Promise<Object>}
  */
 export async function streamEvanObservation(
   assistantId,
   files,
-  { threadId, voiceMode = false, asAnonymousIdentity = false, onUpdate } = {}
+  {
+    threadId,
+    voiceMode = false,
+    asAnonymousIdentity = false,
+    signal,
+    onUpdate,
+  } = {}
 ) {
   const userTimezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
   const request = buildAmbientMessageRequest(assistantId, files, {
@@ -63,7 +73,7 @@ export async function streamEvanObservation(
     voiceMode,
     userTimezone,
   });
-  return streamEvanTurn(request, { asAnonymousIdentity, onUpdate });
+  return streamEvanTurn(request, { asAnonymousIdentity, signal, onUpdate });
 }
 
 /**

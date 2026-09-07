@@ -8,6 +8,7 @@ import {
   isObservationYield,
   nextCaptureInMs,
   reduceAmbientEvent,
+  readRetryAfterHeaderMs,
   retryAfterMillisecondsFromError,
   shouldCaptureNow,
   shouldReportRepeatedFailures,
@@ -108,6 +109,15 @@ test('failures count up and a rate limit only paces the client', () => {
   assert.equal(paced.retryAfterUntil, 13_000);
   assert.deepEqual(reduceAmbientEvent(paced, { type: 'reset' }), INITIAL_AMBIENT_STATUS);
   assert.equal(reduceAmbientEvent(paced, { type: 'unknown' }), paced);
+});
+
+test('Retry-After is read from headers when the server sent one', () => {
+  assert.equal(readRetryAfterHeaderMs({ status: 429 }), null);
+  assert.equal(readRetryAfterHeaderMs({ headers: { 'retry-after': '4' } }), 4_000);
+  assert.equal(
+    readRetryAfterHeaderMs({ headers: { get: (name) => (name === 'retry-after' ? '2' : null) } }),
+    2_000
+  );
 });
 
 test('a 429 error yields its Retry-After in milliseconds', () => {

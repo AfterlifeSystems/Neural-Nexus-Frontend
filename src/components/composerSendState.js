@@ -12,3 +12,27 @@
 export function composerHasSendableDraft(text, fileCount) {
   return Boolean(String(text ?? '').trim()) || Number(fileCount) > 0;
 }
+
+/**
+ * Whether voice mode should offer Stop instead of Leave or Send.
+ *
+ * A visible turn still generating, a spoken turn waiting on the stream, or
+ * the avatar still talking (speech or lip-sync) are all things Stop ends.
+ *
+ * @param {Object} [state]
+ * @param {number} [state.stoppableTurnCount]
+ * @param {boolean} [state.waitingForReply]
+ * @param {boolean} [state.avatarSpeaking]
+ * @returns {boolean}
+ */
+export function voiceReplyIsStoppable({
+  stoppableTurnCount = 0,
+  waitingForReply = false,
+  avatarSpeaking = false,
+} = {}) {
+  return (
+    Number(stoppableTurnCount) > 0 ||
+    Boolean(waitingForReply) ||
+    Boolean(avatarSpeaking)
+  );
+}

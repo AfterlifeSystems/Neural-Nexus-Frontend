@@ -1,0 +1,31 @@
+---
+description: Never change the color scheme unless the user explicitly asks
+alwaysApply: true
+---
+
+# Color scheme is locked
+
+Do not change the color scheme, palette, or accent colors unless the user
+explicitly asks to change colors.
+
+This includes:
+
+- Backgrounds, borders, text, rings, focus outlines, and hover states
+- Amber / gold accents, black glass chrome, and white/neutral text
+- Sidebar, search, menus, pills, voice stage, and any other surface
+- "Fixing" a layout by swapping in a new color
+- Global CSS that restyles buttons, inputs, or focus rings app-wide
+
+If a control needs a size or shape change, keep its existing color classes.
+
+```jsx
+// BAD — new colors while fixing layout
+className="focus:ring-2 focus:ring-sky-400 bg-amber-400"
+
+// GOOD — same palette, only size/shape changed
+className="focus:ring-2 focus:ring-white/30 bg-black/60"
+```
+
+When moving or reshaping an existing highlight (for example the voice-stage
+speak glow), reuse the same color values. Do not pick a new gold, blue, or
+neutral.

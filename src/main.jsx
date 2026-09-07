@@ -49,10 +49,11 @@ createRoot(document.getElementById('root')).render(
             the code that finishes it. Letting a press remove it would take away
             the only sign that an upload is under way.
           * A notice that never times out (`duration: Infinity`) is one the
-            reader has to answer rather than read — the billing refusal in
-            requestFailureToast.jsx is the case: it offers to open billing and
-            is closed by its own Close button. Dismissing it with a stray press
-            would take away a decision the reader has not made yet.
+            reader has to answer rather than read — the billing refusal, the
+            voice-not-ready notice, and the voice-ready notice. Each offers a
+            place to go and is closed by its own Close button. Dismissing it
+            with a stray press would take away a decision the reader has not
+            made yet.
 
           The billing card is doubly protected: it is a `toast.custom`, and
           react-hot-toast never routes those through this function at all. The

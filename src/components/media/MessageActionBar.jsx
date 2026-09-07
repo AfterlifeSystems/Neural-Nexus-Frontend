@@ -17,6 +17,7 @@ import {
   shortenThreadId,
 } from '../../config/langsmithDebug';
 import SpeakButton from './SpeakButton';
+import { editableScriptText } from '../speakerScript';
 import { formatMessageMetrics } from '../../services/messageResponseMetrics';
 
 export { formatMessageMetrics };
@@ -85,7 +86,8 @@ const MessageActionBar = ({
   const { activeConversation } = useMedia();
   const langsmithHref = langsmithDebugLinkFor(user, activeConversation);
 
-  if (!message?.content) return null;
+  const actionText = editableScriptText(message);
+  if (!actionText) return null;
 
   const metrics = isFromAvatar ? formatMessageMetrics(message) : null;
   const showAvatarActions = isFromAvatar;
@@ -118,7 +120,7 @@ const MessageActionBar = ({
           <div className="flex flex-wrap items-center gap-0.5">
             <button
               type="button"
-              onClick={() => onCopy(messageKey, message.content)}
+              onClick={() => onCopy(messageKey, actionText)}
               title="Copy"
               aria-label="Copy message"
               className={ACTION_BUTTON_CLASSES}
@@ -188,7 +190,7 @@ const MessageActionBar = ({
           <div className="flex items-center gap-0.5">
             <button
               type="button"
-              onClick={() => onCopy(messageKey, message.content)}
+              onClick={() => onCopy(messageKey, actionText)}
               title="Copy"
               aria-label="Copy message"
               className={ACTION_BUTTON_CLASSES}

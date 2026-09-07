@@ -21,6 +21,7 @@ import { useNavigate, useSearchParams } from 'react-router-dom';
 
 import { useAuth } from '../context/AuthContext';
 import { getPersonalAvatar } from '../services/avatarService';
+import { personalAvatarWorkspacePath } from './personalAvatarWorkspace';
 import useInboxCount from '../hooks/useInboxCount';
 
 import EvanAssistLauncher from './evanAssist/EvanAssistLauncher';
@@ -136,25 +137,15 @@ export function usePersonalAvatarWorkspaceNavigation(onNavigate) {
       toast.error('You do not have a personal avatar yet.');
       return;
     }
-    const encoded = encodeURIComponent(personalAvatarId);
-    if (tab === 'settings') {
-      navigate(`/chat/${encoded}?tab=settings`);
-      return;
-    }
-    if (tab === 'inbox') {
-      navigate(`/chat/${encoded}?tab=inbox`);
-      return;
-    }
-    navigate(`/chat/${encoded}`);
+    navigate(personalAvatarWorkspacePath(personalAvatarId, tab));
   };
 }
 
 /**
  * Navigate to the settings of the avatar that depicts the signed-in user.
  *
- * Shared by every control that leads there — the menu entry and the sidebar
- * header — so that they all resolve the avatar the same way and land on the
- * same tab.
+ * Shared by every control that leads there so they resolve the avatar the
+ * same way and land on the same tab.
  *
  * @param {Function} [onNavigate] Called before navigating, to dismiss the
  *   panel or menu the control is rendered inside.

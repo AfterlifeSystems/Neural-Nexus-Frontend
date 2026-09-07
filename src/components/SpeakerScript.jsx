@@ -1,7 +1,7 @@
 // src/components/SpeakerScript.jsx
 //
 // A spoken turn heard in the room, one line per speaker with a chip naming who
-// spoke. The owner (the person the personal avatar is) gets the warm chip;
+// spoke. The person the avatar is (the avatar and that person are one identity) gets the warm chip;
 // other people in the room get neutral chips labelled "Speaker 2", "Speaker 3"
 // and so on, stable within a conversation. Falls back to the plain text when
 // a message carries no speaker record.
@@ -12,6 +12,8 @@ import { speakerLinesOf } from './speakerScript';
 
 const OWNER_CHIP_CLASSES =
   'inline-flex items-center rounded-full bg-amber-400/20 text-amber-200 border border-amber-400/30 px-1.5 py-0 text-[11px] font-medium leading-4 mr-1.5 align-middle';
+const AVATAR_CHIP_CLASSES =
+  'inline-flex items-center rounded-full bg-violet-400/20 text-violet-200 border border-violet-400/30 px-1.5 py-0 text-[11px] font-medium leading-4 mr-1.5 align-middle';
 const OTHER_CHIP_CLASSES =
   'inline-flex items-center rounded-full bg-white/10 text-neutral-200 border border-white/15 px-1.5 py-0 text-[11px] font-medium leading-4 mr-1.5 align-middle';
 
@@ -33,8 +35,20 @@ export default function SpeakerScript({ speakers, fallback = '', className = '' 
       {lines.map((line, index) => (
         <div key={`${line.speaker}-${index}`} className="whitespace-pre-wrap">
           <span
-            className={line.isOwner ? OWNER_CHIP_CLASSES : OTHER_CHIP_CLASSES}
-            title={line.isOwner ? 'The owner, recognised by voice' : 'Another person in the room'}
+            className={
+              line.isAvatar
+                ? AVATAR_CHIP_CLASSES
+                : line.isOwner
+                  ? OWNER_CHIP_CLASSES
+                  : OTHER_CHIP_CLASSES
+            }
+            title={
+              line.isAvatar
+                ? "This avatar's own voice, heard through a speaker"
+                : line.isOwner
+                  ? 'You, the person this avatar is, recognised by voice'
+                  : 'Another person or avatar in the room'
+            }
           >
             {line.speaker}
           </span>

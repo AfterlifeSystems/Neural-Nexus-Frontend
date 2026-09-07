@@ -14,6 +14,10 @@
 // Entering voice mode itself is always allowed. A public listing with
 // metadata stripped is not enough on its own inside signed-in /chat — that
 // would also unlock admin-shared character avatars for every other account.
+//
+// Above all of that sits availability: an avatar whose cloned voice ElevenLabs
+// has banned has no audio to play for anybody, so it is treated as an avatar
+// with no voice audio model rather than as a permission failure.
 
 import { isAdminAccount } from '../config/adminAccount.js';
 
@@ -26,7 +30,7 @@ const SHARED_AVATAR_ROUTE_PREFIX = '/share';
 function isSharedAvatarChatPath(pathname) {
   const path =
     pathname ??
-    (typeof window !== 'undefined' ? window.location?.pathname ?? '' : '');
+    (typeof window !== 'undefined' ? (window.location?.pathname ?? '') : '');
   return (
     new RegExp(`^${SHARED_AVATAR_ROUTE_PREFIX}/[^/]+/?$`).test(path) ||
     new RegExp(`^${SHARED_AVATAR_ROUTE_PREFIX}/[^/]+/c/[^/]+/?$`).test(path)
@@ -55,6 +59,19 @@ function isPersonalAvatar(avatar) {
 }
 
 /**
+ * Whether ElevenLabs has banned this avatar's cloned voice.
+ *
+ * The API writes the note onto the avatar the moment it confirms the ban, so
+ * every screen holding the avatar knows without asking again.
+ *
+ * @param {Object|null|undefined} avatar
+ * @returns {boolean}
+ */
+export function hasBlockedVoiceModel(avatar) {
+  return avatar?.metadata?.voice_model_blocked === true;
+}
+
+/**
  * Decide whether this reader may dictate to the avatar (speech-to-text).
  *
  * Distinct from {@link canUseAvatarSpeechPlayback}. Talking in is allowed
@@ -77,6 +94,12 @@ export function canUseAvatarSpeechInput(avatar, user, { pathname } = {}) {
  * Decide whether this avatar may play cloned-voice audio for the current
  * reader. Voice mode and dictation may still run when this is false.
  *
+ * A voice ElevenLabs has banned answers false for everyone, ahead of the
+ * permission question: there is no audio to play, so the avatar is treated
+ * exactly as one with no voice audio model — the speak button is not offered
+ * and live voice mode replies in text. The ban is explained in one place, the
+ * settings Voice panel, rather than reported again on every reply.
+ *
  * @param {Object|null|undefined} avatar The open avatar.
  * @param {Object|null|undefined} user The signed-in user, if any.
  * @param {Object} [options]
@@ -86,6 +109,7 @@ export function canUseAvatarSpeechInput(avatar, user, { pathname } = {}) {
  */
 export function canUseAvatarSpeechPlayback(avatar, user, { pathname } = {}) {
   if (!avatar) return false;
+  if (hasBlockedVoiceModel(avatar)) return false;
 
   const isPersonal = isPersonalAvatar(avatar);
   const owned = isAvatarOwnedByUser(avatar, user);

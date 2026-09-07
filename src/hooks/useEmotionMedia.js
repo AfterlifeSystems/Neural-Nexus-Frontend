@@ -96,6 +96,25 @@ function normalizeManifest(manifest) {
     emotions,
     complete: Boolean(manifest.complete),
     missing: manifest.missing ?? [],
+    // The newest generation run — an upload or a regeneration — with each
+    // failed still or loop and its `error_code`, so the settings screen can
+    // say why a loop is missing (and not suggest a retry after a moderation
+    // refusal, which repeats the charge). Null when no run was recorded.
+    lastGeneration: manifest.last_generation ?? null,
+    // Whether THIS viewer may generate the media, and on what terms: the
+    // owner's tier, the tier the deployment requires
+    // (EMOTION_MEDIA_MINIMUM_TIER), and whether generation is configured at
+    // all. Null for anyone who is not the avatar's creator — the generate
+    // button belongs to the settings screen alone.
+    generation: manifest.generation
+      ? {
+          tier: manifest.generation.tier ?? null,
+          requiredTier: manifest.generation.required_tier ?? null,
+          tierAllows: Boolean(manifest.generation.tier_allows),
+          configured: Boolean(manifest.generation.configured),
+          allowed: Boolean(manifest.generation.allowed),
+        }
+      : null,
   };
 }
 

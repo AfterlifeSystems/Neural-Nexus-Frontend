@@ -34,6 +34,7 @@ import {
 } from '../components/requestFailureToast';
 import { buildBillingRefusalMessage } from '../components/BillingRefusalNotice';
 import { followMediaJobWithToast } from '../services/mediaJobProgress.jsx';
+import { mediaEntriesFromFiles } from '../components/composerAttachments';
 import {
   loadThreadAttachments,
   pruneExpiredAttachments,
@@ -65,16 +66,21 @@ import {
   resolveMessageResponseTimeMs,
 } from '../services/messageResponseMetrics';
 import {
+  SUGGESTION_PROMPT_MARKER,
+  buildSuggestionHarvestPrompt,
+  conversationExcerptForSuggestions,
   isConversationSuggestionList,
   localFollowUpSuggestions,
   looksLikeLeakedModelJson,
   parseConversationSuggestionList,
+  parseHarvestedSuggestions,
 } from '../services/conversationSuggestions';
 import {
   findMessageByKey,
   findMessageIndexByKey,
   messageKeyOf,
 } from '../services/messageKey';
+import { withRateLimitRetry } from '../services/retryRateLimited';
 
 const MediaContext = createContext();
 
@@ -257,9 +263,7 @@ function messageContentAsText(storedContent) {
     .join('\n\n');
 }
 
-/** Prefix of the hidden turn that asks the avatar for follow-up suggestions. */
-export const SUGGESTION_PROMPT_MARKER =
-  '[neural-nexus:conversation-suggestions]';
+export { SUGGESTION_PROMPT_MARKER };
 
 /** Prefix of the hidden turn that asks the avatar to write its description. */
 export const DESCRIPTION_PROMPT_MARKER =
@@ -420,6 +424,9 @@ export const MediaProvider = ({ children }) => {
   // when another thread replaces it, so reopening conversations in a long
   // session does not accumulate them.
   const restoredAttachmentUrlsRef = useRef([]);
+  // Voice mode and message mode each mount the suggestion sheet. The same
+  // re-roll must not mint two throwaway harvests.
+  const suggestionHarvestRef = useRef({ key: '', promise: null });
 
   useEffect(() => {
     onScreenAssistantIdRef.current = resolveAssistantId(activeAvatar);
@@ -742,6 +749,7 @@ export const MediaProvider = ({ children }) => {
           type: 'ai',
           content: '',
           isLoading: true,
+          streamingText: true,
           timestamp: new Date().toISOString(),
           ...(decoration ?? {}),
         },
@@ -790,6 +798,16 @@ export const MediaProvider = ({ children }) => {
         )
       );
       setActivityIfStillOnScreen(ASSISTANT_ACTIVITY.responding);
+    };
+
+    const markStreamingTextFinished = () => {
+      updateMessagesIfStillOnScreen((previousMessages) =>
+        previousMessages.map((message) =>
+          message.id === streamingMessageId && message.streamingText
+            ? { ...message, streamingText: false }
+            : message
+        )
+      );
     };
 
     let terminalFrame = null;
@@ -862,7 +880,10 @@ export const MediaProvider = ({ children }) => {
             // processed in the background, and its progress gets the same toast
             // an upload from the settings screen gets. Not awaited — the turn's
             // reply keeps streaming while the job runs.
-            followMediaJobWithToast(streamEvent.job_id, streamEvent.description);
+            followMediaJobWithToast(streamEvent.job_id, streamEvent.description, {
+              assistantId,
+              avatarName: avatarForMessage?.name,
+            });
             setActivityIfStillOnScreen(ASSISTANT_ACTIVITY.thinking);
           } else if (streamEvent.type === 'status') {
             // The avatar started or finished a tool. The phrase is what the
@@ -875,7 +896,10 @@ export const MediaProvider = ({ children }) => {
             );
           } else if (streamEvent.type === 'keepalive_comment') {
             // Tokens have stopped but the turn has not: the server keeps this
-            // line open while it runs its post-reply analysis.
+            // line open while it runs its post-reply analysis. Voice-mode Stop
+            // follows the words, not this leftover request, so the caption
+            // gets its copy / speak / edit buttons back now.
+            markStreamingTextFinished();
             setActivityUnlessDeferred(ASSISTANT_ACTIVITY.analyzing);
           } else if (
             streamEvent.type !== 'done' &&
@@ -959,6 +983,7 @@ export const MediaProvider = ({ children }) => {
               ...message,
               ...timed,
               isLoading: false,
+              streamingText: false,
               interrupt: terminalFrame.interrupt ?? null,
               interruptThreadId: terminalFrame.thread_id ?? threadId ?? null,
               interruptAssistantId: assistantId,
@@ -1016,6 +1041,7 @@ export const MediaProvider = ({ children }) => {
             const finalized = {
               ...message,
               isLoading: false,
+              streamingText: false,
               content: terminalFrame.content ?? message.content,
               // Cut short by the person; the transcript says so under the
               // bubble, and the follow-up harvest leaves the turn alone.
@@ -1079,7 +1105,7 @@ export const MediaProvider = ({ children }) => {
       updateMessagesIfStillOnScreen((previousMessages) =>
         previousMessages.map((message) =>
           message.id === streamingMessageId
-            ? { ...message, isLoading: false }
+            ? { ...message, isLoading: false, streamingText: false }
             : message
         )
       );
@@ -1187,6 +1213,13 @@ export const MediaProvider = ({ children }) => {
       }
     }
   }
+
+  // The hold goes up the moment the person starts talking. Stop any look
+  // already in flight so it does not spend the rate-limit slot that
+  // transcription needs.
+  useEffect(() => {
+    if (ambientHold) yieldAmbientObservations();
+  }, [ambientHold]);
 
   /**
    * Answer the question a paused turn asked, and stream the continuation.
@@ -1378,11 +1411,7 @@ export const MediaProvider = ({ children }) => {
           // absent, so an attached image rendered "Loading image…" forever. The
           // API returns no address for a file the browser already holds, and an
           // object URL points straight at it with no round trip.
-          media: attachedFiles.map((attachedFile) => ({
-            filename: attachedFile.name,
-            content_type: attachedFile.type,
-            url: URL.createObjectURL(attachedFile),
-          })),
+          media: mediaEntriesFromFiles(attachedFiles),
           content_type:
             attachedFiles.length > 0 && !messageContent ? 'media' : 'text',
         },
@@ -1469,11 +1498,10 @@ export const MediaProvider = ({ children }) => {
       toast.error('Could not update that message.');
       return { reply: '', sentiment: null };
     }
-    const text =
-      typeof replacementText === 'string'
-        ? replacementText
-        : sourceMessage.content ?? '';
-    if (!String(text).trim()) return { reply: '', sentiment: null };
+    const text = String(
+      replacementText != null ? replacementText : sourceMessage.content ?? ''
+    );
+    if (!text.trim()) return { reply: '', sentiment: null };
 
     const temporaryUserMessageId = `temp-${Date.now()}`;
     // Lock the composer before rewriting the transcript. If the count rises
@@ -1570,18 +1598,73 @@ export const MediaProvider = ({ children }) => {
   }
 
   /**
-   * Follow-up chips for the composer. These used to come from a hidden
-   * /message turn that asked for a JSON array; that turn is what made the
-   * avatar answer "hey mom" with the list instead of talking. Chips are
-   * derived from the last real reply so the graph is never asked to speak
-   * in that format.
+   * Follow-up chips for the composer.
+   *
+   * The first draw is local so the handle appears at once. Re-roll asks the
+   * avatar for a new list from the transcript. That harvest is a hidden turn
+   * on a throwaway thread — never the open conversation — because a second
+   * /message on the same thread is what replaced a spoken reply with JSON.
    *
    * @param {Object} [options]
    * @param {string[]} [options.exclude] Prompts already on screen; skip on a re-roll.
+   * @param {boolean} [options.generate] Ask the avatar, using the transcript.
    * @returns {Promise<string[]>} Up to three suggestion strings.
    */
-  async function fetchConversationSuggestions({ exclude = [] } = {}) {
-    return localFollowUpSuggestions(messages, { exclude });
+  async function fetchConversationSuggestions({
+    exclude = [],
+    generate = false,
+  } = {}) {
+    const fallback = () => localFollowUpSuggestions(messages, { exclude });
+    if (!generate || !activeAvatar) return fallback();
+
+    const excerpt = conversationExcerptForSuggestions(messages);
+    if (!excerpt) return fallback();
+
+    const harvestKey = `${activeConversation ?? 'none'}:${excerpt}::${exclude.join('\n')}`;
+    if (
+      suggestionHarvestRef.current.key === harvestKey &&
+      suggestionHarvestRef.current.promise
+    ) {
+      return suggestionHarvestRef.current.promise;
+    }
+
+    const harvest = (async () => {
+      try {
+        const formData = new FormData();
+        formData.append(
+          'message',
+          buildSuggestionHarvestPrompt(messages, { exclude })
+        );
+        formData.append('stream', 'true');
+        const userTimezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+        if (userTimezone) {
+          formData.append('user_timezone', userTimezone);
+        }
+        const turnResult = await runAssistantTurnStream({
+          _user: user,
+          avatarForMessage: activeAvatar,
+          threadId: NEW_CONVERSATION_ID,
+          path: `/message/${encodeURIComponent(resolveAssistantId(activeAvatar))}`,
+          formData,
+          hideFromTranscript: true,
+        });
+        if (turnResult?.threadId) {
+          deleteConversationThread(turnResult.threadId).catch(() => {});
+        }
+        const harvested = Array.isArray(turnResult?.leakedSuggestions)
+          ? turnResult.leakedSuggestions
+          : parseHarvestedSuggestions(turnResult?.reply);
+        if (Array.isArray(harvested) && harvested.length >= 2) {
+          return harvested.slice(0, 3);
+        }
+      } catch (suggestionError) {
+        console.debug('Conversation suggestions unavailable:', suggestionError);
+      }
+      return fallback();
+    })();
+
+    suggestionHarvestRef.current = { key: harvestKey, promise: harvest };
+    return harvest;
   }
 
   /**
@@ -1710,15 +1793,19 @@ export const MediaProvider = ({ children }) => {
    * @param {File} recording
    * @returns {Promise<{reply: string, sentiment: Object|null, decision: string|null, speakers: Object|null}>}
    */
-  async function sendSpokenAudioTurn(recording) {
+  async function sendSpokenAudioTurn(recording, attachedFiles = []) {
     if (!activeAvatar || !recording) {
       return { reply: '', sentiment: null, decision: null, speakers: null };
     }
+    const extraFiles = Array.isArray(attachedFiles) ? attachedFiles : [];
     const threadId =
       activeConversation && activeConversation !== NEW_CONVERSATION_ID
         ? activeConversation
         : null;
     const temporaryUserMessageId = `temp-spoken-${Date.now()}`;
+    const humanMessageOrdinal = messages.filter(
+      (existingMessage) => existingMessage.type === 'human'
+    ).length;
     setPendingSendCount((count) => count + 1);
     let decision = null;
     let heard = null;
@@ -1731,58 +1818,67 @@ export const MediaProvider = ({ children }) => {
           type: 'human',
           isPending: true,
           timestamp: new Date().toISOString(),
+          media: extraFiles.length ? mediaEntriesFromFiles(extraFiles) : undefined,
         },
       ]);
+      if (extraFiles.length > 0) {
+        setAttachmentsInFlight((current) => [...current, ...extraFiles]);
+      }
       turnPausedForUserRef.current = false;
       setAssistantActivity(ASSISTANT_ACTIVITY.thinking);
       const userTimezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
-      const { path, formData } = buildSpokenTurnRequest(
-        resolveAssistantId(activeAvatar),
-        recording,
-        { threadId, userTimezone }
-      );
       yieldAmbientObservations();
-      const outcome = await runAssistantTurnStream({
-        _user: user,
-        avatarForMessage: activeAvatar,
-        threadId,
-        path,
-        formData,
-        deferBubbleUntilFirstToken: true,
-        onExtraEvent: (streamEvent) => {
-          if (streamEvent.type === 'spoken_turn') {
-            heard = streamEvent;
-            setMessages((previousMessages) =>
-              previousMessages.map((message) =>
-                message.id === temporaryUserMessageId
-                  ? {
-                      ...message,
-                      isPending: false,
-                      content: streamEvent.content ?? '',
-                      speakers: streamEvent.speakers ?? null,
-                    }
-                  : message
-              )
-            );
-          } else if (streamEvent.type === 'ambient_decision') {
-            decision = streamEvent;
-            if (streamEvent.decision === 'notify') {
-              notifyAmbientObservation(activeAvatar?.name, streamEvent.summary);
-            }
-          }
-        },
-        bubbleDecorator: () =>
-          decision
-            ? {
-                ambient: {
-                  decision: decision.decision,
-                  observation_id: decision.observation_id,
-                  observation_kind: decision.observation_kind,
-                  summary: decision.summary,
-                  reason: decision.reason,
-                },
+      const outcome = await withRateLimitRetry(async () => {
+        const { path, formData } = buildSpokenTurnRequest(
+          resolveAssistantId(activeAvatar),
+          recording,
+          { threadId, userTimezone }
+        );
+        for (const extraFile of extraFiles) {
+          formData.append('files', extraFile);
+        }
+        return runAssistantTurnStream({
+          _user: user,
+          avatarForMessage: activeAvatar,
+          threadId,
+          path,
+          formData,
+          deferBubbleUntilFirstToken: true,
+          onExtraEvent: (streamEvent) => {
+            if (streamEvent.type === 'spoken_turn') {
+              heard = streamEvent;
+              setMessages((previousMessages) =>
+                previousMessages.map((message) =>
+                  message.id === temporaryUserMessageId
+                    ? {
+                        ...message,
+                        isPending: false,
+                        content: streamEvent.content ?? '',
+                        speakers: streamEvent.speakers ?? null,
+                      }
+                    : message
+                )
+              );
+            } else if (streamEvent.type === 'ambient_decision') {
+              decision = streamEvent;
+              if (streamEvent.decision === 'notify') {
+                notifyAmbientObservation(activeAvatar?.name, streamEvent.summary);
               }
-            : {},
+            }
+          },
+          bubbleDecorator: () =>
+            decision
+              ? {
+                  ambient: {
+                    decision: decision.decision,
+                    observation_id: decision.observation_id,
+                    observation_kind: decision.observation_kind,
+                    summary: decision.summary,
+                    reason: decision.reason,
+                  },
+                }
+              : {},
+        });
       });
       if (!heard) {
         // The server never announced what it heard (an error frame, a stop):
@@ -1790,6 +1886,15 @@ export const MediaProvider = ({ children }) => {
         setMessages((previousMessages) =>
           previousMessages.filter((message) => message.id !== temporaryUserMessageId)
         );
+      } else if (extraFiles.length > 0) {
+        const threadIdForArchive = outcome?.threadId ?? activeConversation;
+        if (threadIdForArchive) {
+          await saveMessageAttachments(
+            threadIdForArchive,
+            humanMessageOrdinal,
+            extraFiles
+          );
+        }
       }
       return {
         reply: outcome?.reply ?? '',
@@ -1806,17 +1911,26 @@ export const MediaProvider = ({ children }) => {
       return { reply: '', sentiment: null, decision: null, speakers: null };
     } finally {
       setPendingSendCount((count) => Math.max(0, count - 1));
+      if (extraFiles.length > 0) {
+        setAttachmentsInFlight((current) =>
+          current.filter((heldFile) => !extraFiles.includes(heldFile))
+        );
+      }
       if (!turnPausedForUserRef.current) {
         setAssistantActivity(null);
       }
     }
   }
 
-  async function sendSpokenTurn(text) {
+  async function sendSpokenTurn(text, attachedFiles = []) {
     const words = String(text ?? '').trim();
-    if (!activeAvatar || !words) {
+    const files = Array.isArray(attachedFiles) ? attachedFiles : [];
+    if (!activeAvatar || (!words && files.length === 0)) {
       return { reply: '', sentiment: null };
     }
+    const humanMessageOrdinal = messages.filter(
+      (existingMessage) => existingMessage.type === 'human'
+    ).length;
     setPendingSendCount((count) => count + 1);
     try {
       setMessages((previousMessages) => [
@@ -1826,16 +1940,31 @@ export const MediaProvider = ({ children }) => {
           content: words,
           type: 'human',
           timestamp: new Date().toISOString(),
+          media: files.length ? mediaEntriesFromFiles(files) : undefined,
+          content_type: files.length > 0 && !words ? 'media' : 'text',
         },
       ]);
+      if (files.length > 0) {
+        setAttachmentsInFlight((current) => [...current, ...files]);
+      }
       turnPausedForUserRef.current = false;
       setAssistantActivity(ASSISTANT_ACTIVITY.thinking);
-      const { reply, sentiment } = await sendVisibleAssistantTurn(
+      const { reply, sentiment, threadId } = await sendVisibleAssistantTurn(
         activeAvatar,
         activeConversation,
         words,
-        []
+        files
       );
+      if (files.length > 0) {
+        const threadIdForArchive = threadId ?? activeConversation;
+        if (threadIdForArchive) {
+          await saveMessageAttachments(
+            threadIdForArchive,
+            humanMessageOrdinal,
+            files
+          );
+        }
+      }
       return { reply: reply ?? '', sentiment: sentiment ?? null };
     } catch (turnError) {
       console.error('The spoken turn failed:', turnError);
@@ -1843,6 +1972,11 @@ export const MediaProvider = ({ children }) => {
       return { reply: '', sentiment: null };
     } finally {
       setPendingSendCount((count) => Math.max(0, count - 1));
+      if (files.length > 0) {
+        setAttachmentsInFlight((current) =>
+          current.filter((heldFile) => !files.includes(heldFile))
+        );
+      }
       if (!turnPausedForUserRef.current) {
         setAssistantActivity(null);
       }

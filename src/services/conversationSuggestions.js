@@ -6,6 +6,10 @@
  * "hey mom" with `["Hi! What's going on?", …]` instead of talking.
  */
 
+/** Prefix of the hidden turn that asks the avatar for follow-up suggestions. */
+export const SUGGESTION_PROMPT_MARKER =
+  '[neural-nexus:conversation-suggestions]';
+
 export function parseConversationSuggestionList(text) {
   const raw = String(text ?? '').trim();
   if (!raw.startsWith('[') || !raw.endsWith(']')) {
@@ -138,4 +142,103 @@ export function localFollowUpSuggestions(messages, { exclude = [] } = {}) {
     return pool.slice(0, 3);
   }
   return pickThree(pool, exclude);
+}
+
+const MAX_EXCERPT_MESSAGES = 12;
+const MAX_EXCERPT_CHARS = 400;
+
+function isUsableSuggestionContext(message) {
+  if (!message?.content || message.isLoading) return false;
+  if (
+    message.type !== 'human' &&
+    message.type !== 'user' &&
+    message.type !== 'ai'
+  ) {
+    return false;
+  }
+  const text = String(message.content);
+  if (text.startsWith('[neural-nexus:')) return false;
+  if (message.type === 'ai' && isConversationSuggestionList(text)) {
+    return false;
+  }
+  return true;
+}
+
+function clipExcerptText(text) {
+  const trimmed = String(text).trim();
+  return trimmed.length > MAX_EXCERPT_CHARS
+    ? `${trimmed.slice(0, MAX_EXCERPT_CHARS)}…`
+    : trimmed;
+}
+
+/**
+ * Recent spoken turns, for a harvest that must not sit on the open thread.
+ *
+ * The excerpt is pasted into the prompt so the avatar can write follow-ups
+ * without another /message on the conversation itself.
+ *
+ * @param {Array} messages The open transcript.
+ * @returns {string} Speaker-labelled lines, or an empty string.
+ */
+export function conversationExcerptForSuggestions(messages) {
+  return (messages ?? [])
+    .filter(isUsableSuggestionContext)
+    .slice(-MAX_EXCERPT_MESSAGES)
+    .map((message) => {
+      const speaker =
+        message.type === 'human' || message.type === 'user'
+          ? 'Person'
+          : 'Avatar';
+      return `${speaker}: ${clipExcerptText(message.content)}`;
+    })
+    .join('\n');
+}
+
+/**
+ * The hidden-turn prompt that asks for three follow-ups from the transcript.
+ *
+ * @param {Array} messages The open transcript.
+ * @param {Object} [options]
+ * @param {string[]} [options.exclude] Prompts already on screen; do not repeat.
+ * @returns {string}
+ */
+export function buildSuggestionHarvestPrompt(messages, { exclude = [] } = {}) {
+  const excerpt = conversationExcerptForSuggestions(messages);
+  const skip = (exclude ?? []).map((entry) => String(entry).trim()).filter(Boolean);
+  const skipBlock = skip.length
+    ? `\n\nDo not repeat any of these already-shown prompts:\n${skip
+        .map((prompt) => `- ${prompt}`)
+        .join('\n')}`
+    : '';
+  const task = excerpt
+    ? 'Given this conversation, suggest three short messages the person might send next.'
+    : 'Suggest three short opening messages the person might send to start this conversation.';
+  return (
+    `${SUGGESTION_PROMPT_MARKER} ${task} ` +
+    'Each must be a natural reply they would type, grounded in what was just said. ' +
+    `Reply with a JSON array of three strings and nothing else.${skipBlock}` +
+    (excerpt ? `\n\n${excerpt}` : '')
+  );
+}
+
+/**
+ * Pull a suggestion list out of a harvest reply, even if the model wrapped
+ * the JSON in a sentence.
+ *
+ * @param {string} text The avatar's reply.
+ * @returns {string[]}
+ */
+export function parseHarvestedSuggestions(text) {
+  const direct = parseConversationSuggestionList(text);
+  if (direct) return direct.slice(0, 3);
+  const raw = String(text ?? '').trim();
+  const jsonStart = raw.indexOf('[');
+  const jsonEnd = raw.lastIndexOf(']');
+  if (jsonStart < 0 || jsonEnd <= jsonStart) return [];
+  return (
+    parseConversationSuggestionList(raw.slice(jsonStart, jsonEnd + 1))?.slice(
+      0,
+      3
+    ) ?? []
+  );
 }

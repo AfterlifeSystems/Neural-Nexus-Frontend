@@ -6,6 +6,7 @@ import { useAuth } from '../context/AuthContext';
 import AuthComponent from './AuthComponent';
 import AnimatedList from './AnimatedList';
 import { deleteAvatar, listUserAvatars } from '../services/avatarService';
+import { avatarsWithPersonalFirst } from '../services/avatarListOrder';
 
 const Sidebar = ({
   setShowCreateModal,
@@ -193,7 +194,7 @@ const Sidebar = ({
           <div className="flex-grow overflow-y-auto min-h-0 space-y-2">
             {Array.isArray(avatars) && avatars.length > 0 ? (
               <AnimatedList
-                items={avatars}
+                items={avatarsWithPersonalFirst(avatars)}
                 selectedKey={activeAvatar?.avatar_id} // <-- NEW
                 onItemSelect={(avatar) => handleAvatarSelect(avatar)}
                 renderItem={(avatar, index, isSelected) =>

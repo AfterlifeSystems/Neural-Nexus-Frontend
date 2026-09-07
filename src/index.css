@@ -54,8 +54,8 @@ html,
   }
 }
 
-/* Drawn on a sibling of the clipped portrait so overflow:hidden on the
-   video does not eat the pulse. Inset ring sits on the face; the outer
+/* Drawn on a sibling of the portrait so overflow:hidden on the video
+   does not eat the pulse. Sized to the painted video frame; the outer
    bloom needs the stage gutter (padding on the portrait well). */
 .voice-speak-glow {
   animation: voice-speak-glow 1.4s ease-in-out infinite;
@@ -136,6 +136,42 @@ html.voice-stage-open {
   height: 1rem;
 }
 
+/* Same fight as the rail: unlayered `button { padding: 0.6em 1.2em }`
+   blows the Evan pill's share / mic / close icons out of the
+   capsule. Keep those controls icon-sized so the pill holds them. */
+[data-evan-assist-overlay] button {
+  padding: 0.375rem;
+  font-size: 0.75rem;
+  font-weight: 500;
+  line-height: 1;
+  min-width: 0;
+  min-height: 0;
+  border-radius: 9999px;
+  border-color: transparent;
+}
+[data-evan-assist-overlay] button:hover,
+[data-evan-assist-overlay] button:focus,
+[data-evan-assist-overlay] button:focus-visible {
+  border-color: transparent;
+  outline: none;
+}
+[data-evan-assist-overlay] button svg {
+  width: 1.25rem;
+  height: 1.25rem;
+  flex-shrink: 0;
+}
+[data-evan-assist-pill] > button:first-of-type {
+  padding: 0.25rem;
+  min-width: 0;
+}
+[data-evan-assist-window] button[type="submit"] {
+  padding: 0.375rem 0.75rem;
+}
+[data-evan-assist-window] [data-evan-assist-text-btn] {
+  padding: 0.375rem 0.75rem;
+  border-radius: 0.5rem;
+}
+
 /* Icon column: keep every rail action, just smaller, while talking. */
 html.voice-stage-open [data-sidebar-rail] {
   padding-top: 0.375rem;
@@ -184,6 +220,15 @@ html.voice-stage-open [data-rail-badge] {
   padding: 0.25rem 0.6rem;
   min-width: 0;
   border-radius: 0.375rem;
+}
+/* Folded Message sits beside mute/mic and must match that pill's height.
+   The global voice-stage min-height would otherwise leave it short. */
+.voice-stage [data-voice-message-bar].voice-text-btn {
+  height: 100%;
+  min-height: 0;
+  padding-top: 0;
+  padding-bottom: 0;
+  border-radius: 0.75rem;
 }
 .voice-stage button.voice-workspace-tab {
   padding: 0.5rem 0.75rem;
@@ -241,6 +286,16 @@ html.voice-stage-open [data-rail-badge] {
 .voice-stage button:focus-visible {
   outline: none;
 }
+.voice-stage .composer-attachment-strip button.composer-attachment-remove {
+  padding: 0;
+  min-width: 0;
+  min-height: 0;
+  border-radius: 9999px;
+}
+.voice-stage .composer-attachment-strip button.composer-attachment-remove svg {
+  width: 0.625rem;
+  height: 0.625rem;
+}
 
 /* Phones only. The unlayered `button { padding: 0.6em 1.2em }` rule below
    inflates every control; these selectors are more specific so the
@@ -284,6 +339,10 @@ html.voice-stage-open [data-rail-badge] {
   font-size: 0.875rem;
   line-height: 1.25;
   border-color: transparent;
+}
+/* Compact button padding would shove this knob off its track. */
+.avatar-settings button[role="switch"] {
+  padding: 0;
 }
 .avatar-settings button:focus,
 .avatar-settings button:focus-visible {

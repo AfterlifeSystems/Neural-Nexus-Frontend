@@ -47,6 +47,9 @@ import {
 } from 'lucide-react';
 import LoopingVideo from './ui/LoopingVideo';
 import { titleCaseEmotion } from '../hooks/emotionMediaRows';
+import { describeDocumentKind } from './documentKind';
+
+export { describeDocumentKind };
 
 // The badge every generated row wears, beside its kind chip. One colour that
 // no upload kind uses, so a glance down the list separates what the owner gave
@@ -78,65 +81,6 @@ export const describeGeneratedMedia = (documentEntry) => {
     return `Generated from the ${documentEntry.emotion} portrait${duration}`;
   }
   return 'Generated from the reference image';
-};
-
-// What each file extension means, for the rows whose label is a filename
-// rather than a link. Grouped by what the row can say about the upload, not by
-// format family: the row's job is to tell the user what they gave the avatar.
-const EXTENSIONS_BY_KIND = {
-  image: [
-    'jpg',
-    'jpeg',
-    'png',
-    'gif',
-    'webp',
-    'bmp',
-    'svg',
-    'heic',
-    'heif',
-    'avif',
-    'tif',
-    'tiff',
-  ],
-  audio: [
-    'mp3',
-    'wav',
-    'm4a',
-    'aac',
-    'ogg',
-    'oga',
-    'flac',
-    'wma',
-    'opus',
-    'aiff',
-    'amr',
-  ],
-  video: [
-    'mp4',
-    'mov',
-    'avi',
-    'mkv',
-    'webm',
-    'wmv',
-    'flv',
-    'm4v',
-    'mpg',
-    'mpeg',
-  ],
-  document: ['pdf', 'doc', 'docx', 'odt', 'rtf'],
-  data: [
-    'csv',
-    'tsv',
-    'json',
-    'jsonl',
-    'xml',
-    'xlsx',
-    'xls',
-    'parquet',
-    'yaml',
-    'yml',
-  ],
-  text: ['txt', 'md', 'markdown', 'html', 'htm', 'vtt', 'srt'],
 };
 
 // How each kind is drawn, and what is true about previewing it.
@@ -185,23 +129,6 @@ const KIND_PRESENTATION = {
     chip: 'Text',
     previewNote: 'Stored as text',
   },
-};
-
-/**
- * Name what kind of upload a label describes, from its extension.
- *
- * @param {string} documentLabel The label as returned by the API.
- * @returns {string|null} One of the KIND_PRESENTATION keys, or null when the
- *   label carries no extension worth reading.
- */
-export const describeDocumentKind = (documentLabel) => {
-  if (typeof documentLabel !== 'string') return null;
-  const extension = documentLabel.split('.').pop()?.toLowerCase() ?? '';
-  if (!extension || extension === documentLabel.toLowerCase()) return null;
-  for (const [kind, extensions] of Object.entries(EXTENSIONS_BY_KIND)) {
-    if (extensions.includes(extension)) return kind;
-  }
-  return null;
 };
 
 /**

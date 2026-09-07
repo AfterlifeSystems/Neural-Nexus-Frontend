@@ -1,6 +1,6 @@
 // How the Evan pill and expanded window sit on the screen.
 
-export const EVAN_PILL_WIDTH = 320;
+export const EVAN_PILL_WIDTH = 352;
 export const EVAN_PILL_HEIGHT = 56;
 export const EVAN_WINDOW_WIDTH = 380;
 export const EVAN_WINDOW_HEIGHT = 520;
@@ -160,4 +160,38 @@ export function positionAfterPointerDelta(origin, startPointer, currentPointer) 
     x: (origin?.x ?? 0) + ((currentPointer?.x ?? 0) - (startPointer?.x ?? 0)),
     y: (origin?.y ?? 0) + ((currentPointer?.y ?? 0) - (startPointer?.y ?? 0)),
   };
+}
+
+export const ASSIST_DRAG_THRESHOLD_PX = 6;
+
+/**
+ * Whether the pointer has moved far enough to count as a drag, not a click.
+ *
+ * @param {{x: number, y: number}} startPointer
+ * @param {{x: number, y: number}} currentPointer
+ * @param {number} [threshold]
+ * @returns {boolean}
+ */
+export function hasAssistDragMoved(
+  startPointer,
+  currentPointer,
+  threshold = ASSIST_DRAG_THRESHOLD_PX
+) {
+  const dx = (currentPointer?.x ?? 0) - (startPointer?.x ?? 0);
+  const dy = (currentPointer?.y ?? 0) - (startPointer?.y ?? 0);
+  return dx * dx + dy * dy >= threshold * threshold;
+}
+
+/**
+ * Controls (share, mic, close) must not start a drag. The rest of the pill
+ * or window header is the handle, including the expand region — a click
+ * still expands, a move past the threshold drags.
+ *
+ * @param {EventTarget|null|undefined} target
+ * @returns {boolean}
+ */
+export function isAssistDragHandle(target) {
+  if (!target || typeof target.closest !== 'function') return false;
+  if (target.closest('[data-evan-assist-no-drag]')) return false;
+  return Boolean(target.closest('[data-evan-assist-drag]'));
 }

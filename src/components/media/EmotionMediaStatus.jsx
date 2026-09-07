@@ -1,25 +1,83 @@
 // src/components/media/EmotionMediaStatus.jsx
 import React, { useEffect, useRef, useState } from 'react';
 import { toast } from 'react-hot-toast';
-import { Loader2, Sparkles } from 'lucide-react';
+import { AlertTriangle, Loader2, Sparkles, Wand2 } from 'lucide-react';
 import useEmotionMedia from '../../hooks/useEmotionMedia';
-import { getAvatarMediaJob } from '../../services/avatarService';
+import {
+  getAvatarMediaJob,
+  regenerateAvatarEmotionMedia,
+} from '../../services/avatarService';
+import {
+  countEmotionMediaFailures,
+  emotionMediaFailureMessage,
+  emotionMediaWasWithheld,
+} from '../../services/emotionMediaFailures';
 
 const JOB_POLL_MILLISECONDS = 4000;
 
 /**
  * What the portrait has become: the emotion stills and idle loops derived from
- * it. Status only — generation is not started from under the reference image.
+ * it, and the control that builds them.
+ *
+ * The generate button appears as soon as a reference image exists, and is the
+ * owner's way to spend on the image and video vendor deliberately. The tier
+ * that may spend is a deployment setting (EMOTION_MEDIA_MINIMUM_TIER, premium
+ * by default), and the manifest reports the answer per viewer, so a lower tier
+ * sees the button disabled with the plan the feature needs rather than a
+ * refusal after pressing.
+ *
+ * While a job runs this shows its stage. Afterwards, when the newest run left
+ * portraits or videos missing, it shows why — for a moderation refusal, that a
+ * retry repeats the charge and a different reference image is the fix; for a
+ * transient miss, that re-uploading the image is how to generate them again —
+ * so "the videos stopped" is never silent. When the server withheld the run
+ * because it predicted the refusal from the reference image (nothing was
+ * charged), the owner can still choose to generate anyway at their own cost.
  *
  * @param {Object} parameters
  * @param {string} parameters.assistantId The avatar.
  * @param {boolean} parameters.hasPortrait Whether a reference image exists.
+ * @param {Function} [parameters.onReuploadImage] Opens the portrait picker;
+ *   shown after a miss that is retried by replacing the reference image.
  */
-const EmotionMediaStatus = ({ assistantId, hasPortrait }) => {
-  const { refresh } = useEmotionMedia(assistantId);
+const EmotionMediaStatus = ({ assistantId, hasPortrait, onReuploadImage }) => {
+  const { manifest, refresh } = useEmotionMedia(assistantId);
   const [jobId, setJobId] = useState(null);
   const [jobStage, setJobStage] = useState(null);
+  const [starting, setStarting] = useState(false);
   const pollRef = useRef(null);
+
+  /**
+   * Start a generation run.
+   *
+   * @param {Object} [options]
+   * @param {boolean} [options.onlyMissing] Build only the absent assets.
+   * @param {boolean} [options.proceedDespiteModerationRisk] Generate anyway
+   *   after the server predicted a vendor moderation refusal.
+   */
+  const startGeneration = async ({
+    onlyMissing = true,
+    proceedDespiteModerationRisk = false,
+  } = {}) => {
+    if (starting) return;
+    setStarting(true);
+    try {
+      const started = await regenerateAvatarEmotionMedia(assistantId, {
+        onlyMissing,
+        proceedDespiteModerationRisk,
+      });
+      if (started?.job_id) {
+        setJobStage('Generating…');
+        setJobId(started.job_id);
+      }
+    } catch (startError) {
+      toast.error(
+        startError?.message || 'Emotion media generation could not start.'
+      );
+    } finally {
+      setStarting(false);
+    }
+  };
 
   useEffect(() => {
     if (!jobId) return undefined;
@@ -44,8 +102,9 @@ const EmotionMediaStatus = ({ assistantId, hasPortrait }) => {
             const failures = job?.detail?.failures ?? [];
             toast.error(
               failures.length
-                ? `${failures.length} emotion asset${failures.length === 1 ? '' : 's'} could not be generated. Try again.`
-                : job?.detail?.error || 'Emotion media generation failed.'
+                ? emotionMediaFailureMessage(job.detail)
+                : job?.detail?.error || 'Emotion media generation failed.',
+              { duration: 12000 }
             );
           } else {
             toast.success('Emotion media is ready.');
@@ -64,18 +123,107 @@ const EmotionMediaStatus = ({ assistantId, hasPortrait }) => {
     };
   }, [jobId, refresh]);
 
-  if (!hasPortrait || !jobId) return null;
+  if (!hasPortrait) return null;
+
+  if (jobId) {
+    return (
+      <div className="w-32 text-center space-y-1.5">
+        <p className="text-xs text-white/50 inline-flex items-center gap-1 justify-center">
+          <Sparkles className="w-3 h-3 text-amber-300" aria-hidden="true" />
+          {jobStage ?? 'Generating…'}
+        </p>
+        <Loader2
+          className="w-4 h-4 mx-auto animate-spin text-amber-300"
+          aria-hidden="true"
+        />
+      </div>
+    );
+  }
+
+  const lastGeneration = manifest?.lastGeneration;
+  const { total: failureCount } = countEmotionMediaFailures(
+    lastGeneration?.failures
+  );
+  const missingAssets = manifest?.missing?.length ?? 0;
+  const showFailure = Boolean(lastGeneration) && failureCount && missingAssets;
+  const message = showFailure ? emotionMediaFailureMessage(lastGeneration) : '';
+  const withheld = showFailure && emotionMediaWasWithheld(lastGeneration);
+
+  // The manifest answers this per viewer: null for anyone but the creator.
+  const generation = manifest?.generation ?? null;
+  const isComplete = Boolean(manifest?.complete);
+  const generateLabel = isComplete
+    ? 'Regenerate images & videos'
+    : missingAssets > 0 && missingAssets < 14
+      ? 'Generate the missing images & videos'
+      : 'Generate images & videos';
 
   return (
-    <div className="w-32 text-center space-y-1.5">
-      <p className="text-xs text-white/50 inline-flex items-center gap-1 justify-center">
-        <Sparkles className="w-3 h-3 text-amber-300" aria-hidden="true" />
-        {jobStage ?? 'Generating…'}
-      </p>
-      <Loader2
-        className="w-4 h-4 mx-auto animate-spin text-amber-300"
-        aria-hidden="true"
-      />
+    <div className="w-32 text-left space-y-1.5">
+      {showFailure && (
+        <p
+          className={`text-xs inline-flex items-start gap-1 ${
+            withheld ? 'text-amber-300' : 'text-red-300'
+          }`}
+        >
+          <AlertTriangle
+            className="w-3 h-3 mt-0.5 shrink-0"
+            aria-hidden="true"
+          />
+          <span>{message}</span>
+        </p>
+      )}
+      {generation && (
+        <button
+          type="button"
+          onClick={() => startGeneration({ onlyMissing: !isComplete })}
+          disabled={!generation.allowed || starting}
+          title={
+            generation.allowed
+              ? 'Generate an emotion portrait and an idle video for every emotion, from this reference image.'
+              : `Generating emotion media needs the ${generation.requiredTier} plan.`
+          }
+          className="w-full text-xs px-2 py-1.5 rounded-md border border-amber-300/40 text-amber-200 hover:bg-amber-300/10 disabled:opacity-50 disabled:cursor-not-allowed transition-colors inline-flex items-center justify-center gap-1"
+        >
+          <Wand2 className="w-3 h-3 shrink-0" aria-hidden="true" />
+          {starting ? 'Starting…' : generateLabel}
+        </button>
+      )}
+      {generation && !generation.tierAllows && (
+        <p className="text-xs text-white/50">
+          Emotion images and videos are generated on the{' '}
+          {generation.requiredTier} plan.
+        </p>
+      )}
+      {generation && generation.tierAllows && !generation.configured && (
+        <p className="text-xs text-white/50">
+          Emotion media generation is switched off for this deployment.
+        </p>
+      )}
+      {withheld && (
+        <button
+          type="button"
+          onClick={() =>
+            startGeneration({
+              onlyMissing: true,
+              proceedDespiteModerationRisk: true,
+            })
+          }
+          disabled={starting || !generation?.allowed}
+          className="w-full text-xs px-2 py-1 rounded-md border border-amber-300/40 text-amber-200 hover:bg-amber-300/10 disabled:opacity-50 transition-colors"
+        >
+          {starting ? 'Starting…' : 'Generate anyway (at your cost)'}
+        </button>
+      )}
+      {showFailure && !withheld && onReuploadImage && (
+        <button
+          type="button"
+          onClick={onReuploadImage}
+          className="w-full text-xs px-2 py-1 rounded-md border border-white/20 text-white/80 hover:bg-white/10 transition-colors"
+        >
+          Re-upload the image
+        </button>
+      )}
     </div>
   );
 };

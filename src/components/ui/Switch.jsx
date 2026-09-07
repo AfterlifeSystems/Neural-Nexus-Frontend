@@ -46,10 +46,10 @@ const Switch = ({
           clickEvent.stopPropagation();
           if (!isInert) onChange?.(!checked);
         }}
-        className={`relative inline-flex h-5 w-9 shrink-0 items-center rounded-full border transition-colors focus:outline-none focus:ring-2 focus:ring-amber-400/50 ${
+        className={`relative inline-flex h-5 w-9 shrink-0 items-center rounded-full border p-0! transition-colors focus:outline-none focus:ring-2 focus:ring-amber-400/50 ${
           checked
-            ? 'bg-amber-400/30 border-amber-400/50'
-            : 'bg-white/10 border-white/10'
+            ? 'bg-amber-400/30 border-amber-400/50!'
+            : 'bg-white/10 border-white/10!'
         } ${isInert ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}`}
       >
         <span

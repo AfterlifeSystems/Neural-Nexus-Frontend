@@ -1,14 +1,26 @@
 import React, { useState, useEffect } from 'react';
 import { UserPenIcon } from 'lucide-react';
 import { toast } from 'react-hot-toast';
+import { useNavigate } from 'react-router-dom';
 import { createAvatar, listUserAvatars } from '../services/avatarService';
 import { useAuth } from '../context/AuthContext';
+import {
+  avatarSettingsPath,
+  resolveCreatedAvatar,
+} from './createdAvatarSettings';
 
 const CreateAvatarModal = ({ setShowCreateModal }) => {
   const [error, setError] = useState(null);
   const [newAvatarName, setNewAvatarName] = useState('');
   const [newAvatarDescription, setNewAvatarDescription] = useState('');
-  const { isLoading, setIsLoading, setUserAvatars } = useAuth();
+  const navigate = useNavigate();
+  const {
+    isLoading,
+    setIsLoading,
+    setUserAvatars,
+    userAvatars,
+    setActiveAvatar,
+  } = useAuth();
 
   const handleCreate = async () => {
     if (!newAvatarName.trim()) {
@@ -18,15 +30,16 @@ const CreateAvatarModal = ({ setShowCreateModal }) => {
     setIsLoading(true);
     setError(null);
     try {
-      await createAvatar({
+      const created = await createAvatar({
         name: newAvatarName,
         description: newAvatarDescription,
       });
 
       // Refresh the avatar list so the new avatar appears immediately.
+      let listedAvatars = [];
       try {
-        const avatars = await listUserAvatars();
-        setUserAvatars(avatars ?? []);
+        listedAvatars = (await listUserAvatars()) ?? [];
+        setUserAvatars(listedAvatars);
       } catch (listError) {
         console.error(
           'Avatar created, but refreshing the avatar list failed:',
@@ -34,9 +47,36 @@ const CreateAvatarModal = ({ setShowCreateModal }) => {
         );
         toast.error(listError.message, { duration: 5000 });
       }
+
+      const createdAvatar = resolveCreatedAvatar({
+        created,
+        listedAvatars,
+        previousAvatars: userAvatars,
+        createdName: newAvatarName,
+      });
       setShowCreateModal(false);
       setNewAvatarName('');
       setNewAvatarDescription('');
+
+      const settingsPath = avatarSettingsPath(createdAvatar);
+      if (settingsPath) {
+        // A listed record carries ownership metadata. Setting that before
+        // navigating keeps ChatArea on settings instead of bouncing to chat
+        // while it re-resolves the URL.
+        if (createdAvatar?.metadata?.user_id) {
+          setActiveAvatar(createdAvatar);
+        }
+        try {
+          const createdId =
+            createdAvatar.assistant_id ?? createdAvatar.avatar_id;
+          if (createdId) {
+            localStorage.setItem('last_used_avatar_id', createdId);
+          }
+        } catch {
+          // quota or private mode — navigation does not depend on this
+        }
+        navigate(settingsPath);
+      }
     } catch (createError) {
       const errorMessage = createError.message || 'Failed to create avatar';
       setError(errorMessage);

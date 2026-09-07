@@ -71,7 +71,10 @@ test('signed-in non-personal avatar may dictate but not play cloned audio', () =
 
 test('signed-in user may dictate on an admin character inside /chat', () => {
   assert.equal(canUseAvatarSpeechInput(adminCharacterPublic, otherUser), true);
-  assert.equal(canUseAvatarSpeechPlayback(adminCharacterPublic, otherUser), false);
+  assert.equal(
+    canUseAvatarSpeechPlayback(adminCharacterPublic, otherUser),
+    false
+  );
 });
 
 test('string "false" personal flag does not unlock speech', () => {
@@ -95,7 +98,10 @@ test('administrator-created avatar may speak for that account', () => {
 });
 
 test('other accounts cannot speak an admin character inside /chat', () => {
-  assert.equal(canUseAvatarSpeechPlayback(adminCharacterPublic, otherUser), false);
+  assert.equal(
+    canUseAvatarSpeechPlayback(adminCharacterPublic, otherUser),
+    false
+  );
   assert.equal(canUseAvatarSpeechPlayback(publicListing, otherUser), false);
 });
 
@@ -160,4 +166,49 @@ test("owner's public personal avatar still allows speech", () => {
     metadata: { ...personalOwned.metadata, is_public: true },
   };
   assert.equal(canUseAvatarSpeechPlayback(sharedPersonal, regularUser), true);
+});
+
+test('a voice ElevenLabs has blocked plays for nobody', () => {
+  // Treated as an avatar with no voice audio model, not as a permission
+  // failure: there is nothing to play, so live voice mode replies in text and
+  // the speak button is not offered.
+  const blockedPersonal = {
+    ...personalOwned,
+    metadata: { ...personalOwned.metadata, voice_model_blocked: true },
+  };
+  assert.equal(canUseAvatarSpeechPlayback(blockedPersonal, regularUser), false);
+
+  // Not even for the administrator on an avatar they created.
+  const blockedAdminCharacter = {
+    ...adminCharacter,
+    metadata: { ...adminCharacter.metadata, voice_model_blocked: true },
+  };
+  assert.equal(
+    canUseAvatarSpeechPlayback(blockedAdminCharacter, adminUser),
+    false
+  );
+
+  // Nor to a visitor on the public share link.
+  const blockedShared = {
+    ...personalOwned,
+    metadata: {
+      ...personalOwned.metadata,
+      is_public: true,
+      voice_model_blocked: true,
+    },
+  };
+  assert.equal(
+    canUseAvatarSpeechPlayback(blockedShared, null, { pathname: '/share/a1' }),
+    false
+  );
+});
+
+test('a blocked voice still takes spoken input', () => {
+  // Dictation is unaffected: the reader may still talk to the avatar, they
+  // just get their answer in text.
+  const blockedPersonal = {
+    ...personalOwned,
+    metadata: { ...personalOwned.metadata, voice_model_blocked: true },
+  };
+  assert.equal(canUseAvatarSpeechInput(blockedPersonal, regularUser), true);
 });

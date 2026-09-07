@@ -5,6 +5,7 @@ import {
   resetSuggestionSheetOpenForTests,
   setSuggestionSheetOpen,
   shouldAutoOpenSuggestionSheet,
+  shouldCloseSuggestionSheetOnOutsideClick,
   shouldCollapseSuggestionSheetAfterSend,
   shouldLoadConversationSuggestions,
   shouldShowConversationSuggestions,
@@ -155,4 +156,24 @@ test('opening suggested replies in one mode is still open in the other', () => {
   stopVoice();
   stopMessage();
   resetSuggestionSheetOpenForTests();
+});
+
+test('a click on the sheet itself does not close suggested replies', () => {
+  assert.equal(
+    shouldCloseSuggestionSheetOnOutsideClick({
+      closest: (selector) =>
+        selector === '.conversation-suggestions' ? {} : null,
+    }),
+    false
+  );
+});
+
+test('a click elsewhere closes suggested replies', () => {
+  assert.equal(
+    shouldCloseSuggestionSheetOnOutsideClick({
+      closest: () => null,
+    }),
+    true
+  );
+  assert.equal(shouldCloseSuggestionSheetOnOutsideClick(null), true);
 });

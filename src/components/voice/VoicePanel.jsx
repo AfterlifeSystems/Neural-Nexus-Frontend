@@ -9,6 +9,7 @@ import {
   Loader2,
   Mic,
   RefreshCw,
+  ShieldAlert,
   ShieldCheck,
   Square,
   Upload,
@@ -30,6 +31,7 @@ import {
   recordOneTurn,
 } from '../../services/voiceSession';
 import { showRequestFailureToast } from '../requestFailureToast';
+import { showVoiceReadyToast } from '../showVoiceReadyToast';
 
 // About two minutes read at a conversational pace, with the calibration
 // sentence the diarizer's reference clip is compared against placed first.
@@ -139,6 +141,9 @@ const VoicePanel = ({
     refresh();
   }, [voiceJobs, refresh]);
 
+  // No toast for a blocked voice. The badge and the sentence below it state it
+  // permanently and in the one place the owner can act on it; a notice that has
+  // to be dismissed says the same thing about a fact that will not change.
   useEffect(() => () => recordingRef.current?.cancel(), []);
 
   /**
@@ -165,10 +170,12 @@ const VoicePanel = ({
     const referenceNote = becameReference
       ? ' and is now the reference audio'
       : '';
-    if (latest?.instant_voice_id) {
-      toast.success(
-        `${label} added${referenceNote}. Voice model ready — ${avatarName ?? 'the avatar'} can speak.`
-      );
+    if (latest?.instant_voice_id && !latest?.instant_voice_blocked) {
+      showVoiceReadyToast({
+        assistantId,
+        avatarName,
+        detail: `${label} added${referenceNote}.`,
+      });
       return;
     }
     const remaining = Math.max(0, Math.ceil(minimum - collectedNow));
@@ -190,8 +197,12 @@ const VoicePanel = ({
           ? `${added}s of ${avatarName ?? 'the avatar'} speaking added.`
           : `${description} added.`
       );
-      if (response?.instant_voice_id && !status?.instant_voice_id) {
-        toast.success('Voice model ready — the avatar can speak now.');
+      if (
+        response?.instant_voice_id &&
+        !response?.instant_voice_blocked &&
+        !status?.instant_voice_id
+      ) {
+        showVoiceReadyToast({ assistantId, avatarName });
       }
       // The first take also becomes the diarizer's reference clip; the corpus
       // endpoint stores that itself. Later takes only grow the corpus.
@@ -413,7 +424,13 @@ const VoicePanel = ({
   const instantMinimum = status?.instant_minimum_seconds ?? 60;
   const professionalMinimum = status?.professional_minimum_seconds ?? 1800;
   const professionalState = status?.professional_state ?? 'not_started';
-  const hasVoiceModel = Boolean(status?.instant_voice_id);
+  // A voice ElevenLabs has banned still has an id and still has its seconds of
+  // speech, so neither is evidence that the avatar can speak. Reporting the
+  // model as available on the strength of the id alone is what let this panel
+  // read "Voice model trained and available" while every speak attempt was
+  // refused by the vendor.
+  const voiceModelBlocked = Boolean(status?.instant_voice_blocked);
+  const hasVoiceModel = Boolean(status?.instant_voice_id) && !voiceModelBlocked;
   const barMax = isPersonalAvatar ? professionalMinimum : instantMinimum;
   // The voice model is trained once, at the minimum, and never rebuilt; the
   // personal avatar keeps collecting only toward the professional voice model.
@@ -462,7 +479,18 @@ const VoicePanel = ({
           Voice
         </h4>
         <div className="flex items-center gap-2 text-xs">
-          {hasVoiceModel ? (
+          {voiceModelBlocked ? (
+            <span
+              className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-red-500/20 border border-red-500/30 text-red-300"
+              title={
+                status?.instant_voice_blocked_reason ??
+                'ElevenLabs has blocked this voice; it cannot be used.'
+              }
+            >
+              <ShieldAlert className="w-3.5 h-3.5" aria-hidden="true" />
+              Voice model blocked by ElevenLabs
+            </span>
+          ) : hasVoiceModel ? (
             <span
               className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-emerald-500/20 border border-emerald-500/30 text-emerald-300"
               title="Text-to-speech replies use this voice. The model is trained once and never rebuilt."
@@ -887,6 +915,12 @@ const VoicePanel = ({
             : ''}
           . It takes three to six hours; the avatar keeps using the voice audio
           model until it finishes.
+        </p>
+      )}
+      {voiceModelBlocked && (
+        <p className="mt-3 text-red-300 text-xs">
+          {status?.instant_voice_blocked_reason ??
+            'ElevenLabs has blocked this voice model for violating its terms of service.'}
         </p>
       )}
       {status?.detail?.instant_error && (

@@ -14,6 +14,7 @@ import {
   getSuggestionSheetOpen,
   setSuggestionSheetOpen,
   shouldAutoOpenSuggestionSheet,
+  shouldCloseSuggestionSheetOnOutsideClick,
   shouldCollapseSuggestionSheetAfterSend,
   shouldLoadConversationSuggestions,
   shouldShowConversationSuggestions,
@@ -77,11 +78,14 @@ const ConversationSuggestions = ({ enabled = true, onSend, overlay = false }) =>
   }`;
 
   const loadSuggestions = useCallback(
-    async ({ exclude = [] } = {}) => {
+    async ({ exclude = [], generate = false } = {}) => {
       const thisGeneration = ++requestGeneration.current;
       setIsLoading(true);
       try {
-        const next = await fetchConversationSuggestions?.({ exclude });
+        const next = await fetchConversationSuggestions?.({
+          exclude,
+          generate,
+        });
         if (requestGeneration.current !== thisGeneration) return;
         setSuggestions(Array.isArray(next) ? next : []);
       } finally {
@@ -134,9 +138,16 @@ const ConversationSuggestions = ({ enabled = true, onSend, overlay = false }) =>
     const handleEscape = (keyEvent) => {
       if (keyEvent.key === 'Escape') setSuggestionSheetOpen(false);
     };
+    const handlePointerDown = (pointerEvent) => {
+      if (shouldCloseSuggestionSheetOnOutsideClick(pointerEvent.target)) {
+        setSuggestionSheetOpen(false);
+      }
+    };
     document.addEventListener('keydown', handleEscape);
+    document.addEventListener('pointerdown', handlePointerDown);
     return () => {
       document.removeEventListener('keydown', handleEscape);
+      document.removeEventListener('pointerdown', handlePointerDown);
     };
   }, [isOpen]);
 
@@ -168,7 +179,7 @@ const ConversationSuggestions = ({ enabled = true, onSend, overlay = false }) =>
     event.preventDefault();
     event.stopPropagation();
     setSuggestionSheetOpen(true);
-    loadSuggestions({ exclude: suggestions });
+    loadSuggestions({ exclude: suggestions, generate: true });
   };
 
   const sheetNoun = lastAvatarMessage

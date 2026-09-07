@@ -6,6 +6,8 @@
 // with one rotating sentence is what made converting 1/1 look like it had
 // cancelled the portraits and loops.
 
+import { preferEmotionMediaReuploadDirection } from './emotionMediaFailures.js';
+
 export const PORTRAIT_STILL_TOTAL = 6;
 export const PORTRAIT_LOOP_TOTAL = 7;
 
@@ -162,6 +164,13 @@ export const applyMediaProgress = (steps, progressEvent) => {
     stage === 'instant_clone_created' ||
     stage === 'converting_complete';
   activateStep(steps, stepId, { current, total });
+  if (stage === 'emotion_media_complete' && failedEmotionMedia(progressEvent)) {
+    // Refused portraits or videos are not done ones: the step they belong to
+    // shows the count that actually rendered and the reason the rest did
+    // not, instead of ticking seven moderated videos off as complete.
+    markEmotionMediaFailures(steps, progressEvent);
+    return;
+  }
   if (closesStage) {
     const step = steps.find((candidate) => candidate.id === stepId);
     if (step && step.state !== 'error') {
@@ -171,6 +180,47 @@ export const applyMediaProgress = (steps, progressEvent) => {
   } else {
     maybeCompleteCaughtUp(steps, stepId);
   }
+};
+
+const failedEmotionMedia = (progressEvent) =>
+  Number(progressEvent?.failures ?? 0) > 0 ||
+  Number(progressEvent?.failed_stills ?? 0) > 0 ||
+  Number(progressEvent?.failed_loops ?? 0) > 0;
+
+/**
+ * Apply an `emotion_media_complete` frame that carries failures: each affected
+ * step goes to `error` at (total − failed)/total with the server's sentence
+ * as `detail`; an unaffected step finishes normally.
+ *
+ * @param {Array} steps
+ * @param {Object} progressEvent
+ */
+const markEmotionMediaFailures = (steps, progressEvent) => {
+  const failedStills = Number(progressEvent.failed_stills ?? 0);
+  const failedLoops = Number(
+    progressEvent.failed_loops ??
+      (progressEvent.failed_stills == null ? progressEvent.failures : 0) ??
+      0
+  );
+  const message = preferEmotionMediaReuploadDirection(
+    progressEvent.failure_message
+  );
+  const apply = (stepId, failed) => {
+    const step = steps.find((candidate) => candidate.id === stepId);
+    if (!step) return;
+    const total = step.total ?? step.expectedTotal ?? 0;
+    if (failed > 0) {
+      step.state = 'error';
+      step.total = total;
+      step.current = Math.max(0, total - failed);
+      if (message) step.detail = message;
+    } else if (step.state !== 'error') {
+      step.state = 'done';
+      fillCount(step);
+    }
+  };
+  apply('stills', failedStills);
+  apply('loops', failedLoops);
 };
 
 /**

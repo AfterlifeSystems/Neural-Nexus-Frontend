@@ -1,8 +1,8 @@
 // src/components/MessageList.jsx
 import React, { useEffect } from 'react';
 import { User } from 'lucide-react';
-import SecureImage from './SecureImage';
 import InterruptPanel from './InterruptPanel';
+import MessageMedia from './MessageMedia';
 import { useLocation } from 'react-router-dom';
 import { useMedia } from '../context/MediaContext';
 import { useAuth } from '../context/AuthContext';
@@ -12,6 +12,7 @@ import BillingRefusalNotice, {
   BILLING_REFUSAL_MESSAGE_TYPE,
 } from './BillingRefusalNotice';
 import useEmotionMedia, { stillFor } from '../hooks/useEmotionMedia';
+import useAvatarFaceSource from '../hooks/useAvatarFaceSource';
 import useMessageActions from '../hooks/useMessageActions';
 import MessageActionBar from './media/MessageActionBar';
 import { isConversationSuggestionList } from '../services/conversationSuggestions';
@@ -19,7 +20,7 @@ import { messageKeyOf } from '../services/messageKey';
 import AmbientNotificationCard from './AmbientNotificationCard';
 import CreatedArtifacts from './CreatedArtifacts';
 import SpeakerScript from './SpeakerScript';
-import { hasSpeakerScript } from './speakerScript';
+import { editableScriptText, hasSpeakerScript } from './speakerScript';
 import {
   createdArtifactsOf,
   speakableReplyText,
@@ -34,14 +35,22 @@ import {
  * new avatar has none until one is uploaded — so the placeholder is the normal
  * case rather than an error state.
  *
- * For the avatar's replies the face follows the reply: when the reply's
- * classified emotion is not neutral and the avatar has a generated still for
- * that emotion, that still is shown in place of the portrait, so a joyful
- * answer is delivered by a joyful face.
+ * For the avatar's replies the face follows the reply: when generated faces
+ * are on for this avatar, the reply's classified emotion is not neutral, and
+ * a still exists for that emotion, that still is shown in place of the
+ * portrait, so a joyful answer is delivered by a joyful face.
  */
-export const MessageAuthorIcon = ({ portrait, name, emotion, emotionMedia }) => {
+export const MessageAuthorIcon = ({
+  portrait,
+  name,
+  emotion,
+  emotionMedia,
+  showGenerated = true,
+}) => {
   const emotionStill =
-    emotion && emotion !== 'neutral' ? stillFor(emotionMedia, emotion) : null;
+    showGenerated && emotion && emotion !== 'neutral'
+      ? stillFor(emotionMedia, emotion)
+      : null;
   const face = emotionStill ?? portrait;
   return (
     <div
@@ -105,6 +114,7 @@ const MessageList = ({
   const { manifest: emotionMedia } = useEmotionMedia(resolvedAssistantId, {
     asAnonymousIdentity: readerIsAnonymous,
   });
+  const { showGenerated } = useAvatarFaceSource(resolvedAssistantId);
 
   const {
     speech,
@@ -224,6 +234,7 @@ const MessageList = ({
                     name={isFromUser ? 'You' : (avatarName ?? 'Avatar')}
                     emotion={isFromAvatar ? msg.sentiment?.base_emotion : null}
                     emotionMedia={isFromAvatar ? emotionMedia : null}
+                    showGenerated={showGenerated}
                   />
                 )}
                 <div
@@ -270,12 +281,17 @@ const MessageList = ({
                           <div className="flex items-center gap-2">
                             <button
                               type="button"
-                              disabled={pendingSendCount > 0 || !editDraft.trim()}
+                              disabled={
+                                pendingSendCount > 0 ||
+                                !String(editDraft ?? '').trim()
+                              }
                               onClick={() => {
-                                resendFromUserMessage?.(messageKey, editDraft);
+                                const words = String(editDraft ?? '').trim();
+                                if (!words) return;
+                                resendFromUserMessage?.(messageKey, words);
                                 setEditingKey(null);
                               }}
-                              className="px-2 py-1 rounded-md bg-amber-400/15 text-amber-300 text-xs border border-amber-400/30"
+                              className="px-2 py-1 rounded-md bg-amber-400/15 text-amber-300 text-xs border border-amber-400/30 disabled:opacity-40"
                             >
                               Accept
                             </button>
@@ -319,42 +335,7 @@ const MessageList = ({
                         <CreatedArtifacts artifacts={createdArtifactsOf(msg)} />
                       )}
 
-                      {msg.media?.length > 0 &&
-                        msg.media.map((media, index) => (
-                          <div
-                            key={media.id || media.filename || index}
-                            className="mt-2"
-                          >
-                            {media.type === 'image' ||
-                            media.content_type?.startsWith('image/') ? (
-                              <SecureImage
-                                mediaUrl={media.url}
-                                filename={media.filename || media.name}
-                              />
-                            ) : media.type === 'audio' ||
-                              media.content_type?.startsWith('audio/') ? (
-                              <audio controls src={media.url} />
-                            ) : media.type === 'video' ||
-                              media.content_type?.startsWith('video/') ? (
-                              <video
-                                controls
-                                className="max-w-full max-h-64"
-                                src={media.url}
-                              />
-                            ) : (
-                              <a
-                                href={media.url}
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                className="underline text-amber-300"
-                              >
-                                {media.filename ||
-                                  media.name ||
-                                  'Download file'}
-                              </a>
-                            )}
-                          </div>
-                        ))}
+                      <MessageMedia media={msg.media} />
 
                       <MessageActionBar
                         message={msg}
@@ -408,9 +389,14 @@ const MessageList = ({
                         }}
                         onStartEdit={() => {
                           setEditingKey(messageKey);
-                          setEditDraft(msg.content);
+                          setEditDraft(editableScriptText(msg));
                         }}
-                        onRetry={(key) => resendFromUserMessage?.(key)}
+                        onRetry={(key) =>
+                          resendFromUserMessage?.(
+                            key,
+                            editableScriptText(msg)
+                          )
+                        }
                       />
                     </>
                   )}

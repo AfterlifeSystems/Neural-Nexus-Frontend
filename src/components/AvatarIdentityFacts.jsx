@@ -31,6 +31,7 @@ import {
   listAvatarIdentityFacts,
   updateAvatarIdentityFact,
 } from '../services/avatarService';
+import { hostnameOf } from './research/researchProgress';
 
 // How each group is named and coloured. The chip says where the fact came
 // from; the description under a row expands on that in a sentence.
@@ -53,6 +54,12 @@ export const FACT_GROUP_PRESENTATION = {
     badgeClassName: 'bg-violet-500/20 text-violet-200 border-violet-400/40',
     description: 'Derived by analysing the uploads',
   },
+  research: {
+    filterLabel: 'From research',
+    chip: 'Researched',
+    badgeClassName: 'bg-cyan-500/20 text-cyan-200 border-cyan-400/40',
+    description: 'Verified on the web by deep research',
+  },
   memory: {
     filterLabel: 'Memories',
     chip: 'Memory',
@@ -61,7 +68,13 @@ export const FACT_GROUP_PRESENTATION = {
   },
 };
 
-export const FACT_GROUP_ORDER = ['conversation', 'media', 'analysis', 'memory'];
+export const FACT_GROUP_ORDER = [
+  'conversation',
+  'media',
+  'research',
+  'analysis',
+  'memory',
+];
 
 /**
  * A stable identity for one row: the store namespace and key together name
@@ -97,6 +110,7 @@ export const filterFacts = (facts, groupFilter, searchQuery) => {
 
 const describeFeature = (feature) =>
   feature ? feature.replace(/_/g, ' ') : null;
+
 
 /**
  * One learned fact, with its group chip, expandable context, and the edit and
@@ -178,7 +192,32 @@ const IdentityFactRow = ({ fact, onDelete, onSave }) => {
                 {fact.sourceLabel}
               </span>
             )}
+            {fact.verificationStatus && (
+              <span className="text-white/40 text-[11px]">
+                {fact.verificationStatus === 'consistent'
+                  ? 'agreed across sources'
+                  : fact.verificationStatus === 'unverified'
+                    ? 'one source only'
+                    : fact.verificationStatus}
+              </span>
+            )}
           </div>
+          {fact.sourceUrls?.length > 0 && (
+            <div className="flex flex-wrap gap-2 mb-1">
+              {fact.sourceUrls.map((url) => (
+                <a
+                  key={url}
+                  href={url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  title={url}
+                  className="text-[11px] underline text-amber-300/80 truncate max-w-[14rem]"
+                >
+                  {hostnameOf(url)}
+                </a>
+              ))}
+            </div>
+          )}
 
           {isEditing ? (
             <div className="space-y-2">
@@ -299,7 +338,15 @@ const IdentityFactRow = ({ fact, onDelete, onSave }) => {
  * @param {string} props.assistantId The avatar.
  * @param {string} [props.avatarName] Shown in the heading and the empty state.
  */
-const AvatarIdentityFacts = ({ assistantId, avatarName }) => {
+/**
+ * @param {Object} props
+ * @param {string} props.assistantId The avatar.
+ * @param {string} [props.avatarName] The avatar's name, for the heading.
+ * @param {number|string} [props.reloadToken] Changes when something outside
+ *   this card has written new facts — deep research applying what the sources
+ *   agreed on — so the list re-reads without waiting for a remount.
+ */
+const AvatarIdentityFacts = ({ assistantId, avatarName, reloadToken }) => {
   const [facts, setFacts] = useState([]);
   const [counts, setCounts] = useState({});
   const [isLoading, setIsLoading] = useState(false);
@@ -330,7 +377,7 @@ const AvatarIdentityFacts = ({ assistantId, avatarName }) => {
 
   useEffect(() => {
     load();
-  }, [load]);
+  }, [load, reloadToken]);
 
   // A filter whose last row was forgotten falls back to everything rather
   // than an empty list with no explanation.

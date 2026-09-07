@@ -1,8 +1,9 @@
 // src/config/voiceSpeakerLabels.js
 //
-// Whether "who is speaking" (speaker-labelled live-voice turns) starts on for
-// a personal avatar before the person has ever toggled it. The person's own
-// choice, kept in the voice-mode preferences, wins afterwards.
+// Whether live-voice turns on a personal avatar are labelled by speaker (the
+// owner by voice, others as Speaker N). There is no control for this in voice
+// mode: telling the owner from other people in the room is how the avatar is
+// meant to hear, not a preference to weigh up, so the deployment decides.
 
 /**
  * @returns {boolean}

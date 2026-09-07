@@ -21,7 +21,12 @@ import {
 } from './ui/idleLoopSeam';
 import {
   galleryIndexFromScroll,
+  isCreateCardAtCenter,
+  nearestCardOffset,
   nearestGalleryScroll,
+  scaleGalleryScroll,
+  shouldIgnoreGalleryWindowPointer,
+  visualCardIndexAtPointer,
 } from './galleryScrollIndex';
 function debounce(func, wait) {
   let timeout;
@@ -547,6 +552,7 @@ class App {
     });
     this.gl = this.renderer.gl;
     this.gl.clearColor(0, 0, 0, 0);
+    this.gl.canvas.style.display = 'block';
     this.container.appendChild(this.gl.canvas);
   }
   createCamera() {
@@ -594,13 +600,21 @@ class App {
     });
   }
   onTouchDown(e) {
+    if (shouldIgnoreGalleryWindowPointer(e.target)) return;
     this.isDown = true;
+    this.isExternalControl = false;
+    this.dragMoved = false;
     this.scroll.position = this.scroll.current;
     this.start = e.touches ? e.touches[0].clientX : e.clientX;
+    this.pointerStartY = e.touches ? e.touches[0].clientY : e.clientY;
   }
   onTouchMove(e) {
     if (!this.isDown) return;
     const x = e.touches ? e.touches[0].clientX : e.clientX;
+    const y = e.touches ? e.touches[0].clientY : e.clientY;
+    if (Math.hypot(x - this.start, y - this.pointerStartY) > 6) {
+      this.dragMoved = true;
+    }
     const distance = (this.start - x) * (this.scrollSpeed * 0.025);
     this.scroll.target = this.scroll.position + distance;
   }
@@ -609,27 +623,40 @@ class App {
     this.onCheck();
   }
   onWheel(e) {
+    if (shouldIgnoreGalleryWindowPointer(e.target)) return;
     const delta = e.deltaY || e.wheelDelta || e.detail;
     this.scroll.target +=
       (delta > 0 ? this.scrollSpeed : -this.scrollSpeed) * 0.2;
     this.onCheckDebounce();
   }
   onClick(e) {
-    if (!this.medias || !this.medias[0]) return;
+    if (this.dragMoved) {
+      this.dragMoved = false;
+      return;
+    }
+    if (!this.medias || !this.medias[0] || !this.viewport?.width) return;
     const rect = this.gl.canvas.getBoundingClientRect();
-    const x = e.clientX - rect.left;
-    const centerX = rect.width / 2;
-    // Check if clicked on the center card (current card)
-    const cardWidth = this.medias[0].width * (rect.width / this.viewport.width);
-    const cardLeft = centerX - cardWidth / 2;
-    const cardRight = centerX + cardWidth / 2;
-    if (x >= cardLeft && x <= cardRight && this.onCardClick) {
-      // Get the current item data
-      const currentItemIndex = this.getCurrentItemIndex();
-      const itemData = this.originalItems[currentItemIndex];
-      if (itemData) {
-        this.onCardClick(itemData);
-      }
+    if (!rect.width) return;
+    const pointerWorldX =
+      ((e.clientX - rect.left) / rect.width - 0.5) * this.viewport.width;
+    const hitIndex = visualCardIndexAtPointer(
+      pointerWorldX,
+      this.medias.map((media) => ({
+        x: media.plane.position.x,
+        visualWidth: media.plane.scale.x,
+        index: media.index,
+      }))
+    );
+    if (hitIndex < 0) return;
+    const currentItemIndex = this.getCurrentItemIndex();
+    if (hitIndex !== currentItemIndex) {
+      this.setCurrentIndex(hitIndex, true);
+      this.onIndexChange?.(hitIndex);
+      return;
+    }
+    const itemData = this.originalItems[hitIndex];
+    if (itemData && this.onCardClick) {
+      this.onCardClick(itemData);
     }
   }
   onCheck() {
@@ -684,10 +711,20 @@ class App {
     this.currentIndex = ((index % length) + length) % length;
   }
   onResize() {
-    this.screen = {
+    const nextScreen = {
       width: this.container.clientWidth,
       height: this.container.clientHeight,
     };
+    if (
+      this.screen &&
+      this.medias &&
+      this.screen.width === nextScreen.width &&
+      this.screen.height === nextScreen.height
+    ) {
+      return;
+    }
+    const previousWidth = this.medias?.[0]?.width ?? 0;
+    this.screen = nextScreen;
     this.renderer.setSize(this.screen.width, this.screen.height);
     this.camera.perspective({
       aspect: this.screen.width / this.screen.height,
@@ -700,6 +737,47 @@ class App {
       this.medias.forEach((media) =>
         media.onResize({ screen: this.screen, viewport: this.viewport })
       );
+      const nextWidth = this.medias[0]?.width ?? 0;
+      if (previousWidth && nextWidth && previousWidth !== nextWidth) {
+        this.scroll.current = scaleGalleryScroll(
+          this.scroll.current,
+          previousWidth,
+          nextWidth
+        );
+        this.scroll.target = scaleGalleryScroll(
+          this.scroll.target,
+          previousWidth,
+          nextWidth
+        );
+        this.scroll.last = scaleGalleryScroll(
+          this.scroll.last,
+          previousWidth,
+          nextWidth
+        );
+        if (typeof this.scroll.position === 'number') {
+          this.scroll.position = scaleGalleryScroll(
+            this.scroll.position,
+            previousWidth,
+            nextWidth
+          );
+        }
+        const extraScale = nextWidth / previousWidth;
+        this.medias.forEach((media) => {
+          media.extra *= extraScale;
+        });
+      }
+      if (nextWidth && this.originalItems?.length && !this.isDown) {
+        this.scroll.target = nearestGalleryScroll(
+          this.scroll.target,
+          this.currentIndex,
+          nextWidth,
+          this.originalItems.length
+        );
+        if (!this.isExternalControl) {
+          this.scroll.current = this.scroll.target;
+          this.scroll.last = this.scroll.target;
+        }
+      }
     }
   }
   /**
@@ -718,9 +796,22 @@ class App {
     if (!createMedia) return;
     const xInPixels =
       (createMedia.plane.position.x / this.viewport.width) * this.screen.width;
+    const frontXInPixels =
+      (nearestCardOffset(
+        this.medias
+          .filter((media) => media.cardType !== 'create')
+          .map((media) => media.plane.position.x)
+      ) /
+        this.viewport.width) *
+      this.screen.width;
     this.onCreateCardMove({
       x: xInPixels,
+      frontX: frontXInPixels,
       visible: !(createMedia.isBefore || createMedia.isAfter),
+      isFront: isCreateCardAtCenter(
+        createMedia.plane.position.x,
+        createMedia.width || createMedia.plane.scale.x
+      ),
     });
   }
   update() {
@@ -753,6 +844,10 @@ class App {
     this.boundOnTouchUp = this.onTouchUp.bind(this);
     this.boundOnClick = this.onClick.bind(this);
     window.addEventListener('resize', this.boundOnResize);
+    if (typeof ResizeObserver === 'function') {
+      this.resizeObserver = new ResizeObserver(this.boundOnResize);
+      this.resizeObserver.observe(this.container);
+    }
     window.addEventListener('mousewheel', this.boundOnWheel);
     window.addEventListener('wheel', this.boundOnWheel);
     window.addEventListener('mousedown', this.boundOnTouchDown);
@@ -774,6 +869,8 @@ class App {
       });
     }
     window.removeEventListener('resize', this.boundOnResize);
+    this.resizeObserver?.disconnect();
+    this.resizeObserver = null;
     window.removeEventListener('mousewheel', this.boundOnWheel);
     window.removeEventListener('wheel', this.boundOnWheel);
     window.removeEventListener('mousedown', this.boundOnTouchDown);

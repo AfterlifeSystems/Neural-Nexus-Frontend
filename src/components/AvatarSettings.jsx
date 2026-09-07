@@ -61,6 +61,7 @@ import {
 import ConnectionsSection from './connections/ConnectionsSection';
 import EmotionMediaStatus from './media/EmotionMediaStatus';
 import UploadProcessPanel from './media/UploadProcessPanel';
+import ResearchPanel from './research/ResearchPanel';
 import VoicePanel from './voice/VoicePanel';
 import useEmotionMedia, { forgetEmotionMedia } from '../hooks/useEmotionMedia';
 import { subscribeAvatarPortraitChanged } from '../services/avatarPortraitEvents';
@@ -92,6 +93,8 @@ import AvatarDocumentRow, {
   parseDocumentSourceUrl,
 } from './AvatarDocumentRow';
 import { useNavigate, useSearchParams } from 'react-router-dom';
+import Switch from './ui/Switch';
+import useAvatarFaceSource from '../hooks/useAvatarFaceSource';
 
 // Social Media Platform Configuration
 const SOCIAL_PLATFORMS = [
@@ -164,6 +167,7 @@ const AvatarSettings = ({ avatarId, onPortraitChanged }) => {
   const [voiceStatusVersion, setVoiceStatusVersion] = useState(0);
   const urlInputRef = useRef(null);
   const portraitUrlInputRef = useRef(null);
+  const openPortraitPickerRef = useRef(null);
   const uploadSectionRef = useRef(null);
   const startSectionUploadRef = useRef(null);
   // Source documents already uploaded to this avatar, from
@@ -178,6 +182,9 @@ const AvatarSettings = ({ avatarId, onPortraitChanged }) => {
   const [documentSearchQuery, setDocumentSearchQuery] = useState('');
   const [documentKindFilter, setDocumentKindFilter] = useState('all');
   const [isDataUploadedOpen, setIsDataUploadedOpen] = useState(true);
+  // Bumped when deep research writes new facts, so the card listing what
+  // the avatar has learned re-reads the list without a remount.
+  const [learnedFactsReloadToken, setLearnedFactsReloadToken] = useState(0);
   // Why the file list is empty, when it is empty because something FAILED
   // rather than because the avatar genuinely has no files. Without this the two
   // states render identically, and "No files attached to this avatar" is shown
@@ -197,6 +204,7 @@ const AvatarSettings = ({ avatarId, onPortraitChanged }) => {
   // listed under Data Uploaded beside the uploads, marked as generated.
   const { manifest: emotionManifest, refresh: refreshEmotionManifest } =
     useEmotionMedia(assistantId);
+  const { showGenerated, setShowGenerated } = useAvatarFaceSource(assistantId);
 
   // The avatar's portrait from GET /avatar_reference_image (data URI or URL).
   // Seeded from what this browser already holds for the avatar, so the screen
@@ -1412,8 +1420,9 @@ const AvatarSettings = ({ avatarId, onPortraitChanged }) => {
               // with two independent progress cards to match.
               noDragEventsBubbling
             >
-              {({ getRootProps, getInputProps, open }) =>
-                avatarIcon ? (
+              {({ getRootProps, getInputProps, open }) => {
+                openPortraitPickerRef.current = open;
+                return avatarIcon ? (
                   <div
                     {...getRootProps()}
                     onPaste={handlePortraitPaste}
@@ -1444,8 +1453,8 @@ const AvatarSettings = ({ avatarId, onPortraitChanged }) => {
                       Add a portrait
                     </span>
                   </div>
-                )
-              }
+                );
+              }}
             </Dropzone>
             <p className="text-xs text-white/40 text-center w-32">
               {avatarIcon ? 'Click to replace' : 'Drop, click, or paste a URL'}
@@ -1453,6 +1462,7 @@ const AvatarSettings = ({ avatarId, onPortraitChanged }) => {
             <EmotionMediaStatus
               assistantId={assistantId}
               hasPortrait={Boolean(avatarIcon)}
+              onReuploadImage={() => openPortraitPickerRef.current?.()}
             />
           </div>
           {/* Name and Description */}
@@ -1656,6 +1666,33 @@ const AvatarSettings = ({ avatarId, onPortraitChanged }) => {
           A direct image link becomes this avatar's reference image — the
           portrait used for emotion stills and idle loops.
         </p>
+        <div className="mt-4 pt-4 border-t border-white/10">
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              onClick={() => setShowGenerated(false)}
+              className={`text-xs font-medium transition-colors ${
+                showGenerated ? 'text-white/40 hover:text-white/60' : 'text-white/70'
+              }`}
+            >
+              Original reference image
+            </button>
+            <Switch
+              checked={showGenerated}
+              onChange={setShowGenerated}
+              label="Use generated videos"
+            />
+            <button
+              type="button"
+              onClick={() => setShowGenerated(true)}
+              className={`text-xs font-medium transition-colors ${
+                showGenerated ? 'text-white/70' : 'text-white/40 hover:text-white/60'
+              }`}
+            >
+              Use generated videos
+            </button>
+          </div>
+        </div>
         {portraitJobs.length > 0 && (
           <div className="mt-3 space-y-3">
             {portraitJobs.map((job) => (
@@ -1857,6 +1894,17 @@ const AvatarSettings = ({ avatarId, onPortraitChanged }) => {
             ))}
           </div>
         )}
+        {/* The other way to feed this avatar: research the subject on the web
+            and verify every claim across sources. Uploaded material and
+            researched material land in the same identity store, which is why
+            the control lives in this section. */}
+        <ResearchPanel
+          assistantId={assistantId}
+          avatarName={activeAvatar?.name}
+          onFactsApplied={() =>
+            setLearnedFactsReloadToken((previous) => previous + 1)
+          }
+        />
       </div>
       {/* Sharing. Publishing is for your own likeness, so this is the personal
           avatar's control — except for the administrator, who may publish any
@@ -1875,6 +1923,7 @@ const AvatarSettings = ({ avatarId, onPortraitChanged }) => {
       <AvatarIdentityFacts
         assistantId={assistantId}
         avatarName={activeAvatar?.name}
+        reloadToken={learnedFactsReloadToken}
       />
 
       {/* Documents Section */}

@@ -8,6 +8,7 @@
 import { toast } from 'react-hot-toast';
 import { streamMediaJobProgress } from './avatarService';
 import MediaProcessToast from '../components/media/MediaProcessToast';
+import { showVoiceReadyToast } from '../components/showVoiceReadyToast';
 import {
   applyMediaProgress,
   finalizePipelineSteps,
@@ -141,12 +142,14 @@ const kindFromDescription = (description) => {
  * @param {string} description What is being processed, for the toast text.
  * @param {Object} [options]
  * @param {Function} [options.onFinished] Called with `{ ok, error }` when the job ends.
+ * @param {string} [options.assistantId] The avatar; used when a voice model is ready.
+ * @param {string} [options.avatarName] For the voice-ready sentence.
  * @returns {Promise<boolean>} Whether the job finished without an error.
  */
 export const followMediaJobWithToast = async (
   jobId,
   description,
-  { onFinished } = {}
+  { onFinished, assistantId, avatarName } = {}
 ) => {
   if (!jobId || followedJobIds.has(jobId)) return false;
   followedJobIds.add(jobId);
@@ -159,9 +162,19 @@ export const followMediaJobWithToast = async (
   });
   processToast.applyProgress({ stage: 'upload', current: 1, total: 1 });
   let jobFailure = null;
+  let announcedVoiceReady = false;
   try {
     await streamMediaJobProgress(jobId, (progressEvent) => {
       if (progressEvent.type === 'media_progress') {
+        const stage = progressEvent.stage ?? progressEvent.type;
+        if (
+          stage === 'instant_clone_created' &&
+          assistantId &&
+          !announcedVoiceReady
+        ) {
+          announcedVoiceReady = true;
+          showVoiceReadyToast({ assistantId, avatarName });
+        }
         processToast.applyProgress(progressEvent);
       } else if (progressEvent.type === 'done') {
         jobFailure = progressEvent.error ?? null;

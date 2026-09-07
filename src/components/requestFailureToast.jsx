@@ -52,7 +52,12 @@ export const isBillingRefusal = (requestError) =>
  */
 export function showRequestFailureToast(requestError, options = {}) {
   const { fallbackMessage = 'The request failed.', ...toastOptions } = options;
-  const description = requestError?.message || fallbackMessage;
+  const rawDescription = requestError?.message || fallbackMessage;
+  const description =
+    requestError?.status === 429 &&
+    (/^Request failed \(\d+\)$/.test(rawDescription) || rawDescription === '429')
+      ? 'The avatar is still catching up. Say that again in a moment.'
+      : rawDescription;
 
   if (!isBillingRefusal(requestError)) {
     toast.error(description, toastOptions);

@@ -11,6 +11,8 @@ import {
   collapseFromWindow,
   defaultAssistPosition,
   expandFromPill,
+  hasAssistDragMoved,
+  isAssistDragHandle,
   positionAfterPointerDelta,
 } from './evanAssistGeometry.js';
 
@@ -89,4 +91,36 @@ test('a pointer delta moves the panel by the same amount', () => {
     positionAfterPointerDelta({ x: 10, y: 20 }, { x: 5, y: 5 }, { x: 15, y: 8 }),
     { x: 20, y: 23 }
   );
+});
+
+test('a click stays a click until the pointer moves past the drag threshold', () => {
+  assert.equal(
+    hasAssistDragMoved({ x: 10, y: 10 }, { x: 12, y: 11 }),
+    false
+  );
+  assert.equal(
+    hasAssistDragMoved({ x: 10, y: 10 }, { x: 16, y: 14 }),
+    true
+  );
+});
+
+test('share and close are not drag handles; the marked handle is', () => {
+  const handle = {
+    closest: (selector) =>
+      selector === '[data-evan-assist-drag]' ? handle : null,
+  };
+  const closeButton = {
+    closest: (selector) => {
+      if (selector === '[data-evan-assist-no-drag]') return closeButton;
+      if (selector === '[data-evan-assist-drag]') return handle;
+      return null;
+    },
+  };
+  const composer = {
+    closest: () => null,
+  };
+  assert.equal(isAssistDragHandle(handle), true);
+  assert.equal(isAssistDragHandle(closeButton), false);
+  assert.equal(isAssistDragHandle(composer), false);
+  assert.equal(isAssistDragHandle(null), false);
 });

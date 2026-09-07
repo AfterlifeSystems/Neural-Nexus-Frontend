@@ -114,6 +114,21 @@ export function shouldCollapseSuggestionSheetAfterSend({
   return Boolean(hasHumanTurn) && !hasSpokenAvatarReply;
 }
 
+/**
+ * Whether a pointer on `target` is outside every copy of the sheet.
+ *
+ * Voice mode and message mode each mount one. A click on the visible copy
+ * must not count as outside just because the hidden copy's root does not
+ * contain it.
+ *
+ * @param {EventTarget|null} target The event target.
+ * @returns {boolean}
+ */
+export function shouldCloseSuggestionSheetOnOutsideClick(target) {
+  if (!target || typeof target.closest !== 'function') return true;
+  return !target.closest('.conversation-suggestions');
+}
+
 /** Test helper: put the shared sheet back to collapsed with no listeners. */
 export function resetSuggestionSheetOpenForTests() {
   suggestionSheetOpen = false;
