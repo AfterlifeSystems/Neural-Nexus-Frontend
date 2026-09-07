@@ -54,3 +54,23 @@ export function forgetResearchJob(assistantId) {
     // Nothing to clean up when storage is unavailable.
   }
 }
+
+/**
+ * The research job this avatar is actually running, if any.
+ *
+ * The panel holds the job it started in component state and the browser
+ * remembers one job per avatar. Neither alone is enough: state survives an
+ * avatar switch (and must not be followed under the new avatar), and the
+ * remembered id survives a reload (and must be followed when state is empty).
+ *
+ * @param {Object} parameters
+ * @param {{assistantId: string, id: string}|null} parameters.job The job this panel started.
+ * @param {string} parameters.assistantId The avatar the panel is showing now.
+ * @param {string|null} parameters.rememberedJobId What the browser remembered for that avatar.
+ * @returns {string|null} The job to follow, or null when this avatar has none.
+ */
+export function activeResearchJobIdFor({ job, assistantId, rememberedJobId }) {
+  if (!assistantId) return null;
+  if (job && job.assistantId === assistantId && job.id) return job.id;
+  return rememberedJobId || null;
+}

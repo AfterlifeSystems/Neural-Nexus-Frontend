@@ -1940,6 +1940,9 @@ const AvatarSettings = ({ avatarId, onPortraitChanged }) => {
             researched material land in the same identity store, which is why
             the control lives in this section. */}
         <ResearchPanel
+          // A fresh panel per avatar: research state is about one avatar, and
+          // nothing from the previous one should survive the switch.
+          key={assistantId}
           assistantId={assistantId}
           avatarName={activeAvatar?.name}
           onFactsApplied={() =>

@@ -36,6 +36,7 @@ import {
   hostnameOf,
 } from './researchProgress';
 import {
+  activeResearchJobIdFor,
   forgetResearchJob,
   readRememberedResearchJob,
   rememberResearchJob,
@@ -53,7 +54,11 @@ import {
 const ResearchPanel = ({ assistantId, avatarName, onFactsApplied }) => {
   const [researchHint, setResearchHint] = useState('');
   const [isStarting, setIsStarting] = useState(false);
-  const [jobId, setJobId] = useState(null);
+  // The running job AND the avatar it belongs to. Holding the bare id let a
+  // job started on one avatar survive a switch to another: the panel followed
+  // the old avatar's job under the new avatar's name, and — because following
+  // sets the running flag — refused to start research on the new avatar at all.
+  const [job, setJob] = useState(null);
   const [isRunning, setIsRunning] = useState(false);
   const [progressMessage, setProgressMessage] = useState('');
   const [proposals, setProposals] = useState([]);
@@ -92,8 +97,18 @@ const ResearchPanel = ({ assistantId, avatarName, onFactsApplied }) => {
   // Follow the running job — the one started here, or one still running from
   // before the page reloaded — and reload the review list when it finishes.
   useEffect(() => {
-    const activeJobId = jobId ?? readRememberedResearchJob(assistantId);
-    if (!activeJobId) return undefined;
+    const activeJobId = activeResearchJobIdFor({
+      job,
+      assistantId,
+      rememberedJobId: readRememberedResearchJob(assistantId),
+    });
+    if (!activeJobId) {
+      // No job for THIS avatar. Say so plainly rather than leaving the running
+      // flag set by whichever avatar was open before.
+      setIsRunning(false);
+      setProgressMessage('');
+      return undefined;
+    }
     const controller = new AbortController();
     setIsRunning(true);
     streamResearchProgress(
@@ -101,7 +116,7 @@ const ResearchPanel = ({ assistantId, avatarName, onFactsApplied }) => {
       (event) => {
         if (event.type === 'research_done') {
           setIsRunning(false);
-          setJobId(null);
+          setJob(null);
           forgetResearchJob(assistantId);
           setProgressMessage(describeResearchOutcome(event));
           if (event.result?.applied) factsAppliedRef.current?.();
@@ -121,7 +136,7 @@ const ResearchPanel = ({ assistantId, avatarName, onFactsApplied }) => {
       );
     });
     return () => controller.abort();
-  }, [assistantId, jobId, loadProposals]);
+  }, [assistantId, job, loadProposals]);
 
   const handleStartResearch = async () => {
     if (isStarting || isRunning) return;
@@ -133,7 +148,7 @@ const ResearchPanel = ({ assistantId, avatarName, onFactsApplied }) => {
       if (started?.job_id) {
         rememberResearchJob(assistantId, started.job_id);
         setProgressMessage('Research started.');
-        setJobId(started.job_id);
+        setJob({ assistantId, id: started.job_id });
       }
     } catch (researchError) {
       toast.error(researchError?.message || 'Could not start the research.');
@@ -143,7 +158,11 @@ const ResearchPanel = ({ assistantId, avatarName, onFactsApplied }) => {
   };
 
   const handleCancelResearch = async () => {
-    const activeJobId = jobId ?? readRememberedResearchJob(assistantId);
+    const activeJobId = activeResearchJobIdFor({
+      job,
+      assistantId,
+      rememberedJobId: readRememberedResearchJob(assistantId),
+    });
     if (!activeJobId) return;
     try {
       await cancelResearchJob(activeJobId);
