@@ -459,10 +459,6 @@ export const MediaProvider = ({ children }) => {
   // How many turns are in flight, so the interface can say that something is
   // still being sent after the user has moved on.
   const [pendingSendCount, setPendingSendCount] = useState(0);
-  // The composer's "send as feedback" toggle: the next message is stored as
-  // feedback about the avatar (used from the very next reply) and still
-  // answered as a normal turn.
-  const [sendAsFeedback, setSendAsFeedback] = useState(false);
   // Voice mode raises this while the person is speaking or the avatar is, so
   // ambient capture never sends a snapshot into the middle of an exchange.
   const [ambientHold, setAmbientHold] = useState(false);
@@ -906,10 +902,6 @@ export const MediaProvider = ({ children }) => {
     const formData = new FormData();
     formData.append('message', messageContent);
     formData.append('stream', 'true');
-    if (sendAsFeedback) {
-      formData.append('feedback', 'true');
-      setSendAsFeedback(false);
-    }
     // The sentinel names a conversation the server has never heard of; sending
     // it would ask the API to continue a thread that does not exist. Omitting
     // thread_id is exactly how a new conversation is requested.
@@ -2828,8 +2820,6 @@ export const MediaProvider = ({ children }) => {
         resendFromUserMessage,
         regenerateAvatarReply,
         submitMessageFeedback,
-        sendAsFeedback,
-        setSendAsFeedback,
         avatarPreferences,
         refreshAvatarPreferences,
         allowAmbientAction,

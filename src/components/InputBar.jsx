@@ -1,11 +1,6 @@
 import { useRef, useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import {
-  AudioLines,
-  MessageSquareText,
-  Paperclip,
-  Plus,
-} from 'lucide-react';
+import { AudioLines, Paperclip, Plus } from 'lucide-react';
 import { useMedia } from '../context/MediaContext';
 import { useAuth } from '../context/AuthContext';
 import ComposerConnectorsMenu from './connections/ComposerConnectorsMenu';
@@ -96,8 +91,6 @@ const InputBar = ({
     stopThoughtToImage,
     dataExchangeTypes,
     attachmentsInFlight,
-    sendAsFeedback,
-    setSendAsFeedback,
   } = useMedia();
 
   // Typed text or an attached file is a message. A live webcam or screen
@@ -293,31 +286,6 @@ const InputBar = ({
             >
               <Paperclip className="w-5 h-5" />
             </button>
-            {/* Send the next message as feedback about the avatar rather than
-                as conversation: stored and used from the very next reply. */}
-            <button
-              type="button"
-              onClick={() => setSendAsFeedback?.((on) => !on)}
-              title={
-                sendAsFeedback
-                  ? 'This message will be sent as feedback about the avatar'
-                  : 'Send the next message as feedback about the avatar'
-              }
-              aria-pressed={Boolean(sendAsFeedback)}
-              aria-label="Send as feedback"
-              className={`p-1.5 rounded-lg transition-colors focus:outline-none focus:ring-2 focus:ring-amber-400/50 ${
-                sendAsFeedback
-                  ? 'text-amber-300 bg-amber-400/10'
-                  : 'text-neutral-400 hover:text-neutral-100 hover:bg-white/10'
-              }`}
-            >
-              <MessageSquareText className="w-5 h-5" />
-            </button>
-            {sendAsFeedback && (
-              <span className="text-xs text-amber-300/80 whitespace-nowrap">
-                Sending as feedback
-              </span>
-            )}
             {isPersonalAvatar && (
               <>
                 <button
