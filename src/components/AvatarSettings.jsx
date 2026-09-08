@@ -507,22 +507,27 @@ const AvatarSettings = ({ avatarId, onPortraitChanged }) => {
   useEffect(() => {
     if (!assistantId) return undefined;
     let cancelled = false;
-    const unsubscribe = subscribeAvatarPortraitChanged(async (changedAssistantId) => {
-      if (changedAssistantId !== assistantId) return;
-      try {
-        const storedPortrait = await getAvatarReferenceImage(assistantId);
-        if (cancelled) return;
-        setAvatarIcon(storedPortrait);
-        if (storedPortrait) {
-          writeCachedAvatarIcon(assistantId, storedPortrait);
-          onPortraitChanged?.(storedPortrait);
-        } else {
-          forgetCachedAvatarIcon(assistantId);
+    const unsubscribe = subscribeAvatarPortraitChanged(
+      async (changedAssistantId) => {
+        if (changedAssistantId !== assistantId) return;
+        try {
+          const storedPortrait = await getAvatarReferenceImage(assistantId);
+          if (cancelled) return;
+          setAvatarIcon(storedPortrait);
+          if (storedPortrait) {
+            writeCachedAvatarIcon(assistantId, storedPortrait);
+            onPortraitChanged?.(storedPortrait);
+          } else {
+            forgetCachedAvatarIcon(assistantId);
+          }
+        } catch (portraitError) {
+          console.error(
+            'Re-reading the avatar portrait failed:',
+            portraitError
+          );
         }
-      } catch (portraitError) {
-        console.error('Re-reading the avatar portrait failed:', portraitError);
       }
-    });
+    );
     return () => {
       cancelled = true;
       unsubscribe();
@@ -1019,13 +1024,13 @@ const AvatarSettings = ({ avatarId, onPortraitChanged }) => {
     setUserAvatars((previousAvatars) =>
       (previousAvatars ?? []).map((candidate) =>
         (candidate.assistant_id ?? candidate.avatar_id) === assistantId
-        ? {
-            ...candidate,
-            ...changedFields,
-            ...(updatedAvatar.metadata !== undefined
-              ? { metadata: updatedAvatar.metadata }
-              : {}),
-          }
+          ? {
+              ...candidate,
+              ...changedFields,
+              ...(updatedAvatar.metadata !== undefined
+                ? { metadata: updatedAvatar.metadata }
+                : {}),
+            }
           : candidate
       )
     );
@@ -1727,7 +1732,9 @@ const AvatarSettings = ({ avatarId, onPortraitChanged }) => {
               type="button"
               onClick={() => setShowGenerated(false)}
               className={`text-xs font-medium transition-colors ${
-                showGenerated ? 'text-white/40 hover:text-white/60' : 'text-white/70'
+                showGenerated
+                  ? 'text-white/40 hover:text-white/60'
+                  : 'text-white/70'
               }`}
             >
               Original reference image
@@ -1741,7 +1748,9 @@ const AvatarSettings = ({ avatarId, onPortraitChanged }) => {
               type="button"
               onClick={() => setShowGenerated(true)}
               className={`text-xs font-medium transition-colors ${
-                showGenerated ? 'text-white/70' : 'text-white/40 hover:text-white/60'
+                showGenerated
+                  ? 'text-white/70'
+                  : 'text-white/40 hover:text-white/60'
               }`}
             >
               Use generated videos
@@ -1981,11 +1990,6 @@ const AvatarSettings = ({ avatarId, onPortraitChanged }) => {
           are read from the API so a new provider needs no change here. */}
       {isPersonalAvatar && <ConnectionsSection />}
 
-      {/* Opt-in usage analytics. Consent belongs to the account, and the
-          personal avatar is the account's own avatar, so the switch lives
-          here (and in account settings) rather than on every avatar. */}
-      {isPersonalAvatar && <UsageAnalyticsSection source="avatar_settings" />}
-
       {/* The reports the personal avatar has written — scheduled analytics,
           website audits, saved analyses. `?section=reports` scrolls here the
           way `?section=connections` scrolls to the connectors. */}
@@ -2136,6 +2140,10 @@ const AvatarSettings = ({ avatarId, onPortraitChanged }) => {
           </div>
         )}
       </div>
+      {/* Opt-in usage analytics. Consent belongs to the account, and the
+          personal avatar is the account's own avatar, so the switch lives
+          here (and in account settings) rather than on every avatar. */}
+      {isPersonalAvatar && <UsageAnalyticsSection source="avatar_settings" />}
     </div>
   );
 };

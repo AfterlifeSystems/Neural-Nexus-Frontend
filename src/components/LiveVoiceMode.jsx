@@ -108,10 +108,7 @@ import {
 } from '../services/chartSpecs';
 import AmbientNotificationCard from './AmbientNotificationCard';
 import InterruptPanel from './InterruptPanel';
-import {
-  isAmbientNotice,
-  isNoticeDismissed,
-} from '../services/ambientNotice';
+import { isAmbientNotice, isNoticeDismissed } from '../services/ambientNotice';
 import { noticeDecisionFor } from '../services/avatarPreferences';
 import { focusComposer } from '../services/composerFocus';
 import { composerHasSendableDraft } from './composerSendState';
@@ -490,9 +487,7 @@ const LiveVoiceMode = ({
     .reverse()
     .find(
       (message) =>
-        isAvatarMessage(message) &&
-        !message.isLoading &&
-        !message.isPending
+        isAvatarMessage(message) && !message.isLoading && !message.isPending
     );
   const visibleExchange = useMemo(
     () =>
@@ -510,8 +505,7 @@ const LiveVoiceMode = ({
       isAmbientNotice(message) &&
       !isNoticeDismissed(message, dismissedNoticeIds)
   );
-  const hasVoiceCards =
-    noticeMessages.length > 0 || Boolean(pendingInterrupt);
+  const hasVoiceCards = noticeMessages.length > 0 || Boolean(pendingInterrupt);
 
   useEffect(() => {
     transcriptEndRef.current?.scrollIntoView({
@@ -692,13 +686,16 @@ const LiveVoiceMode = ({
     revealHeldCaptions();
   }, [holdNewCaptions, revealHeldCaptions, textTurnIsGenerating]);
 
-  const handleStagePresented = useCallback((presented) => {
-    stagePresentedWaiterRef.current?.(presented);
-    requestAnimationFrame(() => {
-      measurePortraitWell();
-      requestAnimationFrame(measurePortraitWell);
-    });
-  }, [measurePortraitWell]);
+  const handleStagePresented = useCallback(
+    (presented) => {
+      stagePresentedWaiterRef.current?.(presented);
+      requestAnimationFrame(() => {
+        measurePortraitWell();
+        requestAnimationFrame(measurePortraitWell);
+      });
+    },
+    [measurePortraitWell]
+  );
 
   const handleReply = useCallback(
     async (reply, sentiment, generation = turnGenerationRef.current) => {
@@ -1201,10 +1198,7 @@ const LiveVoiceMode = ({
   }, [avatarAudioIsActive]);
 
   const microphoneShouldListen =
-    !isMicMuted &&
-    !isDictating &&
-    !avatarAudioIsActive &&
-    !isInAvatarEchoTail;
+    !isMicMuted && !isDictating && !avatarAudioIsActive && !isInAvatarEchoTail;
 
   useEffect(() => {
     const listener = listenerRef.current;
@@ -1219,11 +1213,7 @@ const LiveVoiceMode = ({
       stopLiveListening();
       setLiveListeningPreferred(false);
     }
-  }, [
-    canDictate,
-    isLiveListening,
-    stopLiveListening,
-  ]);
+  }, [canDictate, isLiveListening, stopLiveListening]);
 
   // Start listening as soon as the stage opens and the avatar is loaded
   // (once). Opening live voice turns the microphone on; spoken audio being
@@ -1651,10 +1641,7 @@ const LiveVoiceMode = ({
           }`}
           style={{ bottom: composerDockHeight }}
         >
-          <div
-            data-voice-caption-dock
-            className={CAPTION_COLUMN_CLASSES}
-          >
+          <div data-voice-caption-dock className={CAPTION_COLUMN_CLASSES}>
             {stageFlash && (
               <div
                 key={stageFlash.id}
@@ -1679,7 +1666,8 @@ const LiveVoiceMode = ({
                   const next = pendingStageFlashRef.current;
                   pendingStageFlashRef.current = null;
                   setStageFlash((current) => {
-                    if (!current || current.id !== stageFlash.id) return current;
+                    if (!current || current.id !== stageFlash.id)
+                      return current;
                     return next;
                   });
                 }}
@@ -1699,7 +1687,9 @@ const LiveVoiceMode = ({
             {/* With captions hidden the paused turn's connect card has no
                 strip to sit in; the one card is shown here, above the
                 composer dock, until the account connects. */}
-            {!showCaptions && <PendingConnectionCard assistantId={assistantId} />}
+            {!showCaptions && (
+              <PendingConnectionCard assistantId={assistantId} />
+            )}
             {generatingStopRow}
           </div>
         </div>
@@ -1756,8 +1746,7 @@ const LiveVoiceMode = ({
               });
               const isEditingThis = isHuman && editingKey === messageKey;
               const isCurrentReply =
-                isFromAvatar &&
-                message.id === lastCompletedAvatarMessage?.id;
+                isFromAvatar && message.id === lastCompletedAvatarMessage?.id;
               const isSpeakingThis =
                 speech.speakingKey === messageKey ||
                 (isCurrentReply &&
@@ -1869,7 +1858,9 @@ const LiveVoiceMode = ({
                     </>
                   )}
                   {isGeneratingThis && !isLoading && (
-                    <div className="mt-2 caption-actions">{renderStopButton()}</div>
+                    <div className="mt-2 caption-actions">
+                      {renderStopButton()}
+                    </div>
                   )}
                   {!isLoading && !isGeneratingThis && (
                     <MessageActionBar
@@ -1901,12 +1892,6 @@ const LiveVoiceMode = ({
                         toggleSpeech(
                           messageKey,
                           isFromAvatar
-                        submitMessageFeedback?.(messageKey, { type: 'like' })
-                      }
-                      onDislike={() =>
-                        submitMessageFeedback?.(messageKey, { type: 'dislike' })
-                      }
-                      onFeelsReal={() =>
                             ? speakableReplyText(message.content)
                             : editableScriptText(message),
                           {
@@ -1916,6 +1901,12 @@ const LiveVoiceMode = ({
                       }}
                       onRegenerate={(key) => regenerateAvatarReply?.(key)}
                       onLike={() =>
+                        submitMessageFeedback?.(messageKey, { type: 'like' })
+                      }
+                      onDislike={() =>
+                        submitMessageFeedback?.(messageKey, { type: 'dislike' })
+                      }
+                      onFeelsReal={() =>
                         submitMessageFeedback?.(messageKey, {
                           feels: 'feels_real',
                         })
@@ -1969,284 +1960,285 @@ const LiveVoiceMode = ({
         >
           {renderMuteControls()}
           {isMessageBarCollapsed ? (
-          <div className="relative pointer-events-auto flex-1 min-w-0">
-            {collapsedVoiceBarIsSpeaking({
-              hearingSpeech: isHearingSpeech,
-              dictating: isDictating,
-            }) && (
-              <div
-                className="voice-speak-glow absolute inset-0 z-10 rounded-xl"
-                aria-hidden
-              />
-            )}
-            <button
-              type="button"
+            <div className="relative pointer-events-auto flex-1 min-w-0">
+              {collapsedVoiceBarIsSpeaking({
+                hearingSpeech: isHearingSpeech,
+                dictating: isDictating,
+              }) && (
+                <div
+                  className="voice-speak-glow absolute inset-0 z-10 rounded-xl"
+                  aria-hidden
+                />
+              )}
+              <button
+                type="button"
+                data-voice-message-bar
+                onClick={() => setIsMessageBarCollapsed(false)}
+                title="Show the message bar"
+                aria-label="Show the message bar"
+                className="suggestions-handle voice-text-btn relative h-full w-full bg-black/60 backdrop-blur-lg rounded-xl border border-white/10 flex items-center justify-center gap-1.5 text-white/50 hover:text-neutral-200 hover:bg-white/5 transition-colors focus:outline-none focus:ring-2 focus:ring-amber-400/50"
+              >
+                <ChevronUp className="w-4 h-4" aria-hidden="true" />
+                <span className="text-xs">Message</span>
+              </button>
+            </div>
+          ) : (
+            <div
               data-voice-message-bar
-              onClick={() => setIsMessageBarCollapsed(false)}
-              title="Show the message bar"
-              aria-label="Show the message bar"
-              className="suggestions-handle voice-text-btn relative h-full w-full bg-black/60 backdrop-blur-lg rounded-xl border border-white/10 flex items-center justify-center gap-1.5 text-white/50 hover:text-neutral-200 hover:bg-white/5 transition-colors focus:outline-none focus:ring-2 focus:ring-amber-400/50"
+              className="pointer-events-auto flex-1 min-w-0 bg-black/60 backdrop-blur-lg rounded-xl border border-white/10 p-2 sm:p-3 overflow-visible"
+              onDragOver={(event) => event.preventDefault()}
+              onDrop={(event) => {
+                event.preventDefault();
+                handleFileChange?.({
+                  target: { files: event.dataTransfer?.files ?? [] },
+                });
+              }}
             >
-              <ChevronUp className="w-4 h-4" aria-hidden="true" />
-              <span className="text-xs">Message</span>
-            </button>
-          </div>
-        ) : (
-          <div
-            data-voice-message-bar
-            className="pointer-events-auto flex-1 min-w-0 bg-black/60 backdrop-blur-lg rounded-xl border border-white/10 p-2 sm:p-3 overflow-visible"
-            onDragOver={(event) => event.preventDefault()}
-            onDrop={(event) => {
-              event.preventDefault();
-              handleFileChange?.({
-                target: { files: event.dataTransfer?.files ?? [] },
-              });
-            }}
-          >
-          <ConversationSuggestions
-            overlay
-            onSend={(suggestion) => {
-              const files = takePendingAttachments();
-              setDraft('');
-              submitTurn(suggestion, files);
-            }}
-          />
-          <ComposerAttachmentStrip
-            mediaFiles={mediaFiles}
-            attachmentsInFlight={attachmentsInFlight}
-            onRemove={removeFile}
-          />
-          <form
-            onSubmit={(event) => {
-              event.preventDefault();
-              const words = draft;
-              const files = takePendingAttachments();
-              setDraft('');
-              submitTurn(words, files);
-            }}
-          >
-            <input
-              ref={composerInputRef}
-              data-composer-input
-              type="text"
-              value={draft}
-              onChange={(event) => setDraft(event.target.value)}
-              placeholder={`Message ${avatarName ?? 'the avatar'}…`}
-              className="w-full bg-transparent px-2 py-1.5 text-sm text-neutral-200 placeholder-white/40 focus:outline-none"
-            />
-          </form>
-          <div className="flex items-center gap-1 mt-1 min-w-0">
-            <div className="relative shrink-0 flex items-center gap-0.5">
-              <input
-                ref={fileInputRef}
-                type="file"
-                multiple
-                hidden
-                onChange={(event) => {
-                  handleFileChange?.(event);
+              <ConversationSuggestions
+                overlay
+                onSend={(suggestion) => {
+                  const files = takePendingAttachments();
+                  setDraft('');
+                  submitTurn(suggestion, files);
                 }}
               />
-              <button
-                type="button"
-                onClick={() => fileInputRef.current?.click()}
-                title="Attach a file"
-                aria-label="Attach a file"
-                className={CONTROL_CLASSES}
-              >
-                <Paperclip className="w-5 h-5" />
-              </button>
-              {isPersonalAvatar && !readerIsAnonymous && (
-                <>
-                  <button
-                    type="button"
-                    onMouseDown={(event) => event.stopPropagation()}
-                    onClick={() =>
-                      setIsComposerMenuOpen((previous) => !previous)
-                    }
-                    title="Connectors"
-                    aria-label="Connectors"
-                    aria-haspopup="menu"
-                    aria-expanded={isComposerMenuOpen}
-                    aria-controls="voice-composer-menu"
-                    className={`${CONTROL_CLASSES} ${
-                      isComposerMenuOpen ? ACTIVE_CONTROL_CLASSES : ''
-                    }`}
-                  >
-                    <Plus
-                      className={`w-5 h-5 transition-transform ${
-                        isComposerMenuOpen ? 'rotate-45' : ''
-                      }`}
-                    />
-                  </button>
-                  <ComposerConnectorsMenu
-                    open={isComposerMenuOpen}
-                    onClose={() => setIsComposerMenuOpen(false)}
-                    menuId="voice-composer-menu"
-                    showConnectors
-                    onManageConnectors={() => {
-                      setIsComposerMenuOpen(false);
-                      if (assistantId) {
-                        navigate(
-                          `/chat/${encodeURIComponent(assistantId)}?tab=settings&section=connections`
-                        );
-                        return;
-                      }
-                      onNavigateTab?.('avatar-settings');
-                    }}
-                  />
-                </>
-              )}
-            </div>
-            <div className="flex items-center gap-0.5 min-w-0 overflow-x-auto scrollbar-none flex-1">
-              <div className="flex items-center rounded-full bg-white/5 border border-white/10">
-                <button
-                  type="button"
-                  onClick={toggleLiveListening}
-                  disabled={!canDictate && !isLiveListening}
-                  title={
-                    !canDictate
-                      ? speechInputUnavailableMessage
-                      : isLiveListening
-                        ? 'Stop live audio'
-                        : 'Live audio (hands-free)'
-                  }
-                  aria-label={
-                    !canDictate
-                      ? 'Speech input unavailable'
-                      : isLiveListening
-                        ? 'Stop live audio'
-                        : 'Start live audio'
-                  }
-                  aria-pressed={isLiveListening}
-                  className={`${CONTROL_CLASSES} ${isLiveListening ? ACTIVE_CONTROL_CLASSES : ''} disabled:opacity-40 disabled:pointer-events-none`}
-                >
-                  <span className="relative inline-flex">
-                    <AudioLines className="w-5 h-5" />
-                    {isLiveListening && (
-                      <span
-                        aria-hidden="true"
-                        className="absolute -right-1 -top-1 w-2 h-2 rounded-full bg-emerald-400"
-                        style={{
-                          transform: `scale(${1 + Math.min(micLevel * 12, 1.5)})`,
-                        }}
-                      />
-                    )}
-                  </span>
-                </button>
-                <button
-                  type="button"
-                  disabled={!canDictate}
-                  onClick={toggleDictation}
-                  title={
-                    !canDictate
-                      ? speechInputUnavailableMessage
-                      : isDictating
-                        ? 'Stop recording and put the words in the message box'
-                        : 'Record a message (the words appear in the message box)'
-                  }
-                  aria-label={
-                    !canDictate
-                      ? 'Speech input unavailable'
-                      : isDictating
-                        ? 'Stop recording'
-                        : 'Start recording'
-                  }
-                  aria-pressed={isDictating}
-                  className={`${CONTROL_CLASSES} ${isDictating ? 'bg-red-500/30 text-red-200' : ''} disabled:opacity-40 disabled:pointer-events-none`}
-                >
-                  {isDictating ? (
-                    <Square className="w-5 h-5 fill-current" />
-                  ) : isTranscribing && !isLiveListening ? (
-                    <Loader2 className="w-5 h-5 animate-spin" />
-                  ) : (
-                    <Mic className="w-5 h-5" />
-                  )}
-                </button>
-              </div>
-
-              <div
-                role="group"
-                aria-label="Avatar face"
-                className="flex items-center rounded-full bg-white/5 border border-white/10"
-              >
-                <button
-                  type="button"
-                  onClick={() => setShowGenerated(false)}
-                  title="Show the original reference photo"
-                  aria-label="Show the original reference photo"
-                  aria-pressed={!showGenerated}
-                  className={`${CONTROL_CLASSES} ${!showGenerated ? ACTIVE_CONTROL_CLASSES : ''}`}
-                >
-                  <Image className="w-5 h-5" />
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setShowGenerated(true)}
-                  title="Show generated portraits and idle loops"
-                  aria-label="Show generated portraits and idle loops"
-                  aria-pressed={showGenerated}
-                  className={`${CONTROL_CLASSES} ${showGenerated ? ACTIVE_CONTROL_CLASSES : ''}`}
-                >
-                  <Sparkles className="w-5 h-5" />
-                </button>
-              </div>
-
-              <button
-                type="button"
-                onClick={() => setIsVideoEnabled((enabled) => !enabled)}
-                title={
-                  isVideoEnabled
-                    ? 'Disable generative video replies'
-                    : 'Enable generative video replies'
-                }
-                aria-label={
-                  isVideoEnabled
-                    ? 'Disable generative video replies'
-                    : 'Enable generative video replies'
-                }
-                aria-pressed={isVideoEnabled}
-                className={`${CONTROL_CLASSES} ${isVideoEnabled ? ACTIVE_CONTROL_CLASSES : ''}`}
-              >
-                {isVideoEnabled ? (
-                  <Video className="w-5 h-5" />
-                ) : (
-                  <VideoOff className="w-5 h-5" />
-                )}
-              </button>
-
-              <button
-                type="button"
-                onClick={() => setShowCaptions((shown) => !shown)}
-                title={showCaptions ? 'Hide captions' : 'Show captions'}
-                aria-label={showCaptions ? 'Hide captions' : 'Show captions'}
-                aria-pressed={showCaptions}
-                className={`${CONTROL_CLASSES} ${showCaptions ? ACTIVE_CONTROL_CLASSES : ''}`}
-              >
-                <Captions className="w-5 h-5" />
-              </button>
-
-            </div>
-
-            {composerHasSendableDraft(draft, mediaFiles.length) ? (
-              <button
-                type="button"
-                onClick={() => {
+              <ComposerAttachmentStrip
+                mediaFiles={mediaFiles}
+                attachmentsInFlight={attachmentsInFlight}
+                onRemove={removeFile}
+              />
+              <form
+                onSubmit={(event) => {
+                  event.preventDefault();
                   const words = draft;
                   const files = takePendingAttachments();
                   setDraft('');
                   submitTurn(words, files);
                 }}
-                className={SEND_BUTTON_CLASSES}
               >
-                <Send className="w-4 h-4" />
-                Send
-              </button>
-            ) : (
-              renderLeaveVoiceButton()
-            )}
-          </div>
-          </div>
-        )}
+                <input
+                  ref={composerInputRef}
+                  data-composer-input
+                  type="text"
+                  value={draft}
+                  onChange={(event) => setDraft(event.target.value)}
+                  placeholder={`Message ${avatarName ?? 'the avatar'}…`}
+                  className="w-full bg-transparent px-2 py-1.5 text-sm text-neutral-200 placeholder-white/40 focus:outline-none"
+                />
+              </form>
+              <div className="flex items-center gap-1 mt-1 min-w-0">
+                <div className="relative shrink-0 flex items-center gap-0.5">
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    multiple
+                    hidden
+                    onChange={(event) => {
+                      handleFileChange?.(event);
+                    }}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => fileInputRef.current?.click()}
+                    title="Attach a file"
+                    aria-label="Attach a file"
+                    className={CONTROL_CLASSES}
+                  >
+                    <Paperclip className="w-5 h-5" />
+                  </button>
+                  {isPersonalAvatar && !readerIsAnonymous && (
+                    <>
+                      <button
+                        type="button"
+                        onMouseDown={(event) => event.stopPropagation()}
+                        onClick={() =>
+                          setIsComposerMenuOpen((previous) => !previous)
+                        }
+                        title="Connectors"
+                        aria-label="Connectors"
+                        aria-haspopup="menu"
+                        aria-expanded={isComposerMenuOpen}
+                        aria-controls="voice-composer-menu"
+                        className={`${CONTROL_CLASSES} ${
+                          isComposerMenuOpen ? ACTIVE_CONTROL_CLASSES : ''
+                        }`}
+                      >
+                        <Plus
+                          className={`w-5 h-5 transition-transform ${
+                            isComposerMenuOpen ? 'rotate-45' : ''
+                          }`}
+                        />
+                      </button>
+                      <ComposerConnectorsMenu
+                        open={isComposerMenuOpen}
+                        onClose={() => setIsComposerMenuOpen(false)}
+                        menuId="voice-composer-menu"
+                        showConnectors
+                        onManageConnectors={() => {
+                          setIsComposerMenuOpen(false);
+                          if (assistantId) {
+                            navigate(
+                              `/chat/${encodeURIComponent(assistantId)}?tab=settings&section=connections`
+                            );
+                            return;
+                          }
+                          onNavigateTab?.('avatar-settings');
+                        }}
+                      />
+                    </>
+                  )}
+                </div>
+                <div className="flex items-center gap-0.5 min-w-0 overflow-x-auto scrollbar-none flex-1">
+                  <div className="flex items-center rounded-full bg-white/5 border border-white/10">
+                    <button
+                      type="button"
+                      onClick={toggleLiveListening}
+                      disabled={!canDictate && !isLiveListening}
+                      title={
+                        !canDictate
+                          ? speechInputUnavailableMessage
+                          : isLiveListening
+                            ? 'Stop live audio'
+                            : 'Live audio (hands-free)'
+                      }
+                      aria-label={
+                        !canDictate
+                          ? 'Speech input unavailable'
+                          : isLiveListening
+                            ? 'Stop live audio'
+                            : 'Start live audio'
+                      }
+                      aria-pressed={isLiveListening}
+                      className={`${CONTROL_CLASSES} ${isLiveListening ? ACTIVE_CONTROL_CLASSES : ''} disabled:opacity-40 disabled:pointer-events-none`}
+                    >
+                      <span className="relative inline-flex">
+                        <AudioLines className="w-5 h-5" />
+                        {isLiveListening && (
+                          <span
+                            aria-hidden="true"
+                            className="absolute -right-1 -top-1 w-2 h-2 rounded-full bg-emerald-400"
+                            style={{
+                              transform: `scale(${1 + Math.min(micLevel * 12, 1.5)})`,
+                            }}
+                          />
+                        )}
+                      </span>
+                    </button>
+                    <button
+                      type="button"
+                      disabled={!canDictate}
+                      onClick={toggleDictation}
+                      title={
+                        !canDictate
+                          ? speechInputUnavailableMessage
+                          : isDictating
+                            ? 'Stop recording and put the words in the message box'
+                            : 'Record a message (the words appear in the message box)'
+                      }
+                      aria-label={
+                        !canDictate
+                          ? 'Speech input unavailable'
+                          : isDictating
+                            ? 'Stop recording'
+                            : 'Start recording'
+                      }
+                      aria-pressed={isDictating}
+                      className={`${CONTROL_CLASSES} ${isDictating ? 'bg-red-500/30 text-red-200' : ''} disabled:opacity-40 disabled:pointer-events-none`}
+                    >
+                      {isDictating ? (
+                        <Square className="w-5 h-5 fill-current" />
+                      ) : isTranscribing && !isLiveListening ? (
+                        <Loader2 className="w-5 h-5 animate-spin" />
+                      ) : (
+                        <Mic className="w-5 h-5" />
+                      )}
+                    </button>
+                  </div>
+
+                  <div
+                    role="group"
+                    aria-label="Avatar face"
+                    className="flex items-center rounded-full bg-white/5 border border-white/10"
+                  >
+                    <button
+                      type="button"
+                      onClick={() => setShowGenerated(false)}
+                      title="Show the original reference photo"
+                      aria-label="Show the original reference photo"
+                      aria-pressed={!showGenerated}
+                      className={`${CONTROL_CLASSES} ${!showGenerated ? ACTIVE_CONTROL_CLASSES : ''}`}
+                    >
+                      <Image className="w-5 h-5" />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setShowGenerated(true)}
+                      title="Show generated portraits and idle loops"
+                      aria-label="Show generated portraits and idle loops"
+                      aria-pressed={showGenerated}
+                      className={`${CONTROL_CLASSES} ${showGenerated ? ACTIVE_CONTROL_CLASSES : ''}`}
+                    >
+                      <Sparkles className="w-5 h-5" />
+                    </button>
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={() => setIsVideoEnabled((enabled) => !enabled)}
+                    title={
+                      isVideoEnabled
+                        ? 'Disable generative video replies'
+                        : 'Enable generative video replies'
+                    }
+                    aria-label={
+                      isVideoEnabled
+                        ? 'Disable generative video replies'
+                        : 'Enable generative video replies'
+                    }
+                    aria-pressed={isVideoEnabled}
+                    className={`${CONTROL_CLASSES} ${isVideoEnabled ? ACTIVE_CONTROL_CLASSES : ''}`}
+                  >
+                    {isVideoEnabled ? (
+                      <Video className="w-5 h-5" />
+                    ) : (
+                      <VideoOff className="w-5 h-5" />
+                    )}
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setShowCaptions((shown) => !shown)}
+                    title={showCaptions ? 'Hide captions' : 'Show captions'}
+                    aria-label={
+                      showCaptions ? 'Hide captions' : 'Show captions'
+                    }
+                    aria-pressed={showCaptions}
+                    className={`${CONTROL_CLASSES} ${showCaptions ? ACTIVE_CONTROL_CLASSES : ''}`}
+                  >
+                    <Captions className="w-5 h-5" />
+                  </button>
+                </div>
+
+                {composerHasSendableDraft(draft, mediaFiles.length) ? (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const words = draft;
+                      const files = takePendingAttachments();
+                      setDraft('');
+                      submitTurn(words, files);
+                    }}
+                    className={SEND_BUTTON_CLASSES}
+                  >
+                    <Send className="w-4 h-4" />
+                    Send
+                  </button>
+                ) : (
+                  renderLeaveVoiceButton()
+                )}
+              </div>
+            </div>
+          )}
         </div>
         {!user && !isMessageBarCollapsed && (
           <p className="text-center text-white/30 text-xs mt-2">

@@ -12,7 +12,7 @@ import {
 } from './neuralNexusApiClient';
 import { retainOwnedMcpDevices } from './mcpOwnership';
 import { avatarsWithPersonalFirst } from './avatarListOrder';
-import { boundsQuery, geoLocationQuery } from './avatarProximity';
+import { avatarsFromResponse, boundsQuery, geoLocationQuery } from './avatarProximity';
 import { withRateLimitRetry } from './retryRateLimited';
 
 export { retainOwnedMcpDevices } from './mcpOwnership';
@@ -24,7 +24,10 @@ export { retainOwnedMcpDevices } from './mcpOwnership';
  * @returns {Promise<Array>} Assistant records ({assistant_id, name, description, ...}).
  */
 export const listUserAvatars = async () => {
-  const avatars = await requestJson('/list_user_avatars');
+  const response = await requestJson('/list_user_avatars');
+  const avatars = Array.isArray(response)
+    ? response
+    : avatarsFromResponse(response);
   return avatarsWithPersonalFirst(avatars);
 };
 
@@ -121,12 +124,19 @@ export const modifyAvatar = async ({
  * @param {boolean} [options.asAnonymousIdentity] Call without the stored credential.
  * @returns {Promise<Array>} Pinned avatars ({assistant_id, name, description, geo_location}).
  */
-export const listGeoAvatars = async ({ bounds, asAnonymousIdentity = false } = {}) => {
+export const listGeoAvatars = async ({
+  bounds,
+  assistantId,
+  asAnonymousIdentity = false,
+} = {}) => {
   const response = await requestJson('/avatars/geo', {
-    query: boundsQuery(bounds),
+    query: {
+      ...boundsQuery(bounds),
+      ...(assistantId ? { assistant_id: assistantId } : {}),
+    },
     asAnonymousIdentity,
   });
-  return response?.avatars ?? [];
+  return avatarsFromResponse(response);
 };
 
 /**
@@ -155,7 +165,7 @@ export const listNearbyAvatars = async (
     },
     asAnonymousIdentity,
   });
-  return response?.avatars ?? [];
+  return avatarsFromResponse(response);
 };
 
 /**
@@ -1606,6 +1616,8 @@ export const recordAmbientPreference = async (
  * transcript puts the rating back on the reply after a reload.
  *
  * @param {Object} feedback `{assistantId, threadId, messageId, requestId, type, comment, content, observation}`;
+ *   `type` is the server's `feedback_type`: `like`, `dislike`, `rating`,
+ *   `comment`, `feels_real`, or `feels_fake`;
  *   `observation` (`{observationId, observationKind, summary}`) names the
  *   ambient observation the reply answered, when there is one, so the thumb
  *   is also learned as precedent for that kind of scene.
@@ -1613,8 +1625,6 @@ export const recordAmbientPreference = async (
  */
 export const recordMessageFeedback = async ({
   assistantId,
- *   `type` is the server's `feedback_type`: `like`, `dislike`, `rating`,
- *   `comment`, `feels_real`, or `feels_fake`;
   threadId,
   messageId,
   requestId,

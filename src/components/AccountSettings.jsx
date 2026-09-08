@@ -205,10 +205,6 @@ const AccountSettings = ({ activeTab }) => {
         </button>
       </div> */}
 
-      {/* Opt-in usage analytics: the same account-level switch the personal
-          avatar's settings show. */}
-      <UsageAnalyticsSection source="account_settings" />
-
       {/* Managing the account itself: the credential, the password, and
           leaving. These are the three operations the API supports on an
           account, and each one is destructive in its own way, so each says
@@ -275,6 +271,10 @@ const AccountSettings = ({ activeTab }) => {
           </button>
         </div>
       </div>
+
+      {/* Opt-in usage analytics: the same account-level switch the personal
+          avatar's settings show. */}
+      <UsageAnalyticsSection source="account_settings" />
 
       {/* The control this page is usually reached from. Without it the menu
           vanished on arrival, leaving no way back except the sidebar. */}

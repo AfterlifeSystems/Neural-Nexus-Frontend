@@ -2,14 +2,39 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
+  DEFAULT_GEOFENCE_RADIUS_METERS,
+  MAXIMUM_ARRIVAL_ACCURACY_METERS,
+  STREET_LEVEL_GROUPING_DEGREES,
+  avatarIdOf,
+  avatarsFromResponse,
+  avatarsWithinMeters,
   boundsQuery,
+  cappedAccuracyMeters,
   clampGeofenceRadius,
   clusterPins,
   describeDistance,
+  describeGeofenceRadius,
   distanceInMeters,
+  formatCoordinate,
   geoLocationQuery,
+  globeClusterDegreesForAltitude,
+  globeMarkerGroups,
+  globePointRadius,
+  groupingDegreesForAltitude,
+  mapKeyOf,
+  isInsideGeofence,
   isValidCoordinate,
+  avatarsAtSamePlace,
+  avatarsInFocusGroup,
+  groupIdsForFocus,
+  mergePinnedAvatars,
+  samePlaceKey,
+  spreadGroupPinPositions,
+  spreadStackedPinPositions,
   pinOf,
+  refineNearbyAvatars,
+  withPin,
+  withoutPin,
 } from './avatarProximity.js';
 
 // Minneapolis Stone Arch Bridge and a point about 120 m east of the bridge.
@@ -27,9 +52,10 @@ test('a coordinate must name a real point on Earth', () => {
 });
 
 test('a geofence radius is clamped to the range the API accepts', () => {
-  assert.equal(clampGeofenceRadius(undefined), 50);
+  assert.equal(DEFAULT_GEOFENCE_RADIUS_METERS, 6);
+  assert.equal(clampGeofenceRadius(undefined), 6);
   assert.equal(clampGeofenceRadius('120'), 120);
-  assert.equal(clampGeofenceRadius(1), 5);
+  assert.equal(clampGeofenceRadius(1), 1);
   assert.equal(clampGeofenceRadius(999999), 5000);
 });
 
@@ -108,10 +134,14 @@ test('distance is measured along the great circle', () => {
 test('a distance is written the way a person reads one', () => {
   assert.equal(describeDistance(40), '40 m');
   assert.equal(describeDistance(999), '999 m');
-  assert.equal(describeDistance(1200), '1.2 km');
-  assert.equal(describeDistance(45000), '45 km');
+  assert.equal(describeDistance(0.4), '0.4 m');
+  assert.equal(describeDistance(1), '1 m');
+  assert.equal(describeDistance(1609.344), '1.0 mi (1609 m)');
+  assert.equal(describeDistance(45000), '28 mi (45000 m)');
   assert.equal(describeDistance(null), '');
   assert.equal(describeDistance(-5), '');
+  assert.equal(describeGeofenceRadius(1), '1 m');
+  assert.equal(describeGeofenceRadius(1609.344), '1609 m · 1.00 mi');
 });
 
 test('the pin is read from the owner record and from a public listing alike', () => {
@@ -121,6 +151,34 @@ test('the pin is read from the owner record and from a public listing alike', ()
   assert.equal(pinOf({ metadata: {} }), null);
   assert.equal(pinOf(null), null);
   assert.equal(pinOf({ geo_location: { latitude: 999, longitude: 0 } }), null);
+  assert.deepEqual(
+    pinOf({ assistant_id: 'flat', latitude: 44.9809, longitude: -93.2533 }),
+    { latitude: 44.9809, longitude: -93.2533 }
+  );
+  assert.deepEqual(
+    pinOf({ lat: 44.9809, lng: -93.2533, locationName: 'Bridge' }),
+    { latitude: 44.9809, longitude: -93.2533, location_name: 'Bridge' }
+  );
+  assert.equal(pinOf({ geo_location: { latitude: '', longitude: '' } }), null);
+  assert.deepEqual(
+    pinOf({
+      geo_location: { type: 'Point', coordinates: [-93.2533, 44.9809] },
+    }),
+    { latitude: 44.9809, longitude: -93.2533 }
+  );
+  assert.deepEqual(
+    pinOf({ metadata: { latitude: 44.9809, longitude: -93.2533 } }),
+    { latitude: 44.9809, longitude: -93.2533 }
+  );
+});
+
+test('a geo listing is read from a bare array or an avatars wrapper', () => {
+  const one = { assistant_id: 'bridge', geo_location: BRIDGE };
+  assert.deepEqual(avatarsFromResponse([one]), [one]);
+  assert.deepEqual(avatarsFromResponse({ avatars: [one] }), [one]);
+  assert.deepEqual(avatarsFromResponse({ items: [one] }), [one]);
+  assert.deepEqual(avatarsFromResponse(null), []);
+  assert.deepEqual(avatarsFromResponse({}), []);
 });
 
 test('pins that would overlap on a spinning globe are grouped', () => {
@@ -154,4 +212,172 @@ test('pins that would overlap on a spinning globe are grouped', () => {
 
   assert.deepEqual(clusterPins([], 5), []);
   assert.deepEqual(clusterPins(undefined, 5), []);
+});
+
+test('a pin is written onto both record shapes so a later read sees it', () => {
+  const placed = withPin(
+    { assistant_id: 'bridge', metadata: { user_id: 'u1' } },
+    { latitude: 44.9809, longitude: -93.2533 }
+  );
+  assert.equal(placed.geo_location.latitude, 44.9809);
+  assert.equal(placed.metadata.geo_location.latitude, 44.9809);
+  assert.equal(placed.metadata.user_id, 'u1');
+  assert.equal(pinOf(withoutPin(placed)), null);
+  assert.equal(avatarIdOf({ avatar_id: 'only-this' }), 'only-this');
+  assert.equal(avatarIdOf({ metadata: { assistant_id: 'from-meta' } }), 'from-meta');
+  assert.equal(avatarIdOf({ id: 'flat-id' }), null);
+  assert.equal(avatarIdOf({ assistant_id: 'a', id: 'other' }), 'a');
+});
+
+test('owned private pins join the public globe listing', () => {
+  const publicAvatars = [
+    { assistant_id: 'bridge', name: 'Bridge', geo_location: BRIDGE },
+  ];
+  const ownedAvatars = [
+    {
+      assistant_id: 'private-shop',
+      name: 'Shop',
+      metadata: { geo_location: NEAR_BRIDGE, is_public: false, user_id: 'u1' },
+    },
+    { assistant_id: 'bridge', name: 'Bridge (mine)', metadata: { geo_location: BRIDGE } },
+    { assistant_id: 'unpinned', name: 'No place' },
+  ];
+  const merged = mergePinnedAvatars(publicAvatars, ownedAvatars);
+  assert.equal(merged.length, 2);
+  assert.ok(merged.some((avatar) => avatar.assistant_id === 'private-shop'));
+  const bridge = merged.find((avatar) => avatar.assistant_id === 'bridge');
+  assert.equal(bridge.name, 'Bridge (mine)');
+  assert.ok(pinOf(bridge));
+});
+
+test('a kilometres-wide accuracy reading cannot count as standing at a doorway', () => {
+  assert.equal(
+    isInsideGeofence({ distanceMeters: 4, radiusMeters: 6, accuracyMeters: 8 }),
+    true
+  );
+  assert.equal(
+    isInsideGeofence({
+      distanceMeters: 20,
+      radiusMeters: 6,
+      accuracyMeters: 8000,
+    }),
+    false
+  );
+  assert.ok(8000 > MAXIMUM_ARRIVAL_ACCURACY_METERS);
+  assert.equal(cappedAccuracyMeters(8000), 15);
+  assert.equal(cappedAccuracyMeters(-1), undefined);
+});
+
+test('nearby entries are refined so a coarse API inside-flag is not trusted', () => {
+  const [refined] = refineNearbyAvatars(
+    [
+      {
+        assistant_id: 'bridge',
+        geo_location: { ...BRIDGE, geofence_radius_meters: 6 },
+        distance_meters: 12,
+        inside_geofence: true,
+      },
+    ],
+    { latitude: BRIDGE.latitude, longitude: BRIDGE.longitude, accuracyMeters: 8000 }
+  );
+  assert.equal(refined.inside_geofence, false);
+});
+
+test('the globe groups down to about six metres when the camera is close', () => {
+  assert.equal(groupingDegreesForAltitude(2), 1.2);
+  assert.ok(groupingDegreesForAltitude(2) < 5);
+  assert.equal(groupingDegreesForAltitude(0.002), STREET_LEVEL_GROUPING_DEGREES);
+  assert.ok(globePointRadius(0.01, 1) < globePointRadius(1, 1));
+  assert.equal(formatCoordinate(44.9809012), '44.980901');
+});
+
+test('avatars on the same doorway stay one place and spread on the street map', () => {
+  const stacked = [
+    { assistant_id: 'a', name: 'A', geo_location: BRIDGE },
+    { assistant_id: 'b', name: 'B', geo_location: { ...BRIDGE } },
+    { assistant_id: 'c', name: 'C', geo_location: CATHEDRAL },
+  ];
+  assert.equal(samePlaceKey(BRIDGE.latitude, BRIDGE.longitude), samePlaceKey(44.9809, -93.2533));
+  assert.equal(avatarsAtSamePlace(stacked, BRIDGE.latitude, BRIDGE.longitude).length, 2);
+  const spread = spreadStackedPinPositions(stacked);
+  const first = spread.get('a');
+  const second = spread.get('b');
+  const alone = spread.get('c');
+  assert.ok(first && second && alone);
+  assert.notEqual(
+    `${first.latitude},${first.longitude}`,
+    `${second.latitude},${second.longitude}`
+  );
+  assert.equal(alone.latitude, CATHEDRAL.latitude);
+  assert.equal(alone.longitude, CATHEDRAL.longitude);
+});
+
+test('a pin without an assistant id is not dropped from the map', () => {
+  const merged = mergePinnedAvatars(
+    [{ assistant_id: 'jeff', name: 'Uncle Jeff', geo_location: BRIDGE }],
+    [{ name: 'Thomas Woods', metadata: { geo_location: NEAR_BRIDGE } }]
+  );
+  assert.equal(merged.length, 2);
+  assert.ok(merged.some((avatar) => avatar.name === 'Thomas Woods'));
+});
+
+test('two people in the same place both stay on the merged globe list', () => {
+  const merged = mergePinnedAvatars(
+    [
+      {
+        assistant_id: 'jeff',
+        name: 'Uncle Jeff',
+        geo_location: BRIDGE,
+      },
+    ],
+    [
+      {
+        assistant_id: 'thomas',
+        name: 'Thomas Woods',
+        metadata: { geo_location: { ...BRIDGE } },
+      },
+    ]
+  );
+  assert.equal(merged.length, 2);
+  assert.ok(merged.some((avatar) => avatar.name === 'Uncle Jeff'));
+  assert.ok(merged.some((avatar) => avatar.name === 'Thomas Woods'));
+});
+
+test('stacked globe pins stay one numbered group and keep every avatar', () => {
+  const stacked = [
+    { assistant_id: 'jeff', name: 'Uncle Jeff', geo_location: BRIDGE },
+    { assistant_id: 'thomas', name: 'Thomas Woods', geo_location: BRIDGE },
+    { name: 'Shop', geo_location: CATHEDRAL },
+  ];
+  const far = globeMarkerGroups(stacked, 1.2);
+  assert.equal(
+    far.reduce((count, group) => count + group.avatars.length, 0),
+    3
+  );
+  const sameDoor = globeMarkerGroups(stacked.slice(0, 2), 0.002);
+  assert.equal(sameDoor.length, 1);
+  assert.equal(sameDoor[0].count, 2);
+  assert.deepEqual(
+    sameDoor[0].avatars.map((avatar) => avatar.name).sort(),
+    ['Thomas Woods', 'Uncle Jeff']
+  );
+  assert.ok(globeClusterDegreesForAltitude(0.08) >= 0.008);
+  assert.equal(mapKeyOf({ name: 'Shop', geo_location: CATHEDRAL }), 'Shop:44.9469:-93.1089');
+});
+
+test('a globe cluster stays a clickable group when one avatar is chosen', () => {
+  const cluster = [
+    { assistant_id: 'a', geo_location: BRIDGE },
+    { assistant_id: 'b', geo_location: CATHEDRAL },
+  ];
+  const opened = groupIdsForFocus({ avatars: cluster });
+  assert.deepEqual(opened, ['a', 'b']);
+  assert.deepEqual(
+    groupIdsForFocus({ assistantId: 'b', preserveGroup: true }, { groupIds: opened }),
+    ['a', 'b']
+  );
+  assert.deepEqual(avatarsInFocusGroup(cluster, ['b', 'a']).map(avatarIdOf), [
+    'b',
+    'a',
+  ]);
 });

@@ -1,7 +1,11 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
-import { activeResearchJobIdFor } from './researchJobMemory.js';
+import {
+  activeResearchJobIdFor,
+  rememberResearchJob,
+  subscribeResearchJobs,
+} from './researchJobMemory.js';
 
 const AVATAR = 'avatar-a';
 const OTHER_AVATAR = 'avatar-b';
@@ -49,6 +53,17 @@ test('a reload follows the job the browser remembered', () => {
     }),
     'job-3'
   );
+});
+
+test('remembering a job notifies same-tab subscribers', () => {
+  const heard = [];
+  const unsubscribe = subscribeResearchJobs((assistantId) => {
+    heard.push(assistantId);
+  });
+  rememberResearchJob(AVATAR, 'job-9');
+  unsubscribe();
+  rememberResearchJob(AVATAR, 'job-10');
+  assert.deepEqual(heard, [AVATAR]);
 });
 
 test('an avatar with no research running follows nothing', () => {

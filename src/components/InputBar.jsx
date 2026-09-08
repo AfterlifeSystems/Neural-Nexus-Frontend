@@ -34,14 +34,17 @@ const InputBar = ({
 
   // The keyboard hints in the placeholder wrap to three lines on a phone and
   // push the composer up the screen; a phone has no Ctrl key anyway.
-  const [isNarrowViewport, setIsNarrowViewport] = useState(() =>
-    typeof window !== 'undefined' && window.matchMedia('(max-width: 640px)').matches
+  const [isNarrowViewport, setIsNarrowViewport] = useState(
+    () =>
+      typeof window !== 'undefined' &&
+      window.matchMedia('(max-width: 640px)').matches
   );
   useEffect(() => {
     const narrowViewportQuery = window.matchMedia('(max-width: 640px)');
     const updateViewport = (event) => setIsNarrowViewport(event.matches);
     narrowViewportQuery.addEventListener('change', updateViewport);
-    return () => narrowViewportQuery.removeEventListener('change', updateViewport);
+    return () =>
+      narrowViewportQuery.removeEventListener('change', updateViewport);
   }, []);
 
   // What this person has sent to this avatar, for Ctrl+↑ / Ctrl+↓ recall. Kept
@@ -96,11 +99,11 @@ const InputBar = ({
     attachmentsInFlight,
     stopAssistantTurn,
     stoppableTurnCount,
+    sendAsFeedback,
+    setSendAsFeedback,
   } = useMedia();
   // While the avatar is answering, the send button is a Stop button. Enter
   // still sends — a second message can be queued behind the reply — but the
-    sendAsFeedback,
-    setSendAsFeedback,
   // button's one job during a reply is to end it.
   const isReplyStoppable = (stoppableTurnCount ?? 0) > 0;
 
@@ -253,9 +256,7 @@ const InputBar = ({
     : hasSomethingToSend
       ? 'Send message'
       : 'Enter live mode';
-  const emptyComposerControl = (
-    <AudioLines className="w-4 h-4 sm:w-5 sm:h-5" />
-  );
+  const emptyComposerControl = <AudioLines className="w-4 h-4 sm:w-5 sm:h-5" />;
   return (
     <div
       className="chat-composer w-full max-w-3xl mx-auto min-w-0 rounded-xl flex flex-col"
@@ -303,7 +304,6 @@ const InputBar = ({
             >
               <Paperclip className="w-5 h-5" />
             </button>
-            {isPersonalAvatar && (
             {/* Send the next message as feedback about the avatar rather than
                 as conversation: stored and used from the very next reply. */}
             <button
@@ -329,6 +329,7 @@ const InputBar = ({
                 Sending as feedback
               </span>
             )}
+            {isPersonalAvatar && (
               <>
                 <button
                   type="button"

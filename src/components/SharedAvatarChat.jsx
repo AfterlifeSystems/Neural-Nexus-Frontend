@@ -37,10 +37,8 @@ import {
 } from './utils';
 import LoadingSpinner from './LoadingSpinner';
 import LiveVoiceMode from './LiveVoiceMode';
-import {
-  searchRequestsCameraBackground,
-  searchRequestsVoiceMode,
-} from '../services/voiceModePreference';
+import { useGeoAvatars } from '../context/GeoAvatarContext';
+import { searchRequestsVoiceMode } from '../services/voiceModePreference';
 import MessageList from './MessageList';
 import InputBar from './InputBar';
 
@@ -98,9 +96,8 @@ const SharedAvatarChat = () => {
   const [isLiveModeOpen, setIsLiveModeOpen] = useState(() =>
     searchRequestsVoiceMode(sharedSearchParams)
   );
-  const [opensOverTheCamera] = useState(() =>
-    searchRequestsCameraBackground(sharedSearchParams)
-  );
+  const { isStandingAt } = useGeoAvatars();
+  const opensOverTheCamera = isStandingAt(avatarId);
   // Whether the lookup for this visitor's earlier chats with this avatar has
   // finished. The opening question is offered only for a conversation that is
   // genuinely empty, and the transcript is empty for the moment that lookup

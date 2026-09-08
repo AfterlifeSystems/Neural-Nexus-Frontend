@@ -18,10 +18,7 @@ import MessageActionBar from './media/MessageActionBar';
 import { isConversationSuggestionList } from '../services/conversationSuggestions';
 import { messageKeyOf } from '../services/messageKey';
 import AmbientNotificationCard from './AmbientNotificationCard';
-import {
-  isAmbientNotice,
-  isNoticeDismissed,
-} from '../services/ambientNotice';
+import { isAmbientNotice, isNoticeDismissed } from '../services/ambientNotice';
 import { noticeDecisionFor } from '../services/avatarPreferences';
 import { focusComposer } from '../services/composerFocus';
 import CreatedArtifacts from './CreatedArtifacts';
@@ -185,9 +182,8 @@ const MessageList = ({
     // document of a parent frame, so on the landing page — which embeds this
     // chat as the live demo — it dragged the whole page down to the demo the
     // moment the frame mounted, past the headline nobody had read yet.
-    const transcriptScrollBox = findNearestScrollingAncestor(
-      transcriptEndMarker
-    );
+    const transcriptScrollBox =
+      findNearestScrollingAncestor(transcriptEndMarker);
     if (!transcriptScrollBox) return;
     transcriptScrollBox.scrollTo({
       top: transcriptScrollBox.scrollHeight,
@@ -233,7 +229,10 @@ const MessageList = ({
               return null;
             }
             return (
-              <div key={messageKey} className="self-start w-full max-w-[85%] min-w-0">
+              <div
+                key={messageKey}
+                className="self-start w-full max-w-[85%] min-w-0"
+              >
                 <AmbientNotificationCard
                   message={msg}
                   assistantId={resolvedAssistantId}
@@ -278,8 +277,8 @@ const MessageList = ({
 
           return (
             <React.Fragment key={messageKey}>
-            <div
-              className={`flex items-end gap-2 max-w-[85%] min-w-0 ${
+              <div
+                className={`flex items-end gap-2 max-w-[85%] min-w-0 ${
                   isFromUser ? 'self-end flex-row-reverse' : 'self-start'
                 } ${charts.length > 0 ? 'w-full' : ''}`}
               >
@@ -336,7 +335,9 @@ const MessageList = ({
                         <div className="space-y-2">
                           <textarea
                             value={editDraft}
-                            onChange={(event) => setEditDraft(event.target.value)}
+                            onChange={(event) =>
+                              setEditDraft(event.target.value)
+                            }
                             rows={3}
                             className="w-full px-2 py-1.5 bg-black/50 border border-white/10 rounded-md text-neutral-200 text-sm focus:outline-none focus:ring-2 focus:ring-amber-400/50"
                           />
@@ -366,20 +367,18 @@ const MessageList = ({
                             </button>
                           </div>
                         </div>
+                      ) : !isFromAvatar && hasSpeakerScript(msg) ? (
+                        <SpeakerScript
+                          speakers={msg.speakers}
+                          fallback={msg.content}
+                        />
                       ) : (
-                        !isFromAvatar && hasSpeakerScript(msg) ? (
-                          <SpeakerScript
-                            speakers={msg.speakers}
-                            fallback={msg.content}
-                          />
-                        ) : (
-                          msg.content && (
-                            <div className="whitespace-pre-wrap">
-                              {isFromAvatar
-                                ? stripArtifactReferences(msg.content)
-                                : msg.content}
-                            </div>
-                          )
+                        msg.content && (
+                          <div className="whitespace-pre-wrap">
+                            {isFromAvatar
+                              ? stripArtifactReferences(msg.content)
+                              : msg.content}
+                          </div>
                         )
                       )}
 
@@ -472,10 +471,7 @@ const MessageList = ({
                           setEditDraft(editableScriptText(msg));
                         }}
                         onRetry={(key) =>
-                          resendFromUserMessage?.(
-                            key,
-                            editableScriptText(msg)
-                          )
+                          resendFromUserMessage?.(key, editableScriptText(msg))
                         }
                       />
                     </>

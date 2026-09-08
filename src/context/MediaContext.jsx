@@ -304,8 +304,7 @@ function messageContentAsText(storedContent) {
 export { SUGGESTION_PROMPT_MARKER };
 
 /** Prefix of the hidden turn that asks the avatar to write its description. */
-export const DESCRIPTION_PROMPT_MARKER =
-  '[neural-nexus:generate-description]';
+export const DESCRIPTION_PROMPT_MARKER = '[neural-nexus:generate-description]';
 
 /**
  * Turn stored thread history into the shape the message list renders.
@@ -407,7 +406,10 @@ function normalizeThreadMessages(storedMessages, threadId = null) {
       ) {
         return false;
       }
-      if (message.type === 'ai' && isConversationSuggestionList(message.content)) {
+      if (
+        message.type === 'ai' &&
+        isConversationSuggestionList(message.content)
+      ) {
         return false;
       }
       return true;
@@ -457,12 +459,12 @@ export const MediaProvider = ({ children }) => {
   // How many turns are in flight, so the interface can say that something is
   // still being sent after the user has moved on.
   const [pendingSendCount, setPendingSendCount] = useState(0);
-  // Voice mode raises this while the person is speaking or the avatar is, so
-  // ambient capture never sends a snapshot into the middle of an exchange.
   // The composer's "send as feedback" toggle: the next message is stored as
   // feedback about the avatar (used from the very next reply) and still
   // answered as a normal turn.
   const [sendAsFeedback, setSendAsFeedback] = useState(false);
+  // Voice mode raises this while the person is speaking or the avatar is, so
+  // ambient capture never sends a snapshot into the middle of an exchange.
   const [ambientHold, setAmbientHold] = useState(false);
   // Attachments belonging to a turn that is still in flight. Clearing
   // `mediaFiles` the moment a message is sent took the only sign that a file
@@ -502,13 +504,13 @@ export const MediaProvider = ({ children }) => {
   );
   const preferencesRequestRef = useRef(0);
 
-  const refreshAvatarPreferences = useCallback(async () => {
-    const assistantId = resolveAssistantId(activeAvatar);
   // The thread a rating is filed under: the server's id, never the sentinel
   // that names a conversation the server has not heard of yet.
   const storedThreadIdOf = (threadId) =>
     threadId && threadId !== NEW_CONVERSATION_ID ? threadId : null;
 
+  const refreshAvatarPreferences = useCallback(async () => {
+    const assistantId = resolveAssistantId(activeAvatar);
     if (!assistantId || !user || isSharedAvatarChatPath()) {
       setAvatarPreferences(emptyAvatarPreferences());
       return null;
@@ -542,8 +544,8 @@ export const MediaProvider = ({ children }) => {
   // alone while its own save is still in flight. Cards already recorded as
   // left alone are here too, so the record is made once.
   const touchedNoticeIdsRef = useRef(new Set());
-  const [dismissedNoticeIds, setDismissedNoticeIds] = useState(
-    () => loadDismissedNoticeIds()
+  const [dismissedNoticeIds, setDismissedNoticeIds] = useState(() =>
+    loadDismissedNoticeIds()
   );
 
   /**
@@ -602,7 +604,10 @@ export const MediaProvider = ({ children }) => {
         assistantId,
         ambientPreferencePayload(message, { type: 'left_alone', args: null })
       ).catch((leftAloneError) => {
-        console.error('Could not record the notice as left alone:', leftAloneError);
+        console.error(
+          'Could not record the notice as left alone:',
+          leftAloneError
+        );
       });
     }
   }
@@ -896,15 +901,15 @@ export const MediaProvider = ({ children }) => {
     const formData = new FormData();
     formData.append('message', messageContent);
     formData.append('stream', 'true');
+    if (sendAsFeedback) {
+      formData.append('feedback', 'true');
+      setSendAsFeedback(false);
+    }
     // The sentinel names a conversation the server has never heard of; sending
     // it would ask the API to continue a thread that does not exist. Omitting
     // thread_id is exactly how a new conversation is requested.
     if (threadId && threadId !== NEW_CONVERSATION_ID) {
       formData.append('thread_id', threadId);
-    if (sendAsFeedback) {
-      formData.append('feedback', 'true');
-      setSendAsFeedback(false);
-    }
     }
     for (const attachedFile of attachedFiles) {
       formData.append('files', attachedFile);
@@ -1165,10 +1170,14 @@ export const MediaProvider = ({ children }) => {
             // processed in the background, and its progress gets the same toast
             // an upload from the settings screen gets. Not awaited — the turn's
             // reply keeps streaming while the job runs.
-            followMediaJobWithToast(streamEvent.job_id, streamEvent.description, {
-              assistantId,
-              avatarName: avatarForMessage?.name,
-            });
+            followMediaJobWithToast(
+              streamEvent.job_id,
+              streamEvent.description,
+              {
+                assistantId,
+                avatarName: avatarForMessage?.name,
+              }
+            );
             setActivityIfStillOnScreen(ASSISTANT_ACTIVITY.thinking);
           } else if (streamEvent.type === 'status') {
             // The avatar started or finished a tool. The phrase is what the
@@ -1192,10 +1201,7 @@ export const MediaProvider = ({ children }) => {
           ) {
             onExtraEvent?.(streamEvent);
           }
-          if (
-            streamEvent.type === 'done' ||
-            streamEvent.type === 'interrupt'
-          ) {
+          if (streamEvent.type === 'done' || streamEvent.type === 'interrupt') {
             terminalFrame = streamEvent;
             turnPausedForUserRef.current = streamEvent.type === 'interrupt';
             setActivityIfStillOnScreen(
@@ -1269,7 +1275,9 @@ export const MediaProvider = ({ children }) => {
           .map((message) => {
             if (message.id !== streamingMessageId) return message;
             const serverTimeMs = resolveMessageResponseTimeMs(terminalFrame);
-            const clientTimeMs = Math.round(performance.now() - streamStartedAtMs);
+            const clientTimeMs = Math.round(
+              performance.now() - streamStartedAtMs
+            );
             const totalResponseTimeMs =
               serverTimeMs ?? (clientTimeMs > 0 ? clientTimeMs : null);
             const timed = attachResponseTimeMs(message, totalResponseTimeMs);
@@ -1326,7 +1334,9 @@ export const MediaProvider = ({ children }) => {
       // caller ask again for a spoken reply.
       if (hideSuggestionReply) {
         updateMessagesIfStillOnScreen((previousMessages) =>
-          previousMessages.filter((message) => message.id !== streamingMessageId)
+          previousMessages.filter(
+            (message) => message.id !== streamingMessageId
+          )
         );
       } else {
         // A deferred turn that produced a reply without streaming tokens still
@@ -1340,10 +1350,15 @@ export const MediaProvider = ({ children }) => {
           previousMessages.map((message) => {
             if (message.id !== streamingMessageId) return message;
             const serverTimeMs = resolveMessageResponseTimeMs(terminalFrame);
-            const clientTimeMs = Math.round(performance.now() - streamStartedAtMs);
+            const clientTimeMs = Math.round(
+              performance.now() - streamStartedAtMs
+            );
             const totalResponseTimeMs =
               serverTimeMs ?? (clientTimeMs > 0 ? clientTimeMs : null);
-            const timed = attachResponseTimeMs(terminalFrame, totalResponseTimeMs);
+            const timed = attachResponseTimeMs(
+              terminalFrame,
+              totalResponseTimeMs
+            );
             const finalized = {
               ...message,
               isLoading: false,
@@ -1446,7 +1461,11 @@ export const MediaProvider = ({ children }) => {
       // is minting the conversation that stays on screen.
       const yieldedBeforeMinting =
         ambient && threadId == null && terminalFrameWasStopped(terminalFrame);
-      if (terminalFrame.thread_id && !hideFromTranscript && !yieldedBeforeMinting) {
+      if (
+        terminalFrame.thread_id &&
+        !hideFromTranscript &&
+        !yieldedBeforeMinting
+      ) {
         const wasNewConversation = threadId !== terminalFrame.thread_id;
         setActiveConversation(terminalFrame.thread_id);
         if (wasNewConversation) {
@@ -1911,7 +1930,10 @@ export const MediaProvider = ({ children }) => {
       ...(Array.isArray(extraFiles) ? extraFiles : []),
     ];
 
-    if (!activeAvatar || (!messageContent.trim() && attachedFiles.length === 0)) {
+    if (
+      !activeAvatar ||
+      (!messageContent.trim() && attachedFiles.length === 0)
+    ) {
       console.log('Missing required data for sending message');
       return;
     }
@@ -2029,7 +2051,7 @@ export const MediaProvider = ({ children }) => {
       return { reply: '', sentiment: null };
     }
     const text = String(
-      replacementText != null ? replacementText : sourceMessage.content ?? ''
+      replacementText != null ? replacementText : (sourceMessage.content ?? '')
     );
     if (!text.trim()) return { reply: '', sentiment: null };
 
@@ -2088,7 +2110,9 @@ export const MediaProvider = ({ children }) => {
       .reverse()
       .find((message) => message.type === 'human' || message.type === 'user');
     if (!precedingUser) return;
-    await resendFromUserMessage(messageKeyOf(precedingUser) ?? precedingUser.id);
+    await resendFromUserMessage(
+      messageKeyOf(precedingUser) ?? precedingUser.id
+    );
   }
 
   /**
@@ -2108,6 +2132,14 @@ export const MediaProvider = ({ children }) => {
   async function submitMessageFeedback(messageId, feedback) {
     const rated = messages.find((message) => message.id === messageId);
     const previousFeedback = rated?.feedback ?? null;
+    const nextFeedback = {
+      type: feedback?.type ?? previousFeedback?.type ?? null,
+      feels: feedback?.feels ?? previousFeedback?.feels ?? null,
+      comment: feedback?.comment ?? previousFeedback?.comment ?? null,
+    };
+    // The server's feedback_type for this press: the thumb, else the
+    // feels-real mark, else a note on its own.
+    const wireType = feedback?.type ?? feedback?.feels ?? 'comment';
     setMessages((previousMessages) =>
       previousMessages.map((message) =>
         message.id === messageId
@@ -2135,15 +2167,9 @@ export const MediaProvider = ({ children }) => {
         type: wireType,
         comment: feedback?.comment ?? null,
         content:
-    const nextFeedback = {
-      type: feedback?.type ?? previousFeedback?.type ?? null,
-      feels: feedback?.feels ?? previousFeedback?.feels ?? null,
-      comment: feedback?.comment ?? previousFeedback?.comment ?? null,
-    };
-    // The server's feedback_type for this press: the thumb, else the
-    // feels-real mark, else a note on its own.
-    const wireType = feedback?.type ?? feedback?.feels ?? 'comment';
-          typeof rated.content === 'string' ? rated.content.slice(0, 600) : null,
+          typeof rated.content === 'string'
+            ? rated.content.slice(0, 600)
+            : null,
         observation,
       });
       await refreshAvatarPreferences();
@@ -2382,7 +2408,9 @@ export const MediaProvider = ({ children }) => {
           type: 'human',
           isPending: true,
           timestamp: new Date().toISOString(),
-          media: extraFiles.length ? mediaEntriesFromFiles(extraFiles) : undefined,
+          media: extraFiles.length
+            ? mediaEntriesFromFiles(extraFiles)
+            : undefined,
         },
       ]);
       if (extraFiles.length > 0) {
@@ -2426,7 +2454,10 @@ export const MediaProvider = ({ children }) => {
             } else if (streamEvent.type === 'ambient_decision') {
               decision = streamEvent;
               if (streamEvent.decision === 'notify') {
-                notifyAmbientObservation(activeAvatar?.name, streamEvent.summary);
+                notifyAmbientObservation(
+                  activeAvatar?.name,
+                  streamEvent.summary
+                );
               }
             }
           },
@@ -2448,7 +2479,9 @@ export const MediaProvider = ({ children }) => {
         // The server never announced what it heard (an error frame, a stop):
         // drop the placeholder rather than leave an empty bubble.
         setMessages((previousMessages) =>
-          previousMessages.filter((message) => message.id !== temporaryUserMessageId)
+          previousMessages.filter(
+            (message) => message.id !== temporaryUserMessageId
+          )
         );
       } else if (extraFiles.length > 0) {
         const threadIdForArchive = outcome?.threadId ?? activeConversation;
@@ -2468,7 +2501,9 @@ export const MediaProvider = ({ children }) => {
       };
     } catch (spokenError) {
       setMessages((previousMessages) =>
-        previousMessages.filter((message) => message.id !== temporaryUserMessageId)
+        previousMessages.filter(
+          (message) => message.id !== temporaryUserMessageId
+        )
       );
       console.error('The spoken turn failed:', spokenError);
       reportTurnFailure(spokenError, 'Could not send what was heard.');
@@ -2787,6 +2822,8 @@ export const MediaProvider = ({ children }) => {
         resendFromUserMessage,
         regenerateAvatarReply,
         submitMessageFeedback,
+        sendAsFeedback,
+        setSendAsFeedback,
         avatarPreferences,
         refreshAvatarPreferences,
         allowAmbientAction,
@@ -2806,5 +2843,3 @@ export const MediaProvider = ({ children }) => {
 };
 
 export const useMedia = () => useContext(MediaContext);
-        sendAsFeedback,
-        setSendAsFeedback,

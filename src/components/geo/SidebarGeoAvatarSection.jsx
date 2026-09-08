@@ -9,6 +9,7 @@ import { useNavigate } from 'react-router-dom';
 import { Globe, MapPin } from 'lucide-react';
 
 import { useGeoAvatars } from '../../context/GeoAvatarContext';
+import ClearMyLocationButton from './ClearMyLocationButton';
 import NearbyAvatarsMapPanel from './NearbyAvatarsMapPanel';
 import { voiceChatPath } from '../../services/voiceModePreference';
 
@@ -59,7 +60,11 @@ const SidebarGeoAvatarSection = ({ onNavigate }) => {
 
   const openAvatar = (entry) => {
     onNavigate?.();
-    navigate(voiceChatPath(entry.assistant_id, { cameraBackground: true }));
+    navigate(
+      voiceChatPath(entry.assistant_id, {
+        cameraBackground: Boolean(entry.inside_geofence),
+      })
+    );
   };
 
   return (
@@ -93,6 +98,8 @@ const SidebarGeoAvatarSection = ({ onNavigate }) => {
         />
         <span>Notify me when I reach an avatar&rsquo;s place</span>
       </label>
+
+      <ClearMyLocationButton placement="toolbar" />
 
       <NearbyAvatarsMapPanel
         nearbyAvatars={nearbyAvatars}

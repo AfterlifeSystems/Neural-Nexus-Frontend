@@ -7,7 +7,7 @@
  * just made.
  */
 
-function assistantIdOf(avatar) {
+export function assistantIdOf(avatar) {
   if (typeof avatar === 'string') {
     const trimmed = avatar.trim();
     return trimmed || null;

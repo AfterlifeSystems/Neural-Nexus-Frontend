@@ -58,7 +58,9 @@ const UsageAnalyticsSection = ({ source }) => {
         `Deleted ${counts.events ?? 0} recorded actions and ${counts.screenshots ?? 0} page captures.`
       );
     } catch (deleteError) {
-      toast.error(deleteError?.message ?? 'The recorded data could not be deleted.');
+      toast.error(
+        deleteError?.message ?? 'The recorded data could not be deleted.'
+      );
     } finally {
       setIsDeleting(false);
     }
@@ -79,13 +81,14 @@ const UsageAnalyticsSection = ({ source }) => {
             <p className="text-sm text-white/60 mt-1">
               Help Neural Nexus improve. While this is on, the application
               records the actions you take in Neural Nexus (what you click,
-              which screens you open, which requests the application makes)
-              and periodically captures a picture of this page, which an AI
-              model describes so the team can see what people are doing,
-              have done, or are trying to do. Only this page is captured,
-              never other windows; passwords and hidden fields are left out;
-              no browser permission is asked. Everything is stored under your
-              account and forgotten after a retention window.
+              which screens you open, which requests the application makes) and
+              periodically captures a picture of this page, which an AI model
+              describes so the team can see what people are doing, have done, or
+              are trying to do. Only activity on the Neural Nexus page is
+              captured. We do not collect passwords or sensitive information
+              unless shared by the user with the Neural Nexus. We do not sell
+              your data to third party providers, and your data is held only for
+              a brief 90 day retention period before erasure.
             </p>
           </div>
         </div>
@@ -125,8 +128,8 @@ const UsageAnalyticsSection = ({ source }) => {
           {isDeleting ? 'Deleting…' : 'Delete what has been recorded'}
         </button>
         <span className="text-xs text-white/40">
-          Turning the switch off stops recording at once; deleting removes
-          what was recorded before.
+          Turning the switch off stops recording at once; deleting removes what
+          was recorded before.
         </span>
       </div>
     </div>

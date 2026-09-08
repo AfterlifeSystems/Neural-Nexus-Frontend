@@ -58,3 +58,31 @@
 .neural-nexus-map .leaflet-container a.leaflet-popup-close-button {
   color: rgb(163 163 163);
 }
+
+.neural-nexus-minimap-frame {
+  isolation: isolate;
+}
+
+.neural-nexus-minimap-vignette {
+  background: radial-gradient(
+    ellipse at center,
+    transparent 52%,
+    rgba(0, 0, 0, 0.55) 100%
+  );
+}
+
+.neural-nexus-minimap .leaflet-tile-pane {
+  filter: invert(1) hue-rotate(180deg) brightness(0.7) contrast(1.05)
+    saturate(0.4);
+}
+
+.neural-nexus-minimap .leaflet-control-attribution {
+  background: rgba(0, 0, 0, 0.45);
+  color: rgb(115 115 115);
+  font-size: 9px;
+  margin: 0 8px 8px 0;
+}
+
+.neural-nexus-minimap .leaflet-control-attribution a {
+  color: rgb(163 163 163);
+}

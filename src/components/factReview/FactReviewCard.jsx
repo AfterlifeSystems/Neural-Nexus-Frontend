@@ -8,6 +8,11 @@
 
 import React from 'react';
 
+import {
+  ACTION_CHOICE_BUTTON_TYPE,
+  actionChoiceButtonClassName,
+} from './factReviewActionChoice';
+
 export const ACTION_ORDER = ['accept', 'remove', 'skip'];
 
 // Used only when the payload omits `action_labels`. The server ships its own
@@ -123,24 +128,19 @@ export const FactReviewCard = ({ match, decision, actionLabels, onChange, isResu
           {ACTION_ORDER.map((action) => {
             const isSelected = decision.action === action;
             return (
-              <label
+              <button
                 key={action}
-                className={`cursor-pointer text-xs px-3 py-1.5 rounded-full border transition-colors ${
-                  isSelected
-                    ? 'bg-neutral-200 border-neutral-100 text-neutral-900'
-                    : 'bg-black/60 border-neutral-700 text-white/70 hover:bg-white/10'
-                } ${isResuming ? 'opacity-50 cursor-not-allowed' : ''}`}
+                type={ACTION_CHOICE_BUTTON_TYPE}
+                aria-pressed={isSelected}
+                disabled={isResuming}
+                className={actionChoiceButtonClassName({
+                  selected: isSelected,
+                  disabled: isResuming,
+                })}
+                onClick={() => onChange({ ...decision, action })}
               >
-                <input
-                  type="radio"
-                  className="sr-only"
-                  name={`interrupt-action-${match.index}`}
-                  value={action}
-                  checked={isSelected}
-                  onChange={() => onChange({ action })}
-                />
                 {actionLabels[action]}
-              </label>
+              </button>
             );
           })}
         </div>
@@ -153,10 +153,13 @@ export const FactReviewCard = ({ match, decision, actionLabels, onChange, isResu
           <textarea
             className={`${TEXTAREA_CLASSES} mt-1`}
             rows={3}
-            value={decision.correctedText}
+            value={decision.correctedText ?? ''}
             disabled={isResuming}
             onChange={(changeEvent) =>
-              onChange({ correctedText: changeEvent.target.value })
+              onChange({
+                ...decision,
+                correctedText: changeEvent.target.value,
+              })
             }
           />
         </label>
@@ -166,10 +169,13 @@ export const FactReviewCard = ({ match, decision, actionLabels, onChange, isResu
           <textarea
             className={`${TEXTAREA_CLASSES} mt-1`}
             rows={2}
-            value={decision.correctedContext}
+            value={decision.correctedContext ?? ''}
             disabled={isResuming}
             onChange={(changeEvent) =>
-              onChange({ correctedContext: changeEvent.target.value })
+              onChange({
+                ...decision,
+                correctedContext: changeEvent.target.value,
+              })
             }
           />
         </label>

@@ -12,8 +12,9 @@ import { Circle, MapContainer, Marker, Popup, TileLayer } from 'react-leaflet';
 import { Compass, MapPin, RefreshCw } from 'lucide-react';
 
 import { MAP_TILE_ATTRIBUTION, MAP_TILE_URL } from '../../config/maps';
-import { describeDistance } from '../../services/avatarProximity';
-import { avatarPinIcon, devicePositionIcon } from './avatarPinMarker';
+import { describeDistance, pinOf } from '../../services/avatarProximity';
+import { mapMarkOf } from '../../services/avatarMapMark';
+import { devicePositionIcon, labeledPinIcon } from './avatarPinMarker';
 import 'leaflet/dist/leaflet.css';
 import './leafletMapStyles.css';
 
@@ -50,17 +51,36 @@ const NearbyAvatarsMapPanel = ({
   return (
     <div className="space-y-2">
       {center ? (
-        <div className="h-44 w-full overflow-hidden rounded-lg border border-white/10">
+        <div className="neural-nexus-minimap-frame relative h-44 w-full overflow-hidden rounded-xl border border-amber-300/20 bg-black/70">
+          <span
+            className="pointer-events-none absolute left-1.5 top-1.5 z-20 h-2.5 w-2.5 border-l border-t border-amber-300/40"
+            aria-hidden="true"
+          />
+          <span
+            className="pointer-events-none absolute right-1.5 top-1.5 z-20 h-2.5 w-2.5 border-r border-t border-amber-300/40"
+            aria-hidden="true"
+          />
+          <span
+            className="pointer-events-none absolute bottom-1.5 left-1.5 z-20 h-2.5 w-2.5 border-b border-l border-amber-300/40"
+            aria-hidden="true"
+          />
+          <span
+            className="pointer-events-none absolute bottom-1.5 right-1.5 z-20 h-2.5 w-2.5 border-b border-r border-amber-300/40"
+            aria-hidden="true"
+          />
           <MapContainer
             center={center}
-            zoom={16}
+            zoom={18}
+            minZoom={2}
+            maxZoom={19}
             scrollWheelZoom={false}
-            className="neural-nexus-map h-full w-full"
+            zoomControl={false}
+            className="neural-nexus-map neural-nexus-minimap h-full w-full"
           >
             <TileLayer url={MAP_TILE_URL} attribution={MAP_TILE_ATTRIBUTION} />
             <Marker position={center} icon={devicePositionIcon} />
             {nearbyAvatars.map((entry) => {
-              const pin = entry.geo_location;
+              const pin = pinOf(entry);
               if (!pin) return null;
               return (
                 <Fragment key={entry.assistant_id}>
@@ -75,7 +95,10 @@ const NearbyAvatarsMapPanel = ({
                   />
                   <Marker
                     position={[pin.latitude, pin.longitude]}
-                    icon={avatarPinIcon}
+                    icon={labeledPinIcon({
+                      initials: mapMarkOf(entry).initials,
+                      owned: false,
+                    })}
                     eventHandlers={{ click: () => onOpenAvatar?.(entry) }}
                   >
                     <Popup>
@@ -87,6 +110,10 @@ const NearbyAvatarsMapPanel = ({
               );
             })}
           </MapContainer>
+          <div
+            className="neural-nexus-minimap-vignette pointer-events-none absolute inset-0 z-10"
+            aria-hidden="true"
+          />
         </div>
       ) : (
         <p className="px-1 text-xs text-white/50">

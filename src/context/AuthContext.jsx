@@ -15,6 +15,7 @@ import {
   extractSessionCredentialFromLoginResponse,
 } from '../services/neuralNexusApiClient';
 import { restoreSignedInUser } from './authSession';
+import { listUserAvatars } from '../services/avatarService';
 
 const AuthContext = createContext();
 
@@ -252,6 +253,11 @@ export const AuthProvider = ({ children }) => {
           setUser(restoredUser);
           setProfile(restoredUser);
           localStorage.setItem('user', JSON.stringify(restoredUser));
+          try {
+            setUserAvatars((await listUserAvatars()) ?? []);
+          } catch (listError) {
+            console.error('Restoring the avatar list failed:', listError);
+          }
         } else {
           // The credential authenticates, but this browser has no signed-in
           // session: the account signed up and has not verified yet, a logout

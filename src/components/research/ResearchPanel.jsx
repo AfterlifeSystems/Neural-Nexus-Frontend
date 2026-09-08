@@ -43,6 +43,7 @@ import {
   forgetResearchJob,
   readRememberedResearchJob,
   rememberResearchJob,
+  subscribeResearchJobs,
 } from './researchJobMemory';
 
 /**
@@ -90,6 +91,23 @@ const ResearchPanel = ({ assistantId, avatarName, onFactsApplied }) => {
   useEffect(() => {
     loadProposals();
   }, [loadProposals]);
+
+  // A job started after this panel mounted (create-from-photo ingest, then
+  // research) is remembered in the same tab. Pick it up so the progress
+  // stream starts without a reload.
+  useEffect(() => {
+    return subscribeResearchJobs((changedAssistantId) => {
+      if (changedAssistantId !== assistantId) return;
+      const remembered = readRememberedResearchJob(assistantId);
+      if (!remembered) return;
+      setJob((current) => {
+        if (current?.id === remembered && current.assistantId === assistantId) {
+          return current;
+        }
+        return { assistantId, id: remembered };
+      });
+    });
+  }, [assistantId]);
 
   // Follow the running job — the one started here, or one still running from
   // before the page reloaded — and reload the review list when it finishes.
