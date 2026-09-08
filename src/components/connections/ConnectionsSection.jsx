@@ -2,7 +2,13 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { toast } from 'react-hot-toast';
 import { useSearchParams } from 'react-router-dom';
-import { Plug, RotateCcw, Sparkles } from 'lucide-react';
+import {
+  Plug,
+  RotateCcw,
+  Sparkles,
+  ChevronDown,
+  ChevronUp,
+} from 'lucide-react';
 import ConnectAccountCard from '../ConnectAccountCard';
 import ConnectorIcon from '../icons/ConnectorIcon';
 import Modal from '../ui/Modal';
@@ -63,25 +69,25 @@ const ConnectionsSection = ({ onConnectionsChanged }) => {
   const [query, setQuery] = useState('');
   const [categoryFilter, setCategoryFilter] = useState('all');
   const [isPickerOpen, setIsPickerOpen] = useState(false);
+  const [isConnectorMenuOpen, setIsConnectorMenuOpen] = useState(false);
   const [busyConnectionKey, setBusyConnectionKey] = useState(null);
   const [importingAccountKey, setImportingAccountKey] = useState(null);
   const sectionRef = useRef(null);
   const [searchParams] = useSearchParams();
 
   const refresh = useCallback(async () => {
-    const [connectionsResult, providersResult, mcpResult] = await Promise.allSettled([
-      listConnections(),
-      listConnectableProviders(),
-      listMcpConnections(),
-    ]);
+    const [connectionsResult, providersResult, mcpResult] =
+      await Promise.allSettled([
+        listConnections(),
+        listConnectableProviders(),
+        listMcpConnections(),
+      ]);
     const listedConnections =
       connectionsResult.status === 'fulfilled'
         ? (connectionsResult.value?.connections ?? [])
         : [];
     const mcpDevices =
-      mcpResult.status === 'fulfilled'
-        ? (mcpResult.value?.devices ?? [])
-        : [];
+      mcpResult.status === 'fulfilled' ? (mcpResult.value?.devices ?? []) : [];
     setConnections(
       mergePendingMcpConnections(
         mergeMcpDevicesIntoConnections(listedConnections, mcpDevices)
@@ -150,9 +156,7 @@ const ConnectionsSection = ({ onConnectionsChanged }) => {
     }
     const pending = addPendingMcpConnection(connector);
     setConnections(
-      mergePendingMcpConnections(
-        connections.filter((row) => !row.pending)
-      )
+      mergePendingMcpConnections(connections.filter((row) => !row.pending))
     );
     await handleDeviceConnect(pending);
   };
@@ -337,7 +341,10 @@ const ConnectionsSection = ({ onConnectionsChanged }) => {
       await refresh();
       onConnectionsChanged?.();
     } catch (disconnectError) {
-      showRequestFailureToast(disconnectError, 'Could not disconnect that machine.');
+      showRequestFailureToast(
+        disconnectError,
+        'Could not disconnect that machine.'
+      );
     } finally {
       setBusyConnectionKey(null);
     }
@@ -351,7 +358,9 @@ const ConnectionsSection = ({ onConnectionsChanged }) => {
     if (connection.pending) {
       removePendingMcpConnection(connection.connection_key);
       setConnections((current) =>
-        current.filter((row) => row.connection_key !== connection.connection_key)
+        current.filter(
+          (row) => row.connection_key !== connection.connection_key
+        )
       );
       toast.success(`${connection.display_label} removed.`);
       return;
@@ -457,6 +466,16 @@ const ConnectionsSection = ({ onConnectionsChanged }) => {
     );
   };
 
+  const toggleConnectorMenu = () => {
+    if (isConnectorMenuOpen) {
+      // The search box is hidden once collapsed, so don't leave the
+      // Connected list filtered by a query the user can no longer see.
+      setQuery('');
+      setCategoryFilter('all');
+    }
+    setIsConnectorMenuOpen(!isConnectorMenuOpen);
+  };
+
   const renderAccountRow = (connection) => {
     const isBusy = busyConnectionKey === connection.connection_key;
     const isMailbox = connection.kind === 'mailbox';
@@ -529,30 +548,120 @@ const ConnectionsSection = ({ onConnectionsChanged }) => {
       id="connections"
       className="bg-black/60 backdrop-blur-lg rounded-2xl border border-white/10 p-4 sm:p-6 min-w-0"
     >
-      <div className="flex flex-wrap items-center gap-3 mb-3">
+      <button
+        type="button"
+        onClick={toggleConnectorMenu}
+        aria-expanded={isConnectorMenuOpen}
+        aria-controls="connection-menu-collapsable"
+        className="group w-full flex flex-wrap items-center gap-3 mb-3 rounded-xl text-left transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-white/30"
+      >
         <span className="px-3 py-1.5 rounded-full bg-white/15 text-neutral-200 text-sm font-medium inline-flex items-center gap-2">
           <Plug className="w-4 h-4" aria-hidden="true" />
           Connectors
         </span>
-        <button
-          type="button"
-          onClick={() => setIsPickerOpen(true)}
-          className="ml-auto px-4 py-2 rounded-full bg-neutral-200 hover:bg-neutral-100 text-neutral-900 text-sm font-medium transition-colors focus:outline-none focus:ring-2 focus:ring-amber-400/50"
-        >
+        <span className="ml-auto px-4 py-2 rounded-full bg-neutral-200 group-hover:bg-neutral-100 text-neutral-900 text-sm font-medium transition-colors">
           New Connector
-        </button>
-      </div>
-      <div className="mb-5">
-        <ConnectorBrowseControls
-          query={query}
-          onQueryChange={setQuery}
-          category={categoryFilter}
-          onCategoryChange={setCategoryFilter}
-          categories={filterOptions}
-          searchPlaceholder="Search connectors"
-          searchLabel="Search connections"
-        />
-      </div>
+        </span>
+        {isConnectorMenuOpen ? (
+          <ChevronUp
+            size={20}
+            aria-hidden="true"
+            className="shrink-0 text-white/60 group-hover:text-white transition-colors"
+          />
+        ) : (
+          <ChevronDown
+            size={20}
+            aria-hidden="true"
+            className="shrink-0 text-white/60 group-hover:text-white transition-colors"
+          />
+        )}
+      </button>
+
+      {isConnectorMenuOpen && (
+        <div id="connection-menu-collapsable" className="mb-6">
+          <div className="mb-5">
+            <ConnectorBrowseControls
+              query={query}
+              onQueryChange={setQuery}
+              category={categoryFilter}
+              onCategoryChange={setCategoryFilter}
+              categories={filterOptions}
+              searchPlaceholder="Search connectors"
+              searchLabel="Search connections"
+            />
+          </div>
+
+          <h4 className="text-neutral-200 font-semibold mb-3">Featured</h4>
+          {featuredRows.length === 0 ? (
+            <p className="text-white/50 text-sm">
+              No connectors match that search.
+            </p>
+          ) : (
+            featuredCategories.map((category) => (
+              <div key={category} className="mb-4">
+                <p className="text-white/40 text-xs uppercase tracking-wide mb-2">
+                  {CONNECTOR_CATEGORY_LABELS[category] ?? category}
+                </p>
+                <div className="grid grid-cols-1 xl:grid-cols-2 gap-2">
+                  {featuredRows
+                    .filter((provider) => provider.category === category)
+                    .map((provider) => {
+                      const isComingSoon =
+                        provider.availability === 'coming_soon';
+                      const isDevice = isMcpConnectorProvider(provider);
+                      const platform = provider.platform;
+                      const connectedCount = connections.filter((connection) =>
+                        isDevice
+                          ? isDeviceConnection(connection) &&
+                            (!platform ||
+                              normalizePlatform(connection.platform) ===
+                                normalizePlatform(platform))
+                          : connection.provider === provider.provider &&
+                            connection.connected
+                      ).length;
+                      return (
+                        <div
+                          key={provider.provider}
+                          className="flex flex-col sm:flex-row sm:items-center gap-3 px-3 py-2.5 rounded-xl hover:bg-white/5 transition-colors min-w-0"
+                        >
+                          <div className="flex items-center gap-3 min-w-0 flex-1">
+                            <ConnectorIcon iconKey={provider.icon_key} />
+                            <div className="min-w-0 flex-1">
+                              <p className="text-neutral-200 truncate">
+                                {provider.display_name}
+                              </p>
+                              <p className="text-white/50 text-sm line-clamp-2">
+                                {connectedCount > 0
+                                  ? isDevice
+                                    ? 'On the list · Connect it below'
+                                    : `${connectedCount} connected · Connect another`
+                                  : provider.summary ||
+                                    provider.card_description}
+                              </p>
+                            </div>
+                          </div>
+                          {isComingSoon ? (
+                            <span className="shrink-0 self-end sm:self-auto px-3 py-1 rounded-full bg-white/10 border border-white/10 text-white/60 text-xs">
+                              Coming soon
+                            </span>
+                          ) : (
+                            <button
+                              type="button"
+                              onClick={() => openCardFor(provider)}
+                              className="shrink-0 self-end sm:self-auto px-3 py-1.5 rounded-full bg-neutral-200 hover:bg-neutral-100 text-neutral-900 text-sm font-medium transition-colors focus:outline-none focus:ring-2 focus:ring-amber-400/50"
+                            >
+                              Add
+                            </button>
+                          )}
+                        </div>
+                      );
+                    })}
+                </div>
+              </div>
+            ))
+          )}
+        </div>
+      )}
 
       <h4 className="text-neutral-200 font-semibold mb-3">Connected</h4>
       {isLoading ? (
@@ -573,74 +682,6 @@ const ConnectionsSection = ({ onConnectionsChanged }) => {
         </p>
       )}
 
-      <h4 className="text-neutral-200 font-semibold mb-3">Featured</h4>
-      {featuredRows.length === 0 ? (
-        <p className="text-white/50 text-sm">
-          No connectors match that search.
-        </p>
-      ) : (
-      featuredCategories.map((category) => (
-        <div key={category} className="mb-4">
-          <p className="text-white/40 text-xs uppercase tracking-wide mb-2">
-            {CONNECTOR_CATEGORY_LABELS[category] ?? category}
-          </p>
-          <div className="grid grid-cols-1 xl:grid-cols-2 gap-2">
-            {featuredRows
-              .filter((provider) => provider.category === category)
-              .map((provider) => {
-                const isComingSoon = provider.availability === 'coming_soon';
-                const isDevice = isMcpConnectorProvider(provider);
-                const platform = provider.platform;
-                const connectedCount = connections.filter((connection) =>
-                  isDevice
-                    ? isDeviceConnection(connection) &&
-                      (!platform ||
-                        normalizePlatform(connection.platform) ===
-                          normalizePlatform(platform))
-                    : connection.provider === provider.provider &&
-                      connection.connected
-                ).length;
-                return (
-                  <div
-                    key={provider.provider}
-                    className="flex flex-col sm:flex-row sm:items-center gap-3 px-3 py-2.5 rounded-xl hover:bg-white/5 transition-colors min-w-0"
-                  >
-                    <div className="flex items-center gap-3 min-w-0 flex-1">
-                      <ConnectorIcon iconKey={provider.icon_key} />
-                      <div className="min-w-0 flex-1">
-                        <p className="text-neutral-200 truncate">
-                          {provider.display_name}
-                        </p>
-                        <p className="text-white/50 text-sm line-clamp-2">
-                          {connectedCount > 0
-                            ? isDevice
-                              ? 'On the list · Connect it above'
-                              : `${connectedCount} connected · Connect another`
-                            : provider.summary || provider.card_description}
-                        </p>
-                      </div>
-                    </div>
-                    {isComingSoon ? (
-                      <span className="shrink-0 self-end sm:self-auto px-3 py-1 rounded-full bg-white/10 border border-white/10 text-white/60 text-xs">
-                        Coming soon
-                      </span>
-                    ) : (
-                      <button
-                        type="button"
-                        onClick={() => openCardFor(provider)}
-                        className="shrink-0 self-end sm:self-auto px-3 py-1.5 rounded-full bg-neutral-200 hover:bg-neutral-100 text-neutral-900 text-sm font-medium transition-colors focus:outline-none focus:ring-2 focus:ring-amber-400/50"
-                      >
-                        Add
-                      </button>
-                    )}
-                  </div>
-                );
-              })}
-          </div>
-        </div>
-      ))
-      )}
-
       <Modal
         open={isPickerOpen}
         onClose={() => setIsPickerOpen(false)}
@@ -658,7 +699,11 @@ const ConnectionsSection = ({ onConnectionsChanged }) => {
       <Modal
         open={Boolean(settingsCard)}
         onClose={() => setSettingsCard(null)}
-        title={settingsCard?.display_name ? `Connect ${settingsCard.display_name}` : 'Connect'}
+        title={
+          settingsCard?.display_name
+            ? `Connect ${settingsCard.display_name}`
+            : 'Connect'
+        }
       >
         {settingsCard && (
           <ConnectAccountCard
