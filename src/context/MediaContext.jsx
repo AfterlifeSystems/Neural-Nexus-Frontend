@@ -511,7 +511,11 @@ export const MediaProvider = ({ children }) => {
 
   const refreshAvatarPreferences = useCallback(async () => {
     const assistantId = resolveAssistantId(activeAvatar);
-    if (!assistantId || !user || isSharedAvatarChatPath()) {
+    // A visitor in a shared avatar chat has no account but does have
+    // preferences: the API files them under the visitor's anonymous identity,
+    // the same one the visitor's turns run under.
+    const asAnonymousIdentity = isSharedAvatarChatPath();
+    if (!assistantId || (!user && !asAnonymousIdentity)) {
       setAvatarPreferences(emptyAvatarPreferences());
       return null;
     }
@@ -522,6 +526,7 @@ export const MediaProvider = ({ children }) => {
         // server; asking for that sentinel would filter every rating out.
         threadId: storedThreadIdOf(activeConversation),
       });
+        asAnonymousIdentity,
       if (preferencesRequestRef.current !== requestNumber) return null;
       const preferences = normalizeAvatarPreferences(payload);
       setAvatarPreferences(preferences);
@@ -2185,6 +2190,7 @@ export const MediaProvider = ({ children }) => {
       );
     }
   }
+        asAnonymousIdentity: isSharedAvatarChatPath(),
 
   /**
    * Follow-up chips for the composer.

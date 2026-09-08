@@ -1631,9 +1631,11 @@ export const recordMessageFeedback = async ({
   type,
   comment,
   content,
+  asAnonymousIdentity = false,
   observation = null,
 }) => {
   return requestJson('/message_feedback', {
+    asAnonymousIdentity,
     method: 'POST',
     body: {
       assistant_id: assistantId,
@@ -1657,13 +1659,18 @@ export const recordMessageFeedback = async ({
  * @param {string} assistantId The avatar.
  * @param {Object} [options]
  * @param {string|null} [options.threadId] Narrow reply ratings to one thread.
- * @returns {Promise<Object>} `{message_feedback, ambient_decisions}`.
+ * @param {boolean} [options.asAnonymousIdentity] Read as the anonymous visitor
+ *   (a shared avatar chat), without the stored credential.
+ * @returns {Promise<Object>} `{message_feedback, ambient_decisions, learned_preferences, feedback_messages, what_feels_real}`.
  */
-export const fetchAvatarPreferences = async (assistantId, { threadId } = {}) => {
-  return requestJson(
-    `/avatar_preferences/${encodeURIComponent(assistantId)}`,
-    { query: threadId ? { thread_id: threadId } : undefined }
-  );
+export const fetchAvatarPreferences = async (
+  assistantId,
+  { threadId, asAnonymousIdentity = false } = {}
+) => {
+  return requestJson(`/avatar_preferences/${encodeURIComponent(assistantId)}`, {
+    query: threadId ? { thread_id: threadId } : undefined,
+    asAnonymousIdentity,
+  });
 };
 
 /**
