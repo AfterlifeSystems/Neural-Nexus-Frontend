@@ -1514,6 +1514,40 @@ export const updateConversationThread = async (threadId, metadata) => {
   });
 };
 
+/**
+ * Ask the messaging service to name a conversation from its whole transcript.
+ * POST /conversations/{thread_id}/title
+ *
+ * Called when the reader leaves a conversation — switches to another one,
+ * starts a new one, or closes the tab. The messaging service names a
+ * conversation once when it starts, off the opening exchange; by the time the
+ * reader leaves, the conversation has usually moved on to what it was really
+ * about, and this request is what renames it to that.
+ *
+ * A name the reader typed in the sidebar is never replaced, so this is safe to
+ * send for any conversation. `keepalive` lets the request finish after the tab
+ * has gone, because the page that sent it does not need to read the answer.
+ *
+ * @param {string} threadId The conversation being left.
+ * @param {string} assistantId The avatar the conversation belongs to.
+ * @param {Object} [options]
+ * @param {boolean} [options.asAnonymousIdentity] Send no credential, for a
+ *   visitor reading a shared avatar's chat.
+ * @returns {Promise<{conversation_title: string, renamed: boolean}|undefined>}
+ */
+export const nameConversationThread = async (
+  threadId,
+  assistantId,
+  { asAnonymousIdentity = false } = {}
+) => {
+  return requestJson(`/conversations/${encodeURIComponent(threadId)}/title`, {
+    method: 'POST',
+    query: { assistant_id: assistantId },
+    keepalive: true,
+    asAnonymousIdentity,
+  });
+};
+
 const AMBIENT_SOURCE_BY_FILENAME = {
   'webcam.jpg': 'webcam',
   'screen.jpg': 'screen',

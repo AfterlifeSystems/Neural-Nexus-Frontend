@@ -48,11 +48,17 @@ import {
   deleteConversationThread,
   fetchAvatarPreferences,
   listConnections,
+  nameConversationThread,
   recordAmbientPreference,
   recordMessageFeedback,
   stopAssistantReply,
   updateConversationThread,
 } from '../services/avatarService';
+import {
+  manualRenameMetadata,
+  overlayConversationNames,
+  withConversationName,
+} from '../services/conversationNaming';
 import {
   CONNECT_ACCOUNT_INTERRUPT_KIND,
   cardFromConnectionRow,
@@ -425,6 +431,20 @@ export const MediaProvider = ({ children }) => {
   const [messages, setMessages] = useState([]);
   const [activeConversation, setActiveConversation] = useState(null);
   const [conversationList, setConversationList] = useState([]);
+  // Names the messaging service produced during this session, by thread. The
+  // name arrives on the message stream or as the answer to the request sent on
+  // leaving a conversation — never in a listing — so it is remembered here and
+  // laid back over every listing that follows.
+  const conversationNamesRef = useRef(new Map());
+  // Conversations that have taken a turn since they were last named. Only these
+  // are worth renaming when the reader leaves them: a conversation the
+  // messaging service just named on this very turn would otherwise be sent
+  // straight back for a second naming of the same transcript.
+  const conversationsWithTurnsSinceNamingRef = useRef(new Set());
+  // The conversation currently on screen, readable from the effect that
+  // notices the reader leaving it — by which time the state has already moved
+  // on to whatever the reader opened instead.
+  const conversationBeingReadRef = useRef({ threadId: null, assistantId: null });
   // Set when the graph pauses for human approval (an `interrupt` frame). A
   // future approval interface resumes via POST /message/{assistant_id}/resume.
   const [pendingInterrupt, setPendingInterrupt] = useState(null);
@@ -728,6 +748,102 @@ export const MediaProvider = ({ children }) => {
   };
 
   /**
+   * Show a name the messaging service produced, and remember it.
+   *
+   * Remembering matters as much as showing: a listing of conversations is
+   * usually already in flight when the name arrives (the browser re-lists the
+   * moment a new conversation is minted), and that listing was answered before
+   * the conversation had a name. Without the remembered copy laid back over it,
+   * the row the reader is looking at would drop back to its creation date a
+   * fraction of a second after being named.
+   *
+   * @param {string} threadId The conversation that was named.
+   * @param {string} title The name.
+   */
+  function applyConversationName(threadId, title) {
+    if (!threadId || !title) return;
+    conversationNamesRef.current.set(threadId, title);
+    conversationsWithTurnsSinceNamingRef.current.delete(threadId);
+    setConversationList((current) =>
+      (current ?? []).map((conversation) =>
+        conversation.thread_id === threadId
+          ? withConversationName(conversation, title)
+          : conversation
+      )
+    );
+  }
+
+  /**
+   * Ask the messaging service to name a conversation the reader has left.
+   * POST /conversations/{thread_id}/title
+   *
+   * Only conversations that have taken a turn since they were last named are
+   * sent: a conversation the messaging service named on the turn that started
+   * it is already named after everything there is to read, and asking again
+   * would spend a second classification call to arrive at the same name.
+   *
+   * @param {string} threadId The conversation being left.
+   * @param {string} assistantId The avatar the conversation belongs to.
+   */
+  function requestConversationName(threadId, assistantId) {
+    if (!threadId || threadId === NEW_CONVERSATION_ID || !assistantId) return;
+    if (!conversationsWithTurnsSinceNamingRef.current.has(threadId)) return;
+    conversationsWithTurnsSinceNamingRef.current.delete(threadId);
+    nameConversationThread(threadId, assistantId, {
+      asAnonymousIdentity: isSharedAvatarChatPath(),
+    })
+      .then((named) => {
+        if (named?.conversation_title) {
+          applyConversationName(threadId, named.conversation_title);
+        }
+      })
+      .catch((namingError) => {
+        // The reader has already moved on and is looking at another
+        // conversation; a name that did not arrive costs them the name, and
+        // nothing else.
+        console.error('Naming the conversation on leaving failed:', namingError);
+      });
+  }
+
+  // Notice the reader leaving a conversation. Every route out of a
+  // conversation ends here — clicking another conversation, starting a new one,
+  // switching avatars, following a link away — because all of them change
+  // `activeConversation`, and hanging the naming request off the state rather
+  // than off each button is what keeps a new way out of a conversation from
+  // silently skipping the rename.
+  useEffect(() => {
+    const openThreadId =
+      activeConversation && activeConversation !== NEW_CONVERSATION_ID
+        ? activeConversation
+        : null;
+    const previous = conversationBeingReadRef.current;
+    if (previous.threadId && previous.threadId !== openThreadId) {
+      requestConversationName(previous.threadId, previous.assistantId);
+    }
+    conversationBeingReadRef.current = {
+      threadId: openThreadId,
+      assistantId: resolveAssistantId(activeAvatar),
+    };
+  }, [activeConversation, activeAvatar]);
+
+  // Closing the tab is leaving the conversation too. `pagehide` fires where
+  // `beforeunload` is unreliable (a phone browser being backgrounded), and the
+  // request is sent with `keepalive` so the browser finishes sending it after
+  // this page is gone.
+  useEffect(() => {
+    function nameConversationOnLeavingThePage() {
+      const { threadId, assistantId } = conversationBeingReadRef.current;
+      requestConversationName(threadId, assistantId);
+    }
+    window.addEventListener('pagehide', nameConversationOnLeavingThePage);
+    return () =>
+      window.removeEventListener('pagehide', nameConversationOnLeavingThePage);
+    // Registered once: the handler reads the conversation being read out of a
+    // ref, so it never goes stale and never needs re-registering.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  /**
    * Load every conversation thread for this user + avatar, newest first.
    * GET /conversations
    *
@@ -747,8 +863,9 @@ export const MediaProvider = ({ children }) => {
       query: { assistant_id: resolveAssistantId(avatarForConversations) },
       asAnonymousIdentity: isSharedAvatarChatPath(),
     });
-    const threadList = overlayLocalPinState(
-      Array.isArray(threads) ? threads : []
+    const threadList = overlayConversationNames(
+      overlayLocalPinState(Array.isArray(threads) ? threads : []),
+      conversationNamesRef.current
     );
     setConversationList(threadList);
     return threadList;
@@ -1165,6 +1282,13 @@ export const MediaProvider = ({ children }) => {
             activeTurn.requestId = streamEvent.request_id ?? null;
             if (streamEvent.thread_id) {
               activeTurn.threadId = streamEvent.thread_id;
+              // This conversation has taken a turn, so whatever name it
+              // carries was written before this turn happened. Leaving the
+              // conversation now is worth a rename. A `conversation_title`
+              // frame at the end of this same turn clears the mark again.
+              conversationsWithTurnsSinceNamingRef.current.add(
+                streamEvent.thread_id
+              );
             }
           } else if (streamEvent.type === 'assistant_token') {
             appendTokenToStreamingMessage(streamEvent.text ?? '');
@@ -1203,6 +1327,15 @@ export const MediaProvider = ({ children }) => {
             // gets its copy / speak / edit buttons back now.
             markStreamingTextFinished();
             setActivityUnlessDeferred(ASSISTANT_ACTIVITY.analyzing);
+          } else if (streamEvent.type === 'conversation_title') {
+            // The messaging service named the conversation this turn started.
+            // The frame comes after `done`, so the reply is already on screen
+            // in full and this only moves the sidebar row from its creation
+            // date to what the conversation is actually about.
+            applyConversationName(
+              streamEvent.thread_id,
+              streamEvent.conversation_title
+            );
           } else if (streamEvent.type === 'error') {
             errorFrame = streamEvent;
           } else if (
@@ -2722,9 +2855,13 @@ export const MediaProvider = ({ children }) => {
 
   async function renameConversation(threadId, title) {
     if (!threadId || threadId === NEW_CONVERSATION_ID) return;
-    await updateConversationThread(threadId, {
-      thread_metadata: { conversation_title: title },
-    });
+    // Stamped as the reader's own name. The messaging service names a
+    // conversation when the reader leaves it, and that naming reads this stamp
+    // to know it must leave this conversation alone; without the stamp the
+    // reader would watch a name they typed be replaced by a generated one.
+    await updateConversationThread(threadId, manualRenameMetadata(title));
+    conversationNamesRef.current.delete(threadId);
+    conversationsWithTurnsSinceNamingRef.current.delete(threadId);
     await getConversationList(user, activeAvatar);
   }
 

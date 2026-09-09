@@ -39,11 +39,13 @@ import SidebarGeoAvatarSection from './geo/SidebarGeoAvatarSection';
 /**
  * Name a conversation the way the user would recognize it.
  *
- * The server stores a title once a conversation has been sent to at least
- * twice, so most of the time there is one. When there is not, the creation date
- * is more use than an identifier. The `title !== thread_id` guard is not
- * paranoia: the backend sometimes stores the thread's own id as its title, and
- * showing that is the same as showing nothing.
+ * The messaging service names a conversation on the turn that starts it and
+ * again when the reader leaves it, so there is almost always a name. When there
+ * is not — naming switched off, a conversation older than automatic naming, a
+ * classification model that could not be reached — the creation date is more
+ * use than an identifier. The `title !== thread_id` guard is not paranoia: the
+ * backend used to store the thread's own id as its title, and showing that is
+ * the same as showing nothing.
  *
  * @param {Object} conversation A thread record from GET /conversations.
  * @returns {string} A human-readable label.
