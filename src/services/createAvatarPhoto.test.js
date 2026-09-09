@@ -56,6 +56,14 @@ test('researchHintFromCreatePhoto omits the Untitled placeholder and missing coo
   assert.equal(hint.includes('Typed name'), false);
   assert.equal(hint.includes('Place name'), false);
   assert.equal(hint.includes('taken at'), false);
+  assert.equal(hint.includes('fetched from'), false);
+});
+
+test('researchHintFromCreatePhoto names the address an image link came from', () => {
+  const hint = researchHintFromCreatePhoto({
+    imageUrl: ' https://example.com/maya.jpg ',
+  });
+  assert.match(hint, /fetched from https:\/\/example\.com\/maya\.jpg\./);
 });
 
 test('resolvePhotoCapturePlace prefers EXIF GPS over the live device position', async () => {
@@ -136,11 +144,38 @@ test('startCreateAvatarPhotoFollowUp uploads the portrait and identity, then sta
   assert.equal(uploads.length, 2);
   assert.equal(uploads[0].isReferenceImage, true);
   assert.equal(uploads[1].isReferenceImage, false);
+  assert.deepEqual(uploads[0].files, [{ name: 'sign.jpg' }]);
+  assert.deepEqual(uploads[0].urls, []);
   assert.deepEqual(result, {
     portraitOk: true,
     identityOk: true,
     researchJobId: 'research-1',
   });
+});
+
+test('startCreateAvatarPhotoFollowUp sends an image link as the url of both uploads', async () => {
+  const uploads = [];
+  const result = await startCreateAvatarPhotoFollowUp({
+    assistantId: 'avatar-9',
+    photoFile: null,
+    photoUrl: ' https://example.com/maya.jpg ',
+    uploadIdentityMedia: async (options) => {
+      uploads.push(options);
+      return true;
+    },
+    startResearch: async () => ({ job_id: 'research-3' }),
+    rememberJob: () => {},
+  });
+  assert.equal(uploads.length, 2);
+  for (const upload of uploads) {
+    assert.deepEqual(upload.files, []);
+    assert.deepEqual(upload.urls, ['https://example.com/maya.jpg']);
+  }
+  assert.equal(uploads[0].isReferenceImage, true);
+  assert.equal(uploads[1].isReferenceImage, false);
+  assert.equal(result.portraitOk, true);
+  assert.equal(result.identityOk, true);
+  assert.equal(result.researchJobId, 'research-3');
 });
 
 test('startCreateAvatarPhotoFollowUp still researches when identity ingest fails', async () => {
@@ -156,12 +191,24 @@ test('startCreateAvatarPhotoFollowUp still researches when identity ingest fails
   assert.equal(result.researchJobId, 'research-2');
 });
 
-test('startCreateAvatarPhotoFollowUp no-ops without an avatar or file', async () => {
+test('startCreateAvatarPhotoFollowUp no-ops without an avatar, or without a file or link', async () => {
+  const nothing = { portraitOk: false, identityOk: false, researchJobId: null };
   assert.deepEqual(
     await startCreateAvatarPhotoFollowUp({
       assistantId: '',
       photoFile: { name: 'sign.jpg' },
     }),
-    { portraitOk: false, identityOk: false, researchJobId: null }
+    nothing
+  );
+  assert.deepEqual(
+    await startCreateAvatarPhotoFollowUp({
+      assistantId: 'avatar-9',
+      photoFile: null,
+      photoUrl: '   ',
+      uploadIdentityMedia: async () => {
+        throw new Error('must not upload');
+      },
+    }),
+    nothing
   );
 });

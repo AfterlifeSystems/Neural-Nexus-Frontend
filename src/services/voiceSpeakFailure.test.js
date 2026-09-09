@@ -1,6 +1,40 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { speakFailureKind } from './voiceSpeakFailure.js';
+import {
+  speakFailureKind,
+  speakFailureReason,
+} from './voiceSpeakFailure.js';
+
+test('the server sentence is the reason shown for a plain failure', () => {
+  assert.equal(
+    speakFailureReason({
+      status: 502,
+      message: 'The voice vendor returned an error.',
+    }),
+    'The voice vendor returned an error.'
+  );
+  assert.equal(
+    speakFailureReason({
+      status: 500,
+      message: 'Request failed (500)',
+      body: { detail: 'The clone is still uploading.' },
+    }),
+    'The clone is still uploading.'
+  );
+});
+
+test('a fallback description or a network error is not worth repeating', () => {
+  assert.equal(speakFailureReason({ message: 'Request failed (502)' }), '');
+  assert.equal(speakFailureReason({ message: '502' }), '');
+  assert.equal(speakFailureReason({ message: 'Failed to fetch' }), '');
+  assert.equal(speakFailureReason(null), '');
+});
+
+test('a long reason is cut to fit a toast', () => {
+  const reason = speakFailureReason({ message: 'x'.repeat(400) });
+  assert.ok(reason.length <= 160);
+  assert.ok(reason.endsWith('…'));
+});
 
 test('a voice that has not been uploaded is not_ready, not blocked', () => {
   assert.equal(
@@ -42,14 +76,37 @@ test('blocked wins when the sentence mentions a ban without a code', () => {
   );
 });
 
-test('a 409 without a code is not assumed to be an upload that never happened', () => {
+test('a 409 without a code is a missing voice model, not a generic failure', () => {
   assert.equal(
     speakFailureKind({
       status: 409,
       message: 'Conflict',
       body: { detail: 'Conflict' },
     }),
-    'failed'
+    'not_ready'
+  );
+});
+
+test('no voice model in the sentence is not_ready', () => {
+  assert.equal(
+    speakFailureKind({
+      status: 409,
+      message: 'This avatar has no voice model yet.',
+      body: { detail: 'This avatar has no voice model yet.' },
+    }),
+    'not_ready'
+  );
+});
+
+test('collected seconds nested under detail mean no clone yet', () => {
+  assert.equal(
+    speakFailureKind({
+      status: 409,
+      body: {
+        detail: { collected_seconds: 8, instant_minimum_seconds: 60 },
+      },
+    }),
+    'not_ready'
   );
 });
 

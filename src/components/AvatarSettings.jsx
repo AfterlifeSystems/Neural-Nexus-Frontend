@@ -62,11 +62,6 @@ import ConnectionsSection from './connections/ConnectionsSection';
 import UsageAnalyticsSection from './analytics/UsageAnalyticsSection';
 import ReportsSection from './reports/ReportsSection';
 import EmotionMediaStatus from './media/EmotionMediaStatus';
-import GenerationConfirmation from './media/GenerationConfirmation';
-import {
-  emotionMediaGenerationConfirmation,
-  portraitUploadGenerationView,
-} from './media/emotionMediaStatusView';
 import UploadProcessPanel from './media/UploadProcessPanel';
 import ResearchPanel from './research/ResearchPanel';
 import VoicePanel from './voice/VoicePanel';
@@ -87,6 +82,7 @@ import {
 } from './utils';
 import { isAdminAccount } from '../config/adminAccount';
 import { parseHttpUrls } from '../services/parseHttpUrls';
+import { resolveIdentityMediaUrls } from '../services/identityMediaUrls';
 import { singleReferenceImageUrl } from '../services/referenceImageUrl';
 import {
   didDragLeaveViewport,
@@ -148,6 +144,8 @@ const AvatarSettings = ({ avatarId, onPortraitChanged }) => {
   const [isGeneratingDescription, setIsGeneratingDescription] = useState(false);
   const descriptionAbortRef = useRef(null);
   const voiceSectionRef = useRef(null);
+  const researchSectionRef = useRef(null);
+  const factsSectionRef = useRef(null);
   const [updatedAvatarName, setUpdatedAvatarName] = useState('');
   const [editingName, setEditingName] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
@@ -170,10 +168,6 @@ const AvatarSettings = ({ avatarId, onPortraitChanged }) => {
   });
   const [manualUrl, setManualUrl] = useState('');
   const [portraitUrl, setPortraitUrl] = useState('');
-  // A chosen portrait waiting on Confirm / Cancel before the upload starts
-  // image and video generation.
-  const [pendingPortraitUpload, setPendingPortraitUpload] = useState(null);
-  const [startingPortraitUpload, setStartingPortraitUpload] = useState(false);
   // Bumped whenever something outside the Voice panel changes the voice
   // (a deleted upload, a new reference clip) so the panel re-reads status.
   const [voiceStatusVersion, setVoiceStatusVersion] = useState(0);
@@ -407,7 +401,7 @@ const AvatarSettings = ({ avatarId, onPortraitChanged }) => {
       }
       const { voiceFiles, voiceUrls, otherFiles, otherUrls } = splitVoiceMedia({
         files: options?.files ?? [],
-        urls: options?.urls ?? [],
+        urls: resolveIdentityMediaUrls(options?.urls ?? [], avatarDocuments),
       });
       const started = [];
       if (voiceFiles.length > 0) {
@@ -441,7 +435,7 @@ const AvatarSettings = ({ avatarId, onPortraitChanged }) => {
       const results = await Promise.all(started);
       return results.length > 0 && results.every(Boolean);
     },
-    [assistantId, startUpload, user]
+    [assistantId, avatarDocuments, startUpload, user]
   );
   startSectionUploadRef.current = startSectionUpload;
 
@@ -548,12 +542,19 @@ const AvatarSettings = ({ avatarId, onPortraitChanged }) => {
   }, [activeAvatar?.name, activeAvatar?.description]);
 
   useEffect(() => {
-    if (searchParams.get('section') === 'voice' && voiceSectionRef.current) {
-      voiceSectionRef.current.scrollIntoView({
-        behavior: 'smooth',
-        block: 'start',
-      });
-    }
+    const section = searchParams.get('section');
+    const target =
+      section === 'voice'
+        ? voiceSectionRef.current
+        : section === 'research'
+          ? researchSectionRef.current
+          : section === 'facts'
+            ? factsSectionRef.current
+            : null;
+    target?.scrollIntoView({
+      behavior: 'smooth',
+      block: 'start',
+    });
   }, [searchParams]);
 
   // Global drag and drop handlers.
@@ -755,7 +756,12 @@ const AvatarSettings = ({ avatarId, onPortraitChanged }) => {
     }
     try {
       if (!user) throw new Error('Not logged in');
-      await deleteAvatarDocument(assistantId, sourceDocumentName);
+      const labels = documentEntry.sourceLabels?.length
+        ? documentEntry.sourceLabels
+        : [sourceDocumentName];
+      for (const label of labels) {
+        await deleteAvatarDocument(assistantId, label);
+      }
       toast.success('Document deleted');
       await refreshAvatarDocuments();
       setVoiceStatusVersion((version) => version + 1);
@@ -895,16 +901,13 @@ const AvatarSettings = ({ avatarId, onPortraitChanged }) => {
   };
 
   const requestPortraitUpload = (payload) => {
-    // A tier that cannot spend stores the portrait and generates nothing, so
-    // there is no generation to confirm. Anyone who may spend must confirm.
-    if (emotionManifest?.generation?.allowed === false) {
-      return startSectionUpload({
-        ...payload,
-        isReferenceImage: true,
-        confirmStored: confirmPortraitWasStored,
-      });
-    }
-    setPendingPortraitUpload(payload);
+    // Store the reference image only. Emotion stills and idle loops wait
+    // for Create generative reference videos under the portrait.
+    return startSectionUpload({
+      ...payload,
+      isReferenceImage: true,
+      confirmStored: confirmPortraitWasStored,
+    });
   };
 
   const handleIconUpload = async (acceptedFiles, fileRejections, dropEvent) => {
@@ -922,21 +925,6 @@ const AvatarSettings = ({ avatarId, onPortraitChanged }) => {
     }
     if (droppedUrlText.trim()) {
       await submitPortraitUrl(droppedUrlText);
-    }
-  };
-
-  const confirmPendingPortraitUpload = async () => {
-    if (!pendingPortraitUpload || startingPortraitUpload) return;
-    setStartingPortraitUpload(true);
-    try {
-      await startSectionUpload({
-        ...pendingPortraitUpload,
-        isReferenceImage: true,
-        confirmStored: confirmPortraitWasStored,
-      });
-      setPendingPortraitUpload(null);
-    } finally {
-      setStartingPortraitUpload(false);
     }
   };
 
@@ -979,8 +967,8 @@ const AvatarSettings = ({ avatarId, onPortraitChanged }) => {
       } else {
         forgetCachedAvatarIcon(assistantId);
       }
-      // The emotion stills and loops derive from the portrait, so a new
-      // portrait means a new set; drop the cached manifest so the chat, the
+      // The emotion stills derive from the portrait, so a new portrait
+      // means a new set; drop the cached manifest so the chat, the
       // gallery, and the status strip below the portrait re-read it.
       forgetEmotionMedia(assistantId);
       // Re-read it here too, so the generated rows under Data Uploaded show
@@ -1513,17 +1501,6 @@ const AvatarSettings = ({ avatarId, onPortraitChanged }) => {
               hasPortrait={Boolean(avatarIcon)}
               onReuploadImage={() => openPortraitPickerRef.current?.()}
             />
-            {pendingPortraitUpload && (
-              <GenerationConfirmation
-                confirmation={emotionMediaGenerationConfirmation(
-                  portraitUploadGenerationView(emotionManifest),
-                  emotionManifest?.generation ?? null
-                )}
-                starting={startingPortraitUpload}
-                onCancel={() => setPendingPortraitUpload(null)}
-                onConfirm={confirmPendingPortraitUpload}
-              />
-            )}
           </div>
           {/* Name and Description */}
           <div className="w-full min-w-0 flex-grow space-y-4">
@@ -1723,8 +1700,10 @@ const AvatarSettings = ({ avatarId, onPortraitChanged }) => {
           </button>
         </div>
         <p className="mt-1.5 text-xs text-white/40">
-          A direct image link becomes this avatar's reference image — the
-          portrait used for emotion stills and idle loops.
+          A direct image link becomes this avatar's reference image. Emotion
+          portraits and idle-loop videos are created separately, on an
+          enterprise plan, from Create generative reference videos under the
+          portrait.
         </p>
         <div className="mt-4 pt-4 border-t border-white/10">
           <div className="flex flex-wrap items-center gap-2">
@@ -1919,6 +1898,17 @@ const AvatarSettings = ({ avatarId, onPortraitChanged }) => {
               Add
             </button>
           </div>
+          {/* A channel or playlist link is ingested video by video, so no
+              single video from such a link is the avatar's voice. The clip the
+              diarizer uses to recognize this avatar is only ever cut from one
+              recording, which is why the distinction is worth stating where
+              links are pasted. */}
+          <p className="text-white/40 text-xs mt-2">
+            A YouTube channel or playlist link is ingested one video at a time.
+            To teach {activeAvatar?.name || 'this avatar'}'s voice, paste a
+            single video in which {activeAvatar?.name || 'this avatar'} speaks
+            more than anyone else.
+          </p>
         </div>
         <div className="border-2 border-dashed border-white/30 rounded-xl p-4 sm:p-8 text-center hover:border-white/50 transition-all duration-300 bg-black/60">
           <Upload className="mx-auto mb-3 sm:mb-4 text-white/60" size={36} />
@@ -1962,16 +1952,18 @@ const AvatarSettings = ({ avatarId, onPortraitChanged }) => {
             and verify every claim across sources. Uploaded material and
             researched material land in the same identity store, which is why
             the control lives in this section. */}
-        <ResearchPanel
-          // A fresh panel per avatar: research state is about one avatar, and
-          // nothing from the previous one should survive the switch.
-          key={assistantId}
-          assistantId={assistantId}
-          avatarName={activeAvatar?.name}
-          onFactsApplied={() =>
-            setLearnedFactsReloadToken((previous) => previous + 1)
-          }
-        />
+        <div id="avatar-research" ref={researchSectionRef}>
+          <ResearchPanel
+            // A fresh panel per avatar: research state is about one avatar, and
+            // nothing from the previous one should survive the switch.
+            key={assistantId}
+            assistantId={assistantId}
+            avatarName={activeAvatar?.name}
+            onFactsApplied={() =>
+              setLearnedFactsReloadToken((previous) => previous + 1)
+            }
+          />
+        </div>
       </div>
       {/* Sharing. Publishing is for your own likeness, so this is the personal
           avatar's control — except for the administrator, who may publish any
@@ -2003,11 +1995,13 @@ const AvatarSettings = ({ avatarId, onPortraitChanged }) => {
       {/* What the avatar has learned about itself. Creator-only by
           construction (this whole return is behind canAdministerAvatar) and
           by the API, which answers 403 for anyone else. */}
-      <AvatarIdentityFacts
-        assistantId={assistantId}
-        avatarName={activeAvatar?.name}
-        reloadToken={learnedFactsReloadToken}
-      />
+      <div id="avatar-facts" ref={factsSectionRef}>
+        <AvatarIdentityFacts
+          assistantId={assistantId}
+          avatarName={activeAvatar?.name}
+          reloadToken={learnedFactsReloadToken}
+        />
+      </div>
 
       {/* Documents Section */}
 

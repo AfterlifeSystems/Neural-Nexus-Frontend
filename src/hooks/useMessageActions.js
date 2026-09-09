@@ -13,7 +13,7 @@ import useSpeech from './useSpeech';
  *
  * @param {Object} parameters
  * @param {string} [parameters.assistantId] The avatar whose voice to use.
- * @param {string} [parameters.avatarName] Shown on the voice-not-ready toast.
+ * @param {string} [parameters.avatarName] Named on the missing-voice-model toast in voice mode.
  * @param {boolean} [parameters.asAnonymousIdentity] Public chat: withhold the credential.
  * @param {boolean} [parameters.speechPlaybackEnabled] Whether speak-aloud is allowed.
  */

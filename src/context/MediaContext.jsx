@@ -119,6 +119,8 @@ import {
 } from '../services/messageKey';
 import { withRateLimitRetry } from '../services/retryRateLimited';
 import { isStandingAtPlace } from '../services/standingAtPlaces';
+import { streamErrorFromFrame } from '../services/streamErrorFrame';
+import { attachFactReviewDraft } from '../components/factReview/factReviewDraft';
 
 const MediaContext = createContext();
 
@@ -521,8 +523,8 @@ export const MediaProvider = ({ children }) => {
         // A conversation that has not been sent yet has no thread on the
         // server; asking for that sentinel would filter every rating out.
         threadId: storedThreadIdOf(activeConversation),
-      });
         asAnonymousIdentity,
+      });
       if (preferencesRequestRef.current !== requestNumber) return null;
       const preferences = normalizeAvatarPreferences(payload);
       setAvatarPreferences(preferences);
@@ -844,14 +846,16 @@ export const MediaProvider = ({ children }) => {
         timestamp: new Date().toISOString(),
       });
       interruptSequenceRef.current += 1;
-      setPendingInterrupt({
-        sequence: interruptSequenceRef.current,
-        threadId: pendingFromTranscript.thread_id ?? threadId,
-        assistantId: resolveAssistantId(avatarForMessages),
-        interrupt: restoredInterrupt,
-        pauseMessageId,
-        restoredFromTranscript: true,
-      });
+      setPendingInterrupt(
+        attachFactReviewDraft({
+          sequence: interruptSequenceRef.current,
+          threadId: pendingFromTranscript.thread_id ?? threadId,
+          assistantId: resolveAssistantId(avatarForMessages),
+          interrupt: restoredInterrupt,
+          pauseMessageId,
+          restoredFromTranscript: true,
+        })
+      );
     }
 
     // Put the attachments back. The server returns none — an upload is read
@@ -1099,6 +1103,13 @@ export const MediaProvider = ({ children }) => {
     };
 
     let terminalFrame = null;
+    // The server saying why a turn died mid-stream. Once the response has
+    // started (HTTP 200, frames flowing) there is no status code left to send,
+    // so a failure inside the run — the model vendor refusing for want of
+    // credit, a metering call refused with 402 — arrives as an `error` frame
+    // just before the stream closes, and is reported below in place of the
+    // bare "ended unexpectedly".
+    let errorFrame = null;
 
     // A turn on a shared avatar's public chat belongs to the anonymous
     // visitor, never to whatever account this browser is signed into. The
@@ -1192,6 +1203,8 @@ export const MediaProvider = ({ children }) => {
             // gets its copy / speak / edit buttons back now.
             markStreamingTextFinished();
             setActivityUnlessDeferred(ASSISTANT_ACTIVITY.analyzing);
+          } else if (streamEvent.type === 'error') {
+            errorFrame = streamEvent;
           } else if (
             streamEvent.type !== 'done' &&
             streamEvent.type !== 'interrupt'
@@ -1215,10 +1228,15 @@ export const MediaProvider = ({ children }) => {
       // request id yet, a 404 from another process). That is not a failure —
       // the turn is finalized below with what arrived, as the server does on
       // its side when it sees the disconnect.
-      if (!(activeTurn.stopRequested && isAbortError(streamError))) {
+      if (activeTurn.stopRequested && isAbortError(streamError)) {
+        abortedByStop = true;
+      } else if (errorFrame && !isAbortError(streamError)) {
+        // The server had already said why before the connection dropped; the
+        // frame is the report, not the dropped connection.
+        console.warn('The stream closed after an error frame:', streamError);
+      } else {
         throw streamError;
       }
-      abortedByStop = true;
     } finally {
       releaseActiveTurn();
     }
@@ -1311,15 +1329,17 @@ export const MediaProvider = ({ children }) => {
       }
       // This is what raises the panel and tells the composer a turn is waiting.
       interruptSequenceRef.current += 1;
-      setPendingInterrupt({
-        sequence: interruptSequenceRef.current,
-        threadId: terminalFrame.thread_id,
-        assistantId,
-        interrupt: terminalFrame.interrupt,
-        // The message the connect card sits on, so the card can be settled
-        // the moment the owner finishes with the card.
-        pauseMessageId: isConnectAccountPause ? streamingMessageId : null,
-      });
+      setPendingInterrupt(
+        attachFactReviewDraft({
+          sequence: interruptSequenceRef.current,
+          threadId: terminalFrame.thread_id,
+          assistantId,
+          interrupt: terminalFrame.interrupt,
+          // The message the connect card sits on, so the card can be settled
+          // the moment the owner finishes with the card.
+          pauseMessageId: isConnectAccountPause ? streamingMessageId : null,
+        })
+      );
     } else if (terminalFrame?.type === 'done') {
       const leakedSuggestions = parseConversationSuggestionList(
         terminalFrame.content ?? ''
@@ -1479,15 +1499,28 @@ export const MediaProvider = ({ children }) => {
       }
     } else {
       // The stream ended without a terminal frame — surface whatever tokens
-      // arrived, but warn, because the reply may be truncated.
+      // arrived, but warn, because the reply may be truncated. A bubble that
+      // never received a word is not a reply and is removed rather than left
+      // empty beside the report of what went wrong.
+      setActivityIfStillOnScreen(null);
       updateMessagesIfStillOnScreen((previousMessages) =>
-        previousMessages.map((message) =>
-          message.id === streamingMessageId
-            ? { ...message, isLoading: false, streamingText: false }
-            : message
-        )
+        previousMessages.flatMap((message) => {
+          if (message.id !== streamingMessageId) return [message];
+          if (!String(message.content ?? '').trim()) return [];
+          return [{ ...message, isLoading: false, streamingText: false }];
+        })
       );
-      toast.error('The response stream ended unexpectedly.');
+      if (errorFrame) {
+        // The server said why. A spent allotment goes into the transcript
+        // with the way to billing, as a refused request would; anything else
+        // is a one-off and is toasted with the server's own sentence.
+        reportTurnFailure(
+          streamErrorFromFrame(errorFrame),
+          'The avatar could not finish that reply.'
+        );
+      } else {
+        toast.error('The response stream ended unexpectedly.');
+      }
     }
 
     // `reply` is the authoritative text from the terminal frame — what live
@@ -1710,6 +1743,29 @@ export const MediaProvider = ({ children }) => {
   }
 
   /**
+   * Keep the in-progress fact-review choices on the pause itself.
+   *
+   * The panel is mounted once on the transcript and again on the voice stage.
+   * Switching between those remounts it; writing the draft here is what keeps
+   * accept / skip / the edited wording, and whether the panel is folded away.
+   *
+   * @param {Object|Function} patch A draft patch, or a function of the current draft.
+   */
+  function updateFactReviewDraft(patch) {
+    setPendingInterrupt((current) => {
+      if (!current) return current;
+      const withDraft = attachFactReviewDraft(current);
+      const currentDraft = withDraft.factReviewDraft;
+      if (!currentDraft) return current;
+      const nextDraft =
+        typeof patch === 'function'
+          ? patch(currentDraft)
+          : { ...currentDraft, ...patch };
+      return { ...withDraft, factReviewDraft: nextDraft };
+    });
+  }
+
+  /**
    * Answer the question a paused turn asked, and stream the continuation.
    * POST /message/{assistant_id}/resume
    *
@@ -1790,8 +1846,9 @@ export const MediaProvider = ({ children }) => {
         )
       );
       // The server still has the run parked, so putting the panel back is what
-      // lets the user try again instead of stranding the correction.
-      setPendingInterrupt(interruptToResume);
+      // lets the user try again instead of stranding the correction. The draft
+      // rides along so a failed send does not wipe the choices they had made.
+      setPendingInterrupt(attachFactReviewDraft(interruptToResume));
       reportTurnFailure(
         resumeError,
         'Failed to send your decision. Please try again.'
@@ -2159,6 +2216,7 @@ export const MediaProvider = ({ children }) => {
       await recordMessageFeedback({
         assistantId,
         threadId: storedThreadIdOf(activeConversation),
+        asAnonymousIdentity: isSharedAvatarChatPath(),
         messageId: storedId,
         requestId: rated.request_id ?? null,
         type: wireType,
@@ -2182,7 +2240,6 @@ export const MediaProvider = ({ children }) => {
       );
     }
   }
-        asAnonymousIdentity: isSharedAvatarChatPath(),
 
   /**
    * Follow-up chips for the composer.
@@ -2801,6 +2858,7 @@ export const MediaProvider = ({ children }) => {
         activeConversation,
         pendingInterrupt,
         setPendingInterrupt,
+        updateFactReviewDraft,
         resumePendingInterrupt,
         insertConnectionCard,
         settleConnectionCard,

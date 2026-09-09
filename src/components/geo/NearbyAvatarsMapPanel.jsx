@@ -6,8 +6,12 @@
 //
 // The panel draws whatever the watcher has already found, so it never starts a
 // second position watch of its own.
+//
+// Picking an avatar — a pin on the map or a row in the list — does not open
+// it. It shows the avatar's card (portrait, description, place) with Talk on
+// it, so the person can see who is standing there before deciding to speak.
 
-import { Fragment, useMemo } from 'react';
+import { Fragment, useMemo, useState } from 'react';
 import { Circle, MapContainer, Marker, Popup, TileLayer } from 'react-leaflet';
 import { Compass, MapPin, RefreshCw } from 'lucide-react';
 
@@ -15,23 +19,26 @@ import { MAP_TILE_ATTRIBUTION, MAP_TILE_URL } from '../../config/maps';
 import { describeDistance, pinOf } from '../../services/avatarProximity';
 import { mapMarkOf } from '../../services/avatarMapMark';
 import { devicePositionIcon, labeledPinIcon } from './avatarPinMarker';
+import AvatarMapCard from './AvatarMapCard';
 import 'leaflet/dist/leaflet.css';
 import './leafletMapStyles.css';
 
 /**
  * @param {Object} props
- * @param {Array} props.nearbyAvatars Entries from the watcher: {assistant_id, name, geo_location, distance_meters, inside_geofence}.
+ * @param {Array} props.nearbyAvatars Entries from the watcher: {assistant_id, name, description, geo_location, distance_meters, inside_geofence}.
  * @param {Object|null} props.position Where the device is: {latitude, longitude, accuracyMeters}.
  * @param {string} props.error A sentence to show when locating failed.
  * @param {boolean} props.enabled Whether the person has the watch turned on.
+ * @param {boolean} [props.asAnonymousIdentity] Fetch portraits as the visitor.
  * @param {() => void} props.onRefresh Read the position again now.
- * @param {(entry: Object) => void} props.onOpenAvatar Open one avatar.
+ * @param {(entry: Object) => void} props.onOpenAvatar Open one avatar (the card's Talk).
  */
 const NearbyAvatarsMapPanel = ({
   nearbyAvatars = [],
   position,
   error,
   enabled,
+  asAnonymousIdentity = false,
   onRefresh,
   onOpenAvatar,
 }) => {
@@ -39,6 +46,13 @@ const NearbyAvatarsMapPanel = ({
     () => (position ? [position.latitude, position.longitude] : null),
     [position]
   );
+  const [selectedAssistantId, setSelectedAssistantId] = useState(null);
+  // An avatar the watch no longer lists (the person walked away, the watch
+  // was turned off) is no longer something to pick; the card goes with it.
+  const selectedAvatar =
+    nearbyAvatars.find((entry) => entry.assistant_id === selectedAssistantId) ??
+    null;
+  const selectAvatar = (entry) => setSelectedAssistantId(entry.assistant_id);
 
   if (!enabled) {
     return (
@@ -99,7 +113,7 @@ const NearbyAvatarsMapPanel = ({
                       initials: mapMarkOf(entry).initials,
                       owned: false,
                     })}
-                    eventHandlers={{ click: () => onOpenAvatar?.(entry) }}
+                    eventHandlers={{ click: () => selectAvatar(entry) }}
                   >
                     <Popup>
                       <span className="font-medium">{entry.name}</span>
@@ -123,13 +137,26 @@ const NearbyAvatarsMapPanel = ({
 
       {error && <p className="px-1 text-xs text-red-300">{error}</p>}
 
+      {selectedAvatar ? (
+        <AvatarMapCard
+          avatar={selectedAvatar}
+          asAnonymousIdentity={asAnonymousIdentity}
+          compact
+          onTalk={() => onOpenAvatar?.(selectedAvatar)}
+          onClose={() => setSelectedAssistantId(null)}
+        />
+      ) : null}
+
       <ul className="space-y-1">
         {nearbyAvatars.map((entry) => (
           <li key={entry.assistant_id}>
             <button
               type="button"
-              onClick={() => onOpenAvatar?.(entry)}
-              className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-xs text-neutral-200 hover:bg-white/5 focus:outline-none focus:ring-2 focus:ring-amber-400/50"
+              onClick={() => selectAvatar(entry)}
+              aria-pressed={entry.assistant_id === selectedAssistantId}
+              className={`flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-xs text-neutral-200 hover:bg-white/5 focus:outline-none focus:ring-2 focus:ring-amber-400/50 ${
+                entry.assistant_id === selectedAssistantId ? 'bg-white/5' : ''
+              }`}
             >
               <MapPin
                 className={`h-3.5 w-3.5 shrink-0 ${

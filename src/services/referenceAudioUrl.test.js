@@ -58,7 +58,13 @@ test('singleReferenceAudioUrl requires exactly one http(s) URL', () => {
   });
   assert.deepEqual(
     singleReferenceAudioUrl('https://youtu.be/dQw4w9WgXcQ'),
-    { url: 'https://youtu.be/dQw4w9WgXcQ' }
+    { url: 'https://www.youtube.com/watch?v=dQw4w9WgXcQ' }
+  );
+  assert.deepEqual(
+    singleReferenceAudioUrl(
+      'https://www.youtube.com/watch?v=dQw4w9WgXcQ&list=WL https://youtu.be/dQw4w9WgXcQ?si=abc'
+    ),
+    { url: 'https://www.youtube.com/watch?v=dQw4w9WgXcQ' }
   );
   assert.deepEqual(
     singleReferenceAudioUrl(
@@ -75,3 +81,4 @@ test('singleReferenceAudioUrl requires exactly one http(s) URL', () => {
     url: 'https://cdn.example.com/talk.mp3',
   });
 });
+

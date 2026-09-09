@@ -57,7 +57,7 @@ const AvatarRosterDropdown = ({
   const rows = sortAvatarsByName(avatars);
 
   return (
-    <div className="w-[min(24rem,calc(100vw-3rem))] rounded-lg border border-white/10 bg-black/80 backdrop-blur-lg">
+    <div className="w-full max-w-full rounded-lg border border-white/10 bg-black/80 backdrop-blur-lg sm:w-96">
       <button
         type="button"
         aria-expanded={isOpen}
@@ -75,7 +75,7 @@ const AvatarRosterDropdown = ({
         )}
       </button>
       {isOpen ? (
-        <ul className="max-h-56 overflow-y-auto border-t border-white/10 px-1.5 py-1.5">
+        <ul className="max-h-[min(14rem,45vh)] overflow-y-auto border-t border-white/10 px-1.5 py-1.5">
           {onShowWorld ? (
             <li>
               <button

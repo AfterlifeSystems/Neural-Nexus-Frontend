@@ -23,15 +23,16 @@ const JOB_POLL_MILLISECONDS = 4000;
  * What the portrait has become: the emotion stills and idle loops derived from
  * it, and the control that builds them.
  *
- * The generate button appears as soon as a reference image exists, and is the
- * owner's way to spend on the image and video vendor deliberately: pressing it
- * opens a confirmation that says whether the run REPLACES the existing videos
- * and what the run is expected to cost. Confirm starts the spend; Cancel on
- * the dialog does not. While the job runs, Cancel stops further vendor calls.
- * The tier that may spend is a deployment setting (EMOTION_MEDIA_MINIMUM_TIER,
- * premium by default), and the manifest reports the answer per viewer, so a
- * lower tier sees the button disabled with the plan the feature needs rather
- * than a refusal after pressing.
+ * Create generative reference videos appears as soon as a reference image
+ * exists, and is the owner's way to spend on idle-loop videos deliberately:
+ * pressing it opens a confirmation that says whether the run REPLACES the
+ * existing videos and what the run is expected to cost. Confirm starts the
+ * spend; Cancel on the dialog does not. While the job runs, Cancel stops
+ * further vendor calls. Portrait upload never starts those videos. The tier
+ * that may spend is a deployment setting (EMOTION_MEDIA_MINIMUM_TIER, premium
+ * — the enterprise-grade tier — by default), and the manifest reports the
+ * answer per viewer, so a lower tier sees the button disabled with the plan
+ * the feature needs rather than a refusal after pressing.
  *
  * While a job runs this shows its stage. Afterwards, when the newest run left
  * portraits or videos missing, it shows why — for a moderation refusal, that a
@@ -66,10 +67,12 @@ const EmotionMediaStatus = ({ assistantId, hasPortrait, onReuploadImage }) => {
    * @param {boolean} [options.onlyMissing] Build only the absent assets.
    * @param {boolean} [options.proceedDespiteModerationRisk] Generate anyway
    *   after the server predicted a vendor moderation refusal.
+   * @param {'still'|'idle_loop'} [options.assetKind] Portraits or idle loops.
    */
   const startGeneration = async ({
     onlyMissing = true,
     proceedDespiteModerationRisk = false,
+    assetKind,
   } = {}) => {
     if (starting) return;
     setStarting(true);
@@ -77,6 +80,7 @@ const EmotionMediaStatus = ({ assistantId, hasPortrait, onReuploadImage }) => {
       const started = await regenerateAvatarEmotionMedia(assistantId, {
         onlyMissing,
         proceedDespiteModerationRisk,
+        ...(assetKind ? { assetKind } : {}),
       });
       if (started?.job_id) {
         setPendingRun(null);
@@ -214,12 +218,17 @@ const EmotionMediaStatus = ({ assistantId, hasPortrait, onReuploadImage }) => {
       {generation && (
         <button
           type="button"
-          onClick={() => setPendingRun({ onlyMissing })}
+          onClick={() =>
+            setPendingRun({
+              onlyMissing,
+              assetKind: view.needsStills ? undefined : 'idle_loop',
+            })
+          }
           disabled={!generation.allowed || starting}
           title={
             generation.allowed
-              ? 'Generate an emotion portrait and an idle video for every emotion, from this reference image.'
-              : `Generating emotion media needs the ${generation.requiredTier} plan.`
+              ? 'Create an idle-loop video for every emotion from this reference image.'
+              : `Creating generative reference videos needs the ${generation.requiredTier} plan.`
           }
           className="w-full text-xs px-2 py-1.5 rounded-md border border-amber-300/40 text-amber-200 hover:bg-amber-300/10 disabled:opacity-50 disabled:cursor-not-allowed transition-colors inline-flex items-center justify-center gap-1"
         >
@@ -229,7 +238,7 @@ const EmotionMediaStatus = ({ assistantId, hasPortrait, onReuploadImage }) => {
       )}
       {generation && !generation.tierAllows && (
         <p className="text-xs text-white/50">
-          Emotion images and videos are generated on the{' '}
+          Generative reference videos are created on the{' '}
           {generation.requiredTier} plan.
         </p>
       )}
@@ -245,6 +254,11 @@ const EmotionMediaStatus = ({ assistantId, hasPortrait, onReuploadImage }) => {
             setPendingRun({
               onlyMissing: true,
               proceedDespiteModerationRisk: true,
+              assetKind: (lastGeneration?.failures ?? []).some(
+                (failure) => failure?.asset_kind === 'idle_loop'
+              )
+                ? 'idle_loop'
+                : 'still',
             })
           }
           disabled={starting || !generation?.allowed}
@@ -256,7 +270,16 @@ const EmotionMediaStatus = ({ assistantId, hasPortrait, onReuploadImage }) => {
       {pendingRun && (
         <GenerationConfirmation
           confirmation={emotionMediaGenerationConfirmation(
-            { ...view, onlyMissing: pendingRun.onlyMissing },
+            {
+              ...view,
+              onlyMissing: pendingRun.onlyMissing,
+              kind:
+                pendingRun.assetKind === 'still'
+                  ? 'stills'
+                  : pendingRun.assetKind === 'idle_loop'
+                    ? 'videos'
+                    : 'stills_and_videos',
+            },
             generation
           )}
           starting={starting}

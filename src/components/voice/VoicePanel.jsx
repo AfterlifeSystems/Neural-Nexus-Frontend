@@ -20,16 +20,19 @@ import {
   addAvatarVoiceSample,
   getAvatarVoice,
   getAvatarVoiceVerification,
+  rebuildAvatarVoice,
   retryAvatarProfessionalVoice,
   streamMediaJobProgress,
   submitAvatarVoiceVerification,
   uploadAvatarIdentityMedia,
 } from '../../services/avatarService';
 import { singleReferenceAudioUrl } from '../../services/referenceAudioUrl';
+import { referenceAudioWarning } from './referenceAudioHealth';
 import {
   canCaptureMicrophone,
   recordOneTurn,
 } from '../../services/voiceSession';
+import { isMicrophoneAccessRefused } from '../../services/microphonePermission';
 import { showRequestFailureToast } from '../requestFailureToast';
 import { showVoiceReadyToast } from '../showVoiceReadyToast';
 
@@ -306,11 +309,8 @@ const VoicePanel = ({
       recordingStartedAtRef.current = Date.now();
       setIsRecording(true);
     } catch (microphoneError) {
-      toast.error(
-        microphoneError?.name === 'NotAllowedError'
-          ? 'Microphone access was refused. Allow it in your browser to record.'
-          : 'Could not start recording.'
-      );
+      if (isMicrophoneAccessRefused(microphoneError)) return;
+      toast.error('Could not start recording.');
     }
   };
 
@@ -430,6 +430,47 @@ const VoicePanel = ({
   // read "Voice model trained and available" while every speak attempt was
   // refused by the vendor.
   const voiceModelBlocked = Boolean(status?.instant_voice_blocked);
+  // The reference clip the diarizer depends on, and whether the clip can do
+  // the job. Computed once so the card and the badge agree.
+  const referenceWarning = referenceAudioWarning(status, avatarName);
+
+  // Deleting the trained voice cannot be undone — the vendor's copy is removed
+  // — so the button asks a second time before doing anything.
+  const [isConfirmingRebuild, setIsConfirmingRebuild] = useState(false);
+  const [isRebuilding, setIsRebuilding] = useState(false);
+
+  /**
+   * Delete the trained voice and train a new one from the speech held now.
+   *
+   * The replacement is built from the clips this avatar has at this moment, so
+   * an owner who wants different speech deletes those uploads first. Too little
+   * speech left is not a failure: the avatar keeps collecting and the next
+   * model is trained when the minimum is reached again.
+   */
+  const rebuildVoiceModel = async () => {
+    if (!isConfirmingRebuild) {
+      setIsConfirmingRebuild(true);
+      return;
+    }
+    setIsRebuilding(true);
+    try {
+      const nextStatus = await rebuildAvatarVoice(assistantId);
+      setStatus(nextStatus);
+      toast.success(
+        nextStatus?.instant_voice_id
+          ? `A new voice model was trained from ${describeSeconds(nextStatus.instant_voice_seconds ?? 0)} of speech.`
+          : 'The voice model was deleted. A new one is trained once enough speech is collected.'
+      );
+    } catch (rebuildError) {
+      showRequestFailureToast(rebuildError, {
+        fallbackMessage: 'Could not rebuild the voice model.',
+      });
+    } finally {
+      setIsRebuilding(false);
+      setIsConfirmingRebuild(false);
+    }
+  };
+
   const hasVoiceModel = Boolean(status?.instant_voice_id) && !voiceModelBlocked;
   const barMax = isPersonalAvatar ? professionalMinimum : instantMinimum;
   // The voice model is trained once, at the minimum, and never rebuilt; the
@@ -555,22 +596,31 @@ const VoicePanel = ({
             Every audio or video of {avatarName ?? 'the avatar'} speaking —
             dropped here or in Upload — does three things: what was said is
             added to what the avatar knows, the avatar's speech is added to the
-            voice model, and the first upload becomes the reference audio.
+            voice model, and the first upload that yields a usable clip becomes
+            the reference audio.
           </li>
           <li>
             The reference audio is a short single-speaker clip the diarizer uses
             to find {avatarName ?? 'the avatar'} in later recordings. The clip
             is cut from whoever speaks the most in that upload, so a recording
             where someone else talks first is fine as long as{' '}
-            {avatarName ?? 'the avatar'} speaks more.
+            {avatarName ?? 'the avatar'} speaks more. A channel or playlist link
+            is not one recording, so no reference is ever cut from such a link —
+            paste a single video instead.
           </li>
           <li>
-            Later uploads never replace the reference. To change the reference,
-            delete the reference upload and the next upload takes its place.
+            A usable reference is never replaced by a later upload. When an
+            upload yields no usable clip — nobody clearly speaking the most, or
+            under a second and a half of uninterrupted speech — nothing is
+            stored and the next upload gets the chance. To change a reference
+            that already works, delete the reference upload or pick another
+            upload in the document list.
           </li>
           <li>
             The voice model is trained once {describeSeconds(instantMinimum)} of
-            speech is collected, and is never rebuilt after that.
+            speech is collected, and is not rebuilt on its own after that. To
+            replace a voice trained from the wrong recording, delete the uploads
+            you do not want it built from, then use Delete and retrain.
             {isPersonalAvatar
               ? ` Your own avatar keeps collecting toward a professional voice model at ${describeSeconds(professionalMinimum)}.`
               : ' Later uploads still update what the avatar knows.'}
@@ -597,14 +647,33 @@ const VoicePanel = ({
           {status?.reference_audio_document ? (
             <>
               Reference audio:{' '}
-              <span className="text-emerald-200">
+              <span
+                className={
+                  status?.reference_audio_usable === false
+                    ? 'text-amber-200'
+                    : 'text-emerald-200'
+                }
+              >
                 {status.reference_audio_document}
               </span>
             </>
           ) : (
-            'No reference audio yet — the first audio or video upload becomes the reference.'
+            'No reference audio yet — the first audio or video upload in which this avatar clearly speaks the most becomes the reference.'
           )}
         </p>
+        {/* Without a usable clip the diarizer cannot tell this avatar from the
+            other people in a recording, so the requirement is stated here
+            rather than left for the owner to infer from an absence. */}
+        {referenceWarning ? (
+          <div className="mb-2 rounded-lg border border-amber-400/40 bg-amber-400/10 p-2">
+            <p className="text-xs font-semibold text-amber-200">
+              {referenceWarning.title}
+            </p>
+            <p className="mt-0.5 text-[11px] text-amber-100/80">
+              {referenceWarning.detail}
+            </p>
+          </div>
+        ) : null}
         {voiceClipGroups.length > 0 ? (
           <ul className="space-y-1">
             {voiceClipGroups.map((group) => (
@@ -637,11 +706,51 @@ const VoicePanel = ({
           <p className="mt-2 text-[11px] text-white/40">
             The voice model was trained from the first{' '}
             {describeSeconds(status?.instant_voice_seconds ?? instantMinimum)}{' '}
-            and is never rebuilt
+            and is not rebuilt on its own
             {isPersonalAvatar
               ? '; later speech counts toward the professional voice model.'
               : '; later uploads still update what the avatar knows.'}
           </p>
+        )}
+        {/* A voice trained from the wrong speech would otherwise be the
+            avatar's voice for good. Deleting removes the vendor's copy and
+            trains a replacement from the speech this avatar holds now, which is
+            why the uploads to train from are chosen by deleting the others
+            first. */}
+        {(hasVoiceModel || voiceModelBlocked) && (
+          <div className="mt-2 flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              onClick={rebuildVoiceModel}
+              disabled={isRebuilding}
+              className={`px-2 py-1 rounded text-[11px] border transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${
+                isConfirmingRebuild
+                  ? 'border-red-500/60 bg-red-600/80 text-neutral-100 hover:bg-red-600'
+                  : 'border-white/20 text-white/70 hover:bg-white/10'
+              }`}
+            >
+              {isRebuilding
+                ? 'Rebuilding…'
+                : isConfirmingRebuild
+                  ? 'Delete the voice and train a new one'
+                  : 'Delete and retrain the voice model'}
+            </button>
+            {isConfirmingRebuild && !isRebuilding && (
+              <>
+                <span className="text-[11px] text-white/50">
+                  The trained voice is deleted and a new one is trained from the{' '}
+                  {describeSeconds(collected)} this avatar holds now.
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setIsConfirmingRebuild(false)}
+                  className="px-2 py-1 rounded text-[11px] border border-white/20 text-white/70 hover:bg-white/10 transition-colors"
+                >
+                  Keep it
+                </button>
+              </>
+            )}
+          </div>
         )}
       </div>
 

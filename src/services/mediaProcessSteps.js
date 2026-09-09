@@ -1,10 +1,10 @@
 // src/services/mediaProcessSteps.js
 //
-// The portrait upload is one pipeline: upload, convert, six emotion
-// portraits, seven emotion videos. Every step starts at 0/N and stays in the
-// list until that step (and then the whole job) finishes. Replacing the list
-// with one rotating sentence is what made converting 1/1 look like it had
-// cancelled the portraits and loops.
+// The portrait upload is one pipeline: upload and convert. Emotion stills
+// and idle-loop videos wait for an explicit create from settings. Every
+// step starts at 0/N and stays in the list until that step (and then the
+// whole job) finishes. Replacing the list with one rotating sentence is
+// what made converting 1/1 look like it had cancelled later steps.
 
 import { preferEmotionMediaReuploadDirection } from './emotionMediaFailures.js';
 
@@ -23,8 +23,6 @@ const countedStep = (id, label, total, { active = false } = {}) => ({
 const portraitSteps = () => [
   countedStep('upload', 'Uploading portrait', 1, { active: true }),
   countedStep('convert', 'Converting portrait', 1),
-  countedStep('stills', 'Creating avatar portraits', PORTRAIT_STILL_TOTAL),
-  countedStep('loops', 'Creating avatar emotion videos', PORTRAIT_LOOP_TOTAL),
 ];
 
 const documentSteps = () => [
@@ -52,7 +50,7 @@ export const STAGE_TO_STEP = {
   indexing: 'index',
   emotion_stills: 'stills',
   idle_loops: 'loops',
-  emotion_media_complete: 'loops',
+  emotion_media_complete: 'stills',
   voice_clip_collected: 'voice',
   instant_clone_created: 'voice',
 };
@@ -224,8 +222,8 @@ const markEmotionMediaFailures = (steps, progressEvent) => {
 };
 
 /**
- * Close steps that actually ran. Portrait stills and loops that never left
- * `pending` stay at 0/N — generation was skipped, and marking them done is
+ * Close steps that actually ran. Stills and loops that never left `pending`
+ * stay at 0/N if a checklist still includes them — marking those done is
  * what made those rows vanish before they had run.
  *
  * @param {Array} steps

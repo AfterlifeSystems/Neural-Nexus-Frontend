@@ -1,8 +1,13 @@
 import React, { useState, useEffect } from 'react';
+import { createPortal } from 'react-dom';
 import { MapPin, UserPenIcon } from 'lucide-react';
 import { toast } from 'react-hot-toast';
 import { useNavigate } from 'react-router-dom';
-import { createAvatar, listUserAvatars, startAvatarDeepResearch } from '../services/avatarService';
+import {
+  createAvatar,
+  listUserAvatars,
+  startAvatarDeepResearch,
+} from '../services/avatarService';
 import { useAuth } from '../context/AuthContext';
 import {
   assistantIdOf,
@@ -30,6 +35,9 @@ const CreateAvatarModal = ({ setShowCreateModal }) => {
   const [newAvatarName, setNewAvatarName] = useState('');
   const [newAvatarDescription, setNewAvatarDescription] = useState('');
   const [photoFile, setPhotoFile] = useState(null);
+  // An image address used instead of a file. The server fetches it as the
+  // reference image; exactly one of `photoFile` / `photoUrl` is ever set.
+  const [photoUrl, setPhotoUrl] = useState(null);
   const [photoPlaceSource, setPhotoPlaceSource] = useState(null);
   const [photoPlaceError, setPhotoPlaceError] = useState('');
   const [isResolvingPhotoPlace, setIsResolvingPhotoPlace] = useState(false);
@@ -52,21 +60,20 @@ const CreateAvatarModal = ({ setShowCreateModal }) => {
     setActiveAvatar,
   } = useAuth();
 
+  const hasPhoto = Boolean(photoFile || photoUrl);
   const resolvedName = resolveCreateAvatarName({
     typedName: newAvatarName,
     locationName: geoLocation.locationName,
-    hasPhoto: Boolean(photoFile),
+    hasPhoto,
   });
   const canCreate = Boolean(resolvedName) && !isResolvingPhotoPlace;
 
-  const handlePhotoChosen = ({ file, place, placeError }) => {
-    setPhotoFile(file);
+  const handlePhotoChosen = ({ file, url, place, placeError }) => {
+    setPhotoFile(file ?? null);
+    setPhotoUrl(url ?? null);
     setPhotoPlaceError(placeError || '');
     setPhotoPlaceSource(place?.source ?? null);
-    if (
-      place &&
-      isValidCoordinate(place.latitude, place.longitude)
-    ) {
+    if (place && isValidCoordinate(place.latitude, place.longitude)) {
       setIsPinnedToAPlace(true);
       setGeoLocation((previous) => ({
         ...previous,
@@ -78,6 +85,7 @@ const CreateAvatarModal = ({ setShowCreateModal }) => {
 
   const handleClearPhoto = () => {
     setPhotoFile(null);
+    setPhotoUrl(null);
     setPhotoPlaceSource(null);
     setPhotoPlaceError('');
   };
@@ -143,27 +151,26 @@ const CreateAvatarModal = ({ setShowCreateModal }) => {
       }
 
       const createdId = assistantIdOf(createdAvatar);
-      if (photoFile && createdId) {
+      if (hasPhoto && createdId) {
         // The photograph is ingested after the dialog closes. Settings shows
         // the portrait and document jobs; research starts once the picture
-        // has been read as identity media.
+        // has been read as identity media. A link is fetched by the server.
         void startCreateAvatarPhotoFollowUp({
           assistantId: createdId,
           photoFile,
+          photoUrl,
           researchHint: researchHintFromCreatePhoto({
             name: resolvedName,
             locationName: geoLocation.locationName,
             latitude: geoLocation.latitude,
             longitude: geoLocation.longitude,
+            imageUrl: photoUrl,
           }),
           uploadIdentityMedia: startIdentityMediaUpload,
           startResearch: startAvatarDeepResearch,
           rememberJob: rememberResearchJob,
         }).catch((followUpError) => {
-          console.error(
-            'Create-from-photo follow-up failed:',
-            followUpError
-          );
+          console.error('Create-from-photo follow-up failed:', followUpError);
           toast.error(
             followUpError?.message ||
               'The photograph could not be processed. Add it again in Settings.'
@@ -174,6 +181,8 @@ const CreateAvatarModal = ({ setShowCreateModal }) => {
       setShowCreateModal(false);
       setNewAvatarName('');
       setNewAvatarDescription('');
+      setPhotoFile(null);
+      setPhotoUrl(null);
 
       const settingsPath = avatarSettingsPath(createdAvatar);
       if (settingsPath) {
@@ -213,7 +222,14 @@ const CreateAvatarModal = ({ setShowCreateModal }) => {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [setShowCreateModal]);
 
-  return (
+  if (typeof document === 'undefined') return null;
+
+  // Rendered into `document.body`, like `ui/Modal`. The signed-in page frame
+  // (ProtectedRoute) is `relative z-10`, a stacking context, so an overlay
+  // rendered inline is confined below the `z-40` sidebar rail no matter how
+  // high its own z-index is. On a phone the 90vw card reaches under the rail
+  // and its left edge is hidden; from body the overlay covers the rail too.
+  return createPortal(
     <div
       className="fixed inset-0 bg-black/60 backdrop-blur-lg rounded-2xl border border-white/10 bg-opacity-75 flex items-center justify-center z-50"
       type="dialog"
@@ -237,6 +253,7 @@ const CreateAvatarModal = ({ setShowCreateModal }) => {
         )}
         <CreateAvatarPhotoField
           file={photoFile}
+          url={photoUrl}
           placeSource={photoPlaceSource}
           placeError={photoPlaceError}
           disabled={isLoading}
@@ -252,8 +269,10 @@ const CreateAvatarModal = ({ setShowCreateModal }) => {
             onChange={(e) => setNewAvatarName(e.target.value)}
             placeholder={
               photoFile
-                ? 'Name on the sign (optional)'
-                : 'Name the Avatar'
+                ? 'Name on the sign'
+                : photoUrl
+                  ? 'Name'
+                  : 'Name the Avatar'
             }
             className="w-full p-2 mt-1 rounded bg-black/60 text-neutral-200 border border-neutral-700 focus:outline-none focus:ring-2 focus:ring-amber-400/50 transition-all duration-300"
             autoFocus
@@ -320,7 +339,8 @@ const CreateAvatarModal = ({ setShowCreateModal }) => {
           </button>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body
   );
 };
 

@@ -9,23 +9,46 @@ const BASE_EMOTIONS = new Set([
 ]);
 
 /**
- * The emotion the voice stage may leave the neutral loop for.
+ * The emotion the voice stage should show for a reply.
  *
- * GoEmotions often labels a greeting as `approval` or `curiosity` and maps
- * that onto joy or surprise. Voice mode only swaps when the classifier named
- * a base emotion itself — an absolute classification, not a mapped relative.
+ * Same rule as the message-view face: follow the classified `base_emotion`.
+ * Mapped GoEmotions labels (`approval` → joy) still swap the generated still.
  *
  * @param {Object|null} [sentiment] `{ emotion, base_emotion }` from the reply.
  * @returns {string} A base emotion, or `neutral`.
  */
 export function voiceStageEmotion(sentiment) {
-  const label = sentiment?.emotion;
   const base = sentiment?.base_emotion;
-  if (!label || !base || label === 'neutral' || base === 'neutral') {
-    return 'neutral';
-  }
-  if (label !== base || !BASE_EMOTIONS.has(base)) {
+  if (!base || base === 'neutral' || !BASE_EMOTIONS.has(base)) {
     return 'neutral';
   }
   return base;
+}
+
+/**
+ * Whether the voice stage should stay on this emotion instead of returning
+ * to the cyclic idle.
+ *
+ * A generated still is enough: idle-loop videos are optional. Snapping back
+ * whenever a loop was missing is why stills-only avatars never left the
+ * reference face even though the message view swapped.
+ *
+ * @param {Object} options
+ * @param {string} [options.emotion]
+ * @param {boolean} [options.isBusy] Speaking, rendering a clip, or waiting.
+ * @param {boolean} [options.hasIdleLoop]
+ * @param {boolean} [options.hasStill]
+ * @returns {boolean} True when this emotion should remain on stage.
+ */
+export function voiceStageShouldKeepEmotion({
+  emotion,
+  isBusy = false,
+  hasIdleLoop = false,
+  hasStill = false,
+} = {}) {
+  if (!emotion || emotion === 'neutral') return true;
+  if (isBusy) return true;
+  if (hasIdleLoop) return true;
+  if (hasStill) return true;
+  return false;
 }

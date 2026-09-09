@@ -4,6 +4,9 @@
 // picture was taken, name the avatar when the field was left blank, ingest the
 // photo as both the reference image and identity media, then start deep
 // research so the subject in the picture is looked up on the web.
+//
+// The picture may also be an image URL. The server fetches it, so nothing is
+// downloaded here; a URL has no EXIF and does not pin the avatar anywhere.
 
 import { isValidCoordinate } from './avatarProximity.js';
 import { readDevicePositionOnce } from './deviceLocation.js';
@@ -42,6 +45,8 @@ export function resolveCreateAvatarName({
  * @param {string} [parameters.locationName]
  * @param {number} [parameters.latitude]
  * @param {number} [parameters.longitude]
+ * @param {string} [parameters.imageUrl] Set when the picture came from a URL
+ *   rather than a file; the address itself often names the subject.
  * @returns {string}
  */
 export function researchHintFromCreatePhoto({
@@ -49,11 +54,16 @@ export function researchHintFromCreatePhoto({
   locationName = '',
   latitude,
   longitude,
+  imageUrl = '',
 } = {}) {
   const parts = [
     'A photograph of a name or location was uploaded as identity media and as the reference image.',
     'Identify the person or place shown in the photograph and research that subject.',
   ];
+  const trimmedUrl = String(imageUrl ?? '').trim();
+  if (trimmedUrl) {
+    parts.push(`The photograph was fetched from ${trimmedUrl}.`);
+  }
   const trimmedName = String(name ?? '').trim();
   if (trimmedName && trimmedName !== UNTITLED_PHOTO_AVATAR_NAME) {
     parts.push(`Typed name: ${trimmedName}.`);
@@ -142,7 +152,9 @@ export function describePhotoPlaceError(error) {
  *
  * @param {Object} parameters
  * @param {string} parameters.assistantId
- * @param {File} parameters.photoFile
+ * @param {File} [parameters.photoFile] The chosen or captured picture.
+ * @param {string} [parameters.photoUrl] An image address instead of a file.
+ *   The server fetches it; the same media endpoint takes `url`.
  * @param {string} [parameters.researchHint]
  * @param {Function} [parameters.uploadIdentityMedia]
  * @param {Function} [parameters.startResearch]
@@ -152,14 +164,19 @@ export function describePhotoPlaceError(error) {
 export async function startCreateAvatarPhotoFollowUp({
   assistantId,
   photoFile,
+  photoUrl,
   researchHint,
   uploadIdentityMedia,
   startResearch,
   rememberJob,
 }) {
-  if (!assistantId || !photoFile) {
+  const trimmedUrl = String(photoUrl ?? '').trim();
+  if (!assistantId || (!photoFile && !trimmedUrl)) {
     return { portraitOk: false, identityOk: false, researchJobId: null };
   }
+  const media = photoFile
+    ? { files: [photoFile], urls: [] }
+    : { files: [], urls: [trimmedUrl] };
 
   const upload =
     uploadIdentityMedia ??
@@ -175,7 +192,7 @@ export async function startCreateAvatarPhotoFollowUp({
   const portraitPromise = Promise.resolve(
     upload({
       assistantId,
-      files: [photoFile],
+      ...media,
       isReferenceImage: true,
     })
   ).catch((error) => {
@@ -188,7 +205,7 @@ export async function startCreateAvatarPhotoFollowUp({
     identityOk = Boolean(
       await upload({
         assistantId,
-        files: [photoFile],
+        ...media,
         isReferenceImage: false,
       })
     );

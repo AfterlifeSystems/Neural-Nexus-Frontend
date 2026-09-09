@@ -23,6 +23,10 @@ import {
 import earthNightTexture from '../../assets/globe/earth-night.jpg';
 import AvatarRosterDropdown from './AvatarRosterDropdown';
 
+// Camera altitude (in globe radii) at which the whole planet is on screen.
+// Double-clicking the globe flies back out to it.
+const WHOLE_WORLD_ALTITUDE = 2.4;
+
 function escapeHtml(text) {
   return String(text)
     .replace(/&/g, '&amp;')
@@ -70,6 +74,7 @@ function globeMarkerElement(group, onInspect, onHover, selectedAssistantId) {
  * @param {Object|null} [props.devicePosition]
  * @param {Object|null} [props.focus]
  * @param {Set<string>} [props.ownedAssistantIds]
+ * @param {number} [props.worldViewRevision] bump to fly out to the whole world
  * @param {(place: {latitude: number, longitude: number, avatars: Array})} props.onInspectPlace
  */
 const WorldAvatarGlobe = ({
@@ -79,6 +84,7 @@ const WorldAvatarGlobe = ({
   loadError = '',
   devicePosition = null,
   focus = null,
+  worldViewRevision = 0,
   onInspectPlace,
 }) => {
   const selectedAssistantId = focus?.assistantId ?? null;
@@ -92,6 +98,7 @@ const WorldAvatarGlobe = ({
   const hasFlownToDeviceRef = useRef(false);
   const lastFocusKeyRef = useRef('');
   const lastPinInspectAtRef = useRef(0);
+  const lastGlobeClickAtRef = useRef(0);
   const holdStillRef = useRef(false);
   const onInspectPlaceRef = useRef(onInspectPlace);
   onInspectPlaceRef.current = onInspectPlace;
@@ -104,39 +111,75 @@ const WorldAvatarGlobe = ({
     }
   }, []);
 
+  // Pull the camera back until the whole planet fits, forget any place that
+  // was opened, and let the globe drift again.
+  const viewWholeWorld = useCallback(() => {
+    const globeInstance = globeRef.current;
+    if (!globeInstance) return;
+    const current = globeInstance.pointOfView?.() ?? {};
+    holdStillRef.current = false;
+    setSelectedGroup(null);
+    setIsListOpen(false);
+    globeInstance.pointOfView(
+      {
+        lat: current.lat ?? 20,
+        lng: current.lng ?? 0,
+        altitude: WHOLE_WORLD_ALTITUDE,
+      },
+      900
+    );
+    const controls = globeInstance.controls?.();
+    if (controls) {
+      controls.autoRotate = true;
+    }
+  }, []);
+  const viewWholeWorldRef = useRef(viewWholeWorld);
+  viewWholeWorldRef.current = viewWholeWorld;
+
+  // The toolbar's "World view" button bumps this number.
+  useEffect(() => {
+    if (!worldViewRevision || !globeReady) return;
+    viewWholeWorld();
+  }, [worldViewRevision, globeReady, viewWholeWorld]);
+
   const groups = useMemo(
     () => globeMarkerGroups(avatars, groupingDegrees),
     [avatars, groupingDegrees]
   );
 
-  const inspectGroup = useCallback((group) => {
-    if (!group) return;
-    lastPinInspectAtRef.current = Date.now();
-    holdStill();
-    const chosen = group.labelAvatar ?? group.avatars?.[0];
-    const pin = chosen ? pinOf(chosen) : null;
-    const groupSize = group.avatars?.length || group.count || 1;
-    onInspectPlaceRef.current?.({
-      latitude: pin ? Number(pin.latitude) : group.latitude,
-      longitude: pin ? Number(pin.longitude) : group.longitude,
-      assistantId: avatarIdOf(chosen),
-      avatars: group.avatars,
-      source: 'globe',
-    });
-    setSelectedGroup(group);
-    setIsListOpen(true);
-    if (groupSize > 1) {
-      globeRef.current?.pointOfView(
-        { lat: group.latitude, lng: group.longitude, altitude: 0.08 },
-        900
-      );
-    }
-  }, [holdStill]);
+  const inspectGroup = useCallback(
+    (group) => {
+      if (!group) return;
+      lastPinInspectAtRef.current = Date.now();
+      holdStill();
+      const chosen = group.labelAvatar ?? group.avatars?.[0];
+      const pin = chosen ? pinOf(chosen) : null;
+      const groupSize = group.avatars?.length || group.count || 1;
+      onInspectPlaceRef.current?.({
+        latitude: pin ? Number(pin.latitude) : group.latitude,
+        longitude: pin ? Number(pin.longitude) : group.longitude,
+        assistantId: avatarIdOf(chosen),
+        avatars: group.avatars,
+        source: 'globe',
+      });
+      setSelectedGroup(group);
+      setIsListOpen(true);
+      if (groupSize > 1) {
+        globeRef.current?.pointOfView(
+          { lat: group.latitude, lng: group.longitude, altitude: 0.08 },
+          900
+        );
+      }
+    },
+    [holdStill]
+  );
 
   const rosterGroup = useMemo(() => {
     if (!selectedGroup) return null;
     const selectedIds = new Set(
-      (selectedGroup.avatars ?? []).map((avatar) => avatarIdOf(avatar)).filter(Boolean)
+      (selectedGroup.avatars ?? [])
+        .map((avatar) => avatarIdOf(avatar))
+        .filter(Boolean)
     );
     if (selectedAssistantId) selectedIds.add(selectedAssistantId);
     return (
@@ -146,7 +189,9 @@ const WorldAvatarGlobe = ({
     );
   }, [groups, selectedAssistantId, selectedGroup]);
 
-  const listAvatars = rosterGroup?.avatars?.length ? rosterGroup.avatars : avatars;
+  const listAvatars = rosterGroup?.avatars?.length
+    ? rosterGroup.avatars
+    : avatars;
 
   const listLabel = useMemo(() => {
     if (rosterGroup?.avatars?.length) {
@@ -163,7 +208,9 @@ const WorldAvatarGlobe = ({
     }
     const count = avatars.length;
     const placeCount =
-      groups.length > 0 && groups.length < count ? ` · ${groups.length} places` : '';
+      groups.length > 0 && groups.length < count
+        ? ` · ${groups.length} places`
+        : '';
     return `${count} ${count === 1 ? 'avatar' : 'avatars'} in the world${placeCount}`;
   }, [avatars.length, groups.length, rosterGroup]);
 
@@ -212,7 +259,15 @@ const WorldAvatarGlobe = ({
       controls.addEventListener?.('start', stopDrift);
       if (typeof globeInstance.onGlobeClick === 'function') {
         globeInstance.onGlobeClick(({ lat, lng }) => {
-          if (Date.now() - lastPinInspectAtRef.current < 400) return;
+          const now = Date.now();
+          if (now - lastPinInspectAtRef.current < 400) return;
+          // Two taps on open globe within a moment: show the whole world.
+          if (now - lastGlobeClickAtRef.current < 350) {
+            lastGlobeClickAtRef.current = 0;
+            viewWholeWorldRef.current?.();
+            return;
+          }
+          lastGlobeClickAtRef.current = now;
           stopDrift();
           setSelectedGroup(null);
           onInspectPlaceRef.current?.({
@@ -354,45 +409,59 @@ const WorldAvatarGlobe = ({
     <div className="relative h-full w-full overflow-hidden bg-black/60">
       <div ref={containerRef} className="h-full w-full" />
 
-      <div className="pointer-events-auto absolute left-4 top-4 z-20">
-        {isLoading ? (
-          <div className="inline-flex items-center gap-2 rounded-lg border border-white/10 bg-black/60 px-3 py-2 text-xs text-neutral-200 backdrop-blur-lg">
-            <GlobeIcon className="h-4 w-4 text-amber-300" aria-hidden="true" />
-            <span className="inline-flex items-center gap-1.5">
-              <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden="true" />
-              Loading the world…
-            </span>
-          </div>
-        ) : (
-          <AvatarRosterDropdown
-            icon={
-              rosterGroup ? (
-                <MapPin className="h-4 w-4 shrink-0 text-amber-300" aria-hidden="true" />
-              ) : (
-                <GlobeIcon className="h-4 w-4 shrink-0 text-amber-300" aria-hidden="true" />
-              )
-            }
-            label={listLabel}
-            avatars={listAvatars}
-            selectedAssistantId={selectedAssistantId}
-            isOpen={isListOpen}
-            onToggle={() => setIsListOpen((wasOpen) => !wasOpen)}
-            onChoose={chooseFromList}
-            ownedAssistantIds={ownedAssistantIds}
-            worldActionLabel={
-              rosterGroup
-                ? `${avatars.length} ${avatars.length === 1 ? 'avatar' : 'avatars'} in the world`
-                : undefined
-            }
-            onShowWorld={
-              rosterGroup
-                ? () => {
-                    setSelectedGroup(null);
-                  }
-                : undefined
-            }
-          />
-        )}
+      <div className="pointer-events-auto absolute inset-x-3 top-3 z-20 flex items-start gap-2 sm:inset-x-4 sm:top-4">
+        <div className="min-w-0 flex-1 sm:w-96 sm:flex-none">
+          {isLoading ? (
+            <div className="inline-flex items-center gap-2 rounded-lg border border-white/10 bg-black/60 px-3 py-2 text-xs text-neutral-200 backdrop-blur-lg">
+              <GlobeIcon
+                className="h-4 w-4 text-amber-300"
+                aria-hidden="true"
+              />
+              <span className="inline-flex items-center gap-1.5">
+                <Loader2
+                  className="h-3.5 w-3.5 animate-spin"
+                  aria-hidden="true"
+                />
+                Loading the world…
+              </span>
+            </div>
+          ) : (
+            <AvatarRosterDropdown
+              icon={
+                rosterGroup ? (
+                  <MapPin
+                    className="h-4 w-4 shrink-0 text-amber-300"
+                    aria-hidden="true"
+                  />
+                ) : (
+                  <GlobeIcon
+                    className="h-4 w-4 shrink-0 text-amber-300"
+                    aria-hidden="true"
+                  />
+                )
+              }
+              label={listLabel}
+              avatars={listAvatars}
+              selectedAssistantId={selectedAssistantId}
+              isOpen={isListOpen}
+              onToggle={() => setIsListOpen((wasOpen) => !wasOpen)}
+              onChoose={chooseFromList}
+              ownedAssistantIds={ownedAssistantIds}
+              worldActionLabel={
+                rosterGroup
+                  ? `${avatars.length} ${avatars.length === 1 ? 'avatar' : 'avatars'} in the world`
+                  : undefined
+              }
+              onShowWorld={
+                rosterGroup
+                  ? () => {
+                      setSelectedGroup(null);
+                    }
+                  : undefined
+              }
+            />
+          )}
+        </div>
       </div>
 
       {hoveredGroup && !isListOpen && (

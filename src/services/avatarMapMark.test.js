@@ -1,7 +1,23 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
-import { avatarMatchesSearch, initialsOf, mapMarkOf } from './avatarMapMark.js';
+import {
+  avatarDescriptionOf,
+  avatarMatchesSearch,
+  initialsOf,
+  mapMarkOf,
+} from './avatarMapMark.js';
+
+test('the description is read from wherever the record keeps it', () => {
+  assert.equal(avatarDescriptionOf({ description: '  A guide.  ' }), 'A guide.');
+  assert.equal(
+    avatarDescriptionOf({ metadata: { description: 'From metadata' } }),
+    'From metadata'
+  );
+  assert.equal(avatarDescriptionOf({ metadata: { bio: 'A bio' } }), 'A bio');
+  assert.equal(avatarDescriptionOf({ description: 42 }), '');
+  assert.equal(avatarDescriptionOf(null), '');
+});
 
 test('initials come from the avatar name', () => {
   assert.equal(initialsOf('Stone Arch'), 'SA');

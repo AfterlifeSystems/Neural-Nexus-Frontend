@@ -15,10 +15,11 @@ const inFlight = new Map();
 // Mounted hooks, told which avatar's manifest was dropped so they re-read it.
 const invalidationListeners = new Set();
 
-// A stored portrait means a new set of stills and loops: drop the manifest the
-// moment the portrait job finishes, so the chat header, the message faces,
-// the gallery and the Data Uploaded rows stop showing the pre-upload answer
-// (an empty manifest, cached when the avatar was first opened).
+// A stored portrait is a new face: drop the cached manifest the moment the
+// portrait job finishes, so the chat header, the message faces, the gallery
+// and the Data Uploaded rows stop showing the pre-upload answer (an empty
+// manifest, cached when the avatar was first opened). Stills and loops are
+// not generated on upload.
 subscribeAvatarPortraitChanged((assistantId) => forgetEmotionMedia(assistantId));
 
 /**

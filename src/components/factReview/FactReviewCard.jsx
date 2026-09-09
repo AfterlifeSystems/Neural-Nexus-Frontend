@@ -12,6 +12,7 @@ import {
   ACTION_CHOICE_BUTTON_TYPE,
   actionChoiceButtonClassName,
 } from './factReviewActionChoice';
+import { recommendationHintFor } from './factReviewHint';
 
 export const ACTION_ORDER = ['accept', 'remove', 'skip'];
 
@@ -79,17 +80,7 @@ export const FactReviewCard = ({ match, decision, actionLabels, onChange, isResu
     ? match.namespace.join('/')
     : '';
 
-  const recommendationHint = () => {
-    if (match.recommended_action === 'remove') {
-      return 'I recommend removing this document.';
-    }
-    if (match.recommended_action === 'accept') {
-      return null; // The suggested edit below is the recommendation.
-    }
-    return 'I recommend leaving this document unchanged.';
-  };
-
-  const hint = recommendationHint();
+  const hint = recommendationHintFor(match);
 
   return (
     <div className="bg-black/25 rounded-xl border border-white/10 p-4 space-y-3">
@@ -113,6 +104,28 @@ export const FactReviewCard = ({ match, decision, actionLabels, onChange, isResu
       {match.current_fact_context ? (
         <div className="text-xs text-white/60">
           Current document fact context: {match.current_fact_context}
+        </div>
+      ) : null}
+
+      {/* What the research proposes, as plain text. The editable window below
+          holds the same words, but a person deciding between two versions has
+          to be able to READ the researched one without treating a form field as
+          the only place it appears. */}
+      {match.kind === 'research_proposal' && match.suggested_edit_fact_content ? (
+        <div className="text-sm text-neutral-200">
+          <span className="font-semibold">Researched version: </span>
+          <span className="text-white/90">
+            {match.suggested_edit_fact_content}
+          </span>
+        </div>
+      ) : null}
+
+      {/* Why this is being asked: the surrounding document for a correction,
+          and for a researched contradiction the reasoning, the statements that
+          disagreed, and the sources behind them. */}
+      {match.document_excerpt ? (
+        <div className="text-xs text-white/55 whitespace-pre-line border-l-2 border-white/10 pl-3">
+          {match.document_excerpt}
         </div>
       ) : null}
 

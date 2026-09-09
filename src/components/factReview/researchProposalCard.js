@@ -35,6 +35,10 @@ export function researchProposalAsCard(index, proposal) {
     document_id: proposal?.fact_id,
     current_fact_content:
       proposal?.existing_fact || '(nothing stored yet on this point)',
+    // Whether the avatar holds anything on this point at all. A contradiction
+    // between the sources and a stored fact and a contradiction among the
+    // sources alone are different decisions, and the card says so.
+    has_stored_fact: Boolean(proposal?.existing_fact),
     current_fact_context: proposal?.fact_context ?? '',
     document_excerpt: excerpt.slice(0, 1000),
     suggested_edit_fact_content: proposal?.fact ?? '',

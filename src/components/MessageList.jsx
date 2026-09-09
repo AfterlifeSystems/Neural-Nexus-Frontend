@@ -1,6 +1,6 @@
 // src/components/MessageList.jsx
 import React, { useEffect } from 'react';
-import { User } from 'lucide-react';
+import { Square, User } from 'lucide-react';
 import InterruptPanel from './InterruptPanel';
 import MessageMedia from './MessageMedia';
 import { useLocation } from 'react-router-dom';
@@ -36,6 +36,7 @@ import {
 } from '../services/chartSpecs';
 import SpeakerScript from './SpeakerScript';
 import { editableScriptText, hasSpeakerScript } from './speakerScript';
+import { voiceMessageIsGenerating } from './voiceCaptionVisibility';
 import {
   createdArtifactsOf,
   speakableReplyText,
@@ -125,7 +126,26 @@ const MessageList = ({
     noteNoticeInteraction,
     dismissNotice,
     dismissedNoticeIds,
+    stopAssistantTurn,
+    stoppableTurnCount,
   } = useMedia();
+  // The composer's button never becomes Stop — an empty box has to keep
+  // offering voice mode mid-reply — so the reply being generated carries its
+  // own Stop, as the caption does in voice mode. A shared transcript is
+  // read-only and has no turn of its own to end.
+  const replyTurnIsStoppable = !readOnly && (stoppableTurnCount ?? 0) > 0;
+  const renderStopReplyButton = () => (
+    <button
+      type="button"
+      onClick={() => stopAssistantTurn?.()}
+      title="Stop generating"
+      aria-label="Stop generating"
+      className="shrink-0 inline-flex items-center gap-1 px-2 py-1 rounded-md bg-white/5 text-white/80 text-xs border border-white/10 hover:text-neutral-100 hover:bg-white/10 focus:outline-none focus:ring-2 focus:ring-amber-400/50"
+    >
+      <Square className="w-3 h-3 fill-current" />
+      Stop
+    </button>
+  );
   const { userPortrait, activeAvatar, user } = useAuth();
   const location = useLocation();
   const readerIsAnonymous = isSharedAvatarChatPath(location.pathname);
@@ -274,6 +294,13 @@ const MessageList = ({
             ? chartsOf(msg).filter(chartHasRenderableData)
             : [];
           const createdArtifacts = isFromAvatar ? createdArtifactsOf(msg) : [];
+          // Stop belongs on the reply while its words are still arriving:
+          // the pending bubble, and the row whose tokens are streaming in.
+          // Once the text is done the stream may stay open for analysis,
+          // but there is nothing left to cut short.
+          const isGeneratingThisReply =
+            replyTurnIsStoppable &&
+            voiceMessageIsGenerating(msg, { turnActive: true });
 
           return (
             <React.Fragment key={messageKey}>
@@ -303,7 +330,7 @@ const MessageList = ({
                   }`}
                 >
                   {isLoading ? (
-                    <div className="flex items-center space-x-2">
+                    <div className="flex items-center justify-between gap-3">
                       <div className="flex space-x-1">
                         <div
                           className="w-2 h-2 bg-white rounded-full animate-bounce"
@@ -318,6 +345,7 @@ const MessageList = ({
                           style={{ animationDelay: '300ms' }}
                         />
                       </div>
+                      {isGeneratingThisReply && renderStopReplyButton()}
                     </div>
                   ) : (
                     <>
@@ -386,6 +414,10 @@ const MessageList = ({
                         <div className="mt-1 text-[11px] uppercase tracking-wide text-neutral-500">
                           Stopped
                         </div>
+                      )}
+
+                      {isGeneratingThisReply && (
+                        <div className="mt-2">{renderStopReplyButton()}</div>
                       )}
 
                       {/* The plot and report an analysis turn produced. The
@@ -494,9 +526,9 @@ const MessageList = ({
         })}
 
       {/* The question a paused turn is asking, if one is. This sits where the
-          assistant's next message would have gone, because that is what it
-          stands in for: the turn produced this instead of a reply, and cannot
-          continue until it is answered. */}
+          assistant's next message would have gone. A fact review starts folded
+          so the conversation is not forced through the form; the choices live
+          on the pause itself so switching between talking and typing keeps them. */}
       <InterruptPanel />
 
       {/* What the avatar is doing, for as long as it is doing it.

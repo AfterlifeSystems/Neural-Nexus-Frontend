@@ -44,6 +44,7 @@ const WATCH_UNAVAILABLE = {
   locationErrorMessage: '',
   refreshPosition: () => {},
   isStandingAt: () => false,
+  asAnonymousIdentity: false,
 };
 
 /**
@@ -121,8 +122,20 @@ export function GeoAvatarProvider({ asAnonymousIdentity = false, onTalkNow, chil
       locationErrorMessage: describeLocationError(error),
       refreshPosition: refresh,
       isStandingAt,
+      // So a panel drawn from this watch can fetch an avatar's portrait as the
+      // same identity the watch itself uses.
+      asAnonymousIdentity,
     }),
-    [isWatchEnabled, setWatchEnabled, nearbyAvatars, position, error, refresh, isStandingAt]
+    [
+      isWatchEnabled,
+      setWatchEnabled,
+      nearbyAvatars,
+      position,
+      error,
+      refresh,
+      isStandingAt,
+      asAnonymousIdentity,
+    ]
   );
 
   return <GeoAvatarContext.Provider value={value}>{children}</GeoAvatarContext.Provider>;

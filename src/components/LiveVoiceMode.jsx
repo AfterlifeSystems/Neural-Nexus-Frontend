@@ -54,7 +54,7 @@ import {
 import { toast } from 'react-hot-toast';
 import { useLocation, useNavigate } from 'react-router-dom';
 
-import { useMedia } from '../context/MediaContext';
+import { useMedia, NEW_CONVERSATION_ID } from '../context/MediaContext';
 import { useMediaShare } from '../context/MediaShareContext';
 import { describeAmbientStatus } from '../services/ambientCaptureScheduler';
 import { useAuth } from '../context/AuthContext';
@@ -77,7 +77,10 @@ import {
   useCameraPassthrough,
 } from '../hooks/useCameraPassthrough';
 import useEmotionMedia, { preloadEmotionMedia } from '../hooks/useEmotionMedia';
-import { voiceStageEmotion } from '../hooks/voiceStageEmotion';
+import {
+  voiceStageEmotion,
+  voiceStageShouldKeepEmotion,
+} from '../hooks/voiceStageEmotion';
 import useMessageActions from '../hooks/useMessageActions';
 import MessageActionBar from './media/MessageActionBar';
 import CreatedArtifacts from './CreatedArtifacts';
@@ -113,6 +116,10 @@ import { noticeDecisionFor } from '../services/avatarPreferences';
 import { focusComposer } from '../services/composerFocus';
 import { composerHasSendableDraft } from './composerSendState';
 import { canCaptureMicrophone, recordOneTurn } from '../services/voiceSession';
+import {
+  isMicrophoneAccessRefused,
+  watchMicrophonePermission,
+} from '../services/microphonePermission';
 import { startVoiceActivityListening } from '../services/voiceActivity';
 import { enqueueLiveUtterance } from '../services/liveUtteranceQueue';
 import {
@@ -124,6 +131,11 @@ import {
   transcribeRecording,
 } from '../services/avatarService';
 import { showRequestFailureToast } from './requestFailureToast';
+import { showVoiceNotReadyToast } from './showVoiceNotReadyToast';
+import {
+  rememberVoiceNotReadyShown,
+  sameConversationAsVoiceNotReadyShown,
+} from './voiceNotReadyToast';
 import { isConversationSuggestionList } from '../services/conversationSuggestions';
 import { findMessageByKey, messageKeyOf } from '../services/messageKey';
 import {
@@ -278,6 +290,7 @@ const LiveVoiceMode = ({
 }) => {
   const {
     messages,
+    activeConversation,
     sendSpokenTurn,
     sendSpokenAudioTurn,
     handleFileChange,
@@ -329,20 +342,24 @@ const LiveVoiceMode = ({
   // Opening live voice is asking to be heard. Mute is only something the
   // person chooses after the stage is already up.
   const [isMicMuted, setIsMicMuted] = useState(false);
-  // The live camera behind the avatar. Turned on for a person who has walked
-  // up to a geo-located avatar's place, and available as a toggle to anyone
-  // else who wants the avatar in the room with them.
+  // The live camera behind the avatar. It exists for one situation only: a
+  // person who has physically walked up to a geo-located avatar's place, as
+  // the shared position watch reports (`cameraBackground`). Anywhere else
+  // there is no place to show, so the camera is neither opened nor offered —
+  // asking for it from a desk only produced a permission prompt and a
+  // "camera unavailable" notice about a view that was never wanted.
   const [isCameraBackgroundOn, setIsCameraBackgroundOn] =
     useState(cameraBackground);
+  const canShowTheCameraBehindTheAvatar =
+    cameraBackground && canShowCameraBackground();
   const { stream: cameraBackgroundStream, error: cameraBackgroundError } =
-    useCameraPassthrough(isCameraBackgroundOn);
+    useCameraPassthrough(isCameraBackgroundOn && canShowTheCameraBehindTheAvatar);
 
-  // Arrival and departure turn the live place view on and off. A manual
-  // toggle still wins until the standing-at flag itself changes.
+  // Arrival turns the live place view on; departure turns it off. While at
+  // the place a manual toggle still wins until the standing-at flag changes.
   useEffect(() => {
     setIsCameraBackgroundOn(cameraBackground);
   }, [cameraBackground]);
-  const canShowTheCameraBehindTheAvatar = canShowCameraBackground();
 
   // A refused or missing camera is not a failure of the conversation: the
   // avatar simply appears against the usual backdrop.
@@ -401,6 +418,11 @@ const LiveVoiceMode = ({
   const [micLevel, setMicLevel] = useState(0);
   const listenerRef = useRef(null);
   const dictationRef = useRef(null);
+  // Set when getUserMedia is refused so the mic stays off until the browser
+  // permission becomes granted. A later unmute, or a permission change, is
+  // what asks again — not a toast on every failed start.
+  const microphoneBlockedByBrowserRef = useRef(false);
+  const voiceNotReadyShownForRef = useRef(null);
   // What the avatar has most recently said out loud, so a transcript that
   // turns out to be its own voice can be dropped instead of answered.
   const avatarSpokenLinesRef = useRef([]);
@@ -472,6 +494,38 @@ const LiveVoiceMode = ({
     asAnonymousIdentity: readerIsAnonymous,
     speechPlaybackEnabled: canPlayAvatarVoice,
   });
+
+  // Missing clone: prompt to create a voice model once per conversation on
+  // this stage. Speak from the transcript must not stack the same notice, and
+  // a generic "could not speak" toast is the wrong sentence for this case.
+  useEffect(() => {
+    if (!speech.notReady) return;
+    const conversationId = activeConversation ?? NEW_CONVERSATION_ID;
+    const previous = voiceNotReadyShownForRef.current;
+    if (
+      previous?.assistantId === assistantId &&
+      sameConversationAsVoiceNotReadyShown(
+        previous.conversationId,
+        conversationId
+      )
+    ) {
+      voiceNotReadyShownForRef.current = { assistantId, conversationId };
+      rememberVoiceNotReadyShown(assistantId, conversationId);
+      return;
+    }
+    showVoiceNotReadyToast({
+      assistantId,
+      avatarName,
+      collectedSeconds: speech.notReady.collectedSeconds,
+      conversationId,
+    });
+    voiceNotReadyShownForRef.current = { assistantId, conversationId };
+  }, [
+    speech.notReady,
+    assistantId,
+    avatarName,
+    activeConversation,
+  ]);
 
   const spokenExchange = messages.filter((message) => {
     if (
@@ -603,19 +657,36 @@ const LiveVoiceMode = ({
     return () => document.documentElement.classList.remove('voice-stage-open');
   }, []);
 
-  // Emotion clips without their own idle stay on a still, then return to
-  // the cyclic neutral loop. An emotion that has a loop keeps ping-ponging
-  // the same way the carousel does — these files are not cyclic.
+  // Keep a generated still on stage after the reply, the same way the
+  // message view swaps faces. An idle loop is optional; snapping back
+  // whenever it was missing is why stills-only avatars never left the
+  // reference face. An emotion that has a loop keeps ping-ponging the
+  // same way the carousel does — these files are not cyclic.
   useEffect(() => {
-    if (currentEmotion === 'neutral') return;
-    if (speech.isSpeaking || lipSyncClipUrl || isRenderingClip) return;
-    if (manifest?.emotions?.[currentEmotion]?.idleLoop) return;
+    const assets = manifest?.emotions?.[currentEmotion];
+    if (
+      voiceStageShouldKeepEmotion({
+        emotion: currentEmotion,
+        isBusy:
+          speech.isSpeaking ||
+          Boolean(lipSyncClipUrl) ||
+          isRenderingClip ||
+          isWaitingForReply ||
+          isPlayingReply,
+        hasIdleLoop: Boolean(assets?.idleLoop),
+        hasStill: Boolean(assets?.still),
+      })
+    ) {
+      return;
+    }
     setCurrentEmotion('neutral');
   }, [
     currentEmotion,
     speech.isSpeaking,
     lipSyncClipUrl,
     isRenderingClip,
+    isWaitingForReply,
+    isPlayingReply,
     manifest,
   ]);
 
@@ -640,12 +711,11 @@ const LiveVoiceMode = ({
     observer.observe(constraint);
     return () => observer.disconnect();
   }, [measurePortraitWell, stageStill, stageLoop, lipSyncClipUrl]);
-  // Only freeze on a still when this emotion has no loop of its own.
-  // Replacing a playing loop with a still was why voice mode never reversed.
-  const holdEmotionStill =
-    currentEmotion !== 'neutral' &&
-    !stageLoop &&
-    (speech.isSpeaking || Boolean(lipSyncClipUrl) || isRenderingClip);
+  // Freeze on a still when this emotion has no loop of its own — including
+  // after speech, so a stills-only avatar keeps the face that matches the
+  // reply. Replacing a playing loop with a still was why voice mode never
+  // reversed.
+  const holdEmotionStill = currentEmotion !== 'neutral' && !stageLoop;
 
   const waitForStagePresented = useCallback((timeoutMs = 4000, match) => {
     return new Promise((resolve) => {
@@ -1137,8 +1207,14 @@ const LiveVoiceMode = ({
         },
         onError: (listenError) => {
           console.error('Live listening failed:', listenError);
-          toast.error('Live listening stopped unexpectedly.');
           stopLiveListening();
+          if (isMicrophoneAccessRefused(listenError)) {
+            microphoneBlockedByBrowserRef.current = true;
+            setIsMicMuted(true);
+            setLiveListeningPreferred(false);
+            return;
+          }
+          toast.error('Live listening stopped unexpectedly.');
         },
       });
       if (
@@ -1149,18 +1225,38 @@ const LiveVoiceMode = ({
         return;
       }
       listenerRef.current = listener;
+      microphoneBlockedByBrowserRef.current = false;
       setIsMicMuted(false);
       setIsLiveListening(true);
     } catch (microphoneError) {
-      toast.error(
-        microphoneError?.name === 'NotAllowedError'
-          ? 'Microphone access was refused. Allow it in your browser to speak.'
-          : 'Could not start listening.'
-      );
+      // The stage asks for the microphone as soon as it opens. A refusal is
+      // the browser's answer, not a toast: the mic control reads off until
+      // they allow it in settings (or press unmute, which asks again).
+      setLiveListeningPreferred(false);
+      setIsMicMuted(true);
+      if (isMicrophoneAccessRefused(microphoneError)) {
+        microphoneBlockedByBrowserRef.current = true;
+        return;
+      }
+      toast.error('Could not start listening.', {
+        id: 'voice-microphone-unavailable',
+      });
     } finally {
       listenerStartInFlightRef.current = false;
     }
   }, [canDictate, stopLiveListening]);
+
+  useEffect(() => {
+    return watchMicrophonePermission((state) => {
+      if (state !== 'granted') return;
+      if (!microphoneBlockedByBrowserRef.current) return;
+      microphoneBlockedByBrowserRef.current = false;
+      if (!canDictate) return;
+      setIsMicMuted(false);
+      setLiveListeningPreferred(true);
+      startLiveListening();
+    });
+  }, [canDictate, startLiveListening]);
 
   // --- who may open the microphone ------------------------------------------
   // One gate, derived from state, rather than a pause here and a resume there.
@@ -1232,6 +1328,7 @@ const LiveVoiceMode = ({
 
   const toggleLiveListening = () => {
     if (isLiveListening) {
+      microphoneBlockedByBrowserRef.current = false;
       setLiveListeningPreferred(false);
       stopLiveListening();
       return;
@@ -1240,7 +1337,20 @@ const LiveVoiceMode = ({
       toast.error(speechInputUnavailableMessage);
       return;
     }
+    microphoneBlockedByBrowserRef.current = false;
     setIsMicMuted(false);
+    setLiveListeningPreferred(true);
+    startLiveListening();
+  };
+
+  const toggleMicMuted = () => {
+    if (!isMicMuted) {
+      setIsMicMuted(true);
+      return;
+    }
+    setIsMicMuted(false);
+    if (isLiveListening || !canDictate) return;
+    microphoneBlockedByBrowserRef.current = false;
     setLiveListeningPreferred(true);
     startLiveListening();
   };
@@ -1263,8 +1373,12 @@ const LiveVoiceMode = ({
     setIsDictating(true);
     try {
       dictationRef.current = await recordOneTurn();
-    } catch {
+    } catch (dictationError) {
       setIsDictating(false);
+      if (isMicrophoneAccessRefused(dictationError)) {
+        setIsMicMuted(true);
+        return;
+      }
       toast.error('Could not start recording.');
     }
   };
@@ -1310,8 +1424,8 @@ const LiveVoiceMode = ({
     if (ambientEnabled && ambientStatus?.inFlight) {
       return `${avatarName ?? 'The avatar'} is looking…`;
     }
-    if (isLiveListening)
-      return isMicMuted ? 'Mic muted' : 'Live — say something';
+    if (isMicMuted) return 'Mic muted';
+    if (isLiveListening) return 'Live — say something';
     if (ambientEnabled)
       return describeAmbientStatus(ambientStatus, ambientNextInMs);
     return '';
@@ -1432,7 +1546,7 @@ const LiveVoiceMode = ({
       </button>
       <button
         type="button"
-        onClick={() => setIsMicMuted((muted) => !muted)}
+        onClick={toggleMicMuted}
         title={isMicMuted ? 'Unmute your microphone' : 'Mute your microphone'}
         aria-label={
           isMicMuted ? 'Unmute your microphone' : 'Mute your microphone'

@@ -59,6 +59,18 @@ test('the voice stage uses generated media when that source is on', () => {
   );
 });
 
+test('the voice stage uses a generated still when that emotion has no loop', () => {
+  assert.deepEqual(
+    voiceStageFace({
+      showGenerated: true,
+      generatedStill: 'joy.jpg',
+      generatedLoop: null,
+      referenceStill: 'original.jpg',
+    }),
+    { still: 'joy.jpg', loop: null }
+  );
+});
+
 test('a missing generated still falls back to the original photo', () => {
   assert.deepEqual(
     voiceStageFace({

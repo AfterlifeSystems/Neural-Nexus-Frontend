@@ -24,6 +24,23 @@ export function initialsOf(name) {
 }
 
 /**
+ * The sentence an avatar record carries about itself, wherever it was put:
+ * the record's own `description`, or the one kept in its metadata, or a bio.
+ *
+ * @param {Object|null|undefined} avatar
+ * @returns {string}
+ */
+export function avatarDescriptionOf(avatar) {
+  const text =
+    avatar?.description ||
+    avatar?.metadata?.description ||
+    avatar?.metadata?.bio ||
+    avatar?.bio ||
+    '';
+  return typeof text === 'string' ? text.trim() : '';
+}
+
+/**
  * The mark drawn on both maps for one avatar.
  *
  * @param {Object|null|undefined} avatar

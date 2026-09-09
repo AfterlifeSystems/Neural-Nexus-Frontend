@@ -12,8 +12,13 @@ import {
 } from './neuralNexusApiClient';
 import { retainOwnedMcpDevices } from './mcpOwnership';
 import { avatarsWithPersonalFirst } from './avatarListOrder';
-import { avatarsFromResponse, boundsQuery, geoLocationQuery } from './avatarProximity';
+import {
+  avatarsFromResponse,
+  boundsQuery,
+  geoLocationQuery,
+} from './avatarProximity';
 import { withRateLimitRetry } from './retryRateLimited';
+import { collapseDuplicateIdentityDocuments } from './identityMediaUrls';
 
 export { retainOwnedMcpDevices } from './mcpOwnership';
 
@@ -290,9 +295,11 @@ export const getAvatarReferenceImage = async (
  * API that predates the roles.
  *
  * @param {string} assistantId The avatar whose documents to list.
- * @returns {Promise<Array<{label: string, referenceRole: string|null, isReferenceImage: boolean, isReferenceAudio: boolean}>>}
- *   One entry per uploaded source. `label` is the exact string
- *   deleteAvatarDocument accepts back.
+ * @returns {Promise<Array<{label: string, referenceRole: string|null, isReferenceImage: boolean, isReferenceAudio: boolean, sourceLabels?: string[]}>>}
+ *   One entry per uploaded source. YouTube watch/share/short links for the
+ *   same video collapse onto the first document so the list does not show
+ *   two rows for one clip. `label` is the exact string deleteAvatarDocument
+ *   accepts back; `sourceLabels` is present when later duplicates were merged.
  */
 export const listAvatarDocuments = async (assistantId) => {
   const documentsResponse = await requestJson('/list_avatar_documents', {
@@ -301,35 +308,39 @@ export const listAvatarDocuments = async (assistantId) => {
 
   const documentEntries = documentsResponse?.documents;
   if (Array.isArray(documentEntries)) {
-    return documentEntries
-      .filter((documentEntry) => Boolean(documentEntry?.label))
-      .map((documentEntry) => ({
-        label: documentEntry.label,
-        referenceRole: documentEntry.reference_role ?? null,
-        // Read the booleans the API sends when present, and otherwise derive
-        // them from the role, so one renamed field cannot silently turn every
-        // reference mark off.
-        isReferenceImage:
-          documentEntry.is_reference_image ??
-          documentEntry.reference_role === 'reference_image',
-        isReferenceAudio:
-          documentEntry.is_reference_audio ??
-          documentEntry.reference_role === 'reference_audio',
-        // Seconds of the avatar's speech this upload contributed to the voice
-        // model, so the list can show which uploads feed the voice.
-        voiceSeconds: Number(documentEntry.voice_seconds ?? 0),
-        inVoiceCorpus: documentEntry.in_voice_corpus === true,
-      }));
+    return collapseDuplicateIdentityDocuments(
+      documentEntries
+        .filter((documentEntry) => Boolean(documentEntry?.label))
+        .map((documentEntry) => ({
+          label: documentEntry.label,
+          referenceRole: documentEntry.reference_role ?? null,
+          // Read the booleans the API sends when present, and otherwise derive
+          // them from the role, so one renamed field cannot silently turn every
+          // reference mark off.
+          isReferenceImage:
+            documentEntry.is_reference_image ??
+            documentEntry.reference_role === 'reference_image',
+          isReferenceAudio:
+            documentEntry.is_reference_audio ??
+            documentEntry.reference_role === 'reference_audio',
+          // Seconds of the avatar's speech this upload contributed to the voice
+          // model, so the list can show which uploads feed the voice.
+          voiceSeconds: Number(documentEntry.voice_seconds ?? 0),
+          inVoiceCorpus: documentEntry.in_voice_corpus === true,
+        }))
+    );
   }
 
-  return (documentsResponse?.uploaded_documents ?? []).map((documentLabel) => ({
-    label: documentLabel,
-    referenceRole: null,
-    isReferenceImage: false,
-    isReferenceAudio: false,
-    voiceSeconds: 0,
-    inVoiceCorpus: false,
-  }));
+  return collapseDuplicateIdentityDocuments(
+    (documentsResponse?.uploaded_documents ?? []).map((documentLabel) => ({
+      label: documentLabel,
+      referenceRole: null,
+      isReferenceImage: false,
+      isReferenceAudio: false,
+      voiceSeconds: 0,
+      inVoiceCorpus: false,
+    }))
+  );
 };
 
 /**
@@ -405,11 +416,14 @@ export const uploadAvatarIdentityMedia = async ({
  * @param {AbortSignal} [signal] Cancellation signal.
  */
 export const streamMediaJobProgress = async (jobId, onEvent, signal) => {
-  return streamServerSentEvents(`/media_job/${encodeURIComponent(jobId)}/progress`, {
-    method: 'GET',
-    onEvent,
-    signal,
-  });
+  return streamServerSentEvents(
+    `/media_job/${encodeURIComponent(jobId)}/progress`,
+    {
+      method: 'GET',
+      onEvent,
+      signal,
+    }
+  );
 };
 
 /**
@@ -767,7 +781,8 @@ export const connectionRowFromMcpDevice = (device) => {
     source: 'device',
     provider: device.provider || 'desktop_mcp',
     category: 'device',
-    display_label: device.device_label || device.server_name || device.device_id,
+    display_label:
+      device.device_label || device.server_name || device.device_id,
     sub_label: platform || 'machine',
     connected,
     online,
@@ -813,9 +828,7 @@ export const mergeMcpDevicesIntoConnections = (connections, mcpDevices) => {
   });
 
   const seenDeviceIds = new Set(
-    rows
-      .map((row) => deviceIdFromConnection(row))
-      .filter(Boolean)
+    rows.map((row) => deviceIdFromConnection(row)).filter(Boolean)
   );
   for (const device of mcpDevices ?? []) {
     if (!device?.device_id || seenDeviceIds.has(device.device_id)) continue;
@@ -899,7 +912,10 @@ export const listAvatarIdentityFacts = async (assistantId) => {
  * @param {Object} fact A row from listAvatarIdentityFacts (`namespace`, `key`).
  * @returns {Promise<void>}
  */
-export const deleteAvatarIdentityFact = async (assistantId, { namespace, key }) => {
+export const deleteAvatarIdentityFact = async (
+  assistantId,
+  { namespace, key }
+) => {
   await requestJson('/avatar_identity_facts', {
     method: 'DELETE',
     query: { assistant_id: assistantId },
@@ -966,11 +982,18 @@ export const getAvatarEmotionMedia = async (
  *   "generate anyway" after the server predicted a moderation refusal from the
  *   reference image and withheld the run; the vendor calls are attempted at
  *   the owner's own cost.
+ * @param {'still'|'idle_loop'} [options.assetKind] Limit the run to portraits
+ *   or idle loops. Idle loops are never started from a portrait upload; they
+ *   wait for this call with `idle_loop`.
  * @returns {Promise<Object>} `{job_id, status_url}`.
  */
 export const regenerateAvatarEmotionMedia = async (
   assistantId,
-  { onlyMissing = true, proceedDespiteModerationRisk = false } = {}
+  {
+    onlyMissing = true,
+    proceedDespiteModerationRisk = false,
+    assetKind,
+  } = {}
 ) => {
   return requestJson('/avatar_emotion_media/regenerate', {
     method: 'POST',
@@ -980,6 +1003,7 @@ export const regenerateAvatarEmotionMedia = async (
       ...(proceedDespiteModerationRisk
         ? { proceed_despite_moderation_risk: true }
         : {}),
+      ...(assetKind ? { asset_kind: assetKind } : {}),
     },
   });
 };
@@ -1195,7 +1219,10 @@ export const submitAvatarVoiceVerification = async (assistantId, recording) => {
   const formData = new FormData();
   formData.append('assistant_id', assistantId);
   formData.append('recording', recording, recording.name ?? 'captcha.webm');
-  return requestJson('/avatar_voice/verification', { method: 'POST', formData });
+  return requestJson('/avatar_voice/verification', {
+    method: 'POST',
+    formData,
+  });
 };
 
 /**
@@ -1211,7 +1238,10 @@ export const submitAvatarVoiceVerification = async (assistantId, recording) => {
 export const retryAvatarProfessionalVoice = async (assistantId) => {
   const formData = new FormData();
   formData.append('assistant_id', assistantId);
-  return requestJson('/avatar_voice/professional/retry', { method: 'POST', formData });
+  return requestJson('/avatar_voice/professional/retry', {
+    method: 'POST',
+    formData,
+  });
 };
 
 /**
@@ -1224,10 +1254,39 @@ export const retryAvatarProfessionalVoice = async (assistantId) => {
  *   that has speech in the voice model.
  * @returns {Promise<Object>} The updated voice status.
  */
-export const setAvatarVoiceReference = async (assistantId, sourceDocumentName) => {
+export const setAvatarVoiceReference = async (
+  assistantId,
+  sourceDocumentName
+) => {
   return requestJson('/avatar_voice/reference', {
     method: 'POST',
-    body: { assistant_id: assistantId, source_document_name: sourceDocumentName },
+    body: {
+      assistant_id: assistantId,
+      source_document_name: sourceDocumentName,
+    },
+  });
+};
+
+/**
+ * Delete the avatar's cloned voice and train a new one from the speech held now.
+ *
+ * The first clone is otherwise final, so this is the way out of a voice trained
+ * from the wrong recording — or one the vendor has banned. The replacement is
+ * trained from whatever speech the avatar holds at that moment, so deleting the
+ * uploads that fed the bad voice first is how the new voice is chosen. When too
+ * little speech is left, the avatar simply has no voice model until enough is
+ * collected again.
+ * POST /avatar_voice/rebuild
+ *
+ * @param {string} assistantId The avatar.
+ * @returns {Promise<Object>} The updated voice status.
+ */
+export const rebuildAvatarVoice = async (assistantId) => {
+  const formData = new FormData();
+  formData.append('assistant_id', assistantId);
+  return requestJson('/avatar_voice/rebuild', {
+    method: 'POST',
+    formData,
   });
 };
 
@@ -1310,7 +1369,11 @@ export const requestLipSyncClip = async (
   assistantId,
   text,
   emotion,
-  { asAnonymousIdentity = false, pollMilliseconds = 4000, timeoutMilliseconds = 240_000 } = {}
+  {
+    asAnonymousIdentity = false,
+    pollMilliseconds = 4000,
+    timeoutMilliseconds = 240_000,
+  } = {}
 ) => {
   const started = await requestJson('/lip_sync', {
     method: 'POST',
@@ -1325,9 +1388,12 @@ export const requestLipSyncClip = async (
   const deadline = Date.now() + timeoutMilliseconds;
   while (Date.now() < deadline) {
     await new Promise((resolve) => setTimeout(resolve, pollMilliseconds));
-    const status = await requestJson(`/lip_sync/${encodeURIComponent(generationId)}`, {
-      asAnonymousIdentity,
-    });
+    const status = await requestJson(
+      `/lip_sync/${encodeURIComponent(generationId)}`,
+      {
+        asAnonymousIdentity,
+      }
+    );
     if (status?.status === 'completed' && status?.video_url) {
       return absoluteMediaUrl(status.video_url);
     }
@@ -1596,16 +1662,19 @@ export const recordAmbientPreference = async (
   assistantId,
   { observationId, observationKind, summary, type, args }
 ) => {
-  return requestJson(`/ambient_preferences/${encodeURIComponent(assistantId)}`, {
-    method: 'POST',
-    body: {
-      observation_id: observationId ?? null,
-      observation_kind: observationKind ?? 'other',
-      summary: summary ?? '',
-      type,
-      args: args ?? null,
-    },
-  });
+  return requestJson(
+    `/ambient_preferences/${encodeURIComponent(assistantId)}`,
+    {
+      method: 'POST',
+      body: {
+        observation_id: observationId ?? null,
+        observation_kind: observationKind ?? 'other',
+        summary: summary ?? '',
+        type,
+        args: args ?? null,
+      },
+    }
+  );
 };
 
 /**
@@ -1631,12 +1700,12 @@ export const recordMessageFeedback = async ({
   type,
   comment,
   content,
-  asAnonymousIdentity = false,
   observation = null,
+  asAnonymousIdentity = false,
 }) => {
   return requestJson('/message_feedback', {
-    asAnonymousIdentity,
     method: 'POST',
+    asAnonymousIdentity,
     body: {
       assistant_id: assistantId,
       thread_id: threadId ?? null,
@@ -1776,7 +1845,9 @@ export const listReports = async ({
  * @returns {Promise<Object>} The report record (possibly under `report`).
  */
 export const getReport = async (reportId) => {
-  const response = await requestJson(`/reports/${encodeURIComponent(reportId)}`);
+  const response = await requestJson(
+    `/reports/${encodeURIComponent(reportId)}`
+  );
   return response?.report ?? response;
 };
 

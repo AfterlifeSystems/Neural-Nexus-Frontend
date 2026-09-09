@@ -21,6 +21,7 @@ import {
   ChevronUp,
   Compass,
   Crosshair,
+  Globe,
   Loader2,
   MapPin,
   Search,
@@ -53,6 +54,7 @@ import {
 } from '../../services/avatarService';
 import { isAvatarOwnedByUser } from '../utils';
 import { voiceChatPath } from '../../services/voiceModePreference';
+import AvatarMapCard from './AvatarMapCard';
 import AvatarRosterDropdown from './AvatarRosterDropdown';
 import ClearMyLocationButton from './ClearMyLocationButton';
 import WorldStreetMap from './WorldStreetMap';
@@ -61,16 +63,6 @@ const WorldAvatarGlobe = lazy(() => import('./WorldAvatarGlobe'));
 
 const STREET_NEIGHBORHOOD_METERS = 800;
 const GEO_HYDRATE_BATCH = 6;
-
-function avatarDescriptionOf(avatar) {
-  const text =
-    avatar?.description ||
-    avatar?.metadata?.description ||
-    avatar?.metadata?.bio ||
-    avatar?.bio ||
-    '';
-  return typeof text === 'string' ? text.trim() : '';
-}
 
 /**
  * One row of the search dropdown: initials, name, place.
@@ -137,6 +129,7 @@ const WorldMapScreen = () => {
     locationErrorMessage,
     refreshPosition,
     isStandingAt,
+    asAnonymousIdentity,
   } = useGeoAvatars();
 
   const [publicAvatars, setPublicAvatars] = useState([]);
@@ -149,6 +142,7 @@ const WorldMapScreen = () => {
   const [activeSearchIndex, setActiveSearchIndex] = useState(0);
   const [isNearbyOpen, setIsNearbyOpen] = useState(false);
   const [isMinimapOpen, setIsMinimapOpen] = useState(true);
+  const [worldViewRevision, setWorldViewRevision] = useState(0);
   const searchBoxRef = useRef(null);
 
   useEffect(() => {
@@ -498,7 +492,6 @@ const WorldMapScreen = () => {
     [avatars, mapFocus]
   );
   const selectedPin = pinOf(selectedAvatar);
-  const selectedDescription = avatarDescriptionOf(selectedAvatar);
   const showSearchList =
     isSearchOpen && avatarSearch.trim().length > 0;
 
@@ -511,8 +504,9 @@ const WorldMapScreen = () => {
         <p className="text-sm text-white/50">
           One map: the globe is the world, the street inset is the same place
           close up. Click the globe or a pin and the inset follows; drag a pin
-          on the street map and the globe follows. Distances are metres or
-          miles. The live camera opens only when you are standing at the place.
+          on the street map and the globe follows. Reset world view, beneath
+          the map, pulls the globe back to the whole Earth. Distances are
+          metres or miles. The live camera opens only when you are standing at the place.
         </p>
       </header>
 
@@ -691,50 +685,17 @@ const WorldMapScreen = () => {
       )}
 
       {selectedAvatar ? (
-        <section
-          aria-label={`${selectedAvatar.name ?? 'Avatar'} on the map`}
-          className="flex flex-wrap items-start gap-3 rounded-xl border border-white/10 bg-black/60 px-4 py-3 backdrop-blur-lg"
-        >
-          <span
-            className={`inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full border bg-black/60 text-xs ${
-              ownedAssistantIds.has(avatarIdOf(selectedAvatar))
-                ? 'border-amber-300/50 text-amber-200'
-                : 'border-white/20 text-neutral-200'
-            }`}
-            aria-hidden="true"
-          >
-            {mapMarkOf(selectedAvatar).initials}
-          </span>
-          <div className="min-w-0 flex-1 space-y-1">
-            <p className="text-sm font-medium text-neutral-100">
-              {selectedAvatar.name ?? 'Avatar'}
-              {selectedPin?.location_name ? (
-                <span className="text-amber-300"> · {selectedPin.location_name}</span>
-              ) : null}
-            </p>
-            {selectedDescription ? (
-              <p className="whitespace-pre-line text-sm leading-relaxed text-white/70">
-                {selectedDescription}
-              </p>
-            ) : (
-              <p className="text-xs text-white/40">
-                This avatar has no description yet.
-              </p>
-            )}
-            <p className="font-mono text-[10px] text-white/40">
-              {selectedPin
-                ? `${formatCoordinate(selectedPin.latitude)}, ${formatCoordinate(selectedPin.longitude)} · ${describeGeofenceRadius(selectedPin.geofence_radius_meters)}`
-                : ''}
-            </p>
-          </div>
-          <button
-            type="button"
-            onClick={() => openAvatar(avatarIdOf(selectedAvatar))}
-            className="shrink-0 rounded-md border border-white/10 bg-black/40 px-3 py-1.5 text-xs text-neutral-200 hover:bg-black/60 focus:outline-none focus:ring-2 focus:ring-amber-400/50"
-          >
-            Talk
-          </button>
-        </section>
+        <AvatarMapCard
+          avatar={selectedAvatar}
+          asAnonymousIdentity={asAnonymousIdentity}
+          isOwned={ownedAssistantIds.has(avatarIdOf(selectedAvatar))}
+          footnote={
+            selectedPin
+              ? `${formatCoordinate(selectedPin.latitude)}, ${formatCoordinate(selectedPin.longitude)} · ${describeGeofenceRadius(selectedPin.geofence_radius_meters)}`
+              : ''
+          }
+          onTalk={() => openAvatar(avatarIdOf(selectedAvatar))}
+        />
       ) : null}
 
       <div className="relative min-h-[28rem] flex-1 overflow-hidden rounded-xl border border-white/10">
@@ -756,6 +717,7 @@ const WorldMapScreen = () => {
               loadError={pinsError}
               devicePosition={position}
               focus={mapFocus}
+              worldViewRevision={worldViewRevision}
               onInspectPlace={focusPlace}
             />
           </Suspense>
@@ -837,6 +799,17 @@ const WorldMapScreen = () => {
             />
           </div>
         </div>
+      </div>
+
+      <div className="flex justify-center">
+        <button
+          type="button"
+          onClick={() => setWorldViewRevision((revision) => revision + 1)}
+          className="inline-flex items-center gap-2 rounded-md border border-white/10 bg-black/60 px-3 py-1.5 text-sm text-neutral-200 backdrop-blur-lg transition-colors hover:bg-white/5 focus:outline-none focus:ring-2 focus:ring-amber-400/50"
+        >
+          <Globe className="h-4 w-4 text-amber-300" aria-hidden="true" />
+          Reset world view
+        </button>
       </div>
     </div>
   );

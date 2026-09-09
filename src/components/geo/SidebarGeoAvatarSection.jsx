@@ -4,6 +4,9 @@
 // the local street map of the pins around the person, and the way to the world
 // globe. This is the panel form; the collapsed rail carries the same two
 // destinations as icons through AccountMenu.
+//
+// Picking an avatar on the map shows its card; Talk on the card is what opens
+// the conversation, over the live camera when the person is standing there.
 
 import { useNavigate } from 'react-router-dom';
 import { Globe, MapPin } from 'lucide-react';
@@ -27,6 +30,7 @@ const SidebarGeoAvatarSection = ({ onNavigate }) => {
     position,
     locationErrorMessage,
     refreshPosition,
+    asAnonymousIdentity,
   } = useGeoAvatars();
 
   // Saying why is better than vanishing: a browser on an insecure origin used
@@ -106,6 +110,7 @@ const SidebarGeoAvatarSection = ({ onNavigate }) => {
         position={position}
         error={locationErrorMessage}
         enabled={isWatchEnabled}
+        asAnonymousIdentity={asAnonymousIdentity}
         onRefresh={refreshPosition}
         onOpenAvatar={openAvatar}
       />

@@ -8,18 +8,23 @@
 // stays parked on the server until an answer is posted back, so this panel is
 // the only thing that lets such a conversation continue.
 //
+// A fact review can be folded away and finished later: in this conversation
+// after switching between talking and typing, or in avatar settings. The
+// choices themselves live on the pending interrupt, not in this component,
+// because the panel remounts when the person leaves voice mode.
+//
 // Every decision here defaults to leaving things alone: the server skips any
 // matched document this panel does not explicitly name, so a document retrieved
 // by a loose semantic match is never changed just because it was found.
 
 import React, { useMemo, useState } from 'react';
-import { AlertTriangle } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
+import { AlertTriangle, ChevronDown, ChevronUp } from 'lucide-react';
 import { useMedia } from '../context/MediaContext';
 import { useAuth } from '../context/AuthContext';
 import { resolveAssistantId } from './utils';
 import { interruptHeadingFor } from './interruptHeading';
 import {
-  ACTION_ORDER,
   DANGER_BUTTON_CLASSES,
   DEFAULT_ACTION_LABELS,
   FactReviewCard,
@@ -28,34 +33,33 @@ import {
   PRIMARY_BUTTON_CLASSES,
   SECONDARY_BUTTON_CLASSES,
 } from './factReview/FactReviewCard';
+import {
+  collapsedFactReviewSummary,
+  createFactReviewDraft,
+  factReviewResumeItems,
+  patchFactReviewDecision,
+  settingsSectionForFactReview,
+  skipAllFactReviewItems,
+} from './factReview/factReviewDraft';
 
-// The three things that can be done with one matched document. The order is the
-// order they are offered in; `skip` is last because it is the do-nothing choice.
-const FactCorrectionPanel = ({ interrupt, onResume, isResuming }) => {
+const FactCorrectionPanel = ({
+  interrupt,
+  onResume,
+  isResuming,
+  draft,
+  onDraftChange,
+}) => {
+  const navigate = useNavigate();
+  const { activeAvatar } = useAuth();
   const matches = useMemo(() => interrupt.matches ?? [], [interrupt]);
   const actionLabels = {
     ...DEFAULT_ACTION_LABELS,
     ...(interrupt.action_labels ?? {}),
   };
-
-  const [decisions, setDecisions] = useState(() => {
-    const seeded = {};
-    for (const match of matches) {
-      // An unrecognized recommendation falls back to the do-nothing choice
-      // rather than to whatever happens to be first in the list.
-      const recommended = ACTION_ORDER.includes(match.recommended_action)
-        ? match.recommended_action
-        : 'skip';
-      seeded[match.index] = {
-        action: recommended,
-        correctedText: match.suggested_edit_fact_content ?? '',
-        correctedContext: match.suggested_edit_fact_context ?? '',
-      };
-    }
-    return seeded;
-  });
-
-  const [isConfirmingRemovals, setIsConfirmingRemovals] = useState(false);
+  const factReview = draft ?? createFactReviewDraft(interrupt);
+  const decisions = factReview.decisions ?? {};
+  const isConfirmingRemovals = Boolean(factReview.isConfirmingRemovals);
+  const collapsed = factReview.collapsed !== false;
 
   // Strongest match first, so the document most likely to be the one the user
   // meant is the one they read first. Sorting a COPY is deliberate: the server
@@ -75,25 +79,18 @@ const FactCorrectionPanel = ({ interrupt, onResume, isResuming }) => {
   ).length;
 
   const updateDecision = (index, patch) => {
-    setDecisions((previousDecisions) => ({
-      ...previousDecisions,
-      [index]: { ...previousDecisions[index], ...patch },
-    }));
-    // A changed choice invalidates a confirmation the user was part-way through.
-    setIsConfirmingRemovals(false);
+    onDraftChange((current) => patchFactReviewDecision(current, index, patch));
   };
 
-  const buildItems = () =>
-    matches.map((match) => ({
-      index: match.index,
-      action: decisions[match.index]?.action ?? 'skip',
-      corrected_text: decisions[match.index]?.correctedText ?? '',
-      correction_context: decisions[match.index]?.correctedContext ?? '',
-    }));
+  const buildItems = () => factReviewResumeItems(matches, decisions);
 
   // The same panel resolves a correction and a researched contradiction, and
   // each needs its own sentence at the top.
   const panelWording = interruptHeadingFor({
+    correctionKind: interrupt.correction_kind,
+    matchCount: matches.length,
+  });
+  const foldedSummary = collapsedFactReviewSummary({
     correctionKind: interrupt.correction_kind,
     matchCount: matches.length,
   });
@@ -102,46 +99,88 @@ const FactCorrectionPanel = ({ interrupt, onResume, isResuming }) => {
     // Removing a document cannot be undone from here, so it is confirmed
     // separately rather than riding along with the edits.
     if (removalCount > 0 && !isConfirmingRemovals) {
-      setIsConfirmingRemovals(true);
+      onDraftChange({ collapsed: false, isConfirmingRemovals: true });
       return;
     }
     onResume('apply', buildItems());
   };
 
+  const handleDecideLater = () => {
+    onResume('apply', skipAllFactReviewItems(matches));
+  };
+
+  const openSettings = () => {
+    const assistantId = resolveAssistantId(activeAvatar);
+    if (!assistantId) return;
+    const section = settingsSectionForFactReview(interrupt.correction_kind);
+    navigate(
+      `/chat/${encodeURIComponent(assistantId)}?tab=settings&section=${section}`
+    );
+  };
+
+  const toggleCollapsed = () => {
+    onDraftChange({ collapsed: !collapsed, isConfirmingRemovals: false });
+  };
+
   return (
     <div className={PANEL_CLASSES}>
-      <div className="space-y-1">
-        <div className="text-sm font-semibold text-neutral-200">
-          {panelWording.heading}
-        </div>
-        {interrupt.inaccurate_information ? (
-          <div className="text-xs text-white/60 italic">
-            You flagged as inaccurate: {interrupt.inaccurate_information}
+      <div className="flex items-start gap-2">
+        <div className="space-y-1 min-w-0 flex-1">
+          <div className="text-sm font-semibold text-neutral-200">
+            {panelWording.heading}
           </div>
-        ) : null}
-        <div className="text-xs text-white/50">{panelWording.guidance}</div>
+          {collapsed ? (
+            <div className="text-xs text-white/50">{foldedSummary}</div>
+          ) : (
+            <>
+              {interrupt.inaccurate_information ? (
+                <div className="text-xs text-white/60 italic">
+                  You flagged as inaccurate: {interrupt.inaccurate_information}
+                </div>
+              ) : null}
+              <div className="text-xs text-white/50">{panelWording.guidance}</div>
+            </>
+          )}
+        </div>
+        <button
+          type="button"
+          className={`${SECONDARY_BUTTON_CLASSES} px-2 py-2 shrink-0`}
+          disabled={isResuming}
+          aria-expanded={!collapsed}
+          aria-label={collapsed ? 'Show fact review' : 'Hide fact review'}
+          title={collapsed ? 'Show fact review' : 'Hide fact review'}
+          onClick={toggleCollapsed}
+        >
+          {collapsed ? (
+            <ChevronDown className="w-4 h-4" aria-hidden="true" />
+          ) : (
+            <ChevronUp className="w-4 h-4" aria-hidden="true" />
+          )}
+        </button>
       </div>
 
-      <div className="space-y-3">
-        {orderedMatches.map((match) => (
-          <FactReviewCard
-            key={match.index}
-            match={match}
-            decision={
-              decisions[match.index] ?? {
-                action: 'skip',
-                correctedText: '',
-                correctedContext: '',
+      {!collapsed && (
+        <div className="space-y-3">
+          {orderedMatches.map((match) => (
+            <FactReviewCard
+              key={match.index}
+              match={match}
+              decision={
+                decisions[match.index] ?? {
+                  action: 'skip',
+                  correctedText: '',
+                  correctedContext: '',
+                }
               }
-            }
-            actionLabels={actionLabels}
-            isResuming={isResuming}
-            onChange={(patch) => updateDecision(match.index, patch)}
-          />
-        ))}
-      </div>
+              actionLabels={actionLabels}
+              isResuming={isResuming}
+              onChange={(patch) => updateDecision(match.index, patch)}
+            />
+          ))}
+        </div>
+      )}
 
-      {isConfirmingRemovals ? (
+      {isConfirmingRemovals && !collapsed ? (
         <div className="rounded-lg border border-red-500/50 bg-red-500/10 p-3 space-y-3">
           <div className="flex items-start gap-2 text-sm text-red-100">
             <AlertTriangle className="w-4 h-4 mt-0.5 shrink-0" />
@@ -163,7 +202,7 @@ const FactCorrectionPanel = ({ interrupt, onResume, isResuming }) => {
               type="button"
               className={SECONDARY_BUTTON_CLASSES}
               disabled={isResuming}
-              onClick={() => setIsConfirmingRemovals(false)}
+              onClick={() => onDraftChange({ isConfirmingRemovals: false })}
             >
               Go back
             </button>
@@ -171,22 +210,42 @@ const FactCorrectionPanel = ({ interrupt, onResume, isResuming }) => {
         </div>
       ) : (
         <div className="flex flex-wrap gap-2">
+          {!collapsed && (
+            <button
+              type="button"
+              className={PRIMARY_BUTTON_CLASSES}
+              disabled={isResuming}
+              onClick={handleApply}
+            >
+              ✅ Apply my choices
+            </button>
+          )}
           <button
             type="button"
-            className={PRIMARY_BUTTON_CLASSES}
+            className={collapsed ? PRIMARY_BUTTON_CLASSES : SECONDARY_BUTTON_CLASSES}
             disabled={isResuming}
-            onClick={handleApply}
+            onClick={handleDecideLater}
           >
-            ✅ Apply my choices
+            I'll decide later
           </button>
           <button
             type="button"
             className={SECONDARY_BUTTON_CLASSES}
             disabled={isResuming}
-            onClick={() => onResume('cancel')}
+            onClick={openSettings}
           >
-            🚫 Cancel correction
+            Avatar settings
           </button>
+          {!collapsed && (
+            <button
+              type="button"
+              className={SECONDARY_BUTTON_CLASSES}
+              disabled={isResuming}
+              onClick={() => onResume('cancel')}
+            >
+              🚫 Cancel correction
+            </button>
+          )}
         </div>
       )}
     </div>
@@ -249,7 +308,8 @@ const DataServerConsentPanel = ({ interrupt, onResume, isResuming }) => {
  * next message would have been.
  */
 const InterruptPanel = () => {
-  const { pendingInterrupt, resumePendingInterrupt } = useMedia();
+  const { pendingInterrupt, resumePendingInterrupt, updateFactReviewDraft } =
+    useMedia();
   const { activeAvatar } = useAuth();
   const [isResuming, setIsResuming] = useState(false);
 
@@ -275,11 +335,11 @@ const InterruptPanel = () => {
 
   const interrupt = pendingInterrupt.interrupt ?? {};
 
-  // Remounting on a new pause is what resets the choices a panel holds. The
-  // sequence number changes on every pause, so a second correction — including
-  // one raised on the thread and avatar that just answered the first — starts
-  // from its own recommendations rather than inheriting the previous panel's
-  // edits.
+  // The sequence number changes on every pause, so a second correction —
+  // including one raised on the thread and avatar that just answered the first
+  // — starts from a newly seeded draft rather than inheriting the previous
+  // panel's edits. Choices on THIS pause live on `factReviewDraft`, so leaving
+  // voice mode and coming back does not start over.
   const panelKey = pendingInterrupt.sequence;
 
   // Connecting an account is its own card, and the card lives on the message
@@ -304,6 +364,8 @@ const InterruptPanel = () => {
       interrupt={interrupt}
       onResume={handleResume}
       isResuming={isResuming}
+      draft={pendingInterrupt.factReviewDraft}
+      onDraftChange={updateFactReviewDraft}
     />
   );
 };

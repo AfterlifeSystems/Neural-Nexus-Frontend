@@ -7,6 +7,12 @@
 // single speaker clip.
 
 import { parseHttpUrls } from './parseHttpUrls.js';
+import {
+  extractYouTubeVideoIdFromUrl,
+  parseHttpUrl,
+} from './youtubeVideoId.js';
+
+export { extractYouTubeVideoIdFromUrl } from './youtubeVideoId.js';
 
 export const AUDIO_EXTENSIONS = new Set([
   'mp3',
@@ -34,65 +40,6 @@ export const VIDEO_EXTENSIONS = new Set([
   'mpg',
   'mpeg',
 ]);
-
-const YOUTUBE_HOSTS = new Set([
-  'youtube.com',
-  'm.youtube.com',
-  'music.youtube.com',
-  'youtube-nocookie.com',
-  'youtu.be',
-]);
-
-const YOUTUBE_VIDEO_ID = /^[\w-]{11}$/;
-
-/**
- * @param {string} href Absolute http(s) URL.
- * @returns {URL|null}
- */
-const parseHttpUrl = (href) => {
-  try {
-    const parsed = new URL(href);
-    return parsed.protocol === 'http:' || parsed.protocol === 'https:'
-      ? parsed
-      : null;
-  } catch {
-    return null;
-  }
-};
-
-/**
- * Pull the video identifier out of a YouTube address. Playlists with no
- * `v=` are not a single clip.
- *
- * @param {URL} sourceUrl
- * @returns {string|null}
- */
-export const extractYouTubeVideoIdFromUrl = (sourceUrl) => {
-  if (!(sourceUrl instanceof URL)) return null;
-  const host = sourceUrl.hostname.replace(/^www\./i, '').toLowerCase();
-  if (!YOUTUBE_HOSTS.has(host)) return null;
-
-  if (host === 'youtu.be') {
-    const identifier = sourceUrl.pathname.split('/').filter(Boolean)[0];
-    return YOUTUBE_VIDEO_ID.test(identifier ?? '') ? identifier : null;
-  }
-
-  const watchIdentifier = sourceUrl.searchParams.get('v');
-  if (YOUTUBE_VIDEO_ID.test(watchIdentifier ?? '')) {
-    return watchIdentifier;
-  }
-
-  const [pathPrefix, pathIdentifier] = sourceUrl.pathname
-    .split('/')
-    .filter(Boolean);
-  if (
-    ['shorts', 'live', 'embed', 'v'].includes(pathPrefix) &&
-    YOUTUBE_VIDEO_ID.test(pathIdentifier ?? '')
-  ) {
-    return pathIdentifier;
-  }
-  return null;
-};
 
 const extensionFromPath = (pathname) => {
   const lastSegment = (pathname ?? '').split('/').pop() ?? '';

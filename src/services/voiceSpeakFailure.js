@@ -58,11 +58,53 @@ function textSaysVoiceBlocked(text) {
 function textSaysVoiceNotReady(text) {
   return (
     text.includes('voice_not_ready') ||
+    text.includes('voice is not ready') ||
+    text.includes('voice not ready') ||
     text.includes('no cloned voice') ||
     text.includes('no voice yet') ||
-    text.includes('does not have a voice model') ||
+    text.includes('no voice model') ||
+    text.includes('does not have a voice') ||
+    text.includes('has no voice') ||
+    text.includes('without a voice model') ||
     text.includes('record about two minutes')
   );
+}
+
+function collectedSecondsFrom(speakError) {
+  const body = speakError?.body;
+  if (!body || typeof body !== 'object') return undefined;
+  if ('collected_seconds' in body) return body.collected_seconds;
+  const detail = body.detail;
+  if (detail && typeof detail === 'object' && 'collected_seconds' in detail) {
+    return detail.collected_seconds;
+  }
+  return undefined;
+}
+
+/**
+ * The sentence worth showing for a plain failure, if the error carries one.
+ *
+ * The API client's fallback ("Request failed (502)") and a bare status code
+ * are not sentences; a network error's "Failed to fetch" is not one a reader
+ * can do anything with either. Anything else the server said is shown, cut
+ * to a length that fits a toast.
+ *
+ * @param {Error|null|undefined} speakError
+ * @returns {string} The reason, or '' when there is nothing worth saying.
+ */
+export function speakFailureReason(speakError) {
+  const detail = speakError?.body?.detail;
+  const candidate = (
+    (typeof detail === 'string' && detail) ||
+    speakError?.message ||
+    ''
+  ).trim();
+  if (!candidate) return '';
+  if (/^request failed(\s*\(\d+\))?\.?$/i.test(candidate)) return '';
+  if (/^\d{3}$/.test(candidate)) return '';
+  if (/^(failed to fetch|networkerror|load failed)/i.test(candidate)) return '';
+  const sentence = candidate.replace(/\s+/g, ' ');
+  return sentence.length > 160 ? `${sentence.slice(0, 157).trimEnd()}…` : sentence;
 }
 
 /**
@@ -82,14 +124,15 @@ export function speakFailureKind(speakError) {
   if (textSaysVoiceBlocked(text)) return 'blocked';
   if (textSaysVoiceNotReady(text)) return 'not_ready';
 
-  // Seconds collected are only reported when there is no clone yet.
-  if (
-    speakError?.body &&
-    typeof speakError.body === 'object' &&
-    'collected_seconds' in speakError.body
-  ) {
-    return 'not_ready';
-  }
+  // Seconds collected are only reported when there is no clone yet. The API
+  // may put them on the body or nested under `detail`.
+  if (collectedSecondsFrom(speakError) !== undefined) return 'not_ready';
+
+  // POST /speak uses 409 for a missing clone and for a banned clone. A ban
+  // has already been recognised above. Anything else on 409 is a missing
+  // voice model — including a bare "Conflict" that used to surface as
+  // "the avatar could not speak that message" on every live reply.
+  if (speakError?.status === 409) return 'not_ready';
 
   return 'failed';
 }
