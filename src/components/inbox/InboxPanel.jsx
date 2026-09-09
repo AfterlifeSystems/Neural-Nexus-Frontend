@@ -35,6 +35,18 @@ const DECISION_LABELS = {
   ignore: 'Ignored',
 };
 
+// What the owner may do instead of what the avatar proposed. The list itself
+// comes from the item (`available_actions`), because what is possible depends on
+// the platform: Slack offers no timeout and no ban, and a mailbox item can
+// become a calendar entry.
+const ACTION_LABELS = {
+  send_reply: 'Send a reply',
+  post_reply: 'Post a reply',
+  notify_owner: 'Just tell me',
+  create_calendar_event: 'Put it on my calendar',
+  moderate: 'Moderate the sender',
+};
+
 const STATE_LABELS = {
   pending_owner: 'Waiting for you',
   auto_sent: 'Sent automatically',
@@ -58,6 +70,11 @@ const InboxItemCard = ({ item, onDecide, onOpenReport, isBusy }) => {
   const [editedBody, setEditedBody] = useState(item.draft ?? '');
   const [replyText, setReplyText] = useState('');
   const isReply = item.decision === 'respond';
+  const availableActions = Array.isArray(item.available_actions) ? item.available_actions : [];
+  // What the avatar proposed, which stands unless the owner picks another.
+  const proposedAction = isReply ? 'send_reply' : 'notify_owner';
+  const [chosenAction, setChosenAction] = useState(proposedAction);
+  const actionChanged = chosenAction !== proposedAction;
   const isOpen = item.state === 'pending_owner';
   // A report the avatar wrote (a scheduled analysis, an audit) and brought
   // here: the item opens the report, and "Got it" is the whole decision.
@@ -70,7 +87,10 @@ const InboxItemCard = ({ item, onDecide, onOpenReport, isBusy }) => {
         <div className="min-w-0">
           <p className="text-neutral-200 font-medium truncate">{item.subject || '(no subject)'}</p>
           <p className="text-white/60 text-sm truncate">
-            {item.sender} · {formatWhen(item.received_at ?? item.created_at)}
+            {item.platform
+              ? `${item.platform} · ${item.channel_name || ''}`
+              : item.sender}{' '}
+            · {formatWhen(item.received_at ?? item.created_at)}
           </p>
         </div>
         <div className="flex items-center gap-2 shrink-0">
@@ -143,7 +163,42 @@ const InboxItemCard = ({ item, onDecide, onOpenReport, isBusy }) => {
 
       {isOpen && (
         <div className="flex flex-wrap items-center gap-2 pt-1">
-          {isReply ? (
+          {!isReport && availableActions.length > 1 && (
+            <label className="inline-flex items-center gap-1.5 text-white/60 text-xs">
+              <span className="sr-only">What should happen with this</span>
+              <select
+                value={chosenAction}
+                disabled={isBusy}
+                onChange={(event) => setChosenAction(event.target.value)}
+                className="px-2 py-1.5 rounded-lg bg-black/50 border border-white/10 text-neutral-200 text-sm focus:outline-none focus:ring-2 focus:ring-amber-400/50 disabled:opacity-50"
+              >
+                {availableActions.map((action) => (
+                  <option key={action} value={action}>
+                    {ACTION_LABELS[action] ?? action}
+                  </option>
+                ))}
+              </select>
+            </label>
+          )}
+          {actionChanged ? (
+            <button
+              type="button"
+              disabled={isBusy}
+              onClick={() =>
+                onDecide(item, {
+                  type: 'edit',
+                  args: {
+                    action: chosenAction,
+                    args: { body: isEditing ? editedBody : item.draft ?? '' },
+                  },
+                })
+              }
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-neutral-200 hover:bg-neutral-100 text-neutral-900 text-sm font-medium disabled:opacity-50"
+            >
+              <Check className="w-4 h-4" aria-hidden="true" />
+              {ACTION_LABELS[chosenAction] ?? chosenAction}
+            </button>
+          ) : isReply ? (
             <>
               {isEditing ? (
                 <button
