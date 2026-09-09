@@ -561,6 +561,21 @@ const AvatarDocumentRow = ({
         </div>
 
         <div className="flex items-center gap-2">
+          {/* The reference badge tells the owner another upload can take the
+              reference clip's place; this is how that is done. The endpoint
+              re-cuts the clip from the speech this upload already contributed
+              to the voice model, which is why an upload outside the voice model
+              is not offered. */}
+          {canBecomeVoiceReference && (
+            <button
+              onClick={() => onSetVoiceReference(documentEntry)}
+              title="Cut this avatar's reference clip from this upload"
+              aria-label="Make this upload the reference audio"
+              className="text-emerald-300/80 hover:text-emerald-200 transition-colors"
+            >
+              <Mic size={18} />
+            </button>
+          )}
           <button
             onClick={() => onDelete(documentEntry)}
             title={isGeneratedMedia ? 'Delete this generated media' : 'Delete'}

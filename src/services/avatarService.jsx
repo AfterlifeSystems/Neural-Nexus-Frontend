@@ -12,8 +12,13 @@ import {
 } from './neuralNexusApiClient';
 import { retainOwnedMcpDevices } from './mcpOwnership';
 import { avatarsWithPersonalFirst } from './avatarListOrder';
-import { boundsQuery, geoLocationQuery } from './avatarProximity';
+import {
+  avatarsFromResponse,
+  boundsQuery,
+  geoLocationQuery,
+} from './avatarProximity';
 import { withRateLimitRetry } from './retryRateLimited';
+import { collapseDuplicateIdentityDocuments } from './identityMediaUrls';
 
 export { retainOwnedMcpDevices } from './mcpOwnership';
 
@@ -24,7 +29,10 @@ export { retainOwnedMcpDevices } from './mcpOwnership';
  * @returns {Promise<Array>} Assistant records ({assistant_id, name, description, ...}).
  */
 export const listUserAvatars = async () => {
-  const avatars = await requestJson('/list_user_avatars');
+  const response = await requestJson('/list_user_avatars');
+  const avatars = Array.isArray(response)
+    ? response
+    : avatarsFromResponse(response);
   return avatarsWithPersonalFirst(avatars);
 };
 
@@ -121,12 +129,19 @@ export const modifyAvatar = async ({
  * @param {boolean} [options.asAnonymousIdentity] Call without the stored credential.
  * @returns {Promise<Array>} Pinned avatars ({assistant_id, name, description, geo_location}).
  */
-export const listGeoAvatars = async ({ bounds, asAnonymousIdentity = false } = {}) => {
+export const listGeoAvatars = async ({
+  bounds,
+  assistantId,
+  asAnonymousIdentity = false,
+} = {}) => {
   const response = await requestJson('/avatars/geo', {
-    query: boundsQuery(bounds),
+    query: {
+      ...boundsQuery(bounds),
+      ...(assistantId ? { assistant_id: assistantId } : {}),
+    },
     asAnonymousIdentity,
   });
-  return response?.avatars ?? [];
+  return avatarsFromResponse(response);
 };
 
 /**
@@ -155,7 +170,7 @@ export const listNearbyAvatars = async (
     },
     asAnonymousIdentity,
   });
-  return response?.avatars ?? [];
+  return avatarsFromResponse(response);
 };
 
 /**
@@ -280,9 +295,11 @@ export const getAvatarReferenceImage = async (
  * API that predates the roles.
  *
  * @param {string} assistantId The avatar whose documents to list.
- * @returns {Promise<Array<{label: string, referenceRole: string|null, isReferenceImage: boolean, isReferenceAudio: boolean}>>}
- *   One entry per uploaded source. `label` is the exact string
- *   deleteAvatarDocument accepts back.
+ * @returns {Promise<Array<{label: string, referenceRole: string|null, isReferenceImage: boolean, isReferenceAudio: boolean, sourceLabels?: string[]}>>}
+ *   One entry per uploaded source. YouTube watch/share/short links for the
+ *   same video collapse onto the first document so the list does not show
+ *   two rows for one clip. `label` is the exact string deleteAvatarDocument
+ *   accepts back; `sourceLabels` is present when later duplicates were merged.
  */
 export const listAvatarDocuments = async (assistantId) => {
   const documentsResponse = await requestJson('/list_avatar_documents', {
@@ -291,35 +308,39 @@ export const listAvatarDocuments = async (assistantId) => {
 
   const documentEntries = documentsResponse?.documents;
   if (Array.isArray(documentEntries)) {
-    return documentEntries
-      .filter((documentEntry) => Boolean(documentEntry?.label))
-      .map((documentEntry) => ({
-        label: documentEntry.label,
-        referenceRole: documentEntry.reference_role ?? null,
-        // Read the booleans the API sends when present, and otherwise derive
-        // them from the role, so one renamed field cannot silently turn every
-        // reference mark off.
-        isReferenceImage:
-          documentEntry.is_reference_image ??
-          documentEntry.reference_role === 'reference_image',
-        isReferenceAudio:
-          documentEntry.is_reference_audio ??
-          documentEntry.reference_role === 'reference_audio',
-        // Seconds of the avatar's speech this upload contributed to the voice
-        // model, so the list can show which uploads feed the voice.
-        voiceSeconds: Number(documentEntry.voice_seconds ?? 0),
-        inVoiceCorpus: documentEntry.in_voice_corpus === true,
-      }));
+    return collapseDuplicateIdentityDocuments(
+      documentEntries
+        .filter((documentEntry) => Boolean(documentEntry?.label))
+        .map((documentEntry) => ({
+          label: documentEntry.label,
+          referenceRole: documentEntry.reference_role ?? null,
+          // Read the booleans the API sends when present, and otherwise derive
+          // them from the role, so one renamed field cannot silently turn every
+          // reference mark off.
+          isReferenceImage:
+            documentEntry.is_reference_image ??
+            documentEntry.reference_role === 'reference_image',
+          isReferenceAudio:
+            documentEntry.is_reference_audio ??
+            documentEntry.reference_role === 'reference_audio',
+          // Seconds of the avatar's speech this upload contributed to the voice
+          // model, so the list can show which uploads feed the voice.
+          voiceSeconds: Number(documentEntry.voice_seconds ?? 0),
+          inVoiceCorpus: documentEntry.in_voice_corpus === true,
+        }))
+    );
   }
 
-  return (documentsResponse?.uploaded_documents ?? []).map((documentLabel) => ({
-    label: documentLabel,
-    referenceRole: null,
-    isReferenceImage: false,
-    isReferenceAudio: false,
-    voiceSeconds: 0,
-    inVoiceCorpus: false,
-  }));
+  return collapseDuplicateIdentityDocuments(
+    (documentsResponse?.uploaded_documents ?? []).map((documentLabel) => ({
+      label: documentLabel,
+      referenceRole: null,
+      isReferenceImage: false,
+      isReferenceAudio: false,
+      voiceSeconds: 0,
+      inVoiceCorpus: false,
+    }))
+  );
 };
 
 /**
@@ -395,11 +416,14 @@ export const uploadAvatarIdentityMedia = async ({
  * @param {AbortSignal} [signal] Cancellation signal.
  */
 export const streamMediaJobProgress = async (jobId, onEvent, signal) => {
-  return streamServerSentEvents(`/media_job/${encodeURIComponent(jobId)}/progress`, {
-    method: 'GET',
-    onEvent,
-    signal,
-  });
+  return streamServerSentEvents(
+    `/media_job/${encodeURIComponent(jobId)}/progress`,
+    {
+      method: 'GET',
+      onEvent,
+      signal,
+    }
+  );
 };
 
 /**
@@ -757,7 +781,8 @@ export const connectionRowFromMcpDevice = (device) => {
     source: 'device',
     provider: device.provider || 'desktop_mcp',
     category: 'device',
-    display_label: device.device_label || device.server_name || device.device_id,
+    display_label:
+      device.device_label || device.server_name || device.device_id,
     sub_label: platform || 'machine',
     connected,
     online,
@@ -803,9 +828,7 @@ export const mergeMcpDevicesIntoConnections = (connections, mcpDevices) => {
   });
 
   const seenDeviceIds = new Set(
-    rows
-      .map((row) => deviceIdFromConnection(row))
-      .filter(Boolean)
+    rows.map((row) => deviceIdFromConnection(row)).filter(Boolean)
   );
   for (const device of mcpDevices ?? []) {
     if (!device?.device_id || seenDeviceIds.has(device.device_id)) continue;
@@ -889,7 +912,10 @@ export const listAvatarIdentityFacts = async (assistantId) => {
  * @param {Object} fact A row from listAvatarIdentityFacts (`namespace`, `key`).
  * @returns {Promise<void>}
  */
-export const deleteAvatarIdentityFact = async (assistantId, { namespace, key }) => {
+export const deleteAvatarIdentityFact = async (
+  assistantId,
+  { namespace, key }
+) => {
   await requestJson('/avatar_identity_facts', {
     method: 'DELETE',
     query: { assistant_id: assistantId },
@@ -956,11 +982,18 @@ export const getAvatarEmotionMedia = async (
  *   "generate anyway" after the server predicted a moderation refusal from the
  *   reference image and withheld the run; the vendor calls are attempted at
  *   the owner's own cost.
+ * @param {'still'|'idle_loop'} [options.assetKind] Limit the run to portraits
+ *   or idle loops. Idle loops are never started from a portrait upload; they
+ *   wait for this call with `idle_loop`.
  * @returns {Promise<Object>} `{job_id, status_url}`.
  */
 export const regenerateAvatarEmotionMedia = async (
   assistantId,
-  { onlyMissing = true, proceedDespiteModerationRisk = false } = {}
+  {
+    onlyMissing = true,
+    proceedDespiteModerationRisk = false,
+    assetKind,
+  } = {}
 ) => {
   return requestJson('/avatar_emotion_media/regenerate', {
     method: 'POST',
@@ -970,6 +1003,7 @@ export const regenerateAvatarEmotionMedia = async (
       ...(proceedDespiteModerationRisk
         ? { proceed_despite_moderation_risk: true }
         : {}),
+      ...(assetKind ? { asset_kind: assetKind } : {}),
     },
   });
 };
@@ -1185,7 +1219,10 @@ export const submitAvatarVoiceVerification = async (assistantId, recording) => {
   const formData = new FormData();
   formData.append('assistant_id', assistantId);
   formData.append('recording', recording, recording.name ?? 'captcha.webm');
-  return requestJson('/avatar_voice/verification', { method: 'POST', formData });
+  return requestJson('/avatar_voice/verification', {
+    method: 'POST',
+    formData,
+  });
 };
 
 /**
@@ -1201,7 +1238,10 @@ export const submitAvatarVoiceVerification = async (assistantId, recording) => {
 export const retryAvatarProfessionalVoice = async (assistantId) => {
   const formData = new FormData();
   formData.append('assistant_id', assistantId);
-  return requestJson('/avatar_voice/professional/retry', { method: 'POST', formData });
+  return requestJson('/avatar_voice/professional/retry', {
+    method: 'POST',
+    formData,
+  });
 };
 
 /**
@@ -1214,10 +1254,39 @@ export const retryAvatarProfessionalVoice = async (assistantId) => {
  *   that has speech in the voice model.
  * @returns {Promise<Object>} The updated voice status.
  */
-export const setAvatarVoiceReference = async (assistantId, sourceDocumentName) => {
+export const setAvatarVoiceReference = async (
+  assistantId,
+  sourceDocumentName
+) => {
   return requestJson('/avatar_voice/reference', {
     method: 'POST',
-    body: { assistant_id: assistantId, source_document_name: sourceDocumentName },
+    body: {
+      assistant_id: assistantId,
+      source_document_name: sourceDocumentName,
+    },
+  });
+};
+
+/**
+ * Delete the avatar's cloned voice and train a new one from the speech held now.
+ *
+ * The first clone is otherwise final, so this is the way out of a voice trained
+ * from the wrong recording — or one the vendor has banned. The replacement is
+ * trained from whatever speech the avatar holds at that moment, so deleting the
+ * uploads that fed the bad voice first is how the new voice is chosen. When too
+ * little speech is left, the avatar simply has no voice model until enough is
+ * collected again.
+ * POST /avatar_voice/rebuild
+ *
+ * @param {string} assistantId The avatar.
+ * @returns {Promise<Object>} The updated voice status.
+ */
+export const rebuildAvatarVoice = async (assistantId) => {
+  const formData = new FormData();
+  formData.append('assistant_id', assistantId);
+  return requestJson('/avatar_voice/rebuild', {
+    method: 'POST',
+    formData,
   });
 };
 
@@ -1300,7 +1369,11 @@ export const requestLipSyncClip = async (
   assistantId,
   text,
   emotion,
-  { asAnonymousIdentity = false, pollMilliseconds = 4000, timeoutMilliseconds = 240_000 } = {}
+  {
+    asAnonymousIdentity = false,
+    pollMilliseconds = 4000,
+    timeoutMilliseconds = 240_000,
+  } = {}
 ) => {
   const started = await requestJson('/lip_sync', {
     method: 'POST',
@@ -1315,9 +1388,12 @@ export const requestLipSyncClip = async (
   const deadline = Date.now() + timeoutMilliseconds;
   while (Date.now() < deadline) {
     await new Promise((resolve) => setTimeout(resolve, pollMilliseconds));
-    const status = await requestJson(`/lip_sync/${encodeURIComponent(generationId)}`, {
-      asAnonymousIdentity,
-    });
+    const status = await requestJson(
+      `/lip_sync/${encodeURIComponent(generationId)}`,
+      {
+        asAnonymousIdentity,
+      }
+    );
     if (status?.status === 'completed' && status?.video_url) {
       return absoluteMediaUrl(status.video_url);
     }
@@ -1586,14 +1662,204 @@ export const recordAmbientPreference = async (
   assistantId,
   { observationId, observationKind, summary, type, args }
 ) => {
-  return requestJson(`/ambient_preferences/${encodeURIComponent(assistantId)}`, {
+  return requestJson(
+    `/ambient_preferences/${encodeURIComponent(assistantId)}`,
+    {
+      method: 'POST',
+      body: {
+        observation_id: observationId ?? null,
+        observation_kind: observationKind ?? 'other',
+        summary: summary ?? '',
+        type,
+        args: args ?? null,
+      },
+    }
+  );
+};
+
+/**
+ * Record a thumb or a note on one avatar reply.
+ * POST /message_feedback
+ *
+ * The record lives under the person's own namespace for this avatar, so the
+ * transcript puts the rating back on the reply after a reload.
+ *
+ * @param {Object} feedback `{assistantId, threadId, messageId, requestId, type, comment, content, observation}`;
+ *   `type` is the server's `feedback_type`: `like`, `dislike`, `rating`,
+ *   `comment`, `feels_real`, or `feels_fake`;
+ *   `observation` (`{observationId, observationKind, summary}`) names the
+ *   ambient observation the reply answered, when there is one, so the thumb
+ *   is also learned as precedent for that kind of scene.
+ * @returns {Promise<Object>} `{recorded, message_id, request_id, feedback, ambient_decision}`.
+ */
+export const recordMessageFeedback = async ({
+  assistantId,
+  threadId,
+  messageId,
+  requestId,
+  type,
+  comment,
+  content,
+  observation = null,
+  asAnonymousIdentity = false,
+}) => {
+  return requestJson('/message_feedback', {
     method: 'POST',
+    asAnonymousIdentity,
     body: {
-      observation_id: observationId ?? null,
-      observation_kind: observationKind ?? 'other',
-      summary: summary ?? '',
-      type,
-      args: args ?? null,
+      assistant_id: assistantId,
+      thread_id: threadId ?? null,
+      message_id: messageId ?? null,
+      request_id: requestId ?? null,
+      feedback_type: type,
+      comment: comment ?? null,
+      content: content ?? null,
+      observation_id: observation?.observationId ?? null,
+      observation_kind: observation?.observationKind ?? null,
+      observation_summary: observation?.summary ?? null,
     },
+  });
+};
+
+/**
+ * Everything the person has told one avatar through thumbs and notes.
+ * GET /avatar_preferences/{assistant_id}
+ *
+ * @param {string} assistantId The avatar.
+ * @param {Object} [options]
+ * @param {string|null} [options.threadId] Narrow reply ratings to one thread.
+ * @param {boolean} [options.asAnonymousIdentity] Read as the anonymous visitor
+ *   (a shared avatar chat), without the stored credential.
+ * @returns {Promise<Object>} `{message_feedback, ambient_decisions, learned_preferences, feedback_messages, what_feels_real}`.
+ */
+export const fetchAvatarPreferences = async (
+  assistantId,
+  { threadId, asAnonymousIdentity = false } = {}
+) => {
+  return requestJson(`/avatar_preferences/${encodeURIComponent(assistantId)}`, {
+    query: threadId ? { thread_id: threadId } : undefined,
+    asAnonymousIdentity,
+  });
+};
+
+/**
+ * Turn an allowed offer on a notification card into the avatar's next turn.
+ * POST /message/{assistant_id} with the `ambient_action_*` fields; the server
+ * writes the hidden instruction and stamps the reply with the observation.
+ *
+ * @param {string} assistantId The avatar that offered.
+ * @param {Object} actionFields See `ambientActionFields` in ambientNotice.js.
+ * @param {Object} [options]
+ * @param {string|null} [options.threadId] The open conversation.
+ * @param {string} [options.userTimezone]
+ * @param {boolean} [options.voiceMode]
+ * @returns {{path: string, formData: FormData}}
+ */
+export const buildAmbientActionRequest = (
+  assistantId,
+  actionFields,
+  { threadId, userTimezone, voiceMode = false } = {}
+) => {
+  const formData = new FormData();
+  formData.append('message', '');
+  formData.append('stream', 'true');
+  formData.append('voice_mode', voiceMode ? 'true' : 'false');
+  for (const [fieldName, fieldValue] of Object.entries(actionFields ?? {})) {
+    formData.append(fieldName, fieldValue ?? '');
+  }
+  if (threadId) {
+    formData.append('thread_id', threadId);
+  }
+  if (userTimezone) {
+    formData.append('user_timezone', userTimezone);
+  }
+  return {
+    path: `/message/${encodeURIComponent(assistantId)}`,
+    formData,
+  };
+};
+
+/**
+ * Begin a popup sign-in for a provider whose connect card is not a form.
+ *
+ * The card names the endpoint and the body: `/connect_account/oauth/start`
+ * answers `{authorization_url, nonce, expires_in}`, the Plaid endpoint
+ * `{link_url, nonce, expires_in}`, and the browser-session endpoint
+ * `{login_id, view_url, nonce, expires_in}`. The Plaid and browser URLs are
+ * paths on the API origin; see `absoluteApiUrl` in `connectionOauthPopup`.
+ * POST {loginEndpoint}
+ *
+ * @param {string} loginEndpoint The card's `login_endpoint`.
+ * @param {Object} loginRequest The card's `login_request`.
+ * @returns {Promise<Object>} The endpoint's answer.
+ */
+export const startConnectionLogin = async (loginEndpoint, loginRequest) => {
+  return requestJson(loginEndpoint || '/connect_account/oauth/start', {
+    method: 'POST',
+    body: loginRequest ?? {},
+  });
+};
+
+/**
+ * The reports the personal avatar has written: scheduled analytics, audits,
+ * and the summaries an analysis turn saved.
+ * GET /reports
+ *
+ * @param {Object} [parameters]
+ * @param {string} [parameters.assistantId] Limit to one avatar.
+ * @param {string} [parameters.query] Free-text search over title and summary.
+ * @param {string} [parameters.kind] One report kind.
+ * @param {string} [parameters.from] ISO date; reports created on or after.
+ * @param {string} [parameters.to] ISO date; reports created on or before.
+ * @param {number} [parameters.limit]
+ * @param {number} [parameters.offset]
+ * @returns {Promise<Object>} `{reports, total?}`.
+ */
+export const listReports = async ({
+  assistantId,
+  query,
+  kind,
+  from,
+  to,
+  limit = 20,
+  offset = 0,
+} = {}) => {
+  return requestJson('/reports', {
+    query: {
+      assistant_id: assistantId || undefined,
+      q: query || undefined,
+      kind: kind || undefined,
+      from: from || undefined,
+      to: to || undefined,
+      limit,
+      offset,
+    },
+  });
+};
+
+/**
+ * One report in full.
+ * GET /reports/{report_id}
+ *
+ * @param {string} reportId
+ * @returns {Promise<Object>} The report record (possibly under `report`).
+ */
+export const getReport = async (reportId) => {
+  const response = await requestJson(
+    `/reports/${encodeURIComponent(reportId)}`
+  );
+  return response?.report ?? response;
+};
+
+/**
+ * Delete one report.
+ * DELETE /reports/{report_id}
+ *
+ * @param {string} reportId
+ * @returns {Promise<Object>}
+ */
+export const deleteReport = async (reportId) => {
+  return requestJson(`/reports/${encodeURIComponent(reportId)}`, {
+    method: 'DELETE',
   });
 };

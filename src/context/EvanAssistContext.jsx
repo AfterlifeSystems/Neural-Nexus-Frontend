@@ -33,6 +33,7 @@ import {
   requestDisplayMedia,
 } from '../services/displayCapture';
 import { canCaptureMicrophone } from '../services/voiceSession';
+import { isMicrophoneAccessRefused } from '../services/microphonePermission';
 import { startVoiceActivityListening } from '../services/voiceActivity';
 import {
   getAvatarReferenceImage,
@@ -771,18 +772,18 @@ export function EvanAssistProvider({ children }) {
         },
         onError: (listenError) => {
           console.error('Evan live listening failed:', listenError);
-          toast.error('Live listening stopped unexpectedly.');
           stopLiveListening();
+          if (isMicrophoneAccessRefused(listenError)) return;
+          toast.error('Live listening stopped unexpectedly.');
         },
       });
       setIsLiveListening(true);
       expand();
     } catch (microphoneError) {
-      toast.error(
-        microphoneError?.name === 'NotAllowedError'
-          ? 'Microphone access was refused. Allow it in your browser to speak.'
-          : 'Could not start listening.'
-      );
+      if (isMicrophoneAccessRefused(microphoneError)) return;
+      toast.error('Could not start listening.', {
+        id: 'evan-microphone-unavailable',
+      });
     }
   }, [ensureEvan, expand, sendTurn, stopLiveListening, transcribe]);
 

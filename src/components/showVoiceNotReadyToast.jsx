@@ -1,9 +1,10 @@
 // src/components/showVoiceNotReadyToast.jsx
 //
-// The avatar does not have a voice model. Clicking the notice opens avatar
-// settings so the owner can record or upload speech; Close dismisses
-// it. A plain toast would dismiss on press (see main.jsx) and never take the
-// reader where they need to go.
+// The avatar does not have a voice model. Shown from live voice mode once
+// per conversation. Clicking the notice opens avatar settings so the owner
+// can record or upload speech; Close dismisses it. A plain toast would
+// dismiss on press (see main.jsx) and never take the reader where they need
+// to go.
 
 import React from 'react';
 import { toast } from 'react-hot-toast';
@@ -23,18 +24,20 @@ import {
  * @param {string} parameters.assistantId The avatar whose settings to open.
  * @param {string} [parameters.avatarName] For the sentence.
  * @param {number} [parameters.collectedSeconds] Seconds of speech already held.
+ * @param {string} [parameters.conversationId] Thread this notice belongs to.
  */
 export function showVoiceNotReadyToast({
   assistantId,
   avatarName,
   collectedSeconds = 0,
+  conversationId,
 }) {
-  if (voiceNotReadyAlreadyShown(assistantId)) return;
-  rememberVoiceNotReadyShown(assistantId);
+  if (voiceNotReadyAlreadyShown(assistantId, conversationId)) return;
+  rememberVoiceNotReadyShown(assistantId, conversationId);
 
   const settingsPath = avatarVoiceSettingsPath(assistantId);
   const collected = Math.round(collectedSeconds);
-  const toastId = voiceNotReadyStorageKey(assistantId);
+  const toastId = voiceNotReadyStorageKey(assistantId, conversationId);
 
   const openSettings = () => {
     toast.dismiss(toastId);

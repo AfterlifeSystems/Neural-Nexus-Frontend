@@ -3,10 +3,10 @@ import React from 'react';
 import Modal from '../ui/Modal';
 
 /**
- * Confirm or cancel a spend on emotion images and videos.
+ * Confirm or cancel a spend on emotion images or idle-loop videos.
  *
  * Generation bills the image and video vendor. A full rebuild also deletes
- * the clips that exist. Nothing starts from a single press.
+ * the assets of that kind that exist. Nothing starts from a single press.
  *
  * @param {Object} parameters
  * @param {Object} parameters.confirmation From emotionMediaGenerationConfirmation.

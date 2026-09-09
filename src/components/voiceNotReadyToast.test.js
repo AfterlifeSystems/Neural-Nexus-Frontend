@@ -4,6 +4,7 @@ import {
   avatarVoiceSettingsPath,
   rememberVoiceNotReadyShown,
   resetVoiceNotReadyToastForTests,
+  sameConversationAsVoiceNotReadyShown,
   voiceNotReadyAlreadyShown,
   voiceNotReadyToastTitle,
 } from './voiceNotReadyToast.js';
@@ -41,11 +42,40 @@ test('the notice opens that avatar voice settings', () => {
   assert.equal(avatarVoiceSettingsPath(), '/avatars');
 });
 
-test('the notice is remembered once per avatar for the tab session', () => {
+test('the notice is remembered once per conversation', () => {
   resetVoiceNotReadyToastForTests();
   const storage = memoryStorage();
-  assert.equal(voiceNotReadyAlreadyShown('ava-1', storage), false);
-  rememberVoiceNotReadyShown('ava-1', storage);
-  assert.equal(voiceNotReadyAlreadyShown('ava-1', storage), true);
-  assert.equal(voiceNotReadyAlreadyShown('ava-2', storage), false);
+  assert.equal(voiceNotReadyAlreadyShown('ava-1', 'thread-a', storage), false);
+  rememberVoiceNotReadyShown('ava-1', 'thread-a', storage);
+  assert.equal(voiceNotReadyAlreadyShown('ava-1', 'thread-a', storage), true);
+  assert.equal(voiceNotReadyAlreadyShown('ava-1', 'thread-b', storage), false);
+  assert.equal(voiceNotReadyAlreadyShown('ava-2', 'thread-a', storage), false);
+});
+
+test('an unminted conversation is not remembered across chats', () => {
+  resetVoiceNotReadyToastForTests();
+  const storage = memoryStorage();
+  rememberVoiceNotReadyShown('ava-1', '__new__', storage);
+  assert.equal(voiceNotReadyAlreadyShown('ava-1', '__new__', storage), false);
+  assert.equal(voiceNotReadyAlreadyShown('ava-1', 'thread-a', storage), false);
+});
+
+test('a minted thread is the same conversation the notice was shown for while new', () => {
+  assert.equal(
+    sameConversationAsVoiceNotReadyShown('__new__', 'thread-a'),
+    true
+  );
+  assert.equal(
+    sameConversationAsVoiceNotReadyShown('thread-a', 'thread-a'),
+    true
+  );
+  assert.equal(
+    sameConversationAsVoiceNotReadyShown('thread-a', 'thread-b'),
+    false
+  );
+  assert.equal(
+    sameConversationAsVoiceNotReadyShown('thread-a', '__new__'),
+    false
+  );
+  assert.equal(sameConversationAsVoiceNotReadyShown(null, 'thread-a'), false);
 });

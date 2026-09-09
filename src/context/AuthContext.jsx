@@ -15,6 +15,7 @@ import {
   extractSessionCredentialFromLoginResponse,
 } from '../services/neuralNexusApiClient';
 import { restoreSignedInUser } from './authSession';
+import { listUserAvatars } from '../services/avatarService';
 
 const AuthContext = createContext();
 
@@ -51,10 +52,19 @@ export const AuthProvider = ({ children }) => {
    *
    * @returns {Promise<Object>} The /signup response ({api_key, message, verification}).
    */
-  const signUp = async (email, password, name) => {
+  const signUp = async (email, password, name, { usageAnalyticsOptIn } = {}) => {
     return requestJson('/signup', {
       method: 'POST',
-      body: { email, password, name },
+      body: {
+        email,
+        password,
+        name,
+        // The signup form's usage-analytics choice. Sent only when the form
+        // offered the choice; the API records consent under the new account.
+        ...(usageAnalyticsOptIn === undefined
+          ? {}
+          : { usage_analytics_opt_in: Boolean(usageAnalyticsOptIn) }),
+      },
     });
   };
 
@@ -243,6 +253,11 @@ export const AuthProvider = ({ children }) => {
           setUser(restoredUser);
           setProfile(restoredUser);
           localStorage.setItem('user', JSON.stringify(restoredUser));
+          try {
+            setUserAvatars((await listUserAvatars()) ?? []);
+          } catch (listError) {
+            console.error('Restoring the avatar list failed:', listError);
+          }
         } else {
           // The credential authenticates, but this browser has no signed-in
           // session: the account signed up and has not verified yet, a logout

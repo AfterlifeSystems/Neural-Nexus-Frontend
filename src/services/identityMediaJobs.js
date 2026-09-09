@@ -12,12 +12,14 @@ import {
   stepsForMediaKind,
 } from './mediaProcessSteps.js';
 import {
+  listAvatarDocuments,
   cancelMediaJob,
   getMediaJob,
   listMediaJobs,
   streamMediaJobProgress,
   uploadAvatarIdentityMedia,
 } from './avatarService';
+import { resolveIdentityMediaUrls } from './identityMediaUrls.js';
 import { isBillingRefusal, showRequestFailureToast } from '../components/requestFailureToast';
 import {
   addIdentityMediaJob,
@@ -109,8 +111,8 @@ const finishOnStored = async (
     await onDocumentsChanged();
   }
   if (kind === 'portrait') {
-    // The portrait is stored and its emotion stills and loops are generated
-    // by the time the job reports done. Tell every screen holding the old
+    // The portrait is stored. Emotion stills and idle loops wait for an
+    // explicit create from settings. Tell every screen holding the old
     // portrait (or the pre-upload empty manifest) to read the new one — this
     // is the only path a card restored after a page reload, or started from
     // the Upload section with the reference flag, ever takes.
@@ -372,7 +374,10 @@ export const hydrateIdentityMediaJobs = async (
  * @param {Object} options
  * @param {string} options.assistantId
  * @param {File[]} [options.files]
- * @param {string[]} [options.urls]
+ * @param {string[]} [options.urls] URLs to ingest. YouTube watch/share/short
+ *   links for a video already stored on this avatar are resolved onto that
+ *   document's label so the job updates the first entry instead of creating a
+ *   second.
  * @param {boolean} [options.isReferenceImage]
  * @param {boolean} [options.isReferenceAudio] Legacy flag: the server now
  *   decides the reference clip on its own, so callers pass `kind: 'voice'`
@@ -396,6 +401,18 @@ export const startIdentityMediaUpload = async ({
   if (!assistantId) return false;
   if (files.length === 0 && urls.length === 0) return false;
 
+  let resolvedUrls = urls;
+  if (urls.length > 0) {
+    let existingDocuments = [];
+    try {
+      existingDocuments = await listAvatarDocuments(assistantId);
+    } catch {
+      existingDocuments = [];
+    }
+    resolvedUrls = resolveIdentityMediaUrls(urls, existingDocuments);
+    if (files.length === 0 && resolvedUrls.length === 0) return false;
+  }
+
   const localId = newIdentityMediaLocalId();
   const abortController = new AbortController();
   abortByLocalId.set(localId, abortController);
@@ -403,7 +420,7 @@ export const startIdentityMediaUpload = async ({
     explicitKind ??
     (isReferenceImage ? 'portrait' : isReferenceAudio ? 'voice' : 'document');
   const items = [
-    ...urls.map((url) => ({
+    ...resolvedUrls.map((url) => ({
       id: url,
       label: url,
       itemJobId: null,
@@ -445,7 +462,7 @@ export const startIdentityMediaUpload = async ({
     const uploadResponse = await uploadAvatarIdentityMedia({
       assistantId,
       files,
-      urls,
+      urls: resolvedUrls,
       isReferenceImage,
       isReferenceAudio,
       signal: abortController.signal,

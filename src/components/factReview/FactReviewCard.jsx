@@ -8,6 +8,12 @@
 
 import React from 'react';
 
+import {
+  ACTION_CHOICE_BUTTON_TYPE,
+  actionChoiceButtonClassName,
+} from './factReviewActionChoice';
+import { recommendationHintFor } from './factReviewHint';
+
 export const ACTION_ORDER = ['accept', 'remove', 'skip'];
 
 // Used only when the payload omits `action_labels`. The server ships its own
@@ -74,17 +80,7 @@ export const FactReviewCard = ({ match, decision, actionLabels, onChange, isResu
     ? match.namespace.join('/')
     : '';
 
-  const recommendationHint = () => {
-    if (match.recommended_action === 'remove') {
-      return 'I recommend removing this document.';
-    }
-    if (match.recommended_action === 'accept') {
-      return null; // The suggested edit below is the recommendation.
-    }
-    return 'I recommend leaving this document unchanged.';
-  };
-
-  const hint = recommendationHint();
+  const hint = recommendationHintFor(match);
 
   return (
     <div className="bg-black/25 rounded-xl border border-white/10 p-4 space-y-3">
@@ -111,6 +107,28 @@ export const FactReviewCard = ({ match, decision, actionLabels, onChange, isResu
         </div>
       ) : null}
 
+      {/* What the research proposes, as plain text. The editable window below
+          holds the same words, but a person deciding between two versions has
+          to be able to READ the researched one without treating a form field as
+          the only place it appears. */}
+      {match.kind === 'research_proposal' && match.suggested_edit_fact_content ? (
+        <div className="text-sm text-neutral-200">
+          <span className="font-semibold">Researched version: </span>
+          <span className="text-white/90">
+            {match.suggested_edit_fact_content}
+          </span>
+        </div>
+      ) : null}
+
+      {/* Why this is being asked: the surrounding document for a correction,
+          and for a researched contradiction the reasoning, the statements that
+          disagreed, and the sources behind them. */}
+      {match.document_excerpt ? (
+        <div className="text-xs text-white/55 whitespace-pre-line border-l-2 border-white/10 pl-3">
+          {match.document_excerpt}
+        </div>
+      ) : null}
+
       {hint ? (
         <div className="text-xs text-neutral-100/90">💡 {hint}</div>
       ) : null}
@@ -123,24 +141,19 @@ export const FactReviewCard = ({ match, decision, actionLabels, onChange, isResu
           {ACTION_ORDER.map((action) => {
             const isSelected = decision.action === action;
             return (
-              <label
+              <button
                 key={action}
-                className={`cursor-pointer text-xs px-3 py-1.5 rounded-full border transition-colors ${
-                  isSelected
-                    ? 'bg-neutral-200 border-neutral-100 text-neutral-900'
-                    : 'bg-black/60 border-neutral-700 text-white/70 hover:bg-white/10'
-                } ${isResuming ? 'opacity-50 cursor-not-allowed' : ''}`}
+                type={ACTION_CHOICE_BUTTON_TYPE}
+                aria-pressed={isSelected}
+                disabled={isResuming}
+                className={actionChoiceButtonClassName({
+                  selected: isSelected,
+                  disabled: isResuming,
+                })}
+                onClick={() => onChange({ ...decision, action })}
               >
-                <input
-                  type="radio"
-                  className="sr-only"
-                  name={`interrupt-action-${match.index}`}
-                  value={action}
-                  checked={isSelected}
-                  onChange={() => onChange({ action })}
-                />
                 {actionLabels[action]}
-              </label>
+              </button>
             );
           })}
         </div>
@@ -153,10 +166,13 @@ export const FactReviewCard = ({ match, decision, actionLabels, onChange, isResu
           <textarea
             className={`${TEXTAREA_CLASSES} mt-1`}
             rows={3}
-            value={decision.correctedText}
+            value={decision.correctedText ?? ''}
             disabled={isResuming}
             onChange={(changeEvent) =>
-              onChange({ correctedText: changeEvent.target.value })
+              onChange({
+                ...decision,
+                correctedText: changeEvent.target.value,
+              })
             }
           />
         </label>
@@ -166,10 +182,13 @@ export const FactReviewCard = ({ match, decision, actionLabels, onChange, isResu
           <textarea
             className={`${TEXTAREA_CLASSES} mt-1`}
             rows={2}
-            value={decision.correctedContext}
+            value={decision.correctedContext ?? ''}
             disabled={isResuming}
             onChange={(changeEvent) =>
-              onChange({ correctedContext: changeEvent.target.value })
+              onChange({
+                ...decision,
+                correctedContext: changeEvent.target.value,
+              })
             }
           />
         </label>

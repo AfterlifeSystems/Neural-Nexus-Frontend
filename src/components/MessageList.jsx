@@ -1,6 +1,6 @@
 // src/components/MessageList.jsx
 import React, { useEffect } from 'react';
-import { User } from 'lucide-react';
+import { Square, User } from 'lucide-react';
 import InterruptPanel from './InterruptPanel';
 import MessageMedia from './MessageMedia';
 import { useLocation } from 'react-router-dom';
@@ -18,9 +18,25 @@ import MessageActionBar from './media/MessageActionBar';
 import { isConversationSuggestionList } from '../services/conversationSuggestions';
 import { messageKeyOf } from '../services/messageKey';
 import AmbientNotificationCard from './AmbientNotificationCard';
+import { isAmbientNotice, isNoticeDismissed } from '../services/ambientNotice';
+import { noticeDecisionFor } from '../services/avatarPreferences';
+import { focusComposer } from '../services/composerFocus';
 import CreatedArtifacts from './CreatedArtifacts';
+import ChartCard from './ChartCard';
+import ConnectionCardStack from './connections/ConnectionCardStack';
+import {
+  connectionsOf,
+  isConnectionCardOnly,
+} from '../services/connectionCards';
+import {
+  artifactNamesRenderedByCharts,
+  chartHasRenderableData,
+  chartsOf,
+  pngArtifactFor,
+} from '../services/chartSpecs';
 import SpeakerScript from './SpeakerScript';
 import { editableScriptText, hasSpeakerScript } from './speakerScript';
+import { voiceMessageIsGenerating } from './voiceCaptionVisibility';
 import {
   createdArtifactsOf,
   speakableReplyText,
@@ -99,13 +115,37 @@ const MessageList = ({
   messagesEndRef,
   avatarPortrait,
   avatarName,
-<<<<<<< Updated upstream
   assistantId,
   readOnly = false,
-=======
->>>>>>> Stashed changes
 }) => {
-  const { assistantActivity } = useMedia();
+  const {
+    assistantActivity,
+    avatarPreferences,
+    refreshAvatarPreferences,
+    allowAmbientAction,
+    noteNoticeInteraction,
+    dismissNotice,
+    dismissedNoticeIds,
+    stopAssistantTurn,
+    stoppableTurnCount,
+  } = useMedia();
+  // The composer's button never becomes Stop — an empty box has to keep
+  // offering voice mode mid-reply — so the reply being generated carries its
+  // own Stop, as the caption does in voice mode. A shared transcript is
+  // read-only and has no turn of its own to end.
+  const replyTurnIsStoppable = !readOnly && (stoppableTurnCount ?? 0) > 0;
+  const renderStopReplyButton = () => (
+    <button
+      type="button"
+      onClick={() => stopAssistantTurn?.()}
+      title="Stop generating"
+      aria-label="Stop generating"
+      className="shrink-0 inline-flex items-center gap-1 px-2 py-1 rounded-md bg-white/5 text-white/80 text-xs border border-white/10 hover:text-neutral-100 hover:bg-white/10 focus:outline-none focus:ring-2 focus:ring-amber-400/50"
+    >
+      <Square className="w-3 h-3 fill-current" />
+      Stop
+    </button>
+  );
   const { userPortrait, activeAvatar, user } = useAuth();
   const location = useLocation();
   const readerIsAnonymous = isSharedAvatarChatPath(location.pathname);
@@ -162,9 +202,8 @@ const MessageList = ({
     // document of a parent frame, so on the landing page — which embeds this
     // chat as the live demo — it dragged the whole page down to the demo the
     // moment the frame mounted, past the headline nobody had read yet.
-    const transcriptScrollBox = findNearestScrollingAncestor(
-      transcriptEndMarker
-    );
+    const transcriptScrollBox =
+      findNearestScrollingAncestor(transcriptEndMarker);
     if (!transcriptScrollBox) return;
     transcriptScrollBox.scrollTo({
       top: transcriptScrollBox.scrollHeight,
@@ -202,38 +241,73 @@ const MessageList = ({
 
           // Something the avatar noticed through ambient vision and decided
           // the person should hear about. It is the avatar's own message, but
-          // it renders as a card with the Agent Inbox choices — dismiss or
-          // reply — rather than as a bubble in the exchange.
-          if (isFromAvatar && msg.ambient?.decision === 'notify') {
+          // it renders as a card with Reply and the same thumbs grouping a
+          // chat bubble uses — like and dislike become a preference — rather
+          // than as a bubble in the exchange.
+          if (isFromAvatar && isAmbientNotice(msg)) {
+            if (isNoticeDismissed(msg, dismissedNoticeIds)) {
+              return null;
+            }
             return (
-              <div key={messageKey} className="self-start w-full max-w-[85%] min-w-0">
+              <div
+                key={messageKey}
+                className="self-start w-full max-w-[85%] min-w-0"
+              >
                 <AmbientNotificationCard
                   message={msg}
                   assistantId={resolvedAssistantId}
                   avatarName={avatarName}
                   readOnly={readOnly}
-                  onReply={() => {
-                    document
-                      .querySelector('[data-composer-input], textarea')
-                      ?.focus();
-                  }}
+                  onReply={() => focusComposer()}
+                  storedDecision={noticeDecisionFor(avatarPreferences, msg)}
+                  onRecorded={refreshAvatarPreferences}
+                  onAllowAction={allowAmbientAction}
+                  onInteract={noteNoticeInteraction}
+                  onDismiss={dismissNotice}
                 />
               </div>
             );
           }
           const noticedAmbiently =
             isFromAvatar && msg.ambient?.decision === 'respond';
+          // The avatar carried out an offer the person allowed on a card.
+          const actedOnRequest =
+            isFromAvatar && msg.ambient?.decision === 'act';
+
+          // A connect card with no words around the card — the pause the
+          // avatar raised for an account, or a card placed from the "+"
+          // menu — stands alone, without a bubble or a portrait beside an
+          // empty box. The card is interactive while the message is the
+          // current pause or the card still waits for a sign-in.
+          if (isFromAvatar && isConnectionCardOnly(msg)) {
+            return (
+              <ConnectionCardStack
+                key={messageKey}
+                message={msg}
+                assistantId={resolvedAssistantId}
+                readOnly={readOnly}
+              />
+            );
+          }
+          const connectionCards = isFromAvatar ? connectionsOf(msg) : [];
+          const charts = isFromAvatar
+            ? chartsOf(msg).filter(chartHasRenderableData)
+            : [];
+          const createdArtifacts = isFromAvatar ? createdArtifactsOf(msg) : [];
+          // Stop belongs on the reply while its words are still arriving:
+          // the pending bubble, and the row whose tokens are streaming in.
+          // Once the text is done the stream may stay open for analysis,
+          // but there is nothing left to cut short.
+          const isGeneratingThisReply =
+            replyTurnIsStoppable &&
+            voiceMessageIsGenerating(msg, { turnActive: true });
 
           return (
-            <div
-              key={messageKey}
-<<<<<<< Updated upstream
-              className={`flex items-end gap-2 max-w-[85%] min-w-0 ${
-=======
-              className={`flex items-end gap-2 max-w-[85%] ${
->>>>>>> Stashed changes
+            <React.Fragment key={messageKey}>
+              <div
+                className={`flex items-end gap-2 max-w-[85%] min-w-0 ${
                   isFromUser ? 'self-end flex-row-reverse' : 'self-start'
-                }`}
+                } ${charts.length > 0 ? 'w-full' : ''}`}
               >
                 {(isFromUser || isFromAvatar) && (
                   <MessageAuthorIcon
@@ -246,6 +320,8 @@ const MessageList = ({
                 )}
                 <div
                   className={`p-2 rounded-lg min-w-0 break-words [overflow-wrap:anywhere] transition-all duration-150 ${
+                    charts.length > 0 ? 'w-full flex-grow' : ''
+                  } ${
                     isFromUser
                       ? 'bg-neutral-900 border border-white/10 text-neutral-200'
                       : isFromAvatar
@@ -254,7 +330,7 @@ const MessageList = ({
                   }`}
                 >
                   {isLoading ? (
-                    <div className="flex items-center space-x-2">
+                    <div className="flex items-center justify-between gap-3">
                       <div className="flex space-x-1">
                         <div
                           className="w-2 h-2 bg-white rounded-full animate-bounce"
@@ -269,6 +345,7 @@ const MessageList = ({
                           style={{ animationDelay: '300ms' }}
                         />
                       </div>
+                      {isGeneratingThisReply && renderStopReplyButton()}
                     </div>
                   ) : (
                     <>
@@ -277,11 +354,18 @@ const MessageList = ({
                           Noticed on your webcam or screen
                         </div>
                       )}
+                      {actedOnRequest && (
+                        <div className="mb-1 text-[11px] uppercase tracking-wide text-sky-300/80">
+                          Done at your request
+                        </div>
+                      )}
                       {isFromUser && editingKey === messageKey ? (
                         <div className="space-y-2">
                           <textarea
                             value={editDraft}
-                            onChange={(event) => setEditDraft(event.target.value)}
+                            onChange={(event) =>
+                              setEditDraft(event.target.value)
+                            }
                             rows={3}
                             className="w-full px-2 py-1.5 bg-black/50 border border-white/10 rounded-md text-neutral-200 text-sm focus:outline-none focus:ring-2 focus:ring-amber-400/50"
                           />
@@ -311,20 +395,18 @@ const MessageList = ({
                             </button>
                           </div>
                         </div>
+                      ) : !isFromAvatar && hasSpeakerScript(msg) ? (
+                        <SpeakerScript
+                          speakers={msg.speakers}
+                          fallback={msg.content}
+                        />
                       ) : (
-                        !isFromAvatar && hasSpeakerScript(msg) ? (
-                          <SpeakerScript
-                            speakers={msg.speakers}
-                            fallback={msg.content}
-                          />
-                        ) : (
-                          msg.content && (
-                            <div className="whitespace-pre-wrap">
-                              {isFromAvatar
-                                ? stripArtifactReferences(msg.content)
-                                : msg.content}
-                            </div>
-                          )
+                        msg.content && (
+                          <div className="whitespace-pre-wrap">
+                            {isFromAvatar
+                              ? stripArtifactReferences(msg.content)
+                              : msg.content}
+                          </div>
                         )
                       )}
 
@@ -334,12 +416,29 @@ const MessageList = ({
                         </div>
                       )}
 
+                      {isGeneratingThisReply && (
+                        <div className="mt-2">{renderStopReplyButton()}</div>
+                      )}
+
                       {/* The plot and report an analysis turn produced. The
                           model's own attachment link to them is stripped from
                           the text above because a browser cannot fetch it;
                           this is where the files actually appear. */}
+                      {/* The charts an analytics turn drew, interactive;
+                          the PNG of each is left out of the file list
+                          below and offered from the chart instead. */}
+                      {charts.map((chart, index) => (
+                        <ChartCard
+                          key={chart.chart_id ?? `${messageKey}-chart-${index}`}
+                          chart={chart}
+                          pngArtifact={pngArtifactFor(chart, createdArtifacts)}
+                        />
+                      ))}
                       {isFromAvatar && (
-                        <CreatedArtifacts artifacts={createdArtifactsOf(msg)} />
+                        <CreatedArtifacts
+                          artifacts={createdArtifacts}
+                          hiddenNames={artifactNamesRenderedByCharts(charts)}
+                        />
                       )}
 
                       <MessageMedia media={msg.media} />
@@ -369,15 +468,21 @@ const MessageList = ({
                         }
                         onRegenerate={(key) => regenerateAvatarReply?.(key)}
                         onLike={() =>
-                          submitMessageFeedback?.(messageKey, {
-                            type: 'like',
-                            comment: msg.feedback?.comment,
-                          })
+                          submitMessageFeedback?.(messageKey, { type: 'like' })
                         }
                         onDislike={() =>
                           submitMessageFeedback?.(messageKey, {
                             type: 'dislike',
-                            comment: msg.feedback?.comment,
+                          })
+                        }
+                        onFeelsReal={() =>
+                          submitMessageFeedback?.(messageKey, {
+                            feels: 'feels_real',
+                          })
+                        }
+                        onFeelsOff={() =>
+                          submitMessageFeedback?.(messageKey, {
+                            feels: 'feels_fake',
                           })
                         }
                         onToggleFeedback={() => {
@@ -389,7 +494,6 @@ const MessageList = ({
                         onFeedbackDraftChange={setFeedbackDraft}
                         onSubmitFeedback={() => {
                           submitMessageFeedback?.(messageKey, {
-                            type: msg.feedback.type,
                             comment: feedbackDraft.trim(),
                           });
                           setFeedbackKey(null);
@@ -399,26 +503,32 @@ const MessageList = ({
                           setEditDraft(editableScriptText(msg));
                         }}
                         onRetry={(key) =>
-                          resendFromUserMessage?.(
-                            key,
-                            editableScriptText(msg)
-                          )
+                          resendFromUserMessage?.(key, editableScriptText(msg))
                         }
                       />
                     </>
                   )}
+                </div>
               </div>
-<<<<<<< Updated upstream
-=======
-            </div>
->>>>>>> Stashed changes
+              {/* The connect cards a reply carries — the record of an
+                  account added during the turn, or the card a paused turn
+                  is waiting on — under the words, not inside the bubble. */}
+              {connectionCards.length > 0 && (
+                <ConnectionCardStack
+                  message={msg}
+                  assistantId={resolvedAssistantId}
+                  readOnly={readOnly}
+                  className="self-start w-full max-w-[85%] min-w-0 pl-10"
+                />
+              )}
+            </React.Fragment>
           );
         })}
 
       {/* The question a paused turn is asking, if one is. This sits where the
-          assistant's next message would have gone, because that is what it
-          stands in for: the turn produced this instead of a reply, and cannot
-          continue until it is answered. */}
+          assistant's next message would have gone. A fact review starts folded
+          so the conversation is not forced through the form; the choices live
+          on the pause itself so switching between talking and typing keeps them. */}
       <InterruptPanel />
 
       {/* What the avatar is doing, for as long as it is doing it.

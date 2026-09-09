@@ -31,6 +31,13 @@ import {
   listAvatarIdentityFacts,
   updateAvatarIdentityFact,
 } from '../services/avatarService';
+import {
+  collapseDuplicateIdentityFacts,
+  countsFromFacts,
+  factRowKey,
+  FACT_GROUP_ORDER,
+  filterFacts,
+} from './identityFacts';
 import { hostnameOf } from './research/researchProgress';
 
 // How each group is named and coloured. The chip says where the fact came
@@ -68,45 +75,7 @@ export const FACT_GROUP_PRESENTATION = {
   },
 };
 
-export const FACT_GROUP_ORDER = [
-  'conversation',
-  'media',
-  'research',
-  'analysis',
-  'memory',
-];
-
-/**
- * A stable identity for one row: the store namespace and key together name
- * exactly one document.
- *
- * @param {Object} fact A row from listAvatarIdentityFacts.
- * @returns {string}
- */
-export const factRowKey = (fact) =>
-  `${(fact.namespace ?? []).join('/')}::${fact.key ?? fact.factId ?? ''}`;
-
-/**
- * Filter the rows by group and by a text search over the fact and its context.
- *
- * @param {Array<Object>} facts
- * @param {string} groupFilter One of FACT_GROUP_ORDER, or 'all'.
- * @param {string} searchQuery
- * @returns {Array<Object>}
- */
-export const filterFacts = (facts, groupFilter, searchQuery) => {
-  const normalizedQuery = (searchQuery ?? '').trim().toLowerCase();
-  return facts.filter((fact) => {
-    if (groupFilter !== 'all' && fact.learnedFrom !== groupFilter) return false;
-    if (!normalizedQuery) return true;
-    return (
-      (fact.fact ?? '').toLowerCase().includes(normalizedQuery) ||
-      (fact.context ?? '').toLowerCase().includes(normalizedQuery) ||
-      (fact.sourceLabel ?? '').toLowerCase().includes(normalizedQuery) ||
-      (fact.feature ?? '').toLowerCase().includes(normalizedQuery)
-    );
-  });
-};
+export { FACT_GROUP_ORDER, factRowKey, filterFacts };
 
 const describeFeature = (feature) =>
   feature ? feature.replace(/_/g, ' ') : null;
@@ -118,7 +87,6 @@ const describeFeature = (feature) =>
  */
 const IdentityFactRow = ({ fact, onDelete, onSave }) => {
   const [isEditing, setIsEditing] = useState(false);
-  const [isContextOpen, setIsContextOpen] = useState(false);
   const [draftFact, setDraftFact] = useState(fact.fact);
   const [draftContext, setDraftContext] = useState(fact.context ?? '');
   const [isSaving, setIsSaving] = useState(false);
@@ -273,26 +241,18 @@ const IdentityFactRow = ({ fact, onDelete, onSave }) => {
                 {presentation.description}
               </p>
               {fact.context && (
-                <div className="mt-1">
-                  <button
-                    type="button"
-                    onClick={() => setIsContextOpen((wasOpen) => !wasOpen)}
-                    aria-expanded={isContextOpen}
-                    className="inline-flex items-center gap-1 text-xs text-white/60 hover:text-neutral-100 transition-colors"
-                  >
-                    {isContextOpen ? (
-                      <ChevronUp size={14} />
-                    ) : (
-                      <ChevronDown size={14} />
-                    )}
+                <details className="group mt-1">
+                  <summary className="inline-flex items-center gap-1 text-xs text-white/60 hover:text-neutral-100 transition-colors cursor-pointer list-none [&::-webkit-details-marker]:hidden [&::marker]:hidden">
+                    <ChevronDown
+                      size={14}
+                      className="shrink-0 transition-transform group-open:rotate-180"
+                    />
                     Context
-                  </button>
-                  {isContextOpen && (
-                    <p className="text-white/60 text-xs mt-1 break-words whitespace-pre-wrap">
-                      {fact.context}
-                    </p>
-                  )}
-                </div>
+                  </summary>
+                  <p className="text-white/60 text-xs mt-1 break-words whitespace-pre-wrap">
+                    {fact.context}
+                  </p>
+                </details>
               )}
             </>
           )}
@@ -360,8 +320,12 @@ const AvatarIdentityFacts = ({ assistantId, avatarName, reloadToken }) => {
     setIsLoading(true);
     try {
       const listing = await listAvatarIdentityFacts(assistantId);
-      setFacts(listing.facts);
-      setCounts(listing.counts);
+      // One card per sentence. Parallel "learn this" writes, or asearch
+      // returning the same item twice, otherwise repeat the row, collide
+      // React keys, and make Context a no-op.
+      const uniqueFacts = collapseDuplicateIdentityFacts(listing.facts);
+      setFacts(uniqueFacts);
+      setCounts(countsFromFacts(uniqueFacts));
       setLoadError(null);
     } catch (listError) {
       console.error('Loading what the avatar has learned failed:', listError);
@@ -395,6 +359,16 @@ const AvatarIdentityFacts = ({ assistantId, avatarName, reloadToken }) => {
   const handleDelete = async (fact) => {
     try {
       await deleteAvatarIdentityFact(assistantId, fact);
+      for (const duplicate of fact.duplicateFacts ?? []) {
+        try {
+          await deleteAvatarIdentityFact(assistantId, duplicate);
+        } catch (duplicateError) {
+          console.error(
+            'Could not forget a duplicate of the removed fact:',
+            duplicateError
+          );
+        }
+      }
       const rowKey = factRowKey(fact);
       setFacts((previous) =>
         previous.filter((candidate) => factRowKey(candidate) !== rowKey)
@@ -420,9 +394,21 @@ const AvatarIdentityFacts = ({ assistantId, avatarName, reloadToken }) => {
       const rowKey = factRowKey(fact);
       setFacts((previous) =>
         previous.map((candidate) =>
-          factRowKey(candidate) === rowKey ? { ...candidate, ...updated } : candidate
+          factRowKey(candidate) === rowKey
+            ? { ...candidate, ...updated, duplicateFacts: undefined }
+            : candidate
         )
       );
+      for (const duplicate of fact.duplicateFacts ?? []) {
+        try {
+          await deleteAvatarIdentityFact(assistantId, duplicate);
+        } catch (duplicateError) {
+          console.error(
+            'Could not forget a duplicate of the updated fact:',
+            duplicateError
+          );
+        }
+      }
       toast.success('Fact updated');
     } catch (saveError) {
       toast.error(`Could not update that fact: ${saveError.message}`);

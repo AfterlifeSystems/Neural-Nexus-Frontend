@@ -1,12 +1,15 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { voiceStageEmotion } from './voiceStageEmotion.js';
+import {
+  voiceStageEmotion,
+  voiceStageShouldKeepEmotion,
+} from './voiceStageEmotion.js';
 
-test('voice stage stays on neutral unless the classifier named a base emotion', () => {
+test('voice stage follows the same base emotion the message view uses', () => {
   assert.equal(voiceStageEmotion(null), 'neutral');
   assert.equal(
     voiceStageEmotion({ emotion: 'approval', base_emotion: 'joy', score: 0.58 }),
-    'neutral'
+    'joy'
   );
   assert.equal(
     voiceStageEmotion({
@@ -14,7 +17,7 @@ test('voice stage stays on neutral unless the classifier named a base emotion', 
       base_emotion: 'surprise',
       score: 0.57,
     }),
-    'neutral'
+    'surprise'
   );
   assert.equal(
     voiceStageEmotion({
@@ -24,6 +27,7 @@ test('voice stage stays on neutral unless the classifier named a base emotion', 
     }),
     'neutral'
   );
+  assert.equal(voiceStageEmotion({ emotion: 'joy', score: 0.8 }), 'neutral');
 });
 
 test('voice stage swaps when the returned label is itself a base emotion', () => {
@@ -38,5 +42,44 @@ test('voice stage swaps when the returned label is itself a base emotion', () =>
       score: 0.7,
     }),
     'sadness'
+  );
+});
+
+test('a generated still is enough to keep the emotion on the voice stage', () => {
+  assert.equal(
+    voiceStageShouldKeepEmotion({
+      emotion: 'joy',
+      isBusy: false,
+      hasIdleLoop: false,
+      hasStill: true,
+    }),
+    true
+  );
+  assert.equal(
+    voiceStageShouldKeepEmotion({
+      emotion: 'joy',
+      isBusy: false,
+      hasIdleLoop: false,
+      hasStill: false,
+    }),
+    false
+  );
+  assert.equal(
+    voiceStageShouldKeepEmotion({
+      emotion: 'joy',
+      isBusy: true,
+      hasIdleLoop: false,
+      hasStill: false,
+    }),
+    true
+  );
+  assert.equal(
+    voiceStageShouldKeepEmotion({
+      emotion: 'joy',
+      isBusy: false,
+      hasIdleLoop: true,
+      hasStill: false,
+    }),
+    true
   );
 });

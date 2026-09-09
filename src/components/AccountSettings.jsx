@@ -6,6 +6,7 @@ import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 
 import UserSettingsMenu from './UserSettingsMenu';
+import UsageAnalyticsSection from './analytics/UsageAnalyticsSection';
 
 const AccountSettings = ({ activeTab }) => {
   const { user, requestPasswordReset, rotateApiKey, deleteAccount } = useAuth();
@@ -270,6 +271,10 @@ const AccountSettings = ({ activeTab }) => {
           </button>
         </div>
       </div>
+
+      {/* Opt-in usage analytics: the same account-level switch the personal
+          avatar's settings show. */}
+      <UsageAnalyticsSection source="account_settings" />
 
       {/* The control this page is usually reached from. Without it the menu
           vanished on arrival, leaving no way back except the sidebar. */}

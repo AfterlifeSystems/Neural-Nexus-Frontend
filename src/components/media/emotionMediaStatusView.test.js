@@ -9,12 +9,13 @@ import {
 } from './emotionMediaStatusView.js';
 
 test('every flag is a boolean, so JSX never paints a stray 0', () => {
-  // A finished run with no failures: counts are zero, and the card must show
-  // nothing rather than the number zero.
   const view = emotionMediaStatusView({
     complete: true,
     missing: [],
     lastGeneration: { state: 'completed', failures: [] },
+    emotions: {
+      joy: { idleLoop: 'https://example/joy.mp4' },
+    },
   });
 
   assert.strictEqual(view.showFailure, false);
@@ -47,38 +48,56 @@ test('a run that left assets missing shows why, and a withheld run offers to gen
   assert.strictEqual(transientMiss.withheld, false);
 });
 
-test('an avatar with no run yet is offered the whole set', () => {
+test('an avatar with no loops yet is offered the video create control', () => {
   const view = emotionMediaStatusView({
     complete: false,
     missing: [],
     lastGeneration: null,
+    emotions: {},
   });
 
   assert.strictEqual(view.showFailure, false);
   assert.strictEqual(view.onlyMissing, true);
-  assert.equal(emotionMediaGenerateLabel(view), 'Generate images & videos');
+  assert.strictEqual(view.loopsComplete, false);
+  assert.strictEqual(view.needsStills, true);
+  assert.equal(view.kind, 'stills_and_videos');
+  assert.equal(emotionMediaGenerateLabel(view), 'Create generative reference videos');
 });
 
 test('the label says what the press will do', () => {
   assert.equal(
-    emotionMediaGenerateLabel({ isComplete: true, missingAssets: 0 }),
-    'Regenerate images & videos'
+    emotionMediaGenerateLabel({ isComplete: true, missingLoops: 0 }),
+    'Regenerate generative reference videos'
   );
   assert.equal(
-    emotionMediaGenerateLabel({ isComplete: false, missingAssets: 3 }),
-    'Generate the missing images & videos'
+    emotionMediaGenerateLabel({
+      isComplete: false,
+      missingLoops: 3,
+      missingAssets: 3,
+    }),
+    'Create the missing generative reference videos'
   );
   assert.equal(
-    emotionMediaGenerateLabel({ isComplete: false, missingAssets: 14 }),
-    'Generate images & videos'
+    emotionMediaGenerateLabel({
+      isComplete: false,
+      missingLoops: 7,
+      missingAssets: 7,
+    }),
+    'Create generative reference videos'
   );
 });
 
-test('replacing every asset says so, and prices the whole set', () => {
+test('replacing every video says so, and prices only the loops', () => {
   const view = emotionMediaStatusView({
     complete: true,
     missing: [],
     lastGeneration: { failures: [] },
+    emotions: {
+      joy: {
+        still: 'https://example/joy.jpg',
+        idleLoop: 'https://example/joy.mp4',
+      },
+    },
   });
   const confirmation = emotionMediaGenerationConfirmation(view, {
     costFullRebuild: {
@@ -95,18 +114,17 @@ test('replacing every asset says so, and prices the whole set', () => {
   });
 
   assert.strictEqual(confirmation.isReplacement, true);
-  assert.equal(confirmation.title, 'Replace every emotion image and video?');
-  assert.match(confirmation.description, /current videos are deleted/);
+  assert.equal(confirmation.title, 'Replace every generative reference video?');
+  assert.match(confirmation.description, /current clips are deleted/);
   assert.equal(
     confirmation.costSummary,
-    'Expected cost: about $3.60 at the vendor.'
+    'Expected cost: about $3.36 at the vendor.'
   );
   assert.deepEqual(confirmation.costBreakdown, [
-    '6 images × $0.04 = $0.24',
     '7 videos × 6s × $0.08 per second = $3.36',
     'A clip the vendor refuses on content grounds is still charged.',
   ]);
-  assert.equal(confirmation.confirmLabel, 'Replace for about $3.60');
+  assert.equal(confirmation.confirmLabel, 'Replace for about $3.36');
 });
 
 test('a top-up keeps what exists and prices only what is missing', () => {
@@ -114,6 +132,9 @@ test('a top-up keeps what exists and prices only what is missing', () => {
     complete: false,
     missing: ['anger:idle_loop'],
     lastGeneration: { failures: [{ emotion: 'anger' }] },
+    emotions: {
+      anger: { still: 'https://example/anger.jpg' },
+    },
   });
   const confirmation = emotionMediaGenerationConfirmation(view, {
     costFullRebuild: { totalUsd: 3.6 },
@@ -130,12 +151,21 @@ test('a top-up keeps what exists and prices only what is missing', () => {
   });
 
   assert.strictEqual(confirmation.isReplacement, false);
-  assert.match(confirmation.description, /only the 1 missing asset\./);
-  assert.equal(confirmation.confirmLabel, 'Generate for about $0.48');
+  assert.match(confirmation.description, /only the 1 missing video\./);
+  assert.equal(confirmation.confirmLabel, 'Create for about $0.48');
 });
 
 test('without an estimate the confirmation states no numbers', () => {
-  const view = emotionMediaStatusView({ complete: true, missing: [] });
+  const view = emotionMediaStatusView({
+    complete: true,
+    missing: [],
+    emotions: {
+      joy: {
+        still: 'https://example/joy.jpg',
+        idleLoop: 'https://example/joy.mp4',
+      },
+    },
+  });
   const confirmation = emotionMediaGenerationConfirmation(view, {});
 
   assert.deepEqual(confirmation.costBreakdown, []);
@@ -146,59 +176,53 @@ test('without an estimate the confirmation states no numbers', () => {
   assert.equal(confirmation.confirmLabel, 'Replace them');
 });
 
-test('the first build says what it makes, not what it keeps', () => {
-  const view = emotionMediaStatusView({ complete: false, missing: [] });
-  const confirmation = emotionMediaGenerationConfirmation(
-    { ...view, missingAssets: 14 },
-    {
-      costMissingOnly: {
-        stills: 6,
-        idleLoops: 7,
-        imageCostUsd: 0.04,
-        videoCostPerSecondUsd: 0.08,
-        idleLoopSeconds: 6,
-        stillsUsd: 0.24,
-        idleLoopsUsd: 3.36,
-        totalUsd: 3.6,
-      },
-    }
-  );
+test('the first video build includes stills when none exist', () => {
+  const view = emotionMediaStatusView({
+    complete: false,
+    missing: [],
+    emotions: {},
+  });
+  const confirmation = emotionMediaGenerationConfirmation(view, {
+    costMissingOnly: {
+      stills: 6,
+      idleLoops: 7,
+      imageCostUsd: 0.04,
+      videoCostPerSecondUsd: 0.08,
+      idleLoopSeconds: 6,
+      stillsUsd: 0.24,
+      idleLoopsUsd: 3.36,
+      totalUsd: 3.6,
+    },
+  });
 
-  assert.equal(confirmation.title, 'Generate the emotion images and videos?');
+  assert.equal(view.kind, 'stills_and_videos');
+  assert.equal(confirmation.title, 'Create the generative reference videos?');
   assert.equal(
     confirmation.description,
-    'This generates 6 emotion images and 7 idle videos from the reference image.'
+    'This generates 6 emotion portraits and 7 idle videos from the reference image.'
   );
-  assert.equal(confirmation.confirmLabel, 'Generate for about $3.60');
+  assert.equal(confirmation.confirmLabel, 'Create for about $3.60');
 });
 
-test('a new portrait replaces existing clips and first-builds an empty set', () => {
+test('a new portrait stores the photo and does not queue stills', () => {
   const empty = portraitUploadGenerationView({
     complete: false,
     missing: [],
     emotions: {},
   });
-  assert.strictEqual(empty.onlyMissing, true);
-  assert.equal(empty.missingAssets, 14);
-  assert.equal(
-    emotionMediaGenerationConfirmation(empty, {}).title,
-    'Generate the emotion images and videos?'
-  );
+  assert.strictEqual(empty.generatesStills, false);
+  assert.strictEqual(empty.onlyMissing, false);
+  assert.equal(empty.missingAssets, 0);
 
   const replacing = portraitUploadGenerationView({
     complete: true,
     missing: [],
     emotions: { joy: { still: 'https://example/joy.jpg' } },
   });
-  assert.strictEqual(replacing.onlyMissing, false);
-  assert.equal(
-    emotionMediaGenerationConfirmation(replacing, {}).title,
-    'Replace every emotion image and video?'
-  );
+  assert.strictEqual(replacing.generatesStills, false);
 });
 
 test('the generation block is read whichever case the API answers in', () => {
-  // What GET /avatar_emotion_media actually returns.
   const fromTheApi = normalizeGenerationBlock({
     tier: 'pro',
     required_tier: 'premium',
@@ -218,17 +242,14 @@ test('the generation block is read whichever case the API answers in', () => {
     cost_missing_only: null,
   });
 
-  // The tier sentence used to read "the undefined plan".
   assert.equal(fromTheApi.requiredTier, 'premium');
   assert.equal(fromTheApi.tierAllows, false);
   assert.equal(fromTheApi.allowed, false);
-  // The confirmation used to price a real spend at $0.00.
   assert.equal(fromTheApi.costFullRebuild.totalUsd, 3.6);
   assert.equal(fromTheApi.costFullRebuild.idleLoops, 7);
   assert.equal(fromTheApi.costFullRebuild.idleLoopSeconds, 6);
   assert.equal(fromTheApi.costMissingOnly, null);
 
-  // A block already in camelCase passes through unchanged.
   const alreadyCamelCase = normalizeGenerationBlock({
     requiredTier: 'premium',
     tierAllows: true,
@@ -239,12 +260,11 @@ test('the generation block is read whichever case the API answers in', () => {
   assert.equal(alreadyCamelCase.requiredTier, 'premium');
   assert.equal(alreadyCamelCase.costFullRebuild.totalUsd, 3.6);
 
-  // Anyone who is not the creator gets no block at all.
   assert.equal(normalizeGenerationBlock(null), null);
   assert.equal(normalizeGenerationBlock(undefined), null);
 });
 
-test('the confirmation prices a run from the API block', () => {
+test('the confirmation prices a video run from the API block', () => {
   const generation = normalizeGenerationBlock({
     cost_full_rebuild: {
       stills: 6,
@@ -258,10 +278,15 @@ test('the confirmation prices a run from the API block', () => {
     },
   });
   const confirmation = emotionMediaGenerationConfirmation(
-    { isComplete: true, missingAssets: 0, onlyMissing: false },
+    {
+      isComplete: true,
+      missingAssets: 0,
+      onlyMissing: false,
+      kind: 'videos',
+    },
     generation
   );
-  assert.match(confirmation.costSummary, /3\.60/);
-  assert.equal(confirmation.costBreakdown.length, 3);
-  assert.match(confirmation.costBreakdown[1], /7 videos × 6s/);
+  assert.match(confirmation.costSummary, /3\.36/);
+  assert.equal(confirmation.costBreakdown.length, 2);
+  assert.match(confirmation.costBreakdown[0], /7 videos × 6s/);
 });

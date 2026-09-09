@@ -26,13 +26,13 @@ export function interruptHeadingFor({ correctionKind, matchCount }) {
         count === 1 ? 's' : ''
       } what I hold — choose which version is true.`,
       guidance:
-        'Everything the sources agreed on is already learned. Only these needed you, because nobody else can say which version is right. Anything you leave alone keeps waiting.',
+        'Everything the sources agreed on is already learned. Only these needed you, because nobody else can say which version is right. Fold this away if you are in the middle of a conversation; anything you leave alone keeps waiting in avatar settings. Switching between talking and typing keeps your choices.',
     };
   }
 
   return {
     heading: `✏️ I found ${count} stored item${plural} that might match — choose what to do with each.`,
     guidance:
-      'Each item is pre-selected to my recommendation; you can change any of them. Anything I recommend leaving unchanged stays exactly as-is unless you pick another action.',
+      'Each item is pre-selected to my recommendation; you can change any of them. Fold this away and finish it later in this conversation or in avatar settings. Switching between talking and typing keeps your choices.',
   };
 }

@@ -6,6 +6,30 @@
 
 const RESEARCH_JOB_STORAGE_PREFIX = 'neural_nexus_research_job:';
 
+const researchJobListeners = new Set();
+
+/**
+ * Hear when a research job is remembered or forgotten for an avatar.
+ *
+ * Same-tab localStorage writes do not fire the storage event, so Settings
+ * would miss a job started after create-from-photo unless it is told here.
+ *
+ * @param {(assistantId: string) => void} listener
+ * @returns {() => void}
+ */
+export function subscribeResearchJobs(listener) {
+  researchJobListeners.add(listener);
+  return () => {
+    researchJobListeners.delete(listener);
+  };
+}
+
+function notifyResearchJobChanged(assistantId) {
+  for (const listener of researchJobListeners) {
+    listener(assistantId);
+  }
+}
+
 /**
  * Remember the running job for an avatar.
  *
@@ -22,6 +46,7 @@ export function rememberResearchJob(assistantId, jobId) {
   } catch {
     // Storage is a convenience; the review list works without it.
   }
+  notifyResearchJobChanged(assistantId);
 }
 
 /**
@@ -53,6 +78,7 @@ export function forgetResearchJob(assistantId) {
   } catch {
     // Nothing to clean up when storage is unavailable.
   }
+  if (assistantId) notifyResearchJobChanged(assistantId);
 }
 
 /**

@@ -15,11 +15,15 @@ import { ChevronDown, ChevronUp, MapPin, Trash2 } from 'lucide-react';
 
 import {
   DEFAULT_GEOFENCE_RADIUS_METERS,
+  describeGeofenceRadius,
   isValidCoordinate,
   pinOf,
+  withPin,
+  withoutPin,
 } from '../../services/avatarProximity';
 import { modifyAvatar } from '../../services/avatarService';
 import AvatarLocationPicker from './AvatarLocationPicker';
+import ClearMyLocationButton from './ClearMyLocationButton';
 
 const EMPTY_PIN = {
   latitude: undefined,
@@ -51,8 +55,14 @@ function editablePinOf(avatar) {
  * @param {string} props.assistantId The avatar being edited.
  * @param {Object|null} props.activeAvatar The avatar record.
  * @param {(changedFields: Object) => void} props.onAvatarChanged Update the local copy after a save.
+ * @param {boolean} [props.canClearDeviceLocation] The personal avatar may also clear this device's shared place.
  */
-const AvatarPlaceCard = ({ assistantId, activeAvatar, onAvatarChanged }) => {
+const AvatarPlaceCard = ({
+  assistantId,
+  activeAvatar,
+  onAvatarChanged,
+  canClearDeviceLocation = false,
+}) => {
   const savedPin = pinOf(activeAvatar);
   const [draftPin, setDraftPin] = useState(() => editablePinOf(activeAvatar));
   const [isEditing, setIsEditing] = useState(false);
@@ -61,7 +71,9 @@ const AvatarPlaceCard = ({ assistantId, activeAvatar, onAvatarChanged }) => {
   // place, and leaving the card shut also keeps the map from mounting — a
   // Leaflet map that initialises while hidden measures itself as zero and
   // renders grey when it is finally shown.
-  const [isOpen, setIsOpen] = useState(false);
+  const [isOpen, setIsOpen] = useState(
+    () => canClearDeviceLocation || Boolean(pinOf(activeAvatar))
+  );
 
   // A different avatar, or a pin changed elsewhere, replaces the draft.
   useEffect(() => {
@@ -77,13 +89,16 @@ const AvatarPlaceCard = ({ assistantId, activeAvatar, onAvatarChanged }) => {
     setIsSaving(true);
     try {
       await modifyAvatar({ assistantId, geoLocation: draftPin });
+      const saved = {
+        latitude: draftPin.latitude,
+        longitude: draftPin.longitude,
+        location_name: draftPin.locationName?.trim() || null,
+        geofence_radius_meters: draftPin.geofenceRadiusMeters,
+      };
+      const placed = withPin(activeAvatar ?? {}, saved);
       onAvatarChanged?.({
-        geo_location: {
-          latitude: draftPin.latitude,
-          longitude: draftPin.longitude,
-          location_name: draftPin.locationName?.trim() || null,
-          geofence_radius_meters: draftPin.geofenceRadiusMeters,
-        },
+        geo_location: placed.geo_location,
+        metadata: placed.metadata,
       });
       setIsEditing(false);
       toast.success(
@@ -100,7 +115,11 @@ const AvatarPlaceCard = ({ assistantId, activeAvatar, onAvatarChanged }) => {
     setIsSaving(true);
     try {
       await modifyAvatar({ assistantId, clearGeoLocation: true });
-      onAvatarChanged?.({ geo_location: null });
+      const cleared = withoutPin(activeAvatar ?? {});
+      onAvatarChanged?.({
+        geo_location: cleared.geo_location,
+        metadata: cleared.metadata,
+      });
       setDraftPin(EMPTY_PIN);
       setIsEditing(false);
       toast.success('This avatar no longer stands anywhere.');
@@ -117,39 +136,53 @@ const AvatarPlaceCard = ({ assistantId, activeAvatar, onAvatarChanged }) => {
 
   return (
     <div className="w-full rounded-2xl border border-white/10 bg-black/60 p-6 backdrop-blur-lg">
-      <button
-        type="button"
-        onClick={() => setIsOpen((wasOpen) => !wasOpen)}
-        aria-expanded={isOpen}
-        aria-controls="avatar-real-world-location"
-        className={`w-full flex items-center justify-between gap-3 text-left text-lg font-semibold text-neutral-200 hover:text-white transition-colors ${
-          isOpen ? 'mb-1' : ''
-        }`}
+      <div
+        className={`flex items-center justify-between gap-3 ${isOpen ? 'mb-1' : ''}`}
       >
-        <span className="flex items-center gap-2 min-w-0">
-          <MapPin
-            size={20}
-            className="shrink-0 text-amber-300"
-            aria-hidden="true"
-          />
-          <span className="truncate">Real-world location</span>
-          <span className="text-sm font-normal text-white/50 shrink-0 truncate">
-            {summary}
+        <button
+          type="button"
+          onClick={() => setIsOpen((wasOpen) => !wasOpen)}
+          aria-expanded={isOpen}
+          aria-controls="avatar-real-world-location"
+          className="flex min-w-0 flex-1 items-center justify-between gap-3 text-left text-lg font-semibold text-neutral-200 transition-colors hover:text-white"
+        >
+          <span className="flex min-w-0 items-center gap-2">
+            <MapPin
+              size={20}
+              className="shrink-0 text-amber-300"
+              aria-hidden="true"
+            />
+            <span className="truncate">Real-world location</span>
+            <span className="shrink-0 truncate text-sm font-normal text-white/50">
+              {summary}
+            </span>
           </span>
-        </span>
-        {isOpen ? (
-          <ChevronUp size={20} className="shrink-0 text-white/60" />
-        ) : (
-          <ChevronDown size={20} className="shrink-0 text-white/60" />
-        )}
-      </button>
+          {isOpen ? (
+            <ChevronUp size={20} className="shrink-0 text-white/60" />
+          ) : (
+            <ChevronDown size={20} className="shrink-0 text-white/60" />
+          )}
+        </button>
+        {savedPin ? (
+          <button
+            type="button"
+            onClick={clearPin}
+            disabled={isSaving}
+            className="inline-flex shrink-0 items-center gap-1 rounded-md border border-white/10 bg-black/40 px-2 py-1 text-xs text-white/60 hover:bg-black/60 hover:text-neutral-200 focus:outline-none focus:ring-2 focus:ring-amber-400/50 disabled:opacity-60"
+          >
+            <Trash2 className="h-3.5 w-3.5" aria-hidden="true" />
+            Remove the pin
+          </button>
+        ) : null}
+      </div>
 
       {!isOpen ? null : (
         <div id="avatar-real-world-location">
           <p className="mb-4 text-sm text-white/50">
-            Pin this avatar to a place and it appears on the world map. Anyone
-            can still talk to it from anywhere; someone standing at the place
-            sees it over their camera, in the place itself.
+            Pin this avatar to a place and it appears on your world map. Share
+            the avatar to list the pin for everyone else. Anyone can still talk
+            to it from anywhere; someone standing at the place sees it over
+            their camera. Remove the pin here or from the street map.
           </p>
 
           {savedPin && !isEditing ? (
@@ -159,12 +192,10 @@ const AvatarPlaceCard = ({ assistantId, activeAvatar, onAvatarChanged }) => {
                   {savedPin.location_name ?? 'An unnamed place'}
                 </p>
                 <p className="text-xs text-white/40">
-                  {Number(savedPin.latitude).toFixed(5)},{' '}
-                  {Number(savedPin.longitude).toFixed(5)} · visitors count as
+                  {Number(savedPin.latitude).toFixed(6)},{' '}
+                  {Number(savedPin.longitude).toFixed(6)} · visitors count as
                   here within{' '}
-                  {savedPin.geofence_radius_meters ??
-                    DEFAULT_GEOFENCE_RADIUS_METERS}{' '}
-                  m
+                  {describeGeofenceRadius(savedPin.geofence_radius_meters)}
                 </p>
               </div>
               <div className="flex flex-wrap gap-2">
@@ -185,6 +216,9 @@ const AvatarPlaceCard = ({ assistantId, activeAvatar, onAvatarChanged }) => {
                   <Trash2 className="h-3.5 w-3.5" aria-hidden="true" />
                   Remove the pin
                 </button>
+                {canClearDeviceLocation ? (
+                  <ClearMyLocationButton placement="settings" />
+                ) : null}
               </div>
             </div>
           ) : (
@@ -216,6 +250,9 @@ const AvatarPlaceCard = ({ assistantId, activeAvatar, onAvatarChanged }) => {
                     Cancel
                   </button>
                 )}
+                {canClearDeviceLocation ? (
+                  <ClearMyLocationButton placement="settings" />
+                ) : null}
               </div>
             </div>
           )}

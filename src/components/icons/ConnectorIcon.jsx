@@ -1,18 +1,36 @@
 // src/components/icons/ConnectorIcon.jsx
 import React from 'react';
 import {
+  Bot,
   Calendar,
   Facebook,
   Globe,
   Instagram,
+  Landmark,
   Linkedin,
   Mail,
   Plug,
   Twitch,
   Youtube,
 } from 'lucide-react';
-import { FaAndroid, FaApple, FaDiscord, FaSlack, FaUbuntu, FaWindows } from 'react-icons/fa';
+import {
+  FaAndroid,
+  FaApple,
+  FaDiscord,
+  FaGithub,
+  FaSlack,
+  FaUbuntu,
+  FaWindows,
+} from 'react-icons/fa';
 import { FaXTwitter } from 'react-icons/fa6';
+import {
+  SiAnthropic,
+  SiClaude,
+  SiCoinbase,
+  SiGoogleanalytics,
+  SiLangchain,
+  SiVercel,
+} from 'react-icons/si';
 import { VscMcp } from 'react-icons/vsc';
 
 /**
@@ -56,6 +74,22 @@ const CONNECTOR_ICONS = {
   desktop: { Icon: VscMcp, tint: 'text-neutral-200', ring: 'border-white/20' },
   custom: { Icon: Plug, tint: 'text-amber-300', ring: 'border-amber-300/30' },
   url: { Icon: Globe, tint: 'text-neutral-300', ring: 'border-white/20' },
+  website: { Icon: Globe, tint: 'text-sky-300', ring: 'border-sky-300/30' },
+  github: { Icon: FaGithub, tint: 'text-neutral-200', ring: 'border-white/20' },
+  bank: { Icon: Landmark, tint: 'text-emerald-300', ring: 'border-emerald-300/30' },
+  coinbase: { Icon: SiCoinbase, tint: 'text-blue-400', ring: 'border-blue-400/30' },
+  langsmith: { Icon: SiLangchain, tint: 'text-sky-300', ring: 'border-sky-300/30' },
+  // The OpenAI mark is not in the icon set this app ships; a neutral circuit
+  // stands in so the card still names the provider at a glance.
+  openai: { Icon: Bot, tint: 'text-neutral-100', ring: 'border-white/20' },
+  anthropic: { Icon: SiAnthropic, tint: 'text-orange-200', ring: 'border-orange-200/30' },
+  vercel: { Icon: SiVercel, tint: 'text-neutral-100', ring: 'border-white/20' },
+  google_analytics: {
+    Icon: SiGoogleanalytics,
+    tint: 'text-amber-300',
+    ring: 'border-amber-300/30',
+  },
+  claude_code: { Icon: SiClaude, tint: 'text-orange-300', ring: 'border-orange-300/30' },
 };
 
 const ConnectorIcon = ({ iconKey, className = '', size = 'md' }) => {

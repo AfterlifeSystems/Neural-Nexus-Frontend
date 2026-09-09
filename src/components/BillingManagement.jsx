@@ -15,7 +15,6 @@ const BILLING_PORTAL_URL =
   import.meta.env.VITE_BILLING_PORTAL_URL ??
   'https://checkout.neuralnexus.site';
 
-<<<<<<< Updated upstream
 /**
  * The portal URL to embed, naming this page as where the customer came from.
  *
@@ -46,11 +45,6 @@ import { signInToBillingPortalFrame } from '../services/billingPortalSingleSignO
 const BillingManagement = ({ showAccountMenu = true }) => {
   const navigate = useNavigate();
   const { avatarId } = useParams();
-=======
-import UserSettingsMenu from './UserSettingsMenu';
-
-const BillingManagement = () => {
->>>>>>> Stashed changes
   const [hasLoaded, setHasLoaded] = useState(false);
   // Resolved once per mount: the frame must not be handed a new src on every
   // render, which would reload the portal underneath whoever is using it.
@@ -144,11 +138,7 @@ const BillingManagement = () => {
 
       {/* The control this page is usually reached from. Without it the menu
           vanished on arrival, leaving no way back except the sidebar. */}
-<<<<<<< Updated upstream
       {showAccountMenu && <UserSettingsMenu className="shrink-0" />}
-=======
-      <UserSettingsMenu className="shrink-0" />
->>>>>>> Stashed changes
     </div>
   );
 };

@@ -2,7 +2,13 @@
 //
 // Pull http(s) URLs out of pasted or typed text. A single field can carry
 // several, separated by whitespace, commas, or newlines (including a
-// text/uri-list drop, whose comment lines start with #).
+// text/uri-list drop, whose comment lines start with #). YouTube watch,
+// share, and short links for the same video collapse to one watch URL.
+
+import {
+  canonicalYouTubeWatchUrl,
+  mediaUrlIdentityKey,
+} from './youtubeVideoId.js';
 
 /**
  * @param {string} text Raw clipboard, input, or uri-list text.
@@ -32,9 +38,11 @@ export function parseHttpUrls(text) {
     } catch {
       continue;
     }
-    if (seen.has(href)) continue;
-    seen.add(href);
-    urls.push(href);
+    const canonical = canonicalYouTubeWatchUrl(href);
+    const key = mediaUrlIdentityKey(canonical);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    urls.push(canonical);
   }
   return urls;
 }

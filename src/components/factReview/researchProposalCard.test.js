@@ -65,3 +65,11 @@ test('accepting, editing and discarding map to the resolve endpoint', () => {
     [{ fact_id: 'f1', action: 'ignore' }]
   );
 });
+
+test('a proposal says whether the avatar holds anything on the point', () => {
+  assert.equal(researchProposalAsCard(0, PROPOSAL).has_stored_fact, true);
+  assert.equal(
+    researchProposalAsCard(1, { fact_id: 'f2', fact: 'I sail.' }).has_stored_fact,
+    false
+  );
+});

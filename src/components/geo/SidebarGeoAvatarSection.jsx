@@ -4,11 +4,15 @@
 // the local street map of the pins around the person, and the way to the world
 // globe. This is the panel form; the collapsed rail carries the same two
 // destinations as icons through AccountMenu.
+//
+// Picking an avatar on the map shows its card; Talk on the card is what opens
+// the conversation, over the live camera when the person is standing there.
 
 import { useNavigate } from 'react-router-dom';
 import { Globe, MapPin } from 'lucide-react';
 
 import { useGeoAvatars } from '../../context/GeoAvatarContext';
+import ClearMyLocationButton from './ClearMyLocationButton';
 import NearbyAvatarsMapPanel from './NearbyAvatarsMapPanel';
 import { voiceChatPath } from '../../services/voiceModePreference';
 
@@ -26,6 +30,7 @@ const SidebarGeoAvatarSection = ({ onNavigate }) => {
     position,
     locationErrorMessage,
     refreshPosition,
+    asAnonymousIdentity,
   } = useGeoAvatars();
 
   // Saying why is better than vanishing: a browser on an insecure origin used
@@ -59,7 +64,11 @@ const SidebarGeoAvatarSection = ({ onNavigate }) => {
 
   const openAvatar = (entry) => {
     onNavigate?.();
-    navigate(voiceChatPath(entry.assistant_id, { cameraBackground: true }));
+    navigate(
+      voiceChatPath(entry.assistant_id, {
+        cameraBackground: Boolean(entry.inside_geofence),
+      })
+    );
   };
 
   return (
@@ -94,11 +103,14 @@ const SidebarGeoAvatarSection = ({ onNavigate }) => {
         <span>Notify me when I reach an avatar&rsquo;s place</span>
       </label>
 
+      <ClearMyLocationButton placement="toolbar" />
+
       <NearbyAvatarsMapPanel
         nearbyAvatars={nearbyAvatars}
         position={position}
         error={locationErrorMessage}
         enabled={isWatchEnabled}
+        asAnonymousIdentity={asAnonymousIdentity}
         onRefresh={refreshPosition}
         onOpenAvatar={openAvatar}
       />

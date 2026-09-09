@@ -1,26 +1,49 @@
 import React, { useState, useEffect } from 'react';
+import { createPortal } from 'react-dom';
 import { MapPin, UserPenIcon } from 'lucide-react';
 import { toast } from 'react-hot-toast';
 import { useNavigate } from 'react-router-dom';
-import { createAvatar, listUserAvatars } from '../services/avatarService';
+import {
+  createAvatar,
+  listUserAvatars,
+  startAvatarDeepResearch,
+} from '../services/avatarService';
 import { useAuth } from '../context/AuthContext';
 import {
+  assistantIdOf,
   avatarSettingsPath,
   resolveCreatedAvatar,
 } from './createdAvatarSettings';
+import CreateAvatarPhotoField from './CreateAvatarPhotoField';
 import AvatarLocationPicker from './geo/AvatarLocationPicker';
+import { rememberResearchJob } from './research/researchJobMemory';
+import { startIdentityMediaUpload } from '../services/identityMediaJobs';
+import {
+  researchHintFromCreatePhoto,
+  resolveCreateAvatarName,
+  startCreateAvatarPhotoFollowUp,
+} from '../services/createAvatarPhoto';
 import {
   DEFAULT_GEOFENCE_RADIUS_METERS,
+  avatarIdOf,
   isValidCoordinate,
+  withPin,
 } from '../services/avatarProximity';
 
 const CreateAvatarModal = ({ setShowCreateModal }) => {
   const [error, setError] = useState(null);
   const [newAvatarName, setNewAvatarName] = useState('');
   const [newAvatarDescription, setNewAvatarDescription] = useState('');
+  const [photoFile, setPhotoFile] = useState(null);
+  // An image address used instead of a file. The server fetches it as the
+  // reference image; exactly one of `photoFile` / `photoUrl` is ever set.
+  const [photoUrl, setPhotoUrl] = useState(null);
+  const [photoPlaceSource, setPhotoPlaceSource] = useState(null);
+  const [photoPlaceError, setPhotoPlaceError] = useState('');
+  const [isResolvingPhotoPlace, setIsResolvingPhotoPlace] = useState(false);
   // An avatar may be pinned to a real-world place here, but the place is never
   // required: a memorial or a marker is often placed long after the avatar was
-  // made, from Avatar Settings.
+  // made, from Avatar Settings. A photograph of a place pins it automatically.
   const [isPinnedToAPlace, setIsPinnedToAPlace] = useState(false);
   const [geoLocation, setGeoLocation] = useState({
     latitude: undefined,
@@ -37,9 +60,39 @@ const CreateAvatarModal = ({ setShowCreateModal }) => {
     setActiveAvatar,
   } = useAuth();
 
+  const hasPhoto = Boolean(photoFile || photoUrl);
+  const resolvedName = resolveCreateAvatarName({
+    typedName: newAvatarName,
+    locationName: geoLocation.locationName,
+    hasPhoto,
+  });
+  const canCreate = Boolean(resolvedName) && !isResolvingPhotoPlace;
+
+  const handlePhotoChosen = ({ file, url, place, placeError }) => {
+    setPhotoFile(file ?? null);
+    setPhotoUrl(url ?? null);
+    setPhotoPlaceError(placeError || '');
+    setPhotoPlaceSource(place?.source ?? null);
+    if (place && isValidCoordinate(place.latitude, place.longitude)) {
+      setIsPinnedToAPlace(true);
+      setGeoLocation((previous) => ({
+        ...previous,
+        latitude: place.latitude,
+        longitude: place.longitude,
+      }));
+    }
+  };
+
+  const handleClearPhoto = () => {
+    setPhotoFile(null);
+    setPhotoUrl(null);
+    setPhotoPlaceSource(null);
+    setPhotoPlaceError('');
+  };
+
   const handleCreate = async () => {
-    if (!newAvatarName.trim()) {
-      setError('Avatar name is required');
+    if (!resolvedName) {
+      setError('Name the avatar, or take a picture of a name or place.');
       return;
     }
     if (
@@ -53,7 +106,7 @@ const CreateAvatarModal = ({ setShowCreateModal }) => {
     setError(null);
     try {
       const created = await createAvatar({
-        name: newAvatarName,
+        name: resolvedName,
         description: newAvatarDescription,
         geoLocation: isPinnedToAPlace ? geoLocation : undefined,
       });
@@ -71,15 +124,65 @@ const CreateAvatarModal = ({ setShowCreateModal }) => {
         toast.error(listError.message, { duration: 5000 });
       }
 
-      const createdAvatar = resolveCreatedAvatar({
+      let createdAvatar = resolveCreatedAvatar({
         created,
         listedAvatars,
         previousAvatars: userAvatars,
-        createdName: newAvatarName,
+        createdName: resolvedName,
       });
+      if (
+        isPinnedToAPlace &&
+        createdAvatar &&
+        isValidCoordinate(geoLocation.latitude, geoLocation.longitude)
+      ) {
+        const placed = withPin(createdAvatar, {
+          latitude: geoLocation.latitude,
+          longitude: geoLocation.longitude,
+          location_name: geoLocation.locationName?.trim() || null,
+          geofence_radius_meters: geoLocation.geofenceRadiusMeters,
+        });
+        createdAvatar = placed;
+        const createdId = avatarIdOf(placed);
+        setUserAvatars((previous) =>
+          (previous ?? []).map((candidate) =>
+            avatarIdOf(candidate) === createdId ? placed : candidate
+          )
+        );
+      }
+
+      const createdId = assistantIdOf(createdAvatar);
+      if (hasPhoto && createdId) {
+        // The photograph is ingested after the dialog closes. Settings shows
+        // the portrait and document jobs; research starts once the picture
+        // has been read as identity media. A link is fetched by the server.
+        void startCreateAvatarPhotoFollowUp({
+          assistantId: createdId,
+          photoFile,
+          photoUrl,
+          researchHint: researchHintFromCreatePhoto({
+            name: resolvedName,
+            locationName: geoLocation.locationName,
+            latitude: geoLocation.latitude,
+            longitude: geoLocation.longitude,
+            imageUrl: photoUrl,
+          }),
+          uploadIdentityMedia: startIdentityMediaUpload,
+          startResearch: startAvatarDeepResearch,
+          rememberJob: rememberResearchJob,
+        }).catch((followUpError) => {
+          console.error('Create-from-photo follow-up failed:', followUpError);
+          toast.error(
+            followUpError?.message ||
+              'The photograph could not be processed. Add it again in Settings.'
+          );
+        });
+      }
+
       setShowCreateModal(false);
       setNewAvatarName('');
       setNewAvatarDescription('');
+      setPhotoFile(null);
+      setPhotoUrl(null);
 
       const settingsPath = avatarSettingsPath(createdAvatar);
       if (settingsPath) {
@@ -90,8 +193,6 @@ const CreateAvatarModal = ({ setShowCreateModal }) => {
           setActiveAvatar(createdAvatar);
         }
         try {
-          const createdId =
-            createdAvatar.assistant_id ?? createdAvatar.avatar_id;
           if (createdId) {
             localStorage.setItem('last_used_avatar_id', createdId);
           }
@@ -121,14 +222,21 @@ const CreateAvatarModal = ({ setShowCreateModal }) => {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [setShowCreateModal]);
 
-  return (
+  if (typeof document === 'undefined') return null;
+
+  // Rendered into `document.body`, like `ui/Modal`. The signed-in page frame
+  // (ProtectedRoute) is `relative z-10`, a stacking context, so an overlay
+  // rendered inline is confined below the `z-40` sidebar rail no matter how
+  // high its own z-index is. On a phone the 90vw card reaches under the rail
+  // and its left edge is hidden; from body the overlay covers the rail too.
+  return createPortal(
     <div
       className="fixed inset-0 bg-black/60 backdrop-blur-lg rounded-2xl border border-white/10 bg-opacity-75 flex items-center justify-center z-50"
       type="dialog"
       aria-modal="true"
       aria-labelledby="create-avatar-title"
     >
-      <div className="bg-gray/20 p-4 sm:p-6 rounded-lg w-[90vw] sm:w-96 max-w-full">
+      <div className="bg-gray/20 p-4 sm:p-6 rounded-lg w-[90vw] sm:w-[28rem] max-w-full max-h-[90vh] overflow-y-auto">
         <h2
           id="create-avatar-title"
           className="text-xl font-semibold mb-4 text-neutral-200"
@@ -143,16 +251,32 @@ const CreateAvatarModal = ({ setShowCreateModal }) => {
             {error}
           </div>
         )}
+        <CreateAvatarPhotoField
+          file={photoFile}
+          url={photoUrl}
+          placeSource={photoPlaceSource}
+          placeError={photoPlaceError}
+          disabled={isLoading}
+          onBusyChange={setIsResolvingPhotoPlace}
+          onChosen={handlePhotoChosen}
+          onClear={handleClearPhoto}
+        />
         <label className="block mb-2 text-xl sm:text-2xl text-neutral-300">
           Name
           <input
             type="text"
             value={newAvatarName}
             onChange={(e) => setNewAvatarName(e.target.value)}
-            placeholder="Name the Avatar"
+            placeholder={
+              photoFile
+                ? 'Name on the sign'
+                : photoUrl
+                  ? 'Name'
+                  : 'Name the Avatar'
+            }
             className="w-full p-2 mt-1 rounded bg-black/60 text-neutral-200 border border-neutral-700 focus:outline-none focus:ring-2 focus:ring-amber-400/50 transition-all duration-300"
             autoFocus
-            aria-required="true"
+            aria-required={!photoFile}
             disabled={isLoading}
           />
         </label>
@@ -185,8 +309,9 @@ const CreateAvatarModal = ({ setShowCreateModal }) => {
             </span>
           </label>
           <p className="mt-1 ml-6 text-xs text-white/40">
-            A pinned avatar appears on the world map, and greets anyone who walks
-            up to the place. You can add or move the place later.
+            {photoFile
+              ? 'A photograph pins the avatar where it was taken. You can move or clear the pin.'
+              : 'A pinned avatar appears on your world map. Share it to list it for everyone else. Someone who walks up to the place sees it over their camera. You can add, move, or remove the place later.'}
           </p>
           {isPinnedToAPlace && (
             <div className="mt-3">
@@ -208,13 +333,14 @@ const CreateAvatarModal = ({ setShowCreateModal }) => {
           <button
             onClick={handleCreate}
             className="px-4 py-2 rounded bg-black/60 text-neutral-200 border border-neutral-700 hover:bg-neutral-900 focus:outline-none focus:ring-2 focus:ring-amber-400/50 transition-all duration-300 transform hover:scale-105 disabled:opacity-50"
-            disabled={isLoading || !newAvatarName.trim()}
+            disabled={isLoading || !canCreate}
           >
             {isLoading ? 'Creating...' : 'Create'}
           </button>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body
   );
 };
 

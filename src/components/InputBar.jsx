@@ -1,11 +1,6 @@
 import { useRef, useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import {
-  AudioLines,
-  Square,
-  Paperclip,
-  Plus,
-} from 'lucide-react';
+import { AudioLines, Paperclip, Plus } from 'lucide-react';
 import { useMedia } from '../context/MediaContext';
 import { useAuth } from '../context/AuthContext';
 import ComposerConnectorsMenu from './connections/ComposerConnectorsMenu';
@@ -33,14 +28,17 @@ const InputBar = ({
 
   // The keyboard hints in the placeholder wrap to three lines on a phone and
   // push the composer up the screen; a phone has no Ctrl key anyway.
-  const [isNarrowViewport, setIsNarrowViewport] = useState(() =>
-    typeof window !== 'undefined' && window.matchMedia('(max-width: 640px)').matches
+  const [isNarrowViewport, setIsNarrowViewport] = useState(
+    () =>
+      typeof window !== 'undefined' &&
+      window.matchMedia('(max-width: 640px)').matches
   );
   useEffect(() => {
     const narrowViewportQuery = window.matchMedia('(max-width: 640px)');
     const updateViewport = (event) => setIsNarrowViewport(event.matches);
     narrowViewportQuery.addEventListener('change', updateViewport);
-    return () => narrowViewportQuery.removeEventListener('change', updateViewport);
+    return () =>
+      narrowViewportQuery.removeEventListener('change', updateViewport);
   }, []);
 
   // What this person has sent to this avatar, for Ctrl+↑ / Ctrl+↓ recall. Kept
@@ -93,13 +91,7 @@ const InputBar = ({
     stopThoughtToImage,
     dataExchangeTypes,
     attachmentsInFlight,
-    stopAssistantTurn,
-    stoppableTurnCount,
   } = useMedia();
-  // While the avatar is answering, the send button is a Stop button. Enter
-  // still sends — a second message can be queued behind the reply — but the
-  // button's one job during a reply is to end it.
-  const isReplyStoppable = (stoppableTurnCount ?? 0) > 0;
 
   // Typed text or an attached file is a message. A live webcam or screen
   // share is not: those stay on while talking, so an empty box still offers
@@ -230,29 +222,23 @@ const InputBar = ({
   //   };
   // }, [mediaFiles.length]);
 
+  // The button never turns into Stop while the avatar is replying: an empty
+  // box must always be able to open voice mode, even mid-reply.
   const submitComposer = () => {
-    if (isReplyStoppable) {
-      stopAssistantTurn?.();
-    } else if (!hasSomethingToSend) {
+    if (!hasSomethingToSend) {
       onActivateLiveChat?.();
     } else {
       handleSendMessage();
     }
   };
 
-  const composerButtonTitle = isReplyStoppable
-    ? 'Stop generating'
-    : hasSomethingToSend
-      ? 'Send message'
-      : 'Talk out loud';
-  const composerButtonLabel = isReplyStoppable
-    ? 'Stop generating'
-    : hasSomethingToSend
-      ? 'Send message'
-      : 'Enter live mode';
-  const emptyComposerControl = (
-    <AudioLines className="w-4 h-4 sm:w-5 sm:h-5" />
-  );
+  const composerButtonTitle = hasSomethingToSend
+    ? 'Send message'
+    : 'Talk out loud';
+  const composerButtonLabel = hasSomethingToSend
+    ? 'Send message'
+    : 'Enter live mode';
+  const emptyComposerControl = <AudioLines className="w-4 h-4 sm:w-5 sm:h-5" />;
   return (
     <div
       className="chat-composer w-full max-w-3xl mx-auto min-w-0 rounded-xl flex flex-col"
@@ -274,6 +260,7 @@ const InputBar = ({
 
           <textarea
             ref={textareaRef}
+            data-composer-input
             rows={1}
             style={{ lineHeight: '1.5rem', maxHeight: '9rem' }}
             className="w-full min-w-0 resize-none overflow-y-auto max-h-40 px-3 py-2 text-neutral-200 bg-transparent placeholder-neutral-400 scrollbar-thin scrollbar-thumb-neutral-600 focus:outline-none border-none"
@@ -336,16 +323,10 @@ const InputBar = ({
               onClick={submitComposer}
               title={composerButtonTitle}
               aria-label={composerButtonLabel}
-              data-composer-action={isReplyStoppable ? 'stop' : 'send'}
+              data-composer-action="send"
               className="chat-send ml-auto sm:hidden shrink-0 rounded-lg text-neutral-200 bg-black/60 border border-neutral-700"
             >
-              {isReplyStoppable ? (
-                <Square className="w-4 h-4 fill-current" />
-              ) : hasSomethingToSend ? (
-                'Send'
-              ) : (
-                emptyComposerControl
-              )}
+              {hasSomethingToSend ? 'Send' : emptyComposerControl}
             </button>
           </div>
 
@@ -375,19 +356,10 @@ const InputBar = ({
           onClick={submitComposer}
           title={composerButtonTitle}
           aria-label={composerButtonLabel}
-          data-composer-action={isReplyStoppable ? 'stop' : 'send'}
+          data-composer-action="send"
           className="chat-send hidden sm:flex shrink-0 rounded-xl text-neutral-200 bg-black/60 border border-neutral-700 hover:border-neutral-200 items-center justify-center gap-2 whitespace-nowrap self-stretch"
         >
-          {isReplyStoppable ? (
-            <>
-              <Square className="w-4 h-4 fill-current" />
-              Stop
-            </>
-          ) : hasSomethingToSend ? (
-            'Send'
-          ) : (
-            emptyComposerControl
-          )}
+          {hasSomethingToSend ? 'Send' : emptyComposerControl}
         </button>
       </div>
     </div>

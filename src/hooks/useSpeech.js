@@ -2,9 +2,11 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { toast } from 'react-hot-toast';
 import { showRequestFailureToast } from '../components/requestFailureToast';
-import { showVoiceNotReadyToast } from '../components/showVoiceNotReadyToast';
 import { speakText } from '../services/avatarService';
-import { speakFailureKind } from '../services/voiceSpeakFailure';
+import {
+  speakFailureKind,
+  speakFailureReason,
+} from '../services/voiceSpeakFailure';
 
 /**
  * Speak text in the avatar's cloned voice, one utterance at a time.
@@ -19,14 +21,16 @@ import { speakFailureKind } from '../services/voiceSpeakFailure';
  * reported through `blocked` and NOT toasted — a notice on every reply would
  * repeat something the reader can do nothing about, and live voice mode
  * answers in text. The settings Voice panel is where the ban is explained.
- * Only a voice that has not yet been uploaded gets the missing-voice-model
- * toast (once, with a route to settings). Every other failure is toasted as a
- * failed utterance — a speak button that spins and then does nothing at all
- * leaves the reader with no way to tell a broken voice from a silent one.
+ * A missing clone surfaces as `notReady` so live voice mode can prompt once
+ * per conversation to create a voice model. This hook does not toast that
+ * case: a speak button in the transcript would otherwise repeat the same
+ * notice, and "the avatar could not speak that message" is the wrong
+ * sentence. Every other failure is toasted as a failed utterance — a speak
+ * button that spins and then does nothing at all leaves the reader with no
+ * way to tell a broken voice from a silent one.
  *
  * @param {Object} [options]
  * @param {boolean} [options.asAnonymousIdentity] Public chat: withhold the credential.
- * @param {string} [options.avatarName] Shown on the missing-voice-model toast.
  * @returns {{
  *   speak: (assistantId: string, text: string, handlers?: {onStart?: Function, onEnd?: Function}) => Promise<boolean>,
  *   stop: () => void,
@@ -38,7 +42,6 @@ import { speakFailureKind } from '../services/voiceSpeakFailure';
  */
 export default function useSpeech({
   asAnonymousIdentity = false,
-  avatarName,
 } = {}) {
   const audioRef = useRef(null);
   const objectUrlRef = useRef(null);
@@ -152,20 +155,33 @@ export default function useSpeech({
         } else if (kind === 'billing') {
           showRequestFailureToast(speakError);
         } else if (kind === 'not_ready') {
-          const collectedSeconds = speakError?.body?.collected_seconds ?? 0;
+          const body = speakError?.body;
+          const nested =
+            body?.detail && typeof body.detail === 'object' ? body.detail : null;
+          const collectedSeconds =
+            body?.collected_seconds ?? nested?.collected_seconds ?? 0;
           setNotReady({
             collectedSeconds,
-            minimumSeconds: speakError?.body?.instant_minimum_seconds ?? 60,
-            detail: speakError?.body?.detail ?? speakError?.message,
-          });
-          showVoiceNotReadyToast({
-            assistantId,
-            avatarName,
-            collectedSeconds,
+            minimumSeconds:
+              body?.instant_minimum_seconds ??
+              nested?.instant_minimum_seconds ??
+              60,
+            detail:
+              (typeof body?.detail === 'string' && body.detail) ||
+              speakError?.message,
           });
         } else {
           console.error('Speech failed:', speakError);
-          toast.error('The avatar could not speak that message.');
+          // Say why when the server said why. "Could not speak" on its own
+          // gives the reader nothing to act on; a 502 from the voice vendor,
+          // a network drop and an expired session all read the same.
+          const reason = speakFailureReason(speakError);
+          toast.error(
+            reason
+              ? `The avatar could not speak that message: ${reason}`
+              : 'The avatar could not speak that message.',
+            { id: 'avatar-speak-failed' }
+          );
         }
         setIsSpeaking(false);
         setSpeakingKey(null);
@@ -173,7 +189,7 @@ export default function useSpeech({
         return false;
       }
     },
-    [asAnonymousIdentity, avatarName, blocked, release, stop]
+    [asAnonymousIdentity, blocked, release, stop]
   );
 
   return { speak, stop, isSpeaking, speakingKey, notReady, blocked };

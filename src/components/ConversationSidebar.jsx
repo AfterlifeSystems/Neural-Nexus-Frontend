@@ -8,7 +8,6 @@
 // account links buried on another.
 
 import React from 'react';
-<<<<<<< Updated upstream
 import {
   MessageSquarePlus,
   MoreHorizontal,
@@ -20,16 +19,12 @@ import {
   PanelLeftOpen,
   User,
 } from 'lucide-react';
-=======
-import { MessageSquarePlus, X, PanelLeftOpen, User } from 'lucide-react';
->>>>>>> Stashed changes
 import { useLocation, useNavigate } from 'react-router-dom';
 
 import { NEW_CONVERSATION_ID } from '../context/MediaContext';
 import { useMedia } from '../context/MediaContext';
 import { useAuth } from '../context/AuthContext';
 import { isValidImageUrl } from './utils';
-<<<<<<< Updated upstream
 import AccountMenu, {
   usePersonalAvatarWorkspaceNavigation,
 } from './AccountMenu';
@@ -40,10 +35,6 @@ import SharePreviewSlot from './SharePreviewSlot';
 import SidebarShareControls from './SidebarShareControls';
 import EvanAssistLauncher from './evanAssist/EvanAssistLauncher';
 import SidebarGeoAvatarSection from './geo/SidebarGeoAvatarSection';
-=======
-import AccountMenu from './AccountMenu';
-import qrCode from '../assets/qr-neuralnexus-transparent.png';
->>>>>>> Stashed changes
 
 /**
  * Name a conversation the way the user would recognize it.
@@ -297,11 +288,6 @@ const ConversationSidebar = ({
   // that depicts them. Settings stay on the account-menu entry.
   const openPersonalAvatarChat = usePersonalAvatarWorkspaceNavigation(onClose);
 
-  const openWelcomePage = () => {
-    onClose?.();
-    navigate('/welcome');
-  };
-
   // The unsent conversation is not in the server's list, so it is prepended
   // here — otherwise starting one would empty the panel's selection.
   const listedConversations =
@@ -369,7 +355,6 @@ const ConversationSidebar = ({
           >
             <PanelLeftOpen className="w-4 h-4" />
           </button>
-<<<<<<< Updated upstream
           {showConversations && (
             <button
               onClick={(clickEvent) => {
@@ -422,25 +407,6 @@ const ConversationSidebar = ({
               </span>
             </button>
           </div>
-=======
-
-          {/* The code stays reachable while the sidebar is collapsed: `mt-auto`
-              seats it at the foot of the rail, which is the one part of the
-              edge nothing else occupies. It used to float over the page here,
-              where on a narrow window it covered the composer's send button. */}
-          <button
-            onClick={openWelcomePage}
-            className="mt-auto p-1 rounded-lg opacity-50 hover:opacity-100 hover:bg-white/10 transition-all duration-300 focus:outline-none focus:ring-2 focus:ring-teal-400 focus:opacity-100"
-            aria-label="Neural Nexus — scan or open the welcome page"
-            title="Scan to share Neural Nexus, or press to open the welcome page"
-          >
-            <img
-              src={qrCode}
-              alt="QR code linking to Neural Nexus"
-              className="w-10 h-10"
-            />
-          </button>
->>>>>>> Stashed changes
         </div>
       )}
 
@@ -512,7 +478,6 @@ const ConversationSidebar = ({
               </div>
             )}
 
-<<<<<<< Updated upstream
             <SidebarGeoAvatarSection onNavigate={onClose} />
 
             {showConversations && (
@@ -614,28 +579,6 @@ const ConversationSidebar = ({
                 Scan to share Neural Nexus
               </span>
             </div>
-=======
-          {/* Opened, the code is shown at a size worth pointing a phone at.
-              `mt-auto` holds it at the foot of the panel on the screens that
-              list no conversations — account settings, billing, the gallery —
-              where nothing above it grows to fill the space. */}
-          <div className="mt-auto shrink-0 pt-4 border-t border-white/10 flex flex-col items-center gap-2">
-            <button
-              onClick={openWelcomePage}
-              className="rounded-xl p-2 bg-white/5 border border-white/10 hover:border-teal-400/40 hover:bg-white/10 transition-colors focus:outline-none focus:ring-2 focus:ring-teal-400"
-              aria-label="Neural Nexus — scan or open the welcome page"
-              title="Scan to share Neural Nexus, or press to open the welcome page"
-            >
-              <img
-                src={qrCode}
-                alt="QR code linking to Neural Nexus"
-                className="w-24 h-24"
-              />
-            </button>
-            <span className="text-xs text-white/40">
-              Scan to share Neural Nexus
-            </span>
->>>>>>> Stashed changes
           </div>
         </div>
       </div>

@@ -6,31 +6,39 @@
 //
 // The panel draws whatever the watcher has already found, so it never starts a
 // second position watch of its own.
+//
+// Picking an avatar — a pin on the map or a row in the list — does not open
+// it. It shows the avatar's card (portrait, description, place) with Talk on
+// it, so the person can see who is standing there before deciding to speak.
 
-import { Fragment, useMemo } from 'react';
+import { Fragment, useMemo, useState } from 'react';
 import { Circle, MapContainer, Marker, Popup, TileLayer } from 'react-leaflet';
 import { Compass, MapPin, RefreshCw } from 'lucide-react';
 
 import { MAP_TILE_ATTRIBUTION, MAP_TILE_URL } from '../../config/maps';
-import { describeDistance } from '../../services/avatarProximity';
-import { avatarPinIcon, devicePositionIcon } from './avatarPinMarker';
+import { describeDistance, pinOf } from '../../services/avatarProximity';
+import { mapMarkOf } from '../../services/avatarMapMark';
+import { devicePositionIcon, labeledPinIcon } from './avatarPinMarker';
+import AvatarMapCard from './AvatarMapCard';
 import 'leaflet/dist/leaflet.css';
 import './leafletMapStyles.css';
 
 /**
  * @param {Object} props
- * @param {Array} props.nearbyAvatars Entries from the watcher: {assistant_id, name, geo_location, distance_meters, inside_geofence}.
+ * @param {Array} props.nearbyAvatars Entries from the watcher: {assistant_id, name, description, geo_location, distance_meters, inside_geofence}.
  * @param {Object|null} props.position Where the device is: {latitude, longitude, accuracyMeters}.
  * @param {string} props.error A sentence to show when locating failed.
  * @param {boolean} props.enabled Whether the person has the watch turned on.
+ * @param {boolean} [props.asAnonymousIdentity] Fetch portraits as the visitor.
  * @param {() => void} props.onRefresh Read the position again now.
- * @param {(entry: Object) => void} props.onOpenAvatar Open one avatar.
+ * @param {(entry: Object) => void} props.onOpenAvatar Open one avatar (the card's Talk).
  */
 const NearbyAvatarsMapPanel = ({
   nearbyAvatars = [],
   position,
   error,
   enabled,
+  asAnonymousIdentity = false,
   onRefresh,
   onOpenAvatar,
 }) => {
@@ -38,6 +46,13 @@ const NearbyAvatarsMapPanel = ({
     () => (position ? [position.latitude, position.longitude] : null),
     [position]
   );
+  const [selectedAssistantId, setSelectedAssistantId] = useState(null);
+  // An avatar the watch no longer lists (the person walked away, the watch
+  // was turned off) is no longer something to pick; the card goes with it.
+  const selectedAvatar =
+    nearbyAvatars.find((entry) => entry.assistant_id === selectedAssistantId) ??
+    null;
+  const selectAvatar = (entry) => setSelectedAssistantId(entry.assistant_id);
 
   if (!enabled) {
     return (
@@ -50,17 +65,36 @@ const NearbyAvatarsMapPanel = ({
   return (
     <div className="space-y-2">
       {center ? (
-        <div className="h-44 w-full overflow-hidden rounded-lg border border-white/10">
+        <div className="neural-nexus-minimap-frame relative h-44 w-full overflow-hidden rounded-xl border border-amber-300/20 bg-black/70">
+          <span
+            className="pointer-events-none absolute left-1.5 top-1.5 z-20 h-2.5 w-2.5 border-l border-t border-amber-300/40"
+            aria-hidden="true"
+          />
+          <span
+            className="pointer-events-none absolute right-1.5 top-1.5 z-20 h-2.5 w-2.5 border-r border-t border-amber-300/40"
+            aria-hidden="true"
+          />
+          <span
+            className="pointer-events-none absolute bottom-1.5 left-1.5 z-20 h-2.5 w-2.5 border-b border-l border-amber-300/40"
+            aria-hidden="true"
+          />
+          <span
+            className="pointer-events-none absolute bottom-1.5 right-1.5 z-20 h-2.5 w-2.5 border-b border-r border-amber-300/40"
+            aria-hidden="true"
+          />
           <MapContainer
             center={center}
-            zoom={16}
+            zoom={18}
+            minZoom={2}
+            maxZoom={19}
             scrollWheelZoom={false}
-            className="neural-nexus-map h-full w-full"
+            zoomControl={false}
+            className="neural-nexus-map neural-nexus-minimap h-full w-full"
           >
             <TileLayer url={MAP_TILE_URL} attribution={MAP_TILE_ATTRIBUTION} />
             <Marker position={center} icon={devicePositionIcon} />
             {nearbyAvatars.map((entry) => {
-              const pin = entry.geo_location;
+              const pin = pinOf(entry);
               if (!pin) return null;
               return (
                 <Fragment key={entry.assistant_id}>
@@ -75,8 +109,11 @@ const NearbyAvatarsMapPanel = ({
                   />
                   <Marker
                     position={[pin.latitude, pin.longitude]}
-                    icon={avatarPinIcon}
-                    eventHandlers={{ click: () => onOpenAvatar?.(entry) }}
+                    icon={labeledPinIcon({
+                      initials: mapMarkOf(entry).initials,
+                      owned: false,
+                    })}
+                    eventHandlers={{ click: () => selectAvatar(entry) }}
                   >
                     <Popup>
                       <span className="font-medium">{entry.name}</span>
@@ -87,6 +124,10 @@ const NearbyAvatarsMapPanel = ({
               );
             })}
           </MapContainer>
+          <div
+            className="neural-nexus-minimap-vignette pointer-events-none absolute inset-0 z-10"
+            aria-hidden="true"
+          />
         </div>
       ) : (
         <p className="px-1 text-xs text-white/50">
@@ -96,13 +137,26 @@ const NearbyAvatarsMapPanel = ({
 
       {error && <p className="px-1 text-xs text-red-300">{error}</p>}
 
+      {selectedAvatar ? (
+        <AvatarMapCard
+          avatar={selectedAvatar}
+          asAnonymousIdentity={asAnonymousIdentity}
+          compact
+          onTalk={() => onOpenAvatar?.(selectedAvatar)}
+          onClose={() => setSelectedAssistantId(null)}
+        />
+      ) : null}
+
       <ul className="space-y-1">
         {nearbyAvatars.map((entry) => (
           <li key={entry.assistant_id}>
             <button
               type="button"
-              onClick={() => onOpenAvatar?.(entry)}
-              className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-xs text-neutral-200 hover:bg-white/5 focus:outline-none focus:ring-2 focus:ring-amber-400/50"
+              onClick={() => selectAvatar(entry)}
+              aria-pressed={entry.assistant_id === selectedAssistantId}
+              className={`flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-xs text-neutral-200 hover:bg-white/5 focus:outline-none focus:ring-2 focus:ring-amber-400/50 ${
+                entry.assistant_id === selectedAssistantId ? 'bg-white/5' : ''
+              }`}
             >
               <MapPin
                 className={`h-3.5 w-3.5 shrink-0 ${

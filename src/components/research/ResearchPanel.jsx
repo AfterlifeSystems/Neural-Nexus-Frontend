@@ -43,6 +43,7 @@ import {
   forgetResearchJob,
   readRememberedResearchJob,
   rememberResearchJob,
+  subscribeResearchJobs,
 } from './researchJobMemory';
 
 /**
@@ -90,6 +91,23 @@ const ResearchPanel = ({ assistantId, avatarName, onFactsApplied }) => {
   useEffect(() => {
     loadProposals();
   }, [loadProposals]);
+
+  // A job started after this panel mounted (create-from-photo ingest, then
+  // research) is remembered in the same tab. Pick it up so the progress
+  // stream starts without a reload.
+  useEffect(() => {
+    return subscribeResearchJobs((changedAssistantId) => {
+      if (changedAssistantId !== assistantId) return;
+      const remembered = readRememberedResearchJob(assistantId);
+      if (!remembered) return;
+      setJob((current) => {
+        if (current?.id === remembered && current.assistantId === assistantId) {
+          return current;
+        }
+        return { assistantId, id: remembered };
+      });
+    });
+  }, [assistantId]);
 
   // Follow the running job — the one started here, or one still running from
   // before the page reloaded — and reload the review list when it finishes.
@@ -195,12 +213,22 @@ const ResearchPanel = ({ assistantId, avatarName, onFactsApplied }) => {
     [proposals]
   );
 
+  // A fresh decision for one card: the researched wording is carried into the
+  // editable window, so the owner reads and edits the version the research
+  // actually proposes instead of an empty box. The action still starts on
+  // "decide later" — filling the text in is not choosing to accept it.
+  const initialDecisionFor = (card) => ({
+    action: 'skip',
+    correctedText: card.suggested_edit_fact_content ?? '',
+    correctedContext: card.suggested_edit_fact_context ?? '',
+  });
+
   const setEveryDecision = (action) => {
     setDecisions(
       Object.fromEntries(
-        proposals.map((_proposal, index) => [
-          index,
-          { action, correctedText: '', correctedContext: '' },
+        proposalCards.map((card) => [
+          card.index,
+          { ...initialDecisionFor(card), action },
         ])
       )
     );
@@ -302,13 +330,7 @@ const ResearchPanel = ({ assistantId, avatarName, onFactsApplied }) => {
               <FactReviewCard
                 key={card.key}
                 match={card}
-                decision={
-                  decisions[card.index] ?? {
-                    action: 'skip',
-                    correctedText: '',
-                    correctedContext: '',
-                  }
-                }
+                decision={decisions[card.index] ?? initialDecisionFor(card)}
                 actionLabels={RESEARCH_ACTION_LABELS}
                 onChange={(next) =>
                   setDecisions((previous) => ({ ...previous, [card.index]: next }))

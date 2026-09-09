@@ -20,10 +20,10 @@ import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import useEmotionMedia, { stillFor } from '../hooks/useEmotionMedia';
 import useAvatarFaceSource from '../hooks/useAvatarFaceSource';
 import { subscribeAvatarPortraitChanged } from '../services/avatarPortraitEvents';
+import { useGeoAvatars } from '../context/GeoAvatarContext';
 import {
   consumeVoiceModeSearchParams,
   readVoiceModePreference,
-  searchRequestsCameraBackground,
   searchRequestsVoiceMode,
   voiceModeIsOpen,
   writeVoiceModePreference,
@@ -62,13 +62,10 @@ const ChatArea = ({ onActivateLiveChat, onEndLiveChat, className }) => {
     setPrefersVoiceMode(preferred);
     writeVoiceModePreference(preferred);
   };
-  // `?camera=1` accompanies `?voice=1` when someone has walked up to a
-  // geo-located avatar's place: the avatar opens over the live camera, so it
-  // appears in the place they are standing in. Read before the first paint for
-  // the same reason the voice query is, and stripped with it.
-  const [opensOverTheCamera] = useState(() =>
-    searchRequestsCameraBackground(searchParams)
-  );
+  // The live camera belongs only to a person who is standing at this avatar's
+  // place. A `?camera=1` on the URL is leftover navigation from a nearby
+  // toast; arrival is decided by the shared position watch, not the query.
+  const { isStandingAt } = useGeoAvatars();
   // const [activeTab, setActiveTab] = useState('avatar-settings');
   const [activeTab, setActiveTab] = useState(() => {
     if (searchRequestsVoiceMode(searchParams)) return 'chat';
@@ -97,6 +94,7 @@ const ChatArea = ({ onActivateLiveChat, onEndLiveChat, className }) => {
   const inboxCount = useInboxCount();
   const isLiveModeOpen = voiceModeIsOpen(prefersVoiceMode, activeTab);
   const openAvatarId = activeAvatar?.assistant_id ?? activeAvatar?.avatar_id;
+  const opensOverTheCamera = isStandingAt(openAvatarId);
   const routeAvatarIsResolved = !avatarId || openAvatarId === avatarId;
   // A visitor who was already on the settings tab when the avatar changed must
   // not be left looking at controls that no longer belong to them. The inbox
@@ -407,7 +405,6 @@ const ChatArea = ({ onActivateLiveChat, onEndLiveChat, className }) => {
                 {/* Same width as the composer below (InputBar is max-w-3xl
                   mx-auto). Without it the transcript ran the full width of the
                   window while the input sat centred beneath it. */}
-<<<<<<< Updated upstream
                 <div className="w-full max-w-3xl mx-auto min-w-0">
                   <MessageList
                     messages={messages} // Pass messages array directly
@@ -423,14 +420,6 @@ const ChatArea = ({ onActivateLiveChat, onEndLiveChat, className }) => {
                 <InputBar
                   avatarId={activeAvatar?.assistant_id ?? avatarId}
                   onActivateLiveChat={() => rememberVoiceModePreference(true)}
-=======
-              <div className="w-full max-w-3xl mx-auto">
-                <MessageList
-                  messages={messages} // Pass messages array directly
-                  messagesEndRef={messagesEndRef}
-                  avatarPortrait={avatarPortrait}
-                  avatarName={activeAvatar?.name}
->>>>>>> Stashed changes
                 />
               </div>
             </div>

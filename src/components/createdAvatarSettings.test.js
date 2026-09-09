@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import {
+  assistantIdOf,
   avatarSettingsPath,
   resolveCreatedAvatar,
   unwrapCreatedAvatarRecord,
@@ -16,6 +17,14 @@ const listedGuide = {
   name: 'Guide',
   metadata: { user_id: 'owner-1' },
 };
+
+test('assistantIdOf reads the id from a record, a nested metadata field, or a string', () => {
+  assert.equal(assistantIdOf(listedMaya), 'maya-1');
+  assert.equal(assistantIdOf({ avatar_id: 'avatar-2' }), 'avatar-2');
+  assert.equal(assistantIdOf({ metadata: { assistant_id: 'meta-3' } }), 'meta-3');
+  assert.equal(assistantIdOf('  minted-9  '), 'minted-9');
+  assert.equal(assistantIdOf({ name: 'No Id' }), null);
+});
 
 test('unwraps a bare assistant record or a nested create payload', () => {
   assert.deepEqual(unwrapCreatedAvatarRecord(listedMaya), listedMaya);

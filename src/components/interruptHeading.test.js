@@ -9,6 +9,8 @@ test('a correction reads as a correction', () => {
   const many = interruptHeadingFor({ correctionKind: 'fact_correction', matchCount: 3 });
   assert.match(many.heading, /3 stored items that might match/);
   assert.match(many.guidance, /pre-selected to my recommendation/);
+  assert.match(many.guidance, /avatar settings/);
+  assert.match(many.guidance, /talking and typing/);
 });
 
 test('a researched contradiction asks which version is true', () => {
@@ -25,6 +27,7 @@ test('a researched contradiction asks which version is true', () => {
   // The owner must not be told these are pre-selected: nothing is.
   assert.doesNotMatch(many.guidance, /pre-selected/);
   assert.match(many.guidance, /already learned/);
+  assert.match(many.guidance, /avatar settings/);
 });
 
 test('an unknown kind falls back to the correction wording', () => {

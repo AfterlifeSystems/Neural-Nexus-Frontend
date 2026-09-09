@@ -1,14 +1,17 @@
 // src/components/inbox/InboxPanel.jsx
 import React, { useCallback, useEffect, useState } from 'react';
 import { toast } from 'react-hot-toast';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useParams } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
 import { resolvePersonalAvatarId } from '../AccountMenu';
 import LoadingSpinner from '../LoadingSpinner';
+import Modal from '../ui/Modal';
+import ReportCard from '../reports/ReportCard';
 import {
   Bell,
   BellRing,
   Check,
+  FileBarChart,
   Inbox,
   Loader2,
   Mail,
@@ -19,6 +22,7 @@ import {
 } from 'lucide-react';
 import {
   decideInboxItem,
+  getReport,
   listInboxItems,
   pollInbox,
 } from '../../services/avatarService';
@@ -49,12 +53,15 @@ const formatWhen = (value) => {
 /**
  * One inbox item: what came in, what the avatar proposes, and the owner's controls.
  */
-const InboxItemCard = ({ item, onDecide, isBusy }) => {
+const InboxItemCard = ({ item, onDecide, onOpenReport, isBusy }) => {
   const [isEditing, setIsEditing] = useState(false);
   const [editedBody, setEditedBody] = useState(item.draft ?? '');
   const [replyText, setReplyText] = useState('');
   const isReply = item.decision === 'respond';
   const isOpen = item.state === 'pending_owner';
+  // A report the avatar wrote (a scheduled analysis, an audit) and brought
+  // here: the item opens the report, and "Got it" is the whole decision.
+  const isReport = item.source_kind === 'report';
   const confidence = item.confidence != null ? Math.round(item.confidence * 100) : null;
 
   return (
@@ -95,6 +102,20 @@ const InboxItemCard = ({ item, onDecide, isBusy }) => {
         <blockquote className="text-neutral-300 text-sm whitespace-pre-wrap border-l-2 border-white/10 pl-3 max-h-40 overflow-y-auto">
           {item.snippet}
         </blockquote>
+      )}
+
+      {isReport && (
+        <div>
+          <button
+            type="button"
+            disabled={isBusy}
+            onClick={() => onOpenReport?.(item)}
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white/5 hover:bg-white/10 border border-white/10 text-neutral-200 text-sm disabled:opacity-50"
+          >
+            <FileBarChart className="w-4 h-4" aria-hidden="true" />
+            Open report
+          </button>
+        </div>
       )}
 
       {isReply && item.draft && (
@@ -171,6 +192,7 @@ const InboxItemCard = ({ item, onDecide, isBusy }) => {
                 <Check className="w-4 h-4" aria-hidden="true" />
                 Got it
               </button>
+              {!isReport && (
               <div className="flex items-center gap-1 flex-grow min-w-[12rem]">
                 <input
                   type="text"
@@ -189,6 +211,7 @@ const InboxItemCard = ({ item, onDecide, isBusy }) => {
                   <Send className="w-4 h-4" aria-hidden="true" />
                 </button>
               </div>
+              )}
             </>
           )}
           <button
@@ -225,8 +248,52 @@ const InboxItemCard = ({ item, onDecide, isBusy }) => {
  */
 const InboxPanel = ({ embedded = false }) => {
   const navigate = useNavigate();
+  const { avatarId: routeAvatarId } = useParams();
   const { userAvatars } = useAuth();
   const [items, setItems] = useState([]);
+  // The report an item opened: `{isLoading, report, title}` while the report
+  // is fetched and shown in a modal over the inbox, or null.
+  const [reportModal, setReportModal] = useState(null);
+
+  /**
+   * Open the report an inbox item points at, in a modal over the inbox.
+   *
+   * @param {Object} item An inbox item whose `source_kind` is `report`.
+   */
+  const handleOpenReport = async (item) => {
+    const reportId = item?.confidence_detail?.report_id ?? item?.report_id;
+    if (!reportId) {
+      toast.error('This item has no report attached.');
+      return;
+    }
+    setReportModal({
+      isLoading: true,
+      report: null,
+      title: item.subject || 'Report',
+    });
+    try {
+      const report = await getReport(reportId);
+      setReportModal({
+        isLoading: false,
+        report,
+        title: report?.title || item.subject || 'Report',
+      });
+    } catch (loadError) {
+      setReportModal(null);
+      showRequestFailureToast(loadError, { fallbackMessage: 'Could not open that report.' });
+    }
+  };
+
+  const openReportInChat = (report) => {
+    const avatarForThread = report?.assistant_id ?? routeAvatarId;
+    if (!report?.thread_id || !avatarForThread) return;
+    setReportModal(null);
+    navigate(
+      `/chat/${encodeURIComponent(avatarForThread)}?thread=${encodeURIComponent(
+        report.thread_id
+      )}`
+    );
+  };
   const [pendingCount, setPendingCount] = useState(0);
   const [view, setView] = useState('open');
   const [isLoading, setIsLoading] = useState(true);
@@ -400,12 +467,33 @@ const InboxPanel = ({ embedded = false }) => {
                 key={item.item_id}
                 item={item}
                 onDecide={handleDecide}
+                onOpenReport={handleOpenReport}
                 isBusy={busyItemId === item.item_id}
               />
             ))}
           </div>
         )}
       </div>
+
+      <Modal
+        open={Boolean(reportModal)}
+        onClose={() => setReportModal(null)}
+        title={reportModal?.title}
+        widthClassName="max-w-2xl"
+      >
+        {reportModal?.isLoading ? (
+          <p className="text-white/50 text-sm inline-flex items-center gap-2">
+            <Loader2 className="w-4 h-4 animate-spin" aria-hidden="true" />
+            Loading report…
+          </p>
+        ) : reportModal?.report ? (
+          <ReportCard
+            report={reportModal.report}
+            defaultOpen
+            onOpenInChat={reportModal.report.thread_id ? openReportInChat : null}
+          />
+        ) : null}
+      </Modal>
     </div>
   );
 };

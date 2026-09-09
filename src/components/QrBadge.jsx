@@ -13,10 +13,7 @@ import React from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 
 import { useAuth } from '../context/AuthContext';
-<<<<<<< Updated upstream
 import { isSharedAvatarLinkPath } from './utils';
-=======
->>>>>>> Stashed changes
 import qrCode from '../assets/qr-neuralnexus-transparent.png';
 
 // The landing page already devotes a section to this code at a size worth
@@ -36,7 +33,6 @@ const QrBadge = () => {
   if (user || isRestoringSession) {
     return null;
   }
-<<<<<<< Updated upstream
 
   // A shared avatar link has that same sidebar without anyone being signed in,
   // so the test above misses it: the visitor's rail carries the code down the
@@ -46,8 +42,6 @@ const QrBadge = () => {
   if (isSharedAvatarLinkPath(location.pathname)) {
     return null;
   }
-=======
->>>>>>> Stashed changes
 
   if (PATHS_WITH_THEIR_OWN_CODE.includes(location.pathname)) {
     return null;

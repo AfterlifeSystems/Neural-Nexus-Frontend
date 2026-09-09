@@ -16,6 +16,10 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { GEO_CHECKIN_INTERVAL_MS } from '../config/geoWatch';
 import { geoCheckin, listNearbyAvatars } from '../services/avatarService';
 import {
+  cappedAccuracyMeters,
+  refineNearbyAvatars,
+} from '../services/avatarProximity';
+import {
   canLocateDevice,
   readDevicePositionOnce,
   watchDevicePosition,
@@ -56,20 +60,22 @@ export function useGeoAvatarWatcher({
   const reportPosition = useCallback(
     async (devicePosition) => {
       const { latitude, longitude, accuracy } = devicePosition.coords;
+      // A kilometres-wide Wi-Fi fix must not widen a doorway geofence. Phone
+      // GPS of a few metres is passed through; anything coarser is capped.
+      const accuracyMeters = cappedAccuracyMeters(accuracy);
+      const reading = { latitude, longitude, accuracyMeters: accuracy };
       let nearby = [];
-      let inside = [];
       try {
         const checkin = await geoCheckin(
-          { latitude, longitude, accuracyMeters: accuracy },
+          { latitude, longitude, accuracyMeters },
           { asAnonymousIdentity }
         );
         nearby = checkin?.nearby ?? [];
-        inside = checkin?.notify ?? [];
         // A check-in that the API throttled still needs a list to draw, so fall
         // back to the plain nearby search.
         if (!checkin?.nearby) {
           nearby = await listNearbyAvatars(
-            { latitude, longitude, accuracyMeters: accuracy, radiusMeters: 1000 },
+            { latitude, longitude, accuracyMeters, radiusMeters: 1000 },
             { asAnonymousIdentity }
           );
         }
@@ -78,10 +84,13 @@ export function useGeoAvatarWatcher({
         return;
       }
       if (!isMountedRef.current) return;
+      nearby = refineNearbyAvatars(nearby, reading);
       setError(null);
       setNearbyAvatars(nearby);
 
-      // Leaving a geofence re-arms the offer for the next visit.
+      // Leaving a geofence re-arms the offer for the next visit. Arrival is
+      // decided here, after the coarse-accuracy filter, so the live camera
+      // only opens for someone who is actually at the place.
       const currentlyInside = new Set(
         nearby
           .filter((entry) => entry.inside_geofence)
@@ -92,7 +101,8 @@ export function useGeoAvatarWatcher({
           enteredGeofencesRef.current.delete(assistantId);
         }
       }
-      for (const entry of inside) {
+      for (const entry of nearby) {
+        if (!entry.inside_geofence) continue;
         if (enteredGeofencesRef.current.has(entry.assistant_id)) continue;
         enteredGeofencesRef.current.add(entry.assistant_id);
         onEnterGeofenceRef.current?.(entry);
@@ -117,7 +127,18 @@ export function useGeoAvatarWatcher({
   );
 
   useEffect(() => {
-    if (!enabled || !canLocateDevice()) return undefined;
+    if (!enabled) {
+      // Stopping the watch also withdraws the last shared position from this
+      // page: the ring on the globe, the nearby list, and any "you are here"
+      // flags. The server keeps at most the last check-in; there is no delete
+      // endpoint, so this is the client half of "remove my location".
+      setNearbyAvatars([]);
+      setPosition(null);
+      setError(null);
+      enteredGeofencesRef.current.clear();
+      return undefined;
+    }
+    if (!canLocateDevice()) return undefined;
     // The first fix should reach the API without waiting out the interval.
     lastCheckinAtRef.current = 0;
     const enteredGeofences = enteredGeofencesRef.current;

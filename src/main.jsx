@@ -5,6 +5,10 @@ import './index.css';
 import { AuthProvider } from './context/AuthContext';
 import { MediaProvider } from './context/MediaContext.jsx';
 import { EvanAssistProvider } from './context/EvanAssistContext.jsx';
+import {
+  UsageAnalyticsProvider,
+  UsageAnalyticsRecorder,
+} from './context/UsageAnalyticsContext.jsx';
 import EvanAssistOverlay from './components/evanAssist/EvanAssistOverlay.jsx';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 
@@ -89,11 +93,16 @@ createRoot(document.getElementById('root')).render(
     <AuthProvider>
       <MediaProvider>
         <BrowserRouter>
+          <UsageAnalyticsProvider>
           <EvanAssistProvider>
             {/* Outside the routes: the code belongs to the product, not to any
                 one screen, so it is present wherever the user is. */}
             <QrBadge />
             <EvanAssistOverlay />
+            {/* Opt-in usage analytics: records actions and captures the page
+                only while the signed-in account has consented. Inside the
+                router so the current route is part of every record. */}
+            <UsageAnalyticsRecorder />
             <Routes>
             {/* Public landing pages */}
             <Route path="/welcome" element={<LandingPage />} />
@@ -146,6 +155,7 @@ createRoot(document.getElementById('root')).render(
             </Route>
             </Routes>
           </EvanAssistProvider>
+          </UsageAnalyticsProvider>
         </BrowserRouter>
       </MediaProvider>
     </AuthProvider>
