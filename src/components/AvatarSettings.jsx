@@ -1626,7 +1626,7 @@ const AvatarSettings = ({ avatarId, onPortraitChanged }) => {
                       ) : (
                         <>
                           <Sparkles className="w-4 h-4" />
-                          Generate
+                          Generate Description
                         </>
                       )}
                     </button>
@@ -1655,7 +1655,7 @@ const AvatarSettings = ({ avatarId, onPortraitChanged }) => {
                       ) : (
                         <>
                           <Sparkles className="w-4 h-4" />
-                          Generate
+                          Generate Description
                         </>
                       )}
                     </button>

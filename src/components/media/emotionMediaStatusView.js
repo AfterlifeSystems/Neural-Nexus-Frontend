@@ -109,7 +109,7 @@ export const emotionMediaGenerateLabel = (view, totalAssets = IDLE_LOOP_TOTAL) =
   if (missingLoops > 0 && missingLoops < totalAssets) {
     return 'Create the missing generative reference videos';
   }
-  return 'Create generative reference videos';
+  return 'Generate reference videos';
 };
 
 /**

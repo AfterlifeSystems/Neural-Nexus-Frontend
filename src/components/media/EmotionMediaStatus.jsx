@@ -130,7 +130,11 @@ const EmotionMediaStatus = ({ assistantId, hasPortrait, onReuploadImage }) => {
               (current != null && total != null ? ` ${current}/${total}` : '')
           );
         }
-        if (job?.state === 'completed' || job?.state === 'failed' || job?.state === 'cancelled') {
+        if (
+          job?.state === 'completed' ||
+          job?.state === 'failed' ||
+          job?.state === 'cancelled'
+        ) {
           setJobId(null);
           setJobStage(null);
           setCancelling(false);
@@ -169,7 +173,7 @@ const EmotionMediaStatus = ({ assistantId, hasPortrait, onReuploadImage }) => {
       <div className="w-32 text-center space-y-1.5">
         <p className="text-xs text-white/50 inline-flex items-center gap-1 justify-center">
           <Sparkles className="w-3 h-3 text-amber-300" aria-hidden="true" />
-          {cancelling ? 'Cancelling…' : jobStage ?? 'Generating…'}
+          {cancelling ? 'Cancelling…' : (jobStage ?? 'Generating…')}
         </p>
         <Loader2
           className="w-4 h-4 mx-auto animate-spin text-amber-300"
@@ -228,7 +232,7 @@ const EmotionMediaStatus = ({ assistantId, hasPortrait, onReuploadImage }) => {
           title={
             generation.allowed
               ? 'Create an idle-loop video for every emotion from this reference image.'
-              : `Creating generative reference videos needs the ${generation.requiredTier} plan.`
+              : `Generate reference videos needs the ${generation.requiredTier} plan.`
           }
           className="w-full text-xs px-2 py-1.5 rounded-md border border-amber-300/40 text-amber-200 hover:bg-amber-300/10 disabled:opacity-50 disabled:cursor-not-allowed transition-colors inline-flex items-center justify-center gap-1"
         >
