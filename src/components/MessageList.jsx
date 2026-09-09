@@ -99,8 +99,11 @@ const MessageList = ({
   messagesEndRef,
   avatarPortrait,
   avatarName,
+<<<<<<< Updated upstream
   assistantId,
   readOnly = false,
+=======
+>>>>>>> Stashed changes
 }) => {
   const { assistantActivity } = useMedia();
   const { userPortrait, activeAvatar, user } = useAuth();
@@ -224,7 +227,11 @@ const MessageList = ({
           return (
             <div
               key={messageKey}
+<<<<<<< Updated upstream
               className={`flex items-end gap-2 max-w-[85%] min-w-0 ${
+=======
+              className={`flex items-end gap-2 max-w-[85%] ${
+>>>>>>> Stashed changes
                   isFromUser ? 'self-end flex-row-reverse' : 'self-start'
                 }`}
               >
@@ -400,8 +407,11 @@ const MessageList = ({
                       />
                     </>
                   )}
-                </div>
               </div>
+<<<<<<< Updated upstream
+=======
+            </div>
+>>>>>>> Stashed changes
           );
         })}
 

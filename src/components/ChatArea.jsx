@@ -407,6 +407,7 @@ const ChatArea = ({ onActivateLiveChat, onEndLiveChat, className }) => {
                 {/* Same width as the composer below (InputBar is max-w-3xl
                   mx-auto). Without it the transcript ran the full width of the
                   window while the input sat centred beneath it. */}
+<<<<<<< Updated upstream
                 <div className="w-full max-w-3xl mx-auto min-w-0">
                   <MessageList
                     messages={messages} // Pass messages array directly
@@ -422,6 +423,14 @@ const ChatArea = ({ onActivateLiveChat, onEndLiveChat, className }) => {
                 <InputBar
                   avatarId={activeAvatar?.assistant_id ?? avatarId}
                   onActivateLiveChat={() => rememberVoiceModePreference(true)}
+=======
+              <div className="w-full max-w-3xl mx-auto">
+                <MessageList
+                  messages={messages} // Pass messages array directly
+                  messagesEndRef={messagesEndRef}
+                  avatarPortrait={avatarPortrait}
+                  avatarName={activeAvatar?.name}
+>>>>>>> Stashed changes
                 />
               </div>
             </div>

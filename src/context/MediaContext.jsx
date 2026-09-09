@@ -23,6 +23,7 @@ import {
   requestJson,
   streamServerSentEvents,
 } from '../services/neuralNexusApiClient';
+<<<<<<< Updated upstream
 import {
   isSharedAvatarChatPath,
   resolveAssistantId,
@@ -82,6 +83,9 @@ import {
 } from '../services/messageKey';
 import { withRateLimitRetry } from '../services/retryRateLimited';
 import { isStandingAtPlace } from '../services/standingAtPlaces';
+=======
+import { resolveAssistantId } from '../components/utils';
+>>>>>>> Stashed changes
 
 const MediaContext = createContext();
 
@@ -649,6 +653,7 @@ export const MediaProvider = ({ children }) => {
   }
 
   /**
+<<<<<<< Updated upstream
    * Send a user-visible turn.
    *
    * A JSON follow-up list is hidden from the transcript and offered as chips
@@ -672,6 +677,8 @@ export const MediaProvider = ({ children }) => {
   }
 
   /**
+=======
+>>>>>>> Stashed changes
    * Stream one assistant turn — a new message or a resumed one — into the
    * messages array.
    *
@@ -717,6 +724,7 @@ export const MediaProvider = ({ children }) => {
     ambient = false,
   }) {
     const assistantId = resolveAssistantId(avatarForMessage);
+<<<<<<< Updated upstream
     // Someone standing at the place a geo-located avatar was pinned to is a
     // visitor who has walked up to it, and the avatar greets them as one. This
     // is the only chokepoint every turn passes through, so every way of
@@ -726,6 +734,8 @@ export const MediaProvider = ({ children }) => {
     if (!path.endsWith('/resume') && isStandingAtPlace(assistantId)) {
       formData.set('at_place', 'true');
     }
+=======
+>>>>>>> Stashed changes
     const streamingMessageId = `streaming-${Date.now()}`;
     const streamStartedAtMs = performance.now();
     // The turn keeps running wherever the user goes; only its rendering is
@@ -822,6 +832,7 @@ export const MediaProvider = ({ children }) => {
 
     let terminalFrame = null;
 
+<<<<<<< Updated upstream
     // A turn on a shared avatar's public chat belongs to the anonymous
     // visitor, never to whatever account this browser is signed into. The
     // API resolves the anonymous identity only for a caller that presents no
@@ -962,6 +973,37 @@ export const MediaProvider = ({ children }) => {
         threadId: terminalFrame.thread_id ?? null,
       };
     }
+=======
+    await streamServerSentEvents(path, {
+      method: 'POST',
+      formData,
+      onEvent: (streamEvent) => {
+        if (streamEvent.type === 'assistant_token') {
+          appendTokenToStreamingMessage(streamEvent.text ?? '');
+          setActivityIfStillOnScreen(ASSISTANT_ACTIVITY.responding);
+        } else if (streamEvent.type === 'usage_estimate') {
+          // The first frame of a turn: the request has been costed and the
+          // model has not started speaking yet.
+          setActivityIfStillOnScreen(ASSISTANT_ACTIVITY.thinking);
+        } else if (streamEvent.type === 'keepalive_comment') {
+          // Tokens have stopped but the turn has not: the server keeps this
+          // line open while it runs its post-reply analysis.
+          setActivityIfStillOnScreen(ASSISTANT_ACTIVITY.analyzing);
+        } else if (
+          streamEvent.type === 'done' ||
+          streamEvent.type === 'interrupt'
+        ) {
+          terminalFrame = streamEvent;
+          turnPausedForUserRef.current = streamEvent.type === 'interrupt';
+          setActivityIfStillOnScreen(
+            streamEvent.type === 'interrupt'
+              ? describeInterrupt(streamEvent.interrupt)
+              : null
+          );
+        }
+      },
+    });
+>>>>>>> Stashed changes
 
     if (terminalFrame?.type === 'interrupt') {
       // Finalize the bubble the tokens were streaming into, exactly as the
@@ -973,6 +1015,7 @@ export const MediaProvider = ({ children }) => {
       // the transcript keeps which thread and avatar the pause belonged to.
       // What the user answers is the single InterruptPanel, which renders from
       // `pendingInterrupt` below; nothing renders from these fields.
+<<<<<<< Updated upstream
       //
       // Whatever the avatar managed to say before pausing is kept, but a
       // placeholder holding nothing readable is dropped rather than left as an
@@ -1006,6 +1049,22 @@ export const MediaProvider = ({ children }) => {
           )
       );
       if (terminalFrame.thread_id && !hideFromTranscript) {
+=======
+      updateMessagesIfStillOnScreen((previousMessages) =>
+        previousMessages.map((message) =>
+          message.id === streamingMessageId
+            ? {
+                ...message,
+                isLoading: false,
+                interrupt: terminalFrame.interrupt ?? null,
+                interruptThreadId: terminalFrame.thread_id ?? threadId ?? null,
+                interruptAssistantId: assistantId,
+              }
+            : message
+        )
+      );
+      if (terminalFrame.thread_id) {
+>>>>>>> Stashed changes
         // A turn can pause before the thread has ever been seen here — a first
         // message that immediately asks a question. Adopting the id now is what
         // lets the resume address the right thread.
@@ -1023,6 +1082,7 @@ export const MediaProvider = ({ children }) => {
       const leakedSuggestions = parseConversationSuggestionList(
         terminalFrame.content ?? ''
       );
+<<<<<<< Updated upstream
       const hideSuggestionReply =
         !hideFromTranscript && Boolean(leakedSuggestions);
       // A harvest that landed on this turn answers with a JSON list. That list
@@ -1098,6 +1158,9 @@ export const MediaProvider = ({ children }) => {
       const yieldedBeforeMinting =
         ambient && threadId == null && terminalFrameWasStopped(terminalFrame);
       if (terminalFrame.thread_id && !hideFromTranscript && !yieldedBeforeMinting) {
+=======
+      if (terminalFrame.thread_id) {
+>>>>>>> Stashed changes
         const wasNewConversation = threadId !== terminalFrame.thread_id;
         setActiveConversation(terminalFrame.thread_id);
         if (wasNewConversation) {
@@ -1146,6 +1209,7 @@ export const MediaProvider = ({ children }) => {
   }
 
   /**
+<<<<<<< Updated upstream
    * Ask the server to end one running turn, aborting the fetch as a fallback.
    *
    * With a request id (or a thread id) the API is asked to stop the reply;
@@ -1235,6 +1299,8 @@ export const MediaProvider = ({ children }) => {
   }, [ambientHold]);
 
   /**
+=======
+>>>>>>> Stashed changes
    * Answer the question a paused turn asked, and stream the continuation.
    * POST /message/{assistant_id}/resume
    *
@@ -1314,6 +1380,7 @@ export const MediaProvider = ({ children }) => {
     }
   }
 
+<<<<<<< Updated upstream
   /**
    * Report a turn that could not be carried out.
    *
@@ -1396,6 +1463,10 @@ export const MediaProvider = ({ children }) => {
     ];
 
     if (!activeAvatar || (!messageContent.trim() && attachedFiles.length === 0)) {
+=======
+  async function handleSendMessageMediaContext() {
+    if (!activeAvatar || (!inputMessage.trim() && mediaFiles.length === 0)) {
+>>>>>>> Stashed changes
       console.log('Missing required data for sending message');
       return;
     }

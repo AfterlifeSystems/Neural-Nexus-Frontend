@@ -505,22 +505,27 @@ const AvatarSettings = ({ avatarId, onPortraitChanged }) => {
   useEffect(() => {
     if (!assistantId) return undefined;
     let cancelled = false;
-    const unsubscribe = subscribeAvatarPortraitChanged(async (changedAssistantId) => {
-      if (changedAssistantId !== assistantId) return;
-      try {
-        const storedPortrait = await getAvatarReferenceImage(assistantId);
-        if (cancelled) return;
-        setAvatarIcon(storedPortrait);
-        if (storedPortrait) {
-          writeCachedAvatarIcon(assistantId, storedPortrait);
-          onPortraitChanged?.(storedPortrait);
-        } else {
-          forgetCachedAvatarIcon(assistantId);
+    const unsubscribe = subscribeAvatarPortraitChanged(
+      async (changedAssistantId) => {
+        if (changedAssistantId !== assistantId) return;
+        try {
+          const storedPortrait = await getAvatarReferenceImage(assistantId);
+          if (cancelled) return;
+          setAvatarIcon(storedPortrait);
+          if (storedPortrait) {
+            writeCachedAvatarIcon(assistantId, storedPortrait);
+            onPortraitChanged?.(storedPortrait);
+          } else {
+            forgetCachedAvatarIcon(assistantId);
+          }
+        } catch (portraitError) {
+          console.error(
+            'Re-reading the avatar portrait failed:',
+            portraitError
+          );
         }
-      } catch (portraitError) {
-        console.error('Re-reading the avatar portrait failed:', portraitError);
       }
-    });
+    );
     return () => {
       cancelled = true;
       unsubscribe();
@@ -1630,7 +1635,7 @@ const AvatarSettings = ({ avatarId, onPortraitChanged }) => {
                       ) : (
                         <>
                           <Sparkles className="w-4 h-4" />
-                          Generate
+                          Generate Description
                         </>
                       )}
                     </button>
@@ -1659,7 +1664,7 @@ const AvatarSettings = ({ avatarId, onPortraitChanged }) => {
                       ) : (
                         <>
                           <Sparkles className="w-4 h-4" />
-                          Generate
+                          Generate Description
                         </>
                       )}
                     </button>
@@ -1713,7 +1718,9 @@ const AvatarSettings = ({ avatarId, onPortraitChanged }) => {
               type="button"
               onClick={() => setShowGenerated(false)}
               className={`text-xs font-medium transition-colors ${
-                showGenerated ? 'text-white/40 hover:text-white/60' : 'text-white/70'
+                showGenerated
+                  ? 'text-white/40 hover:text-white/60'
+                  : 'text-white/70'
               }`}
             >
               Original reference image
@@ -1727,7 +1734,9 @@ const AvatarSettings = ({ avatarId, onPortraitChanged }) => {
               type="button"
               onClick={() => setShowGenerated(true)}
               className={`text-xs font-medium transition-colors ${
-                showGenerated ? 'text-white/70' : 'text-white/40 hover:text-white/60'
+                showGenerated
+                  ? 'text-white/70'
+                  : 'text-white/40 hover:text-white/60'
               }`}
             >
               Use generated videos

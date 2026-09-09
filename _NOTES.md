@@ -11,4 +11,3 @@ five toasts on successful sign in
 avatar icons do not always persist when loading
 
 speech to text needs to be persistent rather than intermittent recordings
-

@@ -26,12 +26,15 @@ import CreateAvatarModal from './CreateAvatarModal';
 import AvatarCardComponent from './AvatarCardComponent';
 import LoadingSpinner from './LoadingSpinner';
 import UserSettingsMenu from './UserSettingsMenu';
+<<<<<<< Updated upstream
 import {
   readCachedAvatarIcons,
   writeCachedAvatarIcon,
   forgetCachedAvatarIcon,
   resolveAssistantId,
 } from './utils';
+=======
+>>>>>>> Stashed changes
 import { useMedia } from '../context/MediaContext';
 import {
   getAvatarReferenceImage,
