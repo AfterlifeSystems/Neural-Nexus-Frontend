@@ -34,7 +34,16 @@ export const MOTION_TRACK_MAX_BYTES = readNumber(
   import.meta.env?.VITE_MOTION_TRACK_MAX_BYTES,
   3_500_000
 );
-/** Where the WASM runtime and the two model files come from. */
+/**
+ * Where the landmarker runtime comes from. The ES module bundle and its WASM
+ * are loaded from the CDN at runtime rather than from node_modules: the
+ * WASM has to come over the network anyway, and a package the dev container's
+ * anonymous node_modules volume does not hold would fail the whole share
+ * context at import time.
+ */
+export const MOTION_TASKS_VISION_MODULE_URL =
+  import.meta.env?.VITE_MOTION_TASKS_VISION_MODULE_URL ??
+  'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.22/vision_bundle.mjs';
 export const MOTION_TASKS_VISION_WASM_URL =
   import.meta.env?.VITE_MOTION_TASKS_VISION_WASM_URL ??
   'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.22/wasm';

@@ -4,6 +4,7 @@ import {
   MOTION_FACE_FPS,
   MOTION_FACE_MODEL_URL,
   MOTION_POSE_MODEL_URL,
+  MOTION_TASKS_VISION_MODULE_URL,
   MOTION_TASKS_VISION_WASM_URL,
   MOTION_TRACK_MAX_BYTES,
   MOTION_TRACK_WINDOW_SECONDS,
@@ -121,8 +122,9 @@ export default function useMotionWireframe(stream, { enabled = true, basis = nul
     (async () => {
       setStatus('loading');
       try {
+        // A runtime URL, deliberately opaque to Vite (see config/motionWireframe.js).
         const { FilesetResolver, PoseLandmarker, FaceLandmarker } = await import(
-          '@mediapipe/tasks-vision'
+          /* @vite-ignore */ MOTION_TASKS_VISION_MODULE_URL
         );
         const fileset = await FilesetResolver.forVisionTasks(MOTION_TASKS_VISION_WASM_URL);
         [pose, face] = await Promise.all([
