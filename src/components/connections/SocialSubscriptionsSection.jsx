@@ -181,6 +181,15 @@ const SocialSubscriptionsSection = () => {
                   ))}
                 </div>
                 <p className="text-xs text-white/45 mt-1">{explanation}</p>
+                {row.verification_token && (
+                  <p className="text-xs text-white/45 mt-1">
+                    Put this anywhere on the page or in the feed description,
+                    then press Check again:{' '}
+                    <code className="text-neutral-200 bg-white/10 px-1.5 py-0.5 rounded select-all">
+                      {row.verification_token}
+                    </code>
+                  </p>
+                )}
               </div>
             </div>
 
