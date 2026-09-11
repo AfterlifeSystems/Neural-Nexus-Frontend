@@ -62,6 +62,7 @@ import ConnectionsSection from './connections/ConnectionsSection';
 import UsageAnalyticsSection from './analytics/UsageAnalyticsSection';
 import ReportsSection from './reports/ReportsSection';
 import EmotionMediaStatus from './media/EmotionMediaStatus';
+import MotionProfilePanel from './media/MotionProfilePanel';
 import UploadProcessPanel from './media/UploadProcessPanel';
 import ResearchPanel from './research/ResearchPanel';
 import VoicePanel from './voice/VoicePanel';
@@ -1523,6 +1524,11 @@ const AvatarSettings = ({ avatarId, onPortraitChanged }) => {
                       onClick={() => {
                         handleUpdateName(updatedAvatarName);
                         setEditingName(false);
+          {/* How the person moves: learned from the camera and uploaded video,
+              rendered to the text that drives the generated video. */}
+          <div className="w-full min-w-0 rounded-2xl bg-black/40 border border-white/10 p-4">
+            <MotionProfilePanel assistantId={assistantId} />
+          </div>
                       }}
                       className="bg-amber-400/15 hover:bg-amber-400/25 text-amber-300 rounded-lg transition-all duration-300 border border-amber-400/30"
                     >

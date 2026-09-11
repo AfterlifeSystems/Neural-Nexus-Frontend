@@ -2484,7 +2484,7 @@ export const MediaProvider = ({ children }) => {
    * @param {boolean} [options.voiceMode] The person is in voice mode.
    * @returns {Promise<{decision: string|null, summary: string|null, reply: string, sentiment: Object|null, threadId: string|null, observationId: string|null}>}
    */
-  async function sendAmbientObservation(files, { voiceMode = false } = {}) {
+  async function sendAmbientObservation(files, { voiceMode = false, motionTrack = null } = {}) {
     if (!activeAvatar || !files?.length) {
       return {
         decision: null,
@@ -2508,6 +2508,7 @@ export const MediaProvider = ({ children }) => {
         capturedAt: new Date().toISOString(),
         voiceMode,
         userTimezone,
+        motionTrack,
       }
     );
     let decision = null;

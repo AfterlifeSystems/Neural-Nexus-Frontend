@@ -967,6 +967,67 @@ export const getAvatarEmotionMedia = async (
     query: { assistant_id: assistantId },
     asAnonymousIdentity,
   });
+/**
+ * What has been learned about how the avatar's person moves.
+ * GET /avatar_motion_profile?assistant_id=...
+ *
+ * The scalar signature per emotion, the recurring movements with their
+ * prototype trajectories, coverage in seconds, generated-clip fidelity, and
+ * the behavioural text those numbers render to.
+ */
+export const getAvatarMotionProfile = async (assistantId) =>
+  requestJson('/avatar_motion_profile', { query: { assistant_id: assistantId } });
+
+/**
+ * The avatar's current expression basis, so the browser can encode face frames
+ * to coefficients instead of sending the dense mesh. Resolves `null` until a
+ * basis has been fitted (404).
+ * GET /avatar_motion_basis?assistant_id=...
+ */
+export const getAvatarMotionBasis = async (assistantId) => {
+  try {
+    return await requestJson('/avatar_motion_basis', { query: { assistant_id: assistantId } });
+  } catch (error) {
+    if (error?.status === 404) return null;
+    throw error;
+  }
+};
+
+/**
+ * Record one motion window outside the ambient observation — the scene did
+ * not change enough to send a still, but the person kept moving.
+ * POST /avatar_motion_tracks
+ *
+ * @param {string} assistantId
+ * @param {object} window the payload `MotionWindowAccumulator.take()` produces
+ * @param {{cameraFacing?: string|null, frameDataUri?: string|null, source?: string}} [options]
+ */
+export const postAvatarMotionTrack = async (
+  assistantId,
+  window,
+  { cameraFacing = null, frameDataUri = null, source = 'live_camera' } = {}
+) =>
+  requestJson('/avatar_motion_tracks', {
+    method: 'POST',
+    body: {
+      assistant_id: assistantId,
+      window,
+      camera_facing: cameraFacing ?? undefined,
+      frame_data_uri: frameDataUri ?? undefined,
+      source,
+    },
+  });
+
+/**
+ * Forget everything learned about how this avatar's person moves.
+ * DELETE /avatar_motion_tracks?assistant_id=...
+ */
+export const deleteAvatarMotionTracks = async (assistantId) =>
+  requestJson('/avatar_motion_tracks', {
+    method: 'DELETE',
+    query: { assistant_id: assistantId },
+  });
+
 };
 
 /**
@@ -1615,7 +1676,7 @@ export const buildSpokenTurnRequest = (
 export const buildAmbientMessageRequest = (
   assistantId,
   files,
-  { threadId, capturedAt, voiceMode, userTimezone } = {}
+  { threadId, capturedAt, voiceMode, userTimezone, motionTrack } = {}
 ) => {
   const formData = new FormData();
   formData.append('message', '');
@@ -1725,6 +1786,16 @@ export const recordAmbientPreference = async (
  *   ambient observation the reply answered, when there is one, so the thumb
  *   is also learned as precedent for that kind of scene.
  * @returns {Promise<Object>} `{recorded, message_id, request_id, feedback, ambient_decision}`.
+  if (motionTrack) {
+    // The wireframe window recorded over this share since the last
+    // observation (src/services/motionWireframe.js): named body joints and
+    // face coordinates through time, riding the request that was leaving
+    // anyway. The API decides whose movement it is before recording it.
+    formData.append(
+      'motion_track',
+      typeof motionTrack === 'string' ? motionTrack : JSON.stringify(motionTrack)
+    );
+  }
  */
 export const recordMessageFeedback = async ({
   assistantId,
