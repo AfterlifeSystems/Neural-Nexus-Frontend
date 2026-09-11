@@ -1897,3 +1897,56 @@ export const deleteReport = async (reportId) => {
     method: 'DELETE',
   });
 };
+
+/**
+ * Report what the personal avatar's own accounts are publishing into it.
+ *
+ * The single read behind the "Your accounts" panel: which social accounts are
+ * proven to belong to the owner, which are subscribed, how each one is told
+ * about new content, and what has arrived recently. An account that is
+ * connected but unproven is included with its reason, because "nothing is
+ * arriving" is only useful with the cause attached.
+ * GET /social_subscriptions
+ *
+ * @returns {Promise<Object>} `{assistant_id, accounts, recent_events}`.
+ */
+export const listSocialSubscriptions = async () => {
+  return requestJson('/social_subscriptions');
+};
+
+/**
+ * Check again whether a connected account belongs to the avatar's person.
+ *
+ * The action behind "Not verified". It exists because the one proof an owner
+ * can act on — placing a token in a feed they control, or linking back from a
+ * site they own — necessarily happens after the account was connected.
+ * POST /social_subscriptions/{accountKey}/verify
+ *
+ * @param {string} accountKey The `provider:address` key to re-check.
+ * @returns {Promise<Object>} `{ownership}` after the fresh check.
+ */
+export const verifySocialAccountOwnership = async (accountKey) => {
+  return requestJson(
+    `/social_subscriptions/${encodeURIComponent(accountKey)}/verify`,
+    { method: 'POST' },
+  );
+};
+
+/**
+ * Walk further into what a connected account has already published.
+ *
+ * The initial crawl stops at the subscription tier's item cap, which is a
+ * spending limit rather than a judgement about how much of someone's work
+ * matters. This is the owner choosing to spend more; it resumes from what the
+ * previous pass already visited rather than paying for those pages twice.
+ * POST /social_subscriptions/{accountKey}/pull_more
+ *
+ * @param {string} accountKey The `provider:address` key to pull further.
+ * @returns {Promise<Object>} `{status, detail}`; the work runs in the background.
+ */
+export const pullMoreSocialContent = async (accountKey) => {
+  return requestJson(
+    `/social_subscriptions/${encodeURIComponent(accountKey)}/pull_more`,
+    { method: 'POST' },
+  );
+};

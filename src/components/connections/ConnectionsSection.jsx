@@ -11,6 +11,7 @@ import {
 } from 'lucide-react';
 import ConnectAccountCard from '../ConnectAccountCard';
 import ConnectorIcon from '../icons/ConnectorIcon';
+import SocialSubscriptionsSection from './SocialSubscriptionsSection';
 import Modal from '../ui/Modal';
 import Switch from '../ui/Switch';
 import ConnectionPresence from './ConnectionPresence';
@@ -65,6 +66,10 @@ const ConnectionsSection = ({ onConnectionsChanged }) => {
   const [settingsCard, setSettingsCard] = useState(null);
   const [connections, setConnections] = useState([]);
   const [providers, setProviders] = useState([]);
+  // Whether a sign-in would open in the owner's OWN browser right now,
+  // and on which machine. The catalog answers this, because it is the
+  // API that knows which of their machines is online.
+  const [signInBrowser, setSignInBrowser] = useState(null);
   const [isLoading, setIsLoading] = useState(true);
   const [query, setQuery] = useState('');
   const [categoryFilter, setCategoryFilter] = useState('all');
@@ -95,6 +100,11 @@ const ConnectionsSection = ({ onConnectionsChanged }) => {
     );
     if (providersResult.status === 'fulfilled') {
       setProviders(providersResult.value?.providers ?? []);
+      setSignInBrowser(
+        providersResult.value?.sign_in_in_your_own_browser
+          ? { device_label: providersResult.value?.sign_in_device_label ?? '' }
+          : null
+      );
     }
     if (
       connectionsResult.status === 'rejected' &&
@@ -682,6 +692,20 @@ const ConnectionsSection = ({ onConnectionsChanged }) => {
         </p>
       )}
 
+      {/*
+        What the owner's own accounts publish into the avatar. Kept separate
+        from the list above because the questions differ: that list answers
+        "is this connected", and an account can be connected, switched on, and
+        still contributing nothing — because nobody proved it is the owner's,
+        or because its subscription lapsed. This panel answers that.
+      */}
+      <h4 className="text-neutral-200 font-semibold mb-3">
+        What your accounts publish
+      </h4>
+      <div className="mb-6">
+        <SocialSubscriptionsSection />
+      </div>
+
       <Modal
         open={isPickerOpen}
         onClose={() => setIsPickerOpen(false)}
@@ -689,6 +713,7 @@ const ConnectionsSection = ({ onConnectionsChanged }) => {
       >
         <NewConnectorPicker
           providers={catalogProviders}
+          signInBrowser={signInBrowser}
           connections={connections}
           onPick={openCardFor}
           onConnected={recordFormConnection}

@@ -10,7 +10,9 @@ import {
   Linkedin,
   Mail,
   Plug,
+  Rss,
   Twitch,
+  UserRound,
   Youtube,
 } from 'lucide-react';
 import {
@@ -29,6 +31,7 @@ import {
   SiCoinbase,
   SiGoogleanalytics,
   SiLangchain,
+  SiTiktok,
   SiVercel,
 } from 'react-icons/si';
 import { VscMcp } from 'react-icons/vsc';
@@ -63,6 +66,9 @@ const CONNECTOR_ICONS = {
   twitch: { Icon: Twitch, tint: 'text-purple-300', ring: 'border-purple-300/30' },
   facebook: { Icon: Facebook, tint: 'text-blue-400', ring: 'border-blue-400/30' },
   linkedin: { Icon: Linkedin, tint: 'text-sky-400', ring: 'border-sky-400/30' },
+  tiktok: { Icon: SiTiktok, tint: 'text-neutral-200', ring: 'border-white/20' },
+  podcast: { Icon: Rss, tint: 'text-orange-300', ring: 'border-orange-300/30' },
+  profile: { Icon: UserRound, tint: 'text-teal-300', ring: 'border-teal-300/30' },
   discord: { Icon: FaDiscord, tint: 'text-indigo-300', ring: 'border-indigo-300/30' },
   slack: { Icon: FaSlack, tint: 'text-emerald-300', ring: 'border-emerald-300/30' },
   apple: { Icon: FaApple, tint: 'text-neutral-200', ring: 'border-white/20' },
