@@ -32,7 +32,6 @@ import qrCode from '../assets/qr-neuralnexus.png';
 import { toast } from 'react-hot-toast';
 import { sortConversationsChronologically } from '../services/pinnedConversations';
 import SharePreviewSlot from './SharePreviewSlot';
-import SidebarAccessibilityControls from './SidebarAccessibilityControls';
 import SidebarShareControls from './SidebarShareControls';
 import SidebarStageCluster from './SidebarStageCluster';
 import SidebarVoiceMuteControls from './SidebarVoiceMuteControls';
@@ -371,7 +370,6 @@ const ConversationSidebar = ({
           <SidebarStageCluster
             showConversations={showConversations}
             showShareControls={showShareControls}
-            showAccessibilityControl
             onStartNewConversation={onStartNewConversation}
           >
             {/* The code stays reachable while the sidebar is collapsed. Sized
@@ -547,11 +545,6 @@ const ConversationSidebar = ({
           <div className="shrink-0 pt-3 border-t border-white/10 flex flex-col gap-2">
             <div className="space-y-1">
               <SidebarVoiceMuteControls variant="rows" />
-            </div>
-            {/* Above the sharing rows, because this is the one control here
-                that a person may be relying on to know what is around them. */}
-            <div data-sidebar-accessibility>
-              <SidebarAccessibilityControls variant="rows" />
             </div>
             {showShareControls && (
               <div data-sidebar-sharing className="flex flex-col gap-2">

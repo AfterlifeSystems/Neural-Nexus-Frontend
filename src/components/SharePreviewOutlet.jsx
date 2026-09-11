@@ -26,6 +26,7 @@ const SharePreviewOutlet = () => {
     ambientNextInMs,
     motionPoints,
     motionStatus,
+    sceneNarrationActive,
   } = useMediaShare();
   const [slots, setSlots] = useState({ rail: null, panel: null });
   const ambientLabel = ambientEnabled
@@ -48,6 +49,7 @@ const SharePreviewOutlet = () => {
             ambientLabel={ambientLabel}
             motionPoints={motionPoints}
             motionStatus={motionStatus}
+            sceneNarrationActive={sceneNarrationActive}
           />,
           slots.rail
         )}
@@ -61,6 +63,7 @@ const SharePreviewOutlet = () => {
             ambientLabel={ambientLabel}
             motionPoints={motionPoints}
             motionStatus={motionStatus}
+            sceneNarrationActive={sceneNarrationActive}
           />,
           slots.panel
         )}
@@ -72,7 +75,14 @@ const SharePreviewOutlet = () => {
  * Rail tiles open the sidebar. The click is sent to the rail itself so a
  * wrapping well cannot swallow it the way mute / share icons keep theirs.
  */
-function renderShareTile({ stream, label, isRail, className, overlayPoints = null }) {
+function renderShareTile({
+  stream,
+  label,
+  isRail,
+  className,
+  overlayPoints = null,
+  narrating = false,
+}) {
   const plainVideo = (
     <LiveShareVideo
       stream={stream}
@@ -98,7 +108,31 @@ function renderShareTile({ stream, label, isRail, className, overlayPoints = nul
     ) : (
       plainVideo
     );
-  if (!isRail) return video;
+  // The describing indicator rides ON the camera tile, because the camera is
+  // what the setting changes: an amber ring plus a dot that is visible at rail
+  // size, where a word would not fit. It appears only while descriptions are
+  // actually being spoken from this camera, so closing the camera clears it.
+  const framed = narrating ? (
+    <span className="relative inline-flex rounded-md ring-2 ring-amber-400/70">
+      {video}
+      <span
+        aria-hidden="true"
+        className={
+          isRail
+            ? 'absolute -top-0.5 -right-0.5 w-2.5 h-2.5 rounded-full bg-amber-400 ring-2 ring-black/80'
+            : 'absolute top-1 left-1 px-1.5 py-0.5 rounded-full bg-amber-400/90 text-neutral-900 text-[10px] font-semibold leading-none'
+        }
+      >
+        {isRail ? '' : 'Describing'}
+      </span>
+      <span className="sr-only">
+        {`${label} — your surroundings are being described out loud`}
+      </span>
+    </span>
+  ) : (
+    video
+  );
+  if (!isRail) return framed;
   return (
     <button
       type="button"
@@ -110,7 +144,7 @@ function renderShareTile({ stream, label, isRail, className, overlayPoints = nul
         openCollapsedSidebar(event.currentTarget);
       }}
     >
-      {video}
+      {framed}
     </button>
   );
 }
@@ -123,6 +157,7 @@ function SidebarShareTiles({
   ambientLabel,
   motionPoints,
   motionStatus,
+  sceneNarrationActive = false,
 }) {
   const isRail = size === 'rail';
   // A screen capture the avatar may only glance at must not call itself
@@ -161,6 +196,7 @@ function SidebarShareTiles({
               className:
                 'w-24 h-24 shrink-0 sm:w-full sm:h-auto sm:aspect-square sm:max-h-44 rounded-lg border border-white/20 bg-black object-cover touch-pan-y',
               overlayPoints: motionStatus === 'running' ? motionPoints : null,
+              narrating: sceneNarrationActive,
             })}
         </div>
       )}
@@ -180,6 +216,7 @@ function SidebarShareTiles({
           className:
             'w-11 h-11 rounded-md border border-white/20 bg-black object-cover',
           overlayPoints: motionStatus === 'running' ? motionPoints : null,
+          narrating: sceneNarrationActive,
         })}
       {ambientLabel && (
         <p
@@ -191,6 +228,17 @@ function SidebarShareTiles({
           aria-live="polite"
         >
           Ambient vision: {ambientLabel}
+        </p>
+      )}
+      {webcamStream && sceneNarrationActive && (
+        <p
+          className={
+            isRail ? 'sr-only' : 'text-[11px] text-amber-300/90 leading-tight'
+          }
+          aria-live="polite"
+        >
+          Describing your surroundings out loud. Turning the camera off stops
+          it.
         </p>
       )}
       {webcamStream && motionStatus && motionStatus !== 'idle' && (

@@ -91,6 +91,7 @@ import {
   voiceStageShouldKeepEmotion,
 } from '../hooks/voiceStageEmotion';
 import useMessageActions from '../hooks/useMessageActions';
+import MessageEditor from './messageEdit/MessageEditor';
 import MessageActionBar from './media/MessageActionBar';
 import CreatedArtifacts from './CreatedArtifacts';
 import {
@@ -1454,12 +1455,13 @@ const LiveVoiceMode = ({
     const file = await recording.stop();
     const words = await transcribe(file);
     if (!words) return;
+    // The transcript lands in the draft and stops there. Speaking it back
+    // played the person their own sentence, in their own cloned voice, the
+    // instant they finished saying it — an echo nobody asked for, and one that
+    // in live mode holds the microphone shut for as long as the playback runs.
+    // The play button on the draft (COMPOSER_DRAFT_SPEAK_KEY, below) is still
+    // there for anyone who does want to hear a draft read back.
     setDraft((previous) => appendSpokenTranscript(previous, words));
-    if (canSpeakUser && personalAssistantId) {
-      await speech.speak(personalAssistantId, words, {
-        key: COMPOSER_DRAFT_SPEAK_KEY,
-      });
-    }
   };
 
   const toggleDictation = () => {
@@ -2138,39 +2140,18 @@ const LiveVoiceMode = ({
                       {isGeneratingThis && renderStopButton()}
                     </div>
                   ) : isEditingThis ? (
-                    <div className="space-y-2 caption-actions pointer-events-auto">
-                      <textarea
+                    <div className="caption-actions pointer-events-auto">
+                      <MessageEditor
                         value={editDraft}
-                        onChange={(event) => setEditDraft(event.target.value)}
-                        rows={3}
-                        className="w-full px-2 py-1.5 bg-black/50 border border-white/10 rounded-md text-neutral-200 text-sm focus:outline-none focus:ring-2 focus:ring-amber-400/50"
+                        onChange={setEditDraft}
+                        pendingSendCount={pendingSendCount}
+                        onAccept={() =>
+                          presentResentTurn(messageKey, editDraft)
+                        }
+                        onCancel={() => setEditingKey(null)}
+                        buttonExtraClassName="voice-text-btn"
+                        stopPointerPropagation
                       />
-                      <div className="flex items-center gap-2">
-                        <button
-                          type="button"
-                          disabled={
-                            pendingSendCount > 0 ||
-                            !String(editDraft ?? '').trim()
-                          }
-                          onPointerDown={(event) => event.stopPropagation()}
-                          onClick={(event) => {
-                            event.preventDefault();
-                            event.stopPropagation();
-                            presentResentTurn(messageKey, editDraft);
-                          }}
-                          className="voice-text-btn px-2 py-1 rounded-md bg-amber-400/15 text-amber-300 text-xs border border-amber-400/30 disabled:opacity-40"
-                        >
-                          Accept
-                        </button>
-                        <button
-                          type="button"
-                          onPointerDown={(event) => event.stopPropagation()}
-                          onClick={() => setEditingKey(null)}
-                          className="voice-text-btn px-2 py-1 rounded-md bg-white/5 text-white/70 text-xs border border-white/10"
-                        >
-                          Cancel
-                        </button>
-                      </div>
                     </div>
                   ) : (
                     <>

@@ -1,5 +1,7 @@
-import { Accessibility, Camera, MessageSquare, Volume2 } from 'lucide-react';
+import { Camera, MessageSquare, Volume2 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
+
+import { MdAccessible } from 'react-icons/md';
 
 import { useAuth } from '../context/AuthContext';
 import { useMediaShare } from '../context/MediaShareContext';
@@ -74,7 +76,10 @@ const AccessibilityPage = () => {
     <div className="w-full h-full overflow-y-auto">
       <div className="max-w-2xl mx-auto px-4 py-8 sm:py-12">
         <header className="flex items-center gap-3 mb-2">
-          <Accessibility className="w-7 h-7 shrink-0 text-amber-300" aria-hidden />
+          <MdAccessible
+            className="w-7 h-7 shrink-0 text-amber-300"
+            aria-hidden
+          />
           <h1 className="text-2xl font-semibold text-neutral-100">
             Accessibility
           </h1>
@@ -95,10 +100,18 @@ const AccessibilityPage = () => {
             Describe my surroundings
           </h2>
           <p className="text-white/60 text-sm mb-5">
-            Point your phone&apos;s back camera at what is in front of you — held
-            up, or worn on a lanyard. Every few seconds{' '}
+            Point your phone&apos;s back camera at what is in front of you —
+            held up, or worn on a lanyard. Every few seconds{' '}
             {avatarName ?? 'your avatar'} says what is there, starting with
             anything in your way and any writing worth reading to you.
+          </p>
+          <p className="text-white/60 text-sm mb-5">
+            This setting changes what your camera does, so it follows the
+            camera: turning the camera off stops the describing, and turning it
+            back on starts it again while this is switched on. The camera
+            preview in the sidebar is marked whenever describing is running. You
+            can also just ask {avatarName ?? 'your avatar'} to start or stop
+            describing, or to go faster or slower.
           </p>
 
           <button
@@ -116,7 +129,7 @@ const AccessibilityPage = () => {
                 : 'bg-white/10 text-neutral-100 hover:bg-white/20'
             }`}
           >
-            <Accessibility className="w-5 h-5 shrink-0" aria-hidden />
+            <MdAccessible className="w-5 h-5 shrink-0" aria-hidden /> // asdf
             {sceneNarrationOn
               ? 'Stop describing my surroundings'
               : 'Start describing my surroundings'}
@@ -140,8 +153,8 @@ const AccessibilityPage = () => {
               How often you are told
             </label>
             <p className="text-white/50 text-xs mt-1 mb-3">
-              You can also just say it: &ldquo;describe things more
-              often&rdquo; or &ldquo;not so often&rdquo;.
+              You can also just say it: &ldquo;describe things more often&rdquo;
+              or &ldquo;not so often&rdquo;.
             </p>
             <div className="flex items-center gap-4">
               {/* The slider runs over the five choices rather than over
@@ -213,9 +226,14 @@ const AccessibilityPage = () => {
           </h2>
           <ul className="space-y-4 text-sm text-white/70">
             <li className="flex gap-3">
-              <MessageSquare className="w-4 h-4 mt-0.5 shrink-0 text-white/40" aria-hidden />
+              <MessageSquare
+                className="w-4 h-4 mt-0.5 shrink-0 text-white/40"
+                aria-hidden
+              />
               <span>
-                <span className="text-neutral-200">Just ask, in any conversation.</span>{' '}
+                <span className="text-neutral-200">
+                  Just ask, in any conversation.
+                </span>{' '}
                 Say or type &ldquo;describe what&apos;s around me&rdquo; to any
                 avatar, or to the help avatar in the corner, and it starts.
                 &ldquo;Stop describing&rdquo; ends it. You never have to find
@@ -223,7 +241,10 @@ const AccessibilityPage = () => {
               </span>
             </li>
             <li className="flex gap-3">
-              <Volume2 className="w-4 h-4 mt-0.5 shrink-0 text-white/40" aria-hidden />
+              <Volume2
+                className="w-4 h-4 mt-0.5 shrink-0 text-white/40"
+                aria-hidden
+              />
               <span>
                 <span className="text-neutral-200">By voice, hands free.</span>{' '}
                 Voice mode listens and answers aloud, which is the easiest way
@@ -240,7 +261,10 @@ const AccessibilityPage = () => {
               </span>
             </li>
             <li className="flex gap-3">
-              <Accessibility className="w-4 h-4 mt-0.5 shrink-0 text-white/40" aria-hidden />
+              <MdAccessible
+                className="w-4 h-4 mt-0.5 shrink-0 text-white/40"
+                aria-hidden
+              />
               <span>
                 <span className="text-neutral-200">From the sidebar.</span> The
                 same switch sits in the sidebar on every screen, under the
@@ -262,7 +286,10 @@ const AccessibilityPage = () => {
           </h2>
           <ul className="space-y-4 text-sm text-white/70">
             <li className="flex gap-3">
-              <Camera className="w-4 h-4 mt-0.5 shrink-0 text-white/40" aria-hidden />
+              <Camera
+                className="w-4 h-4 mt-0.5 shrink-0 text-white/40"
+                aria-hidden
+              />
               <span>
                 Your camera opens when you switch this on and closes when you
                 switch it off. A scene that has not changed is not described
@@ -272,7 +299,10 @@ const AccessibilityPage = () => {
               </span>
             </li>
             <li className="flex gap-3">
-              <Volume2 className="w-4 h-4 mt-0.5 shrink-0 text-white/40" aria-hidden />
+              <Volume2
+                className="w-4 h-4 mt-0.5 shrink-0 text-white/40"
+                aria-hidden
+              />
               <span>
                 Descriptions are spoken in {avatarName ?? 'your avatar'}&apos;s
                 own voice, and so is the line confirming the mode.{' '}
@@ -282,7 +312,10 @@ const AccessibilityPage = () => {
               </span>
             </li>
             <li className="flex gap-3">
-              <MessageSquare className="w-4 h-4 mt-0.5 shrink-0 text-white/40" aria-hidden />
+              <MessageSquare
+                className="w-4 h-4 mt-0.5 shrink-0 text-white/40"
+                aria-hidden
+              />
               <span>
                 Every description is also written into the conversation, so you
                 can go back over what was said, and anyone helping you can read

@@ -10,7 +10,6 @@
 
 import React from 'react';
 import {
-  Accessibility,
   CreditCard,
   Globe,
   Inbox,
@@ -19,12 +18,13 @@ import {
   UserCog,
   Users,
 } from 'lucide-react';
+
+import { MdAccessible } from 'react-icons/md';
+
 import { useNavigate, useSearchParams } from 'react-router-dom';
 
 import { useAuth } from '../context/AuthContext';
-import {
-  resolvePersonalAvatarId,
-} from '../services/personalAvatar';
+import { resolvePersonalAvatarId } from '../services/personalAvatar';
 import { personalAvatarWorkspacePath } from './personalAvatarWorkspace';
 import useInboxCount from '../hooks/useInboxCount';
 
@@ -226,7 +226,7 @@ const AccountMenu = ({
       />
       <AccountMenuItem
         iconOnly={iconOnly}
-        icon={<Accessibility className={iconClass} />}
+        icon={<MdAccessible className={iconClass} />}
         label="Accessibility"
         ariaLabel="Accessibility settings"
         onClick={() => goTo('/accessibility')}
