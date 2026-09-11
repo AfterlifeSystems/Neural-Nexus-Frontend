@@ -47,12 +47,19 @@ test('a click on the header or caption dock does not collapse the message bar', 
   );
 });
 
-test('a click on the mute indicators does not collapse the message bar', () => {
+test('a click on the mute or camera cluster does not collapse the message bar', () => {
   const muteBar = {};
   assert.equal(
     shouldCollapseVoiceMessageBar({
       closest: (selector) =>
         selector.includes('[data-voice-mute-bar]') ? muteBar : null,
+    }),
+    false
+  );
+  assert.equal(
+    shouldCollapseVoiceMessageBar({
+      closest: (selector) =>
+        selector.includes('[data-voice-camera-bar]') ? muteBar : null,
     }),
     false
   );
@@ -76,8 +83,8 @@ test('the folded bar glows while the person is speaking or dictating', () => {
   );
 });
 
-test('the folded handle stretches to the mute pill; the open composer keeps mute at the foot', () => {
-  assert.equal(voiceComposerDockItemsClass(true), 'items-stretch');
+test('the composer dock keeps camera controls at the foot of the message bar', () => {
+  assert.equal(voiceComposerDockItemsClass(true), 'items-end');
   assert.equal(voiceComposerDockItemsClass(false), 'items-end');
 });
 

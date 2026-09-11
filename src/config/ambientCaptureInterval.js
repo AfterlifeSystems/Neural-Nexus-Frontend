@@ -4,10 +4,16 @@
 // VITE_AMBIENT_CAPTURE_INTERVAL_SECONDS setting becomes milliseconds. Kept
 // separate so the Node test runner can load it without Vite's import.meta.env.
 
-export const DEFAULT_AMBIENT_CAPTURE_INTERVAL_SECONDS = 5;
+export const DEFAULT_AMBIENT_CAPTURE_INTERVAL_SECONDS = 30;
 
-/** The shortest interval the browser will ever use, whatever the setting says. */
-export const MINIMUM_AMBIENT_CAPTURE_INTERVAL_SECONDS = 5;
+/**
+ * The shortest interval the browser will ever use, whatever the setting says.
+ *
+ * This matches the server's own floor (AMBIENT_CAPTURE_MIN_INTERVAL_SECONDS).
+ * A browser pacing itself faster than that floor has every second capture
+ * refused with 429, which costs a round trip and tells the person nothing.
+ */
+export const MINIMUM_AMBIENT_CAPTURE_INTERVAL_SECONDS = 10;
 
 /**
  * Turn the environment's interval setting into milliseconds.

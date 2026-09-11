@@ -13,7 +13,9 @@ import React from 'react';
  * @param {boolean} parameters.checked Current state.
  * @param {Function} parameters.onChange Called with the next boolean state.
  * @param {string} parameters.label Accessible name for the switch.
- * @param {boolean} [parameters.showLabel] Show Connect/Disconnect (or custom) text.
+ * @param {boolean} [parameters.showLabel] Show the On/Off (or custom) text
+ *   beside the knob. On by default so every setting reads the same; pass
+ *   `false` where the surrounding copy already names both states.
  * @param {string} [parameters.onLabel] Visible text when the switch is on.
  * @param {string} [parameters.offLabel] Visible text when the switch is off.
  * @param {boolean} [parameters.busy] Whether a change is in flight.
@@ -24,9 +26,9 @@ const Switch = ({
   checked,
   onChange,
   label,
-  showLabel = false,
-  onLabel = 'Disconnect',
-  offLabel = 'Connect',
+  showLabel = true,
+  onLabel = 'On',
+  offLabel = 'Off',
   busy = false,
   disabled = false,
   className = '',

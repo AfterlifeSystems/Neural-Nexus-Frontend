@@ -7,8 +7,10 @@ import LoadingSpinner from './LoadingSpinner';
 import ConversationSidebar from './ConversationSidebar';
 import SharePreviewOutlet from './SharePreviewOutlet';
 import { MediaShareProvider } from '../context/MediaShareContext';
+import { VoiceMuteProvider } from '../context/VoiceMuteContext';
 import { toast } from 'react-hot-toast';
 import { isAmbientCaptureSurface } from '../services/ambientCaptureSurface';
+import useSceneNarration from '../hooks/useSceneNarration';
 import { GeoAvatarProvider } from '../context/GeoAvatarContext';
 import { voiceChatPath } from '../services/voiceModePreference';
 
@@ -47,6 +49,9 @@ export default function ProtectedRoute() {
     location.pathname,
     location.search
   );
+  // Read here rather than inside the provider because it decides whether the
+  // provider may capture at all on this screen.
+  const { sceneNarrationOn } = useSceneNarration();
 
   // Conversations belong to an open avatar, so the sidebar shows them only on a
   // chat screen. The account half of it is shown everywhere.
@@ -100,10 +105,15 @@ export default function ProtectedRoute() {
   }
 
   return (
-    <MediaShareProvider
-      ambientAllowed
-      ambientCaptureAllowed={isConversationSurface}
-    >
+    <VoiceMuteProvider>
+      <MediaShareProvider
+        ambientAllowed
+        // Ordinary ambient looks go out only in the message view or voice mode.
+        // Scene narration is the exception: somebody walking with the camera up
+        // is relying on it, and it must not fall silent because they opened
+        // the avatar gallery or the Accessibility page itself.
+        ambientCaptureAllowed={isConversationSurface || sceneNarrationOn}
+      >
       <GeoAvatarProvider onTalkNow={openAvatarOverTheCamera}>
         <SharePreviewOutlet />
         <ConversationSidebar
@@ -136,6 +146,7 @@ export default function ProtectedRoute() {
           <Outlet />
         </div>
       </GeoAvatarProvider>
-    </MediaShareProvider>
+      </MediaShareProvider>
+    </VoiceMuteProvider>
   );
 }

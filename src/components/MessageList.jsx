@@ -1,17 +1,24 @@
 // src/components/MessageList.jsx
 import React, { useEffect } from 'react';
-import { Square, User } from 'lucide-react';
+import { Square } from 'lucide-react';
 import InterruptPanel from './InterruptPanel';
+import ShareRequestPrompt from './ShareRequestPrompt';
 import MessageMedia from './MessageMedia';
 import { useLocation } from 'react-router-dom';
 import { useMedia } from '../context/MediaContext';
 import { useAuth } from '../context/AuthContext';
-import { isValidImageUrl, isSharedAvatarChatPath } from './utils';
+import { isSharedAvatarChatPath } from './utils';
 import { canUseAvatarSpeechPlayback } from '../services/avatarSpeechPlayback';
+import usePersonalAvatar from '../hooks/usePersonalAvatar';
+import {
+  SPEAKING_BUBBLE_HIGHLIGHT,
+  speakingBubbleProps,
+  userResponseIsSpeaking,
+} from './speakingIndicator';
 import BillingRefusalNotice, {
   BILLING_REFUSAL_MESSAGE_TYPE,
 } from './BillingRefusalNotice';
-import useEmotionMedia, { stillFor } from '../hooks/useEmotionMedia';
+import useEmotionMedia from '../hooks/useEmotionMedia';
 import useAvatarFaceSource from '../hooks/useAvatarFaceSource';
 import useMessageActions from '../hooks/useMessageActions';
 import MessageActionBar from './media/MessageActionBar';
@@ -34,57 +41,19 @@ import {
   chartsOf,
   pngArtifactFor,
 } from '../services/chartSpecs';
-import SpeakerScript from './SpeakerScript';
-import { editableScriptText, hasSpeakerScript } from './speakerScript';
+import ThirdPartySpeakerIcon from './ThirdPartySpeakerIcon';
+import MessageAuthorIcon from './MessageAuthorIcon';
+import {
+  SPEAKER_ROLE_OTHER,
+  speakerBubbleRowsOf,
+  spokenTurnText,
+} from './speakerScript';
 import { voiceMessageIsGenerating } from './voiceCaptionVisibility';
 import {
   createdArtifactsOf,
   speakableReplyText,
   stripArtifactReferences,
 } from '../services/createdArtifacts';
-
-/**
- * The face beside a message: whoever said it.
- *
- * Both sides get one so a long conversation stays readable at a glance without
- * relying on which edge a bubble is stuck to. A portrait is often absent — a
- * new avatar has none until one is uploaded — so the placeholder is the normal
- * case rather than an error state.
- *
- * For the avatar's replies the face follows the reply: when generated faces
- * are on for this avatar, the reply's classified emotion is not neutral, and
- * a still exists for that emotion, that still is shown in place of the
- * portrait, so a joyful answer is delivered by a joyful face.
- */
-export const MessageAuthorIcon = ({
-  portrait,
-  name,
-  emotion,
-  emotionMedia,
-  showGenerated = true,
-}) => {
-  const emotionStill =
-    showGenerated && emotion && emotion !== 'neutral'
-      ? stillFor(emotionMedia, emotion)
-      : null;
-  const face = emotionStill ?? portrait;
-  return (
-    <div
-      className="w-8 h-8 shrink-0 rounded-full bg-black/50 border border-white/10 overflow-hidden flex items-center justify-center"
-      title={emotionStill ? emotion : undefined}
-    >
-      {face && isValidImageUrl(face) ? (
-        <img
-          src={face}
-          alt={emotionStill ? `${name} (${emotion})` : name}
-          className="w-full h-full object-cover transition-opacity duration-300"
-        />
-      ) : (
-        <User className="w-4 h-4 text-white/40" />
-      )}
-    </div>
-  );
-};
 
 /**
  * The scrolling box a descendant actually scrolls inside: the nearest ancestor
@@ -152,6 +121,12 @@ const MessageList = ({
   const canSpeak = canUseAvatarSpeechPlayback(activeAvatar, user, {
     pathname: location.pathname,
   });
+  const { personalAvatar, personalAssistantId } = usePersonalAvatar();
+  const canSpeakUser =
+    !readerIsAnonymous &&
+    canUseAvatarSpeechPlayback(personalAvatar, user, {
+      pathname: location.pathname,
+    });
   const resolvedAssistantId =
     assistantId ?? activeAvatar?.assistant_id ?? activeAvatar?.avatar_id;
   const { manifest: emotionMedia } = useEmotionMedia(resolvedAssistantId, {
@@ -182,6 +157,8 @@ const MessageList = ({
     avatarName,
     asAnonymousIdentity: readerIsAnonymous,
     speechPlaybackEnabled: canSpeak,
+    userSpeechPlaybackEnabled: canSpeakUser,
+    userSpeechAssistantId: personalAssistantId,
   });
 
   // Who the reader is on THIS screen, which is not always who this browser has
@@ -192,6 +169,7 @@ const MessageList = ({
   // the server actually holds, which is the guest's.
   const readerIsTheAnonymousVisitor = isSharedAvatarChatPath(location.pathname);
   const readerPortrait = readerIsTheAnonymousVisitor ? null : userPortrait;
+  const speakerOptions = { humanTurn: true, avatarName };
 
   useEffect(() => {
     const transcriptEndMarker = messagesEndRef?.current;
@@ -301,9 +279,139 @@ const MessageList = ({
           const isGeneratingThisReply =
             replyTurnIsStoppable &&
             voiceMessageIsGenerating(msg, { turnActive: true });
+          const speakerRows =
+            isFromUser && !isLoading && editingKey !== messageKey
+              ? speakerBubbleRowsOf(msg, speakerOptions)
+              : null;
+          const humanScriptText = spokenTurnText(msg, speakerOptions);
+          const bubbleText = isFromAvatar
+            ? stripArtifactReferences(msg.content)
+            : humanScriptText;
+          const isSpeakingThis = speech.speakingKey === messageKey;
+          const isUserSpeaking = userResponseIsSpeaking({
+            messageKey,
+            speakingKey: speech.speakingKey,
+            isPending: Boolean(isFromUser && isLoading),
+          });
+          const userSpeakingBubble = isUserSpeaking
+            ? speakingBubbleProps()
+            : { className: '', style: undefined };
+
+          const messageActionBar = (
+            <MessageActionBar
+              message={msg}
+              messageKey={messageKey}
+              isFromAvatar={isFromAvatar}
+              isFromUser={isFromUser}
+              avatarName={avatarName}
+              readOnly={readOnly}
+              isSpeaking={isSpeakingThis}
+              isSpeechLoading={loadingSpeechKey === messageKey}
+              canSpeak={canSpeak}
+              canSpeakUser={canSpeakUser}
+              copiedKey={copiedKey}
+              feedbackKey={feedbackKey}
+              feedbackDraft={feedbackDraft}
+              editingKey={editingKey}
+              pendingSendCount={pendingSendCount}
+              onCopy={copyMessage}
+              onToggleSpeech={() =>
+                toggleSpeech(
+                  messageKey,
+                  isFromAvatar
+                    ? speakableReplyText(msg.content)
+                    : humanScriptText,
+                  { forUser: isFromUser }
+                )
+              }
+              onRegenerate={(key) => regenerateAvatarReply?.(key)}
+              onLike={() =>
+                submitMessageFeedback?.(messageKey, { type: 'like' })
+              }
+              onDislike={() =>
+                submitMessageFeedback?.(messageKey, {
+                  type: 'dislike',
+                })
+              }
+              onFeelsReal={() =>
+                submitMessageFeedback?.(messageKey, {
+                  feels: 'feels_real',
+                })
+              }
+              onFeelsOff={() =>
+                submitMessageFeedback?.(messageKey, {
+                  feels: 'feels_fake',
+                })
+              }
+              onToggleFeedback={() => {
+                setFeedbackKey((current) =>
+                  current === messageKey ? null : messageKey
+                );
+                setFeedbackDraft(msg.feedback?.comment ?? '');
+              }}
+              onFeedbackDraftChange={setFeedbackDraft}
+              onSubmitFeedback={() => {
+                submitMessageFeedback?.(messageKey, {
+                  comment: feedbackDraft.trim(),
+                });
+                setFeedbackKey(null);
+              }}
+              onStartEdit={() => {
+                setEditingKey(messageKey);
+                setEditDraft(humanScriptText);
+              }}
+              onRetry={(key) =>
+                resendFromUserMessage?.(key, humanScriptText)
+              }
+            />
+          );
 
           return (
             <React.Fragment key={messageKey}>
+              {speakerRows
+                ? speakerRows.map((row, index) => {
+                    const isLast = index === speakerRows.length - 1;
+                    const isGuest = row.role === SPEAKER_ROLE_OTHER;
+                    return (
+                      <div
+                        key={`${messageKey}-${row.role}-${row.speaker}-${index}`}
+                        className="flex items-end gap-2 max-w-[85%] min-w-0 self-end flex-row-reverse"
+                      >
+                        {isGuest ? (
+                          <ThirdPartySpeakerIcon identity={row.identity} />
+                        ) : (
+                          <MessageAuthorIcon
+                            portrait={readerPortrait}
+                            name="You"
+                            isSpeaking={isUserSpeaking}
+                          />
+                        )}
+                        <div
+                          className={`p-2 rounded-lg min-w-0 break-words [overflow-wrap:anywhere] bg-neutral-900 border text-neutral-200 ${
+                            isGuest && row.identity?.fill ? '' : 'border-white/10'
+                          } ${isUserSpeaking && !isGuest ? userSpeakingBubble.className : ''}`}
+                          style={
+                            isGuest
+                              ? row.identity?.fill
+                                ? { borderColor: row.identity.fill }
+                                : undefined
+                              : isUserSpeaking
+                                ? userSpeakingBubble.style
+                                : undefined
+                          }
+                        >
+                          <div className="whitespace-pre-wrap">{row.text}</div>
+                          {isLast ? (
+                            <>
+                              <MessageMedia media={msg.media} />
+                              {messageActionBar}
+                            </>
+                          ) : null}
+                        </div>
+                      </div>
+                    );
+                  })
+                : (
               <div
                 className={`flex items-end gap-2 max-w-[85%] min-w-0 ${
                   isFromUser ? 'self-end flex-row-reverse' : 'self-start'
@@ -316,6 +424,7 @@ const MessageList = ({
                     emotion={isFromAvatar ? msg.sentiment?.base_emotion : null}
                     emotionMedia={isFromAvatar ? emotionMedia : null}
                     showGenerated={showGenerated}
+                    isSpeaking={isFromUser ? isUserSpeaking : isSpeakingThis}
                   />
                 )}
                 <div
@@ -323,11 +432,14 @@ const MessageList = ({
                     charts.length > 0 ? 'w-full flex-grow' : ''
                   } ${
                     isFromUser
-                      ? 'bg-neutral-900 border border-white/10 text-neutral-200'
+                      ? `bg-neutral-900 border border-white/10 text-neutral-200 ${userSpeakingBubble.className}`
                       : isFromAvatar
-                        ? 'bg-black/60 border border-white/10 text-neutral-200'
+                        ? `bg-black/60 border border-white/10 text-neutral-200 ${
+                            isSpeakingThis ? SPEAKING_BUBBLE_HIGHLIGHT : ''
+                          }`
                         : 'bg-black/60 border border-white/10 italic text-neutral-400'
                   }`}
+                  style={isFromUser ? userSpeakingBubble.style : undefined}
                 >
                   {isLoading ? (
                     <div className="flex items-center justify-between gap-3">
@@ -395,18 +507,9 @@ const MessageList = ({
                             </button>
                           </div>
                         </div>
-                      ) : !isFromAvatar && hasSpeakerScript(msg) ? (
-                        <SpeakerScript
-                          speakers={msg.speakers}
-                          fallback={msg.content}
-                        />
                       ) : (
-                        msg.content && (
-                          <div className="whitespace-pre-wrap">
-                            {isFromAvatar
-                              ? stripArtifactReferences(msg.content)
-                              : msg.content}
-                          </div>
+                        bubbleText && (
+                          <div className="whitespace-pre-wrap">{bubbleText}</div>
                         )
                       )}
 
@@ -443,73 +546,12 @@ const MessageList = ({
 
                       <MessageMedia media={msg.media} />
 
-                      <MessageActionBar
-                        message={msg}
-                        messageKey={messageKey}
-                        isFromAvatar={isFromAvatar}
-                        isFromUser={isFromUser}
-                        readOnly={readOnly}
-                        isSpeaking={speech.speakingKey === messageKey}
-                        isSpeechLoading={loadingSpeechKey === messageKey}
-                        canSpeak={canSpeak}
-                        copiedKey={copiedKey}
-                        feedbackKey={feedbackKey}
-                        feedbackDraft={feedbackDraft}
-                        editingKey={editingKey}
-                        pendingSendCount={pendingSendCount}
-                        onCopy={copyMessage}
-                        onToggleSpeech={() =>
-                          toggleSpeech(
-                            messageKey,
-                            isFromAvatar
-                              ? speakableReplyText(msg.content)
-                              : msg.content
-                          )
-                        }
-                        onRegenerate={(key) => regenerateAvatarReply?.(key)}
-                        onLike={() =>
-                          submitMessageFeedback?.(messageKey, { type: 'like' })
-                        }
-                        onDislike={() =>
-                          submitMessageFeedback?.(messageKey, {
-                            type: 'dislike',
-                          })
-                        }
-                        onFeelsReal={() =>
-                          submitMessageFeedback?.(messageKey, {
-                            feels: 'feels_real',
-                          })
-                        }
-                        onFeelsOff={() =>
-                          submitMessageFeedback?.(messageKey, {
-                            feels: 'feels_fake',
-                          })
-                        }
-                        onToggleFeedback={() => {
-                          setFeedbackKey((current) =>
-                            current === messageKey ? null : messageKey
-                          );
-                          setFeedbackDraft(msg.feedback?.comment ?? '');
-                        }}
-                        onFeedbackDraftChange={setFeedbackDraft}
-                        onSubmitFeedback={() => {
-                          submitMessageFeedback?.(messageKey, {
-                            comment: feedbackDraft.trim(),
-                          });
-                          setFeedbackKey(null);
-                        }}
-                        onStartEdit={() => {
-                          setEditingKey(messageKey);
-                          setEditDraft(editableScriptText(msg));
-                        }}
-                        onRetry={(key) =>
-                          resendFromUserMessage?.(key, editableScriptText(msg))
-                        }
-                      />
+                      {messageActionBar}
                     </>
                   )}
                 </div>
               </div>
+                )}
               {/* The connect cards a reply carries — the record of an
                   account added during the turn, or the card a paused turn
                   is waiting on — under the words, not inside the bubble. */}
@@ -529,6 +571,7 @@ const MessageList = ({
           assistant's next message would have gone. A fact review starts folded
           so the conversation is not forced through the form; the choices live
           on the pause itself so switching between talking and typing keeps them. */}
+      <ShareRequestPrompt />
       <InterruptPanel />
 
       {/* What the avatar is doing, for as long as it is doing it.

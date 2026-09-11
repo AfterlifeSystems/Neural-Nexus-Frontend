@@ -1,9 +1,12 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import {
+  avatarSpokenLines,
+  forgetAvatarSpokenLines,
   isAvatarSelfEcho,
   isAvatarSpeechFragment,
   rememberAvatarSpeech,
+  rememberAvatarSpokenLine,
   spokenSimilarity,
   spokenWordsOf,
 } from './selfEchoGuard.js';
@@ -109,4 +112,38 @@ test('a real answer right after the avatar stops still goes through', () => {
     ], { followedAvatarSpeech: true }),
     false
   );
+});
+
+test('the lines the avatar spoke are remembered for whoever is listening', () => {
+  forgetAvatarSpokenLines();
+  assert.deepEqual(avatarSpokenLines(), []);
+  rememberAvatarSpokenLine(
+    'That sounds like a beautiful place to share with your family.'
+  );
+  // The screen that speaks and the screen that listens are not always the
+  // same one, so the guard asks the module rather than a component's ref.
+  assert.equal(
+    isAvatarSelfEcho(
+      'That sounds like a beautiful place to share with your family.',
+      avatarSpokenLines()
+    ),
+    true
+  );
+  forgetAvatarSpokenLines();
+  assert.equal(
+    isAvatarSelfEcho(
+      'That sounds like a beautiful place to share with your family.',
+      avatarSpokenLines()
+    ),
+    false
+  );
+});
+
+test('only the last few spoken lines are kept', () => {
+  forgetAvatarSpokenLines();
+  for (const line of ['one', 'two', 'three', 'four']) {
+    rememberAvatarSpokenLine(line);
+  }
+  assert.deepEqual(avatarSpokenLines(), ['two', 'three', 'four']);
+  forgetAvatarSpokenLines();
 });

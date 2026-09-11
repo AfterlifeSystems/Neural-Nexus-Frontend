@@ -10,6 +10,7 @@
 
 import React from 'react';
 import {
+  Accessibility,
   CreditCard,
   Globe,
   Inbox,
@@ -21,7 +22,9 @@ import {
 import { useNavigate, useSearchParams } from 'react-router-dom';
 
 import { useAuth } from '../context/AuthContext';
-import { getPersonalAvatar } from '../services/avatarService';
+import {
+  resolvePersonalAvatarId,
+} from '../services/personalAvatar';
 import { personalAvatarWorkspacePath } from './personalAvatarWorkspace';
 import useInboxCount from '../hooks/useInboxCount';
 
@@ -42,13 +45,14 @@ export const AccountMenuItem = ({
   ariaLabel,
   onClick,
   isCurrent,
+  isPressed,
   isDanger,
   iconOnly = false,
   badgeCount = 0,
 }) => {
   const tone = isDanger
     ? MENU_TONE.danger
-    : isCurrent
+    : isCurrent || isPressed
       ? MENU_TONE.current
       : MENU_TONE.rest;
   const accessibleName =
@@ -61,6 +65,7 @@ export const AccountMenuItem = ({
         onClick?.(clickEvent);
       }}
       aria-current={isCurrent ? 'page' : undefined}
+      aria-pressed={typeof isPressed === 'boolean' ? isPressed : undefined}
       aria-label={iconOnly ? accessibleName : undefined}
       title={iconOnly ? accessibleName : undefined}
       className={
@@ -84,35 +89,7 @@ export const AccountMenuItem = ({
   );
 };
 
-/**
- * Find the avatar that depicts the signed-in user.
- *
- * Preferring the list already in memory keeps the common case free of a round
- * trip; the API is asked only when the list has not been loaded or carries no
- * flagged avatar (a public entry has its metadata stripped, so the flag can be
- * missing from a list that nonetheless contains the avatar).
- *
- * @param {Array} userAvatars Avatars already held in context.
- * @returns {Promise<string|null>} The personal avatar's assistant_id.
- */
-export async function resolvePersonalAvatarId(userAvatars) {
-  const flaggedAvatar = (userAvatars ?? []).find(
-    (avatar) => avatar.metadata?.is_personal_avatar_of_creator
-  );
-  if (flaggedAvatar) {
-    return flaggedAvatar.assistant_id ?? flaggedAvatar.avatar_id ?? null;
-  }
-  try {
-    const personalAvatarResponse = await getPersonalAvatar();
-    return personalAvatarResponse?.personal_avatar?.assistant_id ?? null;
-  } catch (personalAvatarError) {
-    console.error(
-      'Could not resolve the personal avatar:',
-      personalAvatarError
-    );
-    return null;
-  }
-}
+export { resolvePersonalAvatarId } from '../services/personalAvatar';
 
 /**
  * Open a tab on the workspace of the avatar that depicts the signed-in user.
@@ -246,6 +223,14 @@ const AccountMenu = ({
         ariaLabel="World map of geo-located avatars"
         onClick={() => goTo('/map')}
         isCurrent={currentPath === '/map'}
+      />
+      <AccountMenuItem
+        iconOnly={iconOnly}
+        icon={<Accessibility className={iconClass} />}
+        label="Accessibility"
+        ariaLabel="Accessibility settings"
+        onClick={() => goTo('/accessibility')}
+        isCurrent={currentPath === '/accessibility'}
       />
       <AccountMenuItem
         iconOnly={iconOnly}

@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { toast } from 'react-hot-toast';
+import { Activity } from 'lucide-react';
 import {
   deleteAvatarMotionTracks,
   getAvatarMotionProfile,
@@ -18,7 +19,14 @@ const DIMENSION_LABELS = {
   head: ['yaw', 'pitch', 'roll'],
 };
 
-const SERIES_COLORS = ['#fbbf24', '#38bdf8', '#f472b6', '#a3e635', '#c084fc', '#fb923c'];
+const SERIES_COLORS = [
+  '#fbbf24',
+  '#38bdf8',
+  '#f472b6',
+  '#a3e635',
+  '#c084fc',
+  '#fb923c',
+];
 
 /**
  * Plot one prototype trajectory: each named coordinate as its own line over
@@ -51,16 +59,32 @@ function PrototypeChart({ primitive }) {
         role="img"
         aria-label={`${CHANNEL_LABELS[primitive.channel] ?? primitive.channel} movement over time`}
       >
-        <line x1="0" y1={height / 2} x2={width} y2={height / 2} stroke="rgba(255,255,255,0.15)" strokeWidth="1" />
+        <line
+          x1="0"
+          y1={height / 2}
+          x2={width}
+          y2={height / 2}
+          stroke="rgba(255,255,255,0.15)"
+          strokeWidth="1"
+        />
         {paths.map(({ dimension, d }) => (
-          <path key={dimension} d={d} fill="none" stroke={SERIES_COLORS[dimension % SERIES_COLORS.length]} strokeWidth="1.5" />
+          <path
+            key={dimension}
+            d={d}
+            fill="none"
+            stroke={SERIES_COLORS[dimension % SERIES_COLORS.length]}
+            strokeWidth="1.5"
+          />
         ))}
       </svg>
       {labels.length > 0 && (
         <figcaption className="flex flex-wrap gap-2 text-[10px] text-white/50">
           {labels.slice(0, Math.min(dimensions, 6)).map((label, index) => (
             <span key={label} className="inline-flex items-center gap-1">
-              <span className="inline-block w-2 h-2 rounded-sm" style={{ background: SERIES_COLORS[index] }} />
+              <span
+                className="inline-block w-2 h-2 rounded-sm"
+                style={{ background: SERIES_COLORS[index] }}
+              />
               {label}
             </span>
           ))}
@@ -121,7 +145,9 @@ export default function MotionProfilePanel({ assistantId }) {
       toast.success('Movement record deleted.');
       await load();
     } catch (deleteError) {
-      toast.error(deleteError?.message ?? 'The movement record could not be deleted.');
+      toast.error(
+        deleteError?.message ?? 'The movement record could not be deleted.'
+      );
     } finally {
       setDeleting(false);
     }
@@ -131,28 +157,37 @@ export default function MotionProfilePanel({ assistantId }) {
   const blocks = profile?.blocks ?? {};
   const primitives = profile?.primitives ?? [];
   const fidelity = profile?.motion_fidelity ?? {};
-  const hasAnything = seconds > 0 || primitives.length > 0 || (profile?.tracks?.count ?? 0) > 0;
+  const hasAnything =
+    seconds > 0 || primitives.length > 0 || (profile?.tracks?.count ?? 0) > 0;
 
   return (
-    <section className="flex flex-col gap-3" aria-labelledby="motion-profile-heading">
-      <div className="flex items-start justify-between gap-3">
-        <div>
-          <h3 id="motion-profile-heading" className="text-base font-semibold text-white">
-            How you move
-          </h3>
+    <section
+      className="flex flex-col gap-4 min-w-0"
+      aria-labelledby="motion-profile-heading"
+    >
+      <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
+        <div className="min-w-0">
+          <h2
+            id="motion-profile-heading"
+            className="text-xl sm:text-2xl font-semibold text-neutral-200 mb-2 flex items-center gap-2"
+          >
+            <Activity size={22} />
+            Motion
+          </h2>
           <p className="text-sm text-white/60">
-            Learned from your webcam when it faces you, and from videos of you that you upload. The
-            words below are rendered from measurements, and they drive your stills, idle loops and
-            lip-synced clips.
+            How you move, learned from your webcam when it faces you and from
+            videos of you that you upload. The words below are rendered from
+            measurements, and they drive your stills, idle loops and lip-synced
+            clips.
           </p>
         </div>
         <button
           type="button"
           onClick={forget}
           disabled={!hasAnything || deleting}
-          className="shrink-0 text-xs px-3 py-1.5 rounded-md border border-red-400/40 text-red-200 hover:bg-red-500/10 disabled:opacity-40 disabled:cursor-not-allowed"
+          className="self-start shrink-0 text-xs px-3 py-1.5 rounded-md border border-red-400/40 text-red-200 hover:bg-red-500/10 disabled:opacity-40 disabled:cursor-not-allowed"
         >
-          {deleting ? 'Deleting…' : 'Forget my movement'}
+          {deleting ? 'Deleting…' : 'Unlearn trained motion'}
         </button>
       </div>
 
@@ -161,8 +196,8 @@ export default function MotionProfilePanel({ assistantId }) {
 
       {profile && !hasAnything && (
         <p className="text-sm text-white/50">
-          Nothing recorded yet. Turn the webcam on while chatting with your personal avatar, or
-          upload a video of yourself.
+          Nothing recorded yet. Turn the webcam on while chatting with your
+          personal avatar, or upload a video of yourself.
         </p>
       )}
 
@@ -176,7 +211,8 @@ export default function MotionProfilePanel({ assistantId }) {
             <div className="rounded-md bg-white/5 p-2">
               <dt className="text-white/50 text-xs">Tracks kept</dt>
               <dd className="text-white">
-                {profile.tracks?.count ?? 0} · {describeSeconds(profile.tracks?.seconds)}
+                {profile.tracks?.count ?? 0} ·{' '}
+                {describeSeconds(profile.tracks?.seconds)}
               </dd>
             </div>
             <div className="rounded-md bg-white/5 p-2">
@@ -191,7 +227,9 @@ export default function MotionProfilePanel({ assistantId }) {
               <dt className="text-white/50 text-xs">Sources</dt>
               <dd className="text-white text-xs">
                 {Object.entries(profile.tracks?.by_source ?? {})
-                  .map(([source, count]) => `${source.replace(/_/g, ' ')} ${count}`)
+                  .map(
+                    ([source, count]) => `${source.replace(/_/g, ' ')} ${count}`
+                  )
                   .join(' · ') || '—'}
               </dd>
             </div>
@@ -199,41 +237,58 @@ export default function MotionProfilePanel({ assistantId }) {
 
           {Object.keys(blocks).length > 0 ? (
             <div className="flex flex-col gap-2">
-              <h4 className="text-sm font-semibold text-white/80">What the measurements say</h4>
+              <h4 className="text-sm font-semibold text-white/80">
+                What the measurements say
+              </h4>
               {Object.entries(blocks).map(([emotion, block]) => (
-                <details key={emotion} open={emotion === 'neutral'} className="rounded-md bg-black/30 border border-white/10">
+                <details
+                  key={emotion}
+                  open={emotion === 'neutral'}
+                  className="rounded-md bg-black/30 border border-white/10"
+                >
                   <summary className="cursor-pointer px-3 py-2 text-sm text-white/80 capitalize">
                     {emotion}
                   </summary>
-                  <pre className="px-3 pb-3 text-xs text-white/70 whitespace-pre-wrap font-mono">{block}</pre>
+                  <pre className="px-3 pb-3 text-xs text-white/70 whitespace-pre-wrap font-mono">
+                    {block}
+                  </pre>
                 </details>
               ))}
             </div>
           ) : (
             <p className="text-sm text-white/50">
-              Recorded, but not yet enough to state a habit — the text appears once a measurement rests
-              on enough seconds to be reliable.
+              Recorded, but not yet enough to state a habit — the text appears
+              once a measurement rests on enough seconds to be reliable.
             </p>
           )}
 
           {primitives.length > 0 && (
             <div className="flex flex-col gap-2">
-              <h4 className="text-sm font-semibold text-white/80">Recurring movements</h4>
+              <h4 className="text-sm font-semibold text-white/80">
+                Recurring movements
+              </h4>
               <ul className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 {primitives.slice(0, 12).map((primitive) => (
-                  <li key={primitive.primitive_id} className="rounded-md bg-white/5 p-2 flex flex-col gap-1">
+                  <li
+                    key={primitive.primitive_id}
+                    className="rounded-md bg-white/5 p-2 flex flex-col gap-1"
+                  >
                     <div className="flex items-center justify-between text-xs text-white/70">
                       <span>
                         {CHANNEL_LABELS[primitive.channel] ?? primitive.channel}
-                        {primitive.emotion !== 'neutral' ? ` · ${primitive.emotion}` : ''}
+                        {primitive.emotion !== 'neutral'
+                          ? ` · ${primitive.emotion}`
+                          : ''}
                       </span>
                       <span>×{primitive.occurrences}</span>
                     </div>
                     <PrototypeChart primitive={primitive} />
                     <p className="text-[11px] text-white/50">
-                      {Number(primitive.duration_mean).toFixed(2)} s ± {Number(primitive.duration_std).toFixed(2)} ·
-                      amplitude {Number(primitive.amplitude_mean).toFixed(2)}
-                      {primitive.context?.speaking != null || primitive.context?.silent != null
+                      {Number(primitive.duration_mean).toFixed(2)} s ±{' '}
+                      {Number(primitive.duration_std).toFixed(2)} · amplitude{' '}
+                      {Number(primitive.amplitude_mean).toFixed(2)}
+                      {primitive.context?.speaking != null ||
+                      primitive.context?.silent != null
                         ? ` · speaking ${primitive.context.speaking ?? 0} / listening ${primitive.context.silent ?? 0}`
                         : ''}
                     </p>
@@ -245,10 +300,15 @@ export default function MotionProfilePanel({ assistantId }) {
 
           {Object.keys(fidelity).length > 0 && (
             <div className="flex flex-col gap-1">
-              <h4 className="text-sm font-semibold text-white/80">How closely generated clips match you</h4>
+              <h4 className="text-sm font-semibold text-white/80">
+                How closely generated clips match you
+              </h4>
               <ul className="text-xs text-white/70 flex flex-wrap gap-2">
                 {Object.entries(fidelity).map(([emotion, score]) => (
-                  <li key={emotion} className="rounded bg-white/5 px-2 py-1 capitalize">
+                  <li
+                    key={emotion}
+                    className="rounded bg-white/5 px-2 py-1 capitalize"
+                  >
                     {emotion}: {Math.round((score?.overall ?? 0) * 100)}%
                   </li>
                 ))}

@@ -1,10 +1,10 @@
 // src/components/showVoiceNotReadyToast.jsx
 //
-// The avatar does not have a voice model. Shown from live voice mode once
-// per conversation. Clicking the notice opens avatar settings so the owner
-// can record or upload speech; Close dismisses it. A plain toast would
-// dismiss on press (see main.jsx) and never take the reader where they need
-// to go.
+// The avatar does not have a voice model. Shown when speak-aloud or a live
+// reply needs a clone that is not there yet. Clicking the notice opens the
+// avatar's Voice settings so the owner can create one; Close dismisses it.
+// A plain toast would dismiss on press (see main.jsx) and never take the
+// reader where they need to go.
 
 import React from 'react';
 import { toast } from 'react-hot-toast';
@@ -18,7 +18,7 @@ import {
 } from './voiceNotReadyToast';
 
 /**
- * Show a two-pane toast: left opens settings, right dismisses.
+ * Show a two-pane toast: left opens Voice settings to create a voice, right dismisses.
  *
  * @param {Object} parameters
  * @param {string} parameters.assistantId The avatar whose settings to open.
@@ -39,7 +39,7 @@ export function showVoiceNotReadyToast({
   const collected = Math.round(collectedSeconds);
   const toastId = voiceNotReadyStorageKey(assistantId, conversationId);
 
-  const openSettings = () => {
+  const openVoiceSettings = () => {
     toast.dismiss(toastId);
     window.location.assign(settingsPath);
   };
@@ -56,14 +56,14 @@ export function showVoiceNotReadyToast({
         <div
           role="button"
           tabIndex={0}
-          onClick={openSettings}
+          onClick={openVoiceSettings}
           onKeyDown={(keyboardEvent) => {
             if (keyboardEvent.key === 'Enter' || keyboardEvent.key === ' ') {
               keyboardEvent.preventDefault();
-              openSettings();
+              openVoiceSettings();
             }
           }}
-          className="flex-1 w-0 p-4 cursor-pointer hover:bg-white/5 rounded-l-lg"
+          className="group flex-1 w-0 p-4 cursor-pointer hover:bg-white/5 rounded-l-lg focus:outline-none focus-visible:ring-2 focus-visible:ring-neutral-400"
         >
           <div className="flex items-start gap-3">
             <AudioLines className="w-5 h-5 text-amber-300 shrink-0 mt-0.5" aria-hidden="true" />
@@ -72,9 +72,13 @@ export function showVoiceNotReadyToast({
                 {voiceNotReadyToastTitle(avatarName)}
               </p>
               <p className="mt-1 text-sm text-white/60">
-                Record or upload about two minutes of speech in settings
-                {collected > 0 ? ` (${collected}s collected so far)` : ''}.
-                Open avatar settings.
+                Record or upload about two minutes of speech
+                {collected > 0 ? ` (${collected}s collected so far)` : ''} to
+                create a voice. Open{' '}
+                <span className="font-semibold text-neutral-300 underline underline-offset-2 group-hover:text-neutral-100">
+                  Voice
+                </span>
+                .
               </p>
             </div>
           </div>

@@ -15,6 +15,7 @@ import {
   Upload,
 } from 'lucide-react';
 import ProgressBar from '../ui/ProgressBar';
+import Switch from '../ui/Switch';
 import UploadProcessPanel from '../media/UploadProcessPanel';
 import {
   addAvatarVoiceSample,
@@ -22,11 +23,13 @@ import {
   getAvatarVoiceVerification,
   rebuildAvatarVoice,
   retryAvatarProfessionalVoice,
+  setVoiceCaptureConsent,
   streamMediaJobProgress,
   submitAvatarVoiceVerification,
   uploadAvatarIdentityMedia,
 } from '../../services/avatarService';
 import { singleReferenceAudioUrl } from '../../services/referenceAudioUrl';
+import StandardVoicePicker from './StandardVoicePicker';
 import { referenceAudioWarning } from './referenceAudioHealth';
 import {
   canCaptureMicrophone,
@@ -97,7 +100,22 @@ const STATE_LABELS = {
  * @param {Function} [parameters.onDismissJob]
  * @param {number} [parameters.refreshToken] Bumped by the parent when something
  *   outside this panel changed the voice (a deleted upload, a new reference).
+ * @param {string} [parameters.acquisitionNotice] What to say instead of the
+ *   generic prompt when the research went looking for a recording of this
+ *   subject and could not find one. Empty when no research has looked, or when
+ *   it found one.
  */
+// What each clip's `source` means to the owner. Speech learned from
+// conversation is named as such: it is the one kind the owner did not
+// deliberately hand over, so it has to be visible here and droppable.
+const VOICE_CLIP_SOURCE_LABELS = {
+  recorder: 'Recording',
+  reference_upload: 'Upload',
+  media_upload: 'Upload',
+  voice_mode: 'Learned from conversation',
+  voice_mode_dictation: 'Learned from dictation',
+};
+
 const VoicePanel = ({
   assistantId,
   isPersonalAvatar,
@@ -107,6 +125,7 @@ const VoicePanel = ({
   onCancelJob,
   onDismissJob,
   refreshToken = 0,
+  acquisitionNotice = '',
 }) => {
   const [status, setStatus] = useState(null);
   const [isRecording, setIsRecording] = useState(false);
@@ -118,6 +137,8 @@ const VoicePanel = ({
   const [isVerifying, setIsVerifying] = useState(false);
   const recordingRef = useRef(null);
   const recordingStartedAtRef = useRef(null);
+
+  const [isSavingConsent, setIsSavingConsent] = useState(false);
 
   const refresh = useCallback(async () => {
     try {
@@ -472,6 +493,8 @@ const VoicePanel = ({
   };
 
   const hasVoiceModel = Boolean(status?.instant_voice_id) && !voiceModelBlocked;
+  // The stock voice the owner chose for when no cloned voice can speak.
+  const standardVoice = status?.standard_voice ?? null;
   const barMax = isPersonalAvatar ? professionalMinimum : instantMinimum;
   // The voice model is trained once, at the minimum, and never rebuilt; the
   // personal avatar keeps collecting only toward the professional voice model.
@@ -499,13 +522,29 @@ const VoicePanel = ({
       const existing = groups.get(name) ?? {
         name,
         seconds: 0,
-        sourceLabel: clip.source === 'recorder' ? 'Recording' : 'Upload',
+        sourceLabel: VOICE_CLIP_SOURCE_LABELS[clip.source] ?? 'Upload',
       };
       existing.seconds += Number(clip.duration_seconds ?? 0);
       groups.set(name, existing);
     }
     return Array.from(groups.values());
   }, [status]);
+  const saveConsent = useCallback(
+    async (granted) => {
+      setIsSavingConsent(true);
+      try {
+        setStatus(await setVoiceCaptureConsent(assistantId, granted));
+      } catch {
+        toast.error('Could not change voice learning.', {
+          id: 'voice-capture-consent',
+        });
+      } finally {
+        setIsSavingConsent(false);
+      }
+    },
+    [assistantId]
+  );
+
   const captchaText =
     captcha?.captcha?.text ??
     captcha?.captcha?.captcha_text ??
@@ -545,6 +584,14 @@ const VoicePanel = ({
               {describeSeconds(instantMinimum)}
             </span>
           )}
+          {standardVoice && !hasVoiceModel ? (
+            <span
+              className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-amber-400/15 border border-amber-400/30 text-amber-300"
+              title="Replies are spoken with this stock voice until a cloned voice is ready."
+            >
+              Speaks with {standardVoice.name ?? 'a standard voice'}
+            </span>
+          ) : null}
           {isPersonalAvatar && (
             <span
               className={`px-2.5 py-1 rounded-full border ${
@@ -636,6 +683,13 @@ const VoicePanel = ({
         </ul>
       </details>
 
+      <StandardVoicePicker
+        assistantId={assistantId}
+        status={status}
+        onStatus={setStatus}
+        hasUsableCloneVoice={hasVoiceModel}
+      />
+
       {/* What the voice is built from: the reference clip the diarizer uses
           to find this avatar in recordings, and every upload whose speech
           reached the model. */}
@@ -658,6 +712,7 @@ const VoicePanel = ({
               </span>
             </>
           ) : (
+            acquisitionNotice ||
             'No reference audio yet — the first audio or video upload in which this avatar clearly speaks the most becomes the reference.'
           )}
         </p>
@@ -672,6 +727,33 @@ const VoicePanel = ({
             <p className="mt-0.5 text-[11px] text-amber-100/80">
               {referenceWarning.detail}
             </p>
+          </div>
+        ) : null}
+        {/* Talking to a personal avatar can grow its voice from the owner's
+            own speech, but only once a reference recording exists to tell that
+            voice from anyone else in the room. Both halves are stated here,
+            because an owner who has answered "yes" and still sees no progress
+            is almost always missing the reference. */}
+        {isPersonalAvatar ? (
+          <div className="mb-2 flex flex-wrap items-center justify-between gap-2 rounded-lg border border-white/10 bg-black/30 p-2">
+            <div className="min-w-0 flex-1">
+              <p className="text-xs font-semibold text-white/70">
+                Learn from conversation
+              </p>
+              <p className="mt-0.5 text-[11px] text-white/50">
+                {status?.accrual_blocked_reason === 'reference_audio_missing'
+                  ? 'Needs a reference recording first, so your voice can be told from anyone else in the room.'
+                  : status?.accrual_consent === 'granted'
+                    ? 'Speaking to this avatar in voice mode adds your speech to its voice.'
+                    : 'Voice mode still transcribes and answers; it just does not learn the voice.'}
+              </p>
+            </div>
+            <Switch
+              checked={status?.accrual_consent === 'granted'}
+              busy={isSavingConsent}
+              label="Learn from conversation"
+              onChange={(next) => saveConsent(next)}
+            />
           </div>
         ) : null}
         {voiceClipGroups.length > 0 ? (

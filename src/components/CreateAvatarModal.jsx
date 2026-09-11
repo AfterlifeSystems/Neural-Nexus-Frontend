@@ -3,11 +3,7 @@ import { createPortal } from 'react-dom';
 import { MapPin, UserPenIcon } from 'lucide-react';
 import { toast } from 'react-hot-toast';
 import { useNavigate } from 'react-router-dom';
-import {
-  createAvatar,
-  listUserAvatars,
-  startAvatarDeepResearch,
-} from '../services/avatarService';
+import { createAvatar, listUserAvatars } from '../services/avatarService';
 import { useAuth } from '../context/AuthContext';
 import {
   assistantIdOf,
@@ -105,10 +101,20 @@ const CreateAvatarModal = ({ setShowCreateModal }) => {
     setIsLoading(true);
     setError(null);
     try {
+      // The hint is sent whether or not a photo was chosen: it carries the
+      // typed name and the place, which is what tells the research which of
+      // several people with this name the avatar is about.
       const created = await createAvatar({
         name: resolvedName,
         description: newAvatarDescription,
         geoLocation: isPinnedToAPlace ? geoLocation : undefined,
+        researchHint: researchHintFromCreatePhoto({
+          name: resolvedName,
+          locationName: geoLocation.locationName,
+          latitude: geoLocation.latitude,
+          longitude: geoLocation.longitude,
+          imageUrl: photoUrl,
+        }),
       });
 
       // Refresh the avatar list so the new avatar appears immediately.
@@ -151,24 +157,21 @@ const CreateAvatarModal = ({ setShowCreateModal }) => {
       }
 
       const createdId = assistantIdOf(createdAvatar);
+      // The server starts research for every new avatar and hands the job back
+      // here. Remembering it now is what lets the research panel pick the job
+      // up and stream its progress the moment Settings mounts — including the
+      // portrait and voice the research goes looking for when none were given.
+      if (createdId && created?.research_job?.job_id) {
+        rememberResearchJob(createdId, created.research_job.job_id);
+      }
       if (hasPhoto && createdId) {
         // The photograph is ingested after the dialog closes. Settings shows
-        // the portrait and document jobs; research starts once the picture
-        // has been read as identity media. A link is fetched by the server.
+        // the portrait and document jobs. A link is fetched by the server.
         void startCreateAvatarPhotoFollowUp({
           assistantId: createdId,
           photoFile,
           photoUrl,
-          researchHint: researchHintFromCreatePhoto({
-            name: resolvedName,
-            locationName: geoLocation.locationName,
-            latitude: geoLocation.latitude,
-            longitude: geoLocation.longitude,
-            imageUrl: photoUrl,
-          }),
           uploadIdentityMedia: startIdentityMediaUpload,
-          startResearch: startAvatarDeepResearch,
-          rememberJob: rememberResearchJob,
         }).catch((followUpError) => {
           console.error('Create-from-photo follow-up failed:', followUpError);
           toast.error(

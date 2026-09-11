@@ -2,7 +2,9 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { toast } from 'react-hot-toast';
 import { showRequestFailureToast } from '../components/requestFailureToast';
+import { showVoiceNotReadyToast } from '../components/showVoiceNotReadyToast';
 import { speakText } from '../services/avatarService';
+import { rememberAvatarSpokenLine } from '../services/selfEchoGuard';
 import {
   speakFailureKind,
   speakFailureReason,
@@ -21,16 +23,20 @@ import {
  * reported through `blocked` and NOT toasted — a notice on every reply would
  * repeat something the reader can do nothing about, and live voice mode
  * answers in text. The settings Voice panel is where the ban is explained.
- * A missing clone surfaces as `notReady` so live voice mode can prompt once
- * per conversation to create a voice model. This hook does not toast that
- * case: a speak button in the transcript would otherwise repeat the same
- * notice, and "the avatar could not speak that message" is the wrong
- * sentence. Every other failure is toasted as a failed utterance — a speak
- * button that spins and then does nothing at all leaves the reader with no
- * way to tell a broken voice from a silent one.
+ * A missing clone (or voice stack that is not configured yet) raises the
+ * create-voice toast once per conversation: left side opens Voice settings,
+ * Close dismisses. "The avatar could not speak that message" is the wrong
+ * sentence for that case. A server that has no voice stack at all
+ * (`unavailable`) is different: the avatar may already have a clone, so the
+ * create-voice toast is wrong — that case gets a plain unavailable notice.
+ * Every other failure is toasted as a failed utterance — a speak button that
+ * spins and then does nothing at all leaves the reader with no way to tell a
+ * broken voice from a silent one.
  *
  * @param {Object} [options]
  * @param {boolean} [options.asAnonymousIdentity] Public chat: withhold the credential.
+ * @param {string} [options.avatarName] Named on the create-voice toast.
+ * @param {string} [options.conversationId] Limits the create-voice toast to once per thread.
  * @returns {{
  *   speak: (assistantId: string, text: string, handlers?: {onStart?: Function, onEnd?: Function}) => Promise<boolean>,
  *   stop: () => void,
@@ -38,10 +44,13 @@ import {
  *   speakingKey: string|null,
  *   notReady: Object|null,
  *   blocked: boolean,
+ *   reportVoiceReadiness: (voice: Object|null) => void,
  * }}
  */
 export default function useSpeech({
   asAnonymousIdentity = false,
+  avatarName,
+  conversationId,
 } = {}) {
   const audioRef = useRef(null);
   const objectUrlRef = useRef(null);
@@ -57,6 +66,21 @@ export default function useSpeech({
   // utterances are dropped rather than re-requested: the answer cannot change,
   // and every attempt costs a round trip to be refused again.
   const [blocked, setBlocked] = useState(false);
+
+  // Voice mode learns that a voice is missing by trying to speak and being
+  // refused. This is the opposite signal: the transcribe reply reports whether
+  // the avatar can speak now, so a voice that finished building in the middle
+  // of the conversation is used on the very next reply rather than after a
+  // reload. A voice the vendor has banned is latched the same way a refusal
+  // latches it, because that answer cannot change either.
+  const reportVoiceReadiness = useCallback((voice) => {
+    if (!voice) return;
+    if (voice.blocked) {
+      setBlocked(true);
+      return;
+    }
+    if (voice.has_voice) setNotReady(null);
+  }, []);
 
   const release = useCallback(() => {
     if (audioRef.current) {
@@ -113,6 +137,13 @@ export default function useSpeech({
         objectUrlRef.current = objectUrl;
         const audio = new Audio(objectUrl);
         audioRef.current = audio;
+        // Everything the avatar says out loud is said here, so this is where
+        // it is remembered: a microphone that catches this line — a live voice
+        // screen listening while the transcript's speak button plays, a
+        // listener left over from a screen that has been replaced, a room
+        // whose speakers beat the browser's echo cancellation — can then
+        // recognise the avatar's own words instead of answering them.
+        rememberAvatarSpokenLine(text);
         setSpeakingKey(key ?? text);
         await new Promise((resolve) => {
           let ended = false;
@@ -170,6 +201,21 @@ export default function useSpeech({
               (typeof body?.detail === 'string' && body.detail) ||
               speakError?.message,
           });
+          // Speak-aloud and live replies share this path. The toast is once
+          // per conversation so a speak press and an auto-reply do not stack.
+          showVoiceNotReadyToast({
+            assistantId,
+            avatarName,
+            collectedSeconds,
+            conversationId,
+          });
+        } else if (kind === 'unavailable') {
+          // Not "create a voice" — the clone may already exist. The API process
+          // itself cannot speak (missing key / media store).
+          toast.error(
+            'Voice speaking is unavailable on this server right now.',
+            { id: 'avatar-speak-unavailable' }
+          );
         } else {
           console.error('Speech failed:', speakError);
           // Say why when the server said why. "Could not speak" on its own
@@ -189,8 +235,23 @@ export default function useSpeech({
         return false;
       }
     },
-    [asAnonymousIdentity, blocked, release, stop]
+    [
+      asAnonymousIdentity,
+      avatarName,
+      blocked,
+      conversationId,
+      release,
+      stop,
+    ]
   );
 
-  return { speak, stop, isSpeaking, speakingKey, notReady, blocked };
+  return {
+    speak,
+    stop,
+    isSpeaking,
+    speakingKey,
+    notReady,
+    blocked,
+    reportVoiceReadiness,
+  };
 }

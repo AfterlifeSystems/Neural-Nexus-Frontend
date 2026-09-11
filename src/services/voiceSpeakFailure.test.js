@@ -98,6 +98,17 @@ test('no voice model in the sentence is not_ready', () => {
   );
 });
 
+test('voice features not configured is unavailable, not a missing voice model', () => {
+  assert.equal(
+    speakFailureKind({
+      status: 503,
+      message: 'Voice features are not configured.',
+      body: { detail: 'Voice features are not configured.' },
+    }),
+    'unavailable'
+  );
+});
+
 test('collected seconds nested under detail mean no clone yet', () => {
   assert.equal(
     speakFailureKind({

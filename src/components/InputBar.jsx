@@ -5,10 +5,11 @@ import { useMedia } from '../context/MediaContext';
 import { useAuth } from '../context/AuthContext';
 import ComposerConnectorsMenu from './connections/ComposerConnectorsMenu';
 import ComposerAttachmentStrip from './ComposerAttachmentStrip';
+import ComposerSpeechControls from './ComposerSpeechControls';
 import { composerHasSendableDraft } from './composerSendState';
 import ConversationSuggestions from './ConversationSuggestions';
 import Dock from './Dock';
-
+import useComposerSpeech from '../hooks/useComposerSpeech';
 const InputBar = ({
   onActivateLiveChat,
   avatarId,
@@ -100,6 +101,10 @@ const InputBar = ({
     inputMessage,
     mediaFiles.length
   );
+  // Text-to-speech only: the draft can be played in the person's voice, but
+  // dictation into this box is not offered — talking belongs to voice mode.
+  const { canPlayDraft, isPlayLoading, isPlayingDraft, togglePlayDraft } =
+    useComposerSpeech({ text: inputMessage });
 
   const handleKeyDown = (e) => {
     e.stopPropagation();
@@ -252,6 +257,12 @@ const InputBar = ({
       <div className="flex flex-row items-end gap-2 mb-2 min-w-0">
         {/* Input Container */}
         <div className="flex-1 min-w-0 relative border border-neutral-700 rounded-lg bg-black/60 focus-within:border-neutral-300 transition-colors">
+          {isPlayingDraft && (
+            <div
+              className="voice-speak-glow absolute inset-0 z-10 rounded-lg"
+              aria-hidden
+            />
+          )}
           <ComposerAttachmentStrip
             mediaFiles={mediaFiles}
             attachmentsInFlight={attachmentsInFlight}
@@ -286,6 +297,14 @@ const InputBar = ({
             >
               <Paperclip className="w-5 h-5" />
             </button>
+            <ComposerSpeechControls
+              showDictation={false}
+              canPlayDraft={canPlayDraft}
+              isPlayingDraft={isPlayingDraft}
+              isPlayLoading={isPlayLoading}
+              hasDraft={Boolean(String(inputMessage ?? '').trim())}
+              onTogglePlay={togglePlayDraft}
+            />
             {isPersonalAvatar && (
               <>
                 <button

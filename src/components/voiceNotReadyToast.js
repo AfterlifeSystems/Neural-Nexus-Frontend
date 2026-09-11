@@ -62,9 +62,19 @@ export function voiceNotReadyAlreadyShown(
   conversationId,
   storage
 ) {
-  if (isUnmintedConversation(conversationId)) return false;
   const key = voiceNotReadyStorageKey(assistantId, conversationId);
   if (shownThisSession.has(key)) return true;
+  // A thread that was still new when the notice appeared is the same
+  // conversation after the server mints an id — do not prompt again.
+  if (
+    !isUnmintedConversation(conversationId) &&
+    shownThisSession.has(
+      voiceNotReadyStorageKey(assistantId, UNMINTED_CONVERSATION)
+    )
+  ) {
+    return true;
+  }
+  if (isUnmintedConversation(conversationId)) return false;
   try {
     return readableStorage(storage)?.getItem(key) === '1';
   } catch {
@@ -77,9 +87,9 @@ export function rememberVoiceNotReadyShown(
   conversationId,
   storage
 ) {
-  if (isUnmintedConversation(conversationId)) return;
   const key = voiceNotReadyStorageKey(assistantId, conversationId);
   shownThisSession.add(key);
+  if (isUnmintedConversation(conversationId)) return;
   try {
     readableStorage(storage)?.setItem(key, '1');
   } catch {

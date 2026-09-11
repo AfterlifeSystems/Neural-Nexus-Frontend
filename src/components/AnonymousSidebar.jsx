@@ -46,6 +46,8 @@ import qrCode from '../assets/qr-neuralnexus.png';
 import { followPathInTopWindow } from './utils';
 import SharePreviewSlot from './SharePreviewSlot';
 import SidebarShareControls from './SidebarShareControls';
+import SidebarStageCluster from './SidebarStageCluster';
+import SidebarVoiceMuteControls from './SidebarVoiceMuteControls';
 import EvanAssistLauncher from './evanAssist/EvanAssistLauncher';
 
 /**
@@ -118,7 +120,7 @@ const AnonymousSidebar = ({
           data-sidebar-rail
           onClick={onOpen}
           title="Open the sidebar"
-          className="fixed top-0 left-0 h-full w-[var(--app-rail-width)] z-40 bg-black/60 backdrop-blur-lg border-r border-white/10 flex flex-col items-center py-3 gap-0.5 overflow-y-auto overscroll-contain cursor-pointer hover:bg-black/70 transition-colors"
+          className="fixed top-0 left-0 h-full w-[var(--app-rail-width)] z-40 bg-black/60 backdrop-blur-lg border-r border-white/10 flex flex-col items-center py-3 gap-0.5 overflow-hidden cursor-pointer hover:bg-black/70 transition-colors"
         >
           <button
             onClick={(clickEvent) => {
@@ -131,20 +133,7 @@ const AnonymousSidebar = ({
           >
             <PanelLeftOpen className="w-4 h-4" />
           </button>
-          {showConversations && (
-            <button
-              onClick={(clickEvent) => {
-                clickEvent.stopPropagation();
-                onStartNewConversation?.();
-              }}
-              className="p-1.5 rounded-lg text-white/70 hover:text-neutral-100 hover:bg-white/10 transition-colors"
-              aria-label="New conversation"
-              title="New conversation"
-            >
-              <MessageSquarePlus className="w-4 h-4" />
-            </button>
-          )}
-          {showShareControls && <SidebarShareControls />}
+          <div className="flex-1 min-h-0 w-full overflow-y-auto overscroll-contain flex flex-col items-center gap-0.5">
           {user ? (
             <>
               <AccountMenuItem
@@ -189,12 +178,12 @@ const AnonymousSidebar = ({
             </>
           )}
           <EvanAssistLauncher />
-          <div className="mt-auto shrink-0 w-full flex flex-col items-center gap-1">
-            <SharePreviewSlot
-              name="rail"
-              isolateClicks
-              className="w-full px-1 empty:hidden"
-            />
+          </div>
+          <SidebarStageCluster
+            showConversations={showConversations}
+            showShareControls={showShareControls}
+            onStartNewConversation={onStartNewConversation}
+          >
             <button
               onClick={(clickEvent) => {
                 clickEvent.stopPropagation();
@@ -217,11 +206,12 @@ const AnonymousSidebar = ({
                 />
               </span>
             </button>
-          </div>
+          </SidebarStageCluster>
         </div>
       )}
 
       <div
+        data-sidebar-panel
         className={`
           fixed top-0 left-0
           w-80 sm:w-96 lg:w-80
@@ -234,7 +224,7 @@ const AnonymousSidebar = ({
           shadow-lg
         `}
       >
-        <div className="flex flex-col h-full p-4 gap-4">
+        <div className="flex flex-col h-full min-h-0 p-4 gap-3">
           <div className="shrink-0 flex justify-between items-center gap-2">
             <div className="flex items-center gap-2 min-w-0">
               <div className="w-9 h-9 shrink-0 rounded-full bg-black/50 border border-white/10 flex items-center justify-center">
@@ -267,20 +257,11 @@ const AnonymousSidebar = ({
             </button>
           </div>
 
-          {/* Everything below the header scrolls as one column. The panel is
-              `h-full`, and "full" is short in the places this sidebar actually
-              opens: the landing page's embedded demo frames it a few hundred
-              pixels tall, and a laptop in a browser window with chrome is not
-              much taller. Letting only the conversation list scroll — which is
-              what this panel did — left the sign-up card, the log-in link, and
-              the QR code hanging past the bottom edge with no way to reach
-              them. `min-h-0` is what lets this box actually shrink inside the
-              column: a flex item's default `min-height: auto` would hold it at
-              its content height and push the overflow back out of the panel.
-              `overscroll-contain` keeps a scroll that reaches the end of this
-              panel from chaining to the landing page behind the demo frame. */}
-          <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain -mx-1 px-1 flex flex-col gap-4">
-            <div className="space-y-1 border-b border-white/10 pb-4">
+          {/* Conversations fill the leftover column and scroll as one pane
+              with the account links. The share footer stays put so New
+              conversation cannot sit on mute / share. */}
+          <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain -mx-1 px-1 flex flex-col gap-3">
+            <div className="shrink-0 space-y-1 border-b border-white/10 pb-3">
               {user ? (
                 <>
                   <AccountMenuItem
@@ -316,19 +297,12 @@ const AnonymousSidebar = ({
               <EvanAssistLauncher variant="row" />
             </div>
 
-            {showShareControls && (
-              <div className="space-y-2">
-                <SidebarShareControls variant="rows" />
-                <SharePreviewSlot name="panel" className="empty:hidden" />
-              </div>
-            )}
-
             {/* The chats held with this avatar. Same shape as the signed-in
                 sidebar's list, so a visitor who later signs up finds the panel
                 they already know. */}
             {showConversations && (
-              <>
-                <div className="flex items-center justify-between">
+              <div className="flex flex-col gap-2 min-h-0">
+                <div className="flex items-center justify-between shrink-0">
                   <h2 className="text-sm font-semibold text-white/60 uppercase tracking-wide">
                     {avatarName ? `Chats with ${avatarName}` : 'Conversations'}
                   </h2>
@@ -336,17 +310,13 @@ const AnonymousSidebar = ({
 
                 <button
                   onClick={onStartNewConversation}
-                  className="px-4 py-2 rounded-lg border border-white/10 bg-black/60 hover:bg-neutral-900 text-neutral-200 font-semibold flex items-center justify-center gap-2 transition-colors focus:outline-none focus:ring-2 focus:ring-amber-400/50"
+                  className="shrink-0 px-3 py-2 rounded-lg border border-white/10 bg-black/60 hover:bg-neutral-900 text-neutral-200 font-semibold flex items-center justify-center gap-2 transition-colors focus:outline-none focus:ring-2 focus:ring-amber-400/50"
                 >
                   <MessageSquarePlus className="w-5 h-5" />
                   New conversation
                 </button>
 
-                {/* Sized to its content rather than owning a scroll region of
-                    its own: the column around it is the scroller now, so a long
-                    list lengthens that one scroll instead of trapping the reader
-                    in a nested one. */}
-                <div className="shrink-0">
+                <div>
                   {listedConversations.length === 0 ? (
                     <p className="text-white/50 text-sm px-2 py-4">
                       No conversations yet. Send a message to start one.
@@ -376,7 +346,7 @@ const AnonymousSidebar = ({
                     </ul>
                   )}
                 </div>
-              </>
+              </div>
             )}
 
             {!user && (
@@ -406,21 +376,34 @@ const AnonymousSidebar = ({
                 </button>
               </div>
             )}
+          </div>
 
-            <div className="mt-auto shrink-0 pt-4 border-t border-white/10 flex flex-col items-center gap-2">
+          <div className="shrink-0 pt-3 border-t border-white/10 flex flex-col gap-2">
+            <div className="space-y-1">
+              <SidebarVoiceMuteControls variant="rows" />
+            </div>
+            {showShareControls && (
+              <div data-sidebar-sharing className="flex flex-col gap-2">
+                <div className="space-y-1">
+                  <SidebarShareControls variant="rows" />
+                </div>
+                <SharePreviewSlot name="panel" className="empty:hidden" />
+              </div>
+            )}
+            <div className="flex flex-col items-center gap-1">
               <button
                 onClick={() => goTo('/welcome')}
                 className="p-0! border-0! rounded-lg! overflow-hidden ring-1 ring-white/10 hover:ring-2 hover:ring-neutral-300/60 transition-shadow focus:outline-none focus:ring-2 focus:ring-amber-400/50"
                 aria-label="Neural Nexus — scan or open the welcome page"
                 title="Scan to share Neural Nexus, or press to open the welcome page"
               >
-                <span className="flex h-32 w-32 shrink-0 items-center justify-center rounded-lg bg-white p-2">
+                <span className="flex h-16 w-16 sm:h-32 sm:w-32 shrink-0 items-center justify-center rounded-lg bg-white p-1 sm:p-2">
                   <img
                     src={qrCode}
                     alt="QR code linking to Neural Nexus"
                     width={112}
                     height={112}
-                    className="block h-28 w-28 max-w-none shrink-0"
+                    className="block h-14 w-14 sm:h-28 sm:w-28 max-w-none shrink-0"
                   />
                 </span>
               </button>

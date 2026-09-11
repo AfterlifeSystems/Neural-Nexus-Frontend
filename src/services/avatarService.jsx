@@ -63,7 +63,13 @@ export const listPublicAvatars = async (assistantId) => {
  * @param {Object} [options.geoLocation] Pin the avatar to a real-world place:
  *   {latitude, longitude, locationName, geofenceRadiusMeters}. Omit to leave the
  *   avatar unpinned; the place can also be added later through modifyAvatar.
- * @returns {Promise<Object>} The created assistant record.
+ * @param {string} [options.researchHint] Anything the creator already knows that
+ *   narrows who this avatar is about — a place, a role, a link. It only steers
+ *   the research the server starts; it is never stored as a fact.
+ * @returns {Promise<Object>} The created assistant record. The server starts a
+ *   deep-research job for every new avatar and reports it as `research_job`
+ *   ({job_id, status, status_url, progress_url, proposals_url}); the key is
+ *   absent when research is switched off or could not start.
  */
 export const createAvatar = async ({
   name,
@@ -71,6 +77,7 @@ export const createAvatar = async ({
   isPublic = false,
   isPersonalAvatarOfCreator = false,
   geoLocation,
+  researchHint,
 }) => {
   return requestJson('/create_avatar', {
     method: 'POST',
@@ -80,6 +87,7 @@ export const createAvatar = async ({
       is_public: isPublic,
       is_personal_avatar_of_creator: isPersonalAvatarOfCreator,
       ...geoLocationQuery(geoLocation),
+      ...(researchHint ? { research_hint: researchHint } : {}),
     },
   });
 };
@@ -959,14 +967,6 @@ export const updateAvatarIdentityFact = async (
  * @param {boolean} [options.asAnonymousIdentity] Withhold the credential (public chat).
  * @returns {Promise<Object>} `{emotions, complete, missing}`.
  */
-export const getAvatarEmotionMedia = async (
-  assistantId,
-  { asAnonymousIdentity = false } = {}
-) => {
-  return requestJson('/avatar_emotion_media', {
-    query: { assistant_id: assistantId },
-    asAnonymousIdentity,
-  });
 /**
  * What has been learned about how the avatar's person moves.
  * GET /avatar_motion_profile?assistant_id=...
@@ -1028,6 +1028,14 @@ export const deleteAvatarMotionTracks = async (assistantId) =>
     query: { assistant_id: assistantId },
   });
 
+export const getAvatarEmotionMedia = async (
+  assistantId,
+  { asAnonymousIdentity = false } = {}
+) => {
+  return requestJson('/avatar_emotion_media', {
+    query: { assistant_id: assistantId },
+    asAnonymousIdentity,
+  });
 };
 
 /**
@@ -1135,6 +1143,24 @@ export const cancelResearchJob = async (jobId) => {
   return requestJson(`/research_job/${encodeURIComponent(jobId)}/cancel`, {
     method: 'POST',
   });
+};
+
+/**
+ * What the research managed to acquire for this avatar, and what it could not.
+ * GET /avatar/{assistant_id}/research/bootstrap
+ *
+ * The progress stream is gone by the time the settings screen opens, so this is
+ * where "no photograph of this subject could be found" is read from. Returns
+ * `{assistant_id, bootstrap}` with `bootstrap` null when no acquisition has run.
+ *
+ * @param {string} assistantId The avatar.
+ * @returns {Promise<Object>} The recorded acquisition outcome.
+ */
+export const getAvatarResearchBootstrap = async (assistantId) => {
+  return requestJson(
+    `/avatar/${encodeURIComponent(assistantId)}/research/bootstrap`,
+    { method: 'GET' }
+  );
 };
 
 /**
@@ -1306,6 +1332,43 @@ export const retryAvatarProfessionalVoice = async (assistantId) => {
 };
 
 /**
+ * The vendor's stock voices of one gender an avatar may speak with while it
+ * has no usable cloned voice.
+ * GET /avatar_voice/standard_voices?gender=female|male
+ *
+ * @param {'female'|'male'} gender Which voices to list.
+ * @returns {Promise<Array<{voice_id: string, name: string, gender: string,
+ *   accent?: string, age?: string, description?: string, preview_url?: string}>>}
+ */
+export const listStandardVoices = async (gender) => {
+  const response = await requestJson('/avatar_voice/standard_voices', {
+    query: { gender },
+  });
+  return Array.isArray(response?.voices) ? response.voices : [];
+};
+
+/**
+ * Choose the standard voice the avatar speaks with while it has no usable
+ * cloned voice. Owner-only. A cloned voice, once usable, always speaks ahead
+ * of this choice.
+ * POST /avatar_voice/standard_voice
+ *
+ * @param {string} assistantId The avatar.
+ * @param {string|null} voiceId A voice from listStandardVoices, or null to
+ *   clear the choice.
+ * @returns {Promise<Object>} The updated voice status.
+ */
+export const setAvatarStandardVoice = async (assistantId, voiceId) => {
+  const formData = new FormData();
+  formData.append('assistant_id', assistantId);
+  formData.append('voice_id', voiceId ?? '');
+  return requestJson('/avatar_voice/standard_voice', {
+    method: 'POST',
+    formData,
+  });
+};
+
+/**
  * Point the avatar's reference clip at a different upload. Only the reference
  * changes: the avatar's identity and the trained voice stay as they are.
  * POST /avatar_voice/reference
@@ -1352,14 +1415,41 @@ export const rebuildAvatarVoice = async (assistantId) => {
 };
 
 /**
+ * Choose whether talking to this avatar in voice mode may grow its voice.
+ *
+ * Recording a reference clip says who the avatar sounds like; it does not by
+ * itself agree to every later conversation being kept. A declined avatar still
+ * transcribes and still answers — it simply stops learning the voice.
+ * POST /avatar_voice/capture_consent
+ *
+ * @param {string} assistantId The avatar.
+ * @param {boolean} granted Whether the owner agrees.
+ * @returns {Promise<Object>} The updated voice status.
+ */
+export const setVoiceCaptureConsent = async (assistantId, granted) => {
+  const formData = new FormData();
+  formData.append('assistant_id', assistantId);
+  formData.append('granted', granted ? 'true' : 'false');
+  return requestJson('/avatar_voice/capture_consent', {
+    method: 'POST',
+    formData,
+  });
+};
+
+/**
  * Turn one spoken utterance into text (dictation, live-audio turns).
+ *
+ * The reply also carries a small `voice` record — whether the avatar has a
+ * usable voice now, and how many seconds it has collected. Voice mode watches
+ * it so a voice that becomes ready mid-conversation is used straight away
+ * instead of after a reload.
  * POST /transcribe
  *
  * @param {string} assistantId The avatar being spoken to.
  * @param {File|Blob} audio The utterance.
  * @param {Object} [options]
  * @param {boolean} [options.asAnonymousIdentity] Public chat: withhold the credential.
- * @returns {Promise<Object>} `{text, duration_seconds}`.
+ * @returns {Promise<Object>} `{text, duration_seconds, voice}`.
  */
 export const transcribeRecording = async (
   assistantId,
@@ -1676,7 +1766,15 @@ export const buildSpokenTurnRequest = (
 export const buildAmbientMessageRequest = (
   assistantId,
   files,
-  { threadId, capturedAt, voiceMode, userTimezone, motionTrack } = {}
+  {
+    threadId,
+    capturedAt,
+    voiceMode,
+    userTimezone,
+    cameraFacing,
+    motionTrack,
+    narrate = false,
+  } = {}
 ) => {
   const formData = new FormData();
   formData.append('message', '');
@@ -1684,12 +1782,35 @@ export const buildAmbientMessageRequest = (
   formData.append('ambient', 'true');
   formData.append('voice_mode', voiceMode ? 'true' : 'false');
   formData.append('captured_at', capturedAt ?? new Date().toISOString());
+  if (narrate) {
+    // Scene narration is on: the person asked to be told what the camera is
+    // pointed at, continuously, and is waiting to hear this one. The API
+    // describes it for a listener who cannot see it and speaks it, instead
+    // of deciding whether it is worth mentioning.
+    formData.append('narrate', 'true');
+  }
+  if (cameraFacing) {
+    // Which way the webcam points changes what the observation means: a camera
+    // aimed at the person carries no request, while one aimed at the world is
+    // the person asking to be told what is in view.
+    formData.append('camera_facing', cameraFacing);
+  }
   const sources = [];
   for (const file of files ?? []) {
     formData.append('files', file);
     sources.push(AMBIENT_SOURCE_BY_FILENAME[file.name] ?? 'image');
   }
   formData.append('sources', JSON.stringify(sources));
+  if (motionTrack) {
+    // The wireframe window recorded over this share since the last
+    // observation (src/services/motionWireframe.js): named body joints and
+    // face coordinates through time, riding the request that was leaving
+    // anyway. The API decides whose movement it is before recording it.
+    formData.append(
+      'motion_track',
+      typeof motionTrack === 'string' ? motionTrack : JSON.stringify(motionTrack)
+    );
+  }
   if (threadId) {
     formData.append('thread_id', threadId);
   }
@@ -1786,16 +1907,6 @@ export const recordAmbientPreference = async (
  *   ambient observation the reply answered, when there is one, so the thumb
  *   is also learned as precedent for that kind of scene.
  * @returns {Promise<Object>} `{recorded, message_id, request_id, feedback, ambient_decision}`.
-  if (motionTrack) {
-    // The wireframe window recorded over this share since the last
-    // observation (src/services/motionWireframe.js): named body joints and
-    // face coordinates through time, riding the request that was leaving
-    // anyway. The API decides whose movement it is before recording it.
-    formData.append(
-      'motion_track',
-      typeof motionTrack === 'string' ? motionTrack : JSON.stringify(motionTrack)
-    );
-  }
  */
 export const recordMessageFeedback = async ({
   assistantId,
@@ -1903,6 +2014,50 @@ export const startConnectionLogin = async (loginEndpoint, loginRequest) => {
     method: 'POST',
     body: loginRequest ?? {},
   });
+};
+
+/**
+ * Keep the session from a sign-in the owner did in their OWN browser.
+ *
+ * When a machine of the owner's is running the connector, the sign-in page
+ * opens as a tab in their own browser instead of in a hosted window, and the
+ * start answer carries `login_mode: 'desktop_browser'` with a `login_token`.
+ * There is no window to post a result back, so the card calls this once the
+ * owner says they have signed in: the API asks their machine for that one
+ * site's session and stores the account.
+ *
+ * The token travels as the `t` query parameter, which the API accepts
+ * alongside the `X-Login-Token` header the hosted window uses.
+ * POST /connect_account/browser/{loginId}/finish
+ *
+ * @param {string} loginId The `login_id` the start answer carried.
+ * @param {string} loginToken The `login_token` the start answer carried.
+ * @returns {Promise<Object>} `{ok, account_key, display_label, tool_count,
+ *   signed_in_on, device_label, cookie_count}` or `{ok: false, error}`.
+ */
+export const finishConnectionLogin = async (loginId, loginToken) => {
+  return requestJson(
+    `/connect_account/browser/${encodeURIComponent(loginId)}/finish`,
+    { method: 'POST', query: { t: loginToken }, body: {} }
+  );
+};
+
+/**
+ * Abandon a sign-in without keeping anything.
+ *
+ * A sign-in the owner started in their own browser leaves the tab alone — it
+ * is their window, on their machine.
+ * POST /connect_account/browser/{loginId}/cancel
+ *
+ * @param {string} loginId The `login_id` the start answer carried.
+ * @param {string} loginToken The `login_token` the start answer carried.
+ * @returns {Promise<Object>} `{ok: false, cancelled}`.
+ */
+export const cancelConnectionLogin = async (loginId, loginToken) => {
+  return requestJson(
+    `/connect_account/browser/${encodeURIComponent(loginId)}/cancel`,
+    { method: 'POST', query: { t: loginToken }, body: {} }
+  );
 };
 
 /**

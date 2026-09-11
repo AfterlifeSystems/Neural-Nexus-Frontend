@@ -15,6 +15,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { toast } from 'react-hot-toast';
 import {
   AlertTriangle,
+  Image as ImageIcon,
   Loader2,
   RefreshCw,
   Search,
@@ -30,8 +31,10 @@ import {
 } from '../../services/avatarService';
 import {
   describeResearchOutcome,
+  ACQUISITION_STAGES,
   describeResearchStage,
 } from './researchProgress';
+import { notifyAvatarPortraitChanged } from '../../services/avatarPortraitEvents';
 import { FactReviewCard } from '../factReview/FactReviewCard';
 import {
   RESEARCH_ACTION_LABELS,
@@ -52,10 +55,18 @@ import {
  * @param {Object} props
  * @param {string} props.assistantId The avatar to research.
  * @param {string} [props.avatarName] The avatar's name, for the copy.
+ * @param {Function} [props.onVoiceAcquired] Called when the research has found a
+ *   recording and made it this avatar's reference voice, so the voice panel
+ *   re-reads what the avatar has collected.
  * @param {Function} [props.onFactsApplied] Called when research has written
  *   new facts, so the learned-facts card re-reads the list.
  */
-const ResearchPanel = ({ assistantId, avatarName, onFactsApplied }) => {
+const ResearchPanel = ({
+  assistantId,
+  avatarName,
+  onFactsApplied,
+  onVoiceAcquired,
+}) => {
   const [researchHint, setResearchHint] = useState('');
   const [isStarting, setIsStarting] = useState(false);
   // The running job AND the avatar it belongs to. Holding the bare id let a
@@ -65,12 +76,18 @@ const ResearchPanel = ({ assistantId, avatarName, onFactsApplied }) => {
   const [job, setJob] = useState(null);
   const [isRunning, setIsRunning] = useState(false);
   const [progressMessage, setProgressMessage] = useState('');
+  // Acquiring the portrait and the voice runs alongside fact verification, so
+  // its frames interleave with the research frames on the one stream. Keeping
+  // it on its own line stops the two tracks from overwriting each other.
+  const [acquisitionMessage, setAcquisitionMessage] = useState('');
   const [proposals, setProposals] = useState([]);
   const [decisions, setDecisions] = useState({});
   const [isLoadingProposals, setIsLoadingProposals] = useState(false);
   const [isApplying, setIsApplying] = useState(false);
   const factsAppliedRef = useRef(onFactsApplied);
   factsAppliedRef.current = onFactsApplied;
+  const voiceAcquiredRef = useRef(onVoiceAcquired);
+  voiceAcquiredRef.current = onVoiceAcquired;
 
   const loadProposals = useCallback(async () => {
     if (!assistantId) return;
@@ -122,6 +139,7 @@ const ResearchPanel = ({ assistantId, avatarName, onFactsApplied }) => {
       // flag set by whichever avatar was open before.
       setIsRunning(false);
       setProgressMessage('');
+      setAcquisitionMessage('');
       return undefined;
     }
     const controller = new AbortController();
@@ -136,6 +154,19 @@ const ResearchPanel = ({ assistantId, avatarName, onFactsApplied }) => {
           setProgressMessage(describeResearchOutcome(event));
           if (event.result?.applied) factsAppliedRef.current?.();
           loadProposals();
+          return;
+        }
+        if (ACQUISITION_STAGES.has(event?.stage)) {
+          setAcquisitionMessage(describeResearchStage(event));
+          // A portrait or a reference clip that just landed is held by every
+          // screen showing this avatar; tell them to re-read it rather than
+          // waiting for a reload.
+          if (event.stage === 'portrait_stored') {
+            notifyAvatarPortraitChanged(assistantId);
+          }
+          if (event.stage === 'voice_stored') {
+            voiceAcquiredRef.current?.();
+          }
           return;
         }
         setProgressMessage(describeResearchStage(event));
@@ -286,6 +317,12 @@ const ResearchPanel = ({ assistantId, avatarName, onFactsApplied }) => {
             />
           )}
           <span>{progressMessage}</span>
+        </p>
+      )}
+      {acquisitionMessage && (
+        <p className="text-sm text-white/60 mt-2 flex items-start gap-2">
+          <ImageIcon className="w-4 h-4 mt-0.5 shrink-0" aria-hidden="true" />
+          <span>{acquisitionMessage}</span>
         </p>
       )}
 

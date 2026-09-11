@@ -121,24 +121,17 @@ test('describePhotoPlaceError explains a refused location permission', () => {
   assert.match(describePhotoPlaceError(null), /Pin a place/);
 });
 
-test('startCreateAvatarPhotoFollowUp uploads the portrait and identity, then starts research', async () => {
+test('startCreateAvatarPhotoFollowUp uploads the portrait and identity and starts no research of its own', async () => {
+  // POST /create_avatar starts the research server-side for every avatar and
+  // hands the job back to the modal. Starting one here too would research the
+  // same subject twice and bill for both.
   const uploads = [];
   const result = await startCreateAvatarPhotoFollowUp({
     assistantId: 'avatar-9',
     photoFile: { name: 'sign.jpg' },
-    researchHint: 'Identify the subject.',
     uploadIdentityMedia: async (options) => {
       uploads.push(options);
       return true;
-    },
-    startResearch: async (assistantId, options) => {
-      assert.equal(assistantId, 'avatar-9');
-      assert.equal(options.researchHint, 'Identify the subject.');
-      return { job_id: 'research-1' };
-    },
-    rememberJob: (assistantId, jobId) => {
-      assert.equal(assistantId, 'avatar-9');
-      assert.equal(jobId, 'research-1');
     },
   });
   assert.equal(uploads.length, 2);
@@ -146,11 +139,7 @@ test('startCreateAvatarPhotoFollowUp uploads the portrait and identity, then sta
   assert.equal(uploads[1].isReferenceImage, false);
   assert.deepEqual(uploads[0].files, [{ name: 'sign.jpg' }]);
   assert.deepEqual(uploads[0].urls, []);
-  assert.deepEqual(result, {
-    portraitOk: true,
-    identityOk: true,
-    researchJobId: 'research-1',
-  });
+  assert.deepEqual(result, { portraitOk: true, identityOk: true });
 });
 
 test('startCreateAvatarPhotoFollowUp sends an image link as the url of both uploads', async () => {
@@ -163,8 +152,6 @@ test('startCreateAvatarPhotoFollowUp sends an image link as the url of both uplo
       uploads.push(options);
       return true;
     },
-    startResearch: async () => ({ job_id: 'research-3' }),
-    rememberJob: () => {},
   });
   assert.equal(uploads.length, 2);
   for (const upload of uploads) {
@@ -175,24 +162,20 @@ test('startCreateAvatarPhotoFollowUp sends an image link as the url of both uplo
   assert.equal(uploads[1].isReferenceImage, false);
   assert.equal(result.portraitOk, true);
   assert.equal(result.identityOk, true);
-  assert.equal(result.researchJobId, 'research-3');
 });
 
-test('startCreateAvatarPhotoFollowUp still researches when identity ingest fails', async () => {
+test('startCreateAvatarPhotoFollowUp still stores the portrait when identity ingest fails', async () => {
   const result = await startCreateAvatarPhotoFollowUp({
     assistantId: 'avatar-9',
     photoFile: { name: 'sign.jpg' },
     uploadIdentityMedia: async ({ isReferenceImage }) => !isReferenceImage ? false : true,
-    startResearch: async () => ({ job_id: 'research-2' }),
-    rememberJob: () => {},
   });
   assert.equal(result.identityOk, false);
   assert.equal(result.portraitOk, true);
-  assert.equal(result.researchJobId, 'research-2');
 });
 
 test('startCreateAvatarPhotoFollowUp no-ops without an avatar, or without a file or link', async () => {
-  const nothing = { portraitOk: false, identityOk: false, researchJobId: null };
+  const nothing = { portraitOk: false, identityOk: false };
   assert.deepEqual(
     await startCreateAvatarPhotoFollowUp({
       assistantId: '',

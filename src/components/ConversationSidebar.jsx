@@ -32,7 +32,10 @@ import qrCode from '../assets/qr-neuralnexus.png';
 import { toast } from 'react-hot-toast';
 import { sortConversationsChronologically } from '../services/pinnedConversations';
 import SharePreviewSlot from './SharePreviewSlot';
+import SidebarAccessibilityControls from './SidebarAccessibilityControls';
 import SidebarShareControls from './SidebarShareControls';
+import SidebarStageCluster from './SidebarStageCluster';
+import SidebarVoiceMuteControls from './SidebarVoiceMuteControls';
 import EvanAssistLauncher from './evanAssist/EvanAssistLauncher';
 import SidebarGeoAvatarSection from './geo/SidebarGeoAvatarSection';
 
@@ -344,7 +347,7 @@ const ConversationSidebar = ({
           data-sidebar-rail
           onClick={onOpen}
           title="Open the sidebar"
-          className="fixed top-0 left-0 h-full w-[var(--app-rail-width)] z-40 bg-black/60 backdrop-blur-lg border-r border-white/10 flex flex-col items-center py-3 gap-0.5 overflow-y-auto overscroll-contain cursor-pointer hover:bg-black/70 transition-colors"
+          className="fixed top-0 left-0 h-full w-[var(--app-rail-width)] z-40 bg-black/60 backdrop-blur-lg border-r border-white/10 flex flex-col items-center py-3 gap-0.5 overflow-hidden cursor-pointer hover:bg-black/70 transition-colors"
         >
           <button
             onClick={(clickEvent) => {
@@ -357,33 +360,20 @@ const ConversationSidebar = ({
           >
             <PanelLeftOpen className="w-4 h-4" />
           </button>
-          {showConversations && (
-            <button
-              onClick={(clickEvent) => {
-                clickEvent.stopPropagation();
-                onStartNewConversation?.();
-              }}
-              className="p-1.5 rounded-lg text-white/70 hover:text-neutral-100 hover:bg-white/10 transition-colors"
-              aria-label="New conversation"
-              title="New conversation"
-            >
-              <MessageSquarePlus className="w-4 h-4" />
-            </button>
-          )}
-          {showShareControls && <SidebarShareControls />}
-          <AccountMenu
-            variant="icons"
-            leadingAction="avatars"
-            onNavigate={onClose}
-            currentPath={location.pathname}
-          />
-
-          <div className="mt-auto shrink-0 w-full flex flex-col items-center gap-1">
-            <SharePreviewSlot
-              name="rail"
-              isolateClicks
-              className="w-full px-1 empty:hidden"
+          <div className="flex-1 min-h-0 w-full overflow-y-auto overscroll-contain flex flex-col items-center gap-0.5">
+            <AccountMenu
+              variant="icons"
+              leadingAction="avatars"
+              onNavigate={onClose}
+              currentPath={location.pathname}
             />
+          </div>
+          <SidebarStageCluster
+            showConversations={showConversations}
+            showShareControls={showShareControls}
+            showAccessibilityControl
+            onStartNewConversation={onStartNewConversation}
+          >
             {/* The code stays reachable while the sidebar is collapsed. Sized
                 as an icon so it still fits beside the voice portrait. */}
             <button
@@ -408,11 +398,12 @@ const ConversationSidebar = ({
                 />
               </span>
             </button>
-          </div>
+          </SidebarStageCluster>
         </div>
       )}
 
       <div
+        data-sidebar-panel
         className={`
           fixed top-0 left-0
           w-80 sm:w-96 lg:w-80
@@ -425,7 +416,7 @@ const ConversationSidebar = ({
           shadow-lg
         `}
       >
-        <div className="flex flex-col h-full min-h-0 p-4 gap-4">
+        <div className="flex flex-col h-full min-h-0 p-4 gap-3">
           {/* Who is signed in. The portrait is the personal avatar's, the same
               face that appears beside this person's messages. */}
           <div className="shrink-0 flex justify-between items-center gap-2">
@@ -460,12 +451,12 @@ const ConversationSidebar = ({
             </button>
           </div>
 
-          {/* One column below the header, same as the guest sidebar. Sharing
-              tiles, the conversation list, and the QR code all have to live
-              in this scroller: a phone is too short to pin the tiles and the
-              code and still have a list that can move. */}
-          <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain -mx-1 px-1 flex flex-col gap-4">
-            <div className="space-y-1 border-b border-white/10 pb-4">
+          {/* Conversations (and account chrome above them) fill the leftover
+              column and scroll as one pane. The share footer stays put, so
+              a long history cannot bury the webcam tiles or sit the New
+              conversation control on top of mute / share. */}
+          <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain -mx-1 px-1 flex flex-col gap-3">
+            <div className="shrink-0 space-y-1 border-b border-white/10 pb-3">
               <AccountMenu
                 leadingAction="avatars"
                 onNavigate={onClose}
@@ -473,18 +464,11 @@ const ConversationSidebar = ({
               />
             </div>
 
-            {showShareControls && (
-              <div className="space-y-2">
-                <SidebarShareControls variant="rows" />
-                <SharePreviewSlot name="panel" className="empty:hidden" />
-              </div>
-            )}
-
             <SidebarGeoAvatarSection onNavigate={onClose} />
 
             {showConversations && (
-              <>
-                <div className="flex items-center justify-between">
+              <div className="flex flex-col gap-2 min-h-0">
+                <div className="flex items-center justify-between shrink-0">
                   <h2 className="text-sm font-semibold text-white/60 uppercase tracking-wide">
                     {avatarName ? `Chats with ${avatarName}` : 'Conversations'}
                   </h2>
@@ -492,23 +476,23 @@ const ConversationSidebar = ({
 
                 <button
                   onClick={onStartNewConversation}
-                  className="px-4 py-2 rounded-lg border border-white/10 bg-black/60 hover:bg-neutral-900 text-neutral-200 font-semibold flex items-center justify-center gap-2 transition-colors focus:outline-none focus:ring-2 focus:ring-amber-400/50"
+                  className="shrink-0 px-3 py-2 rounded-lg border border-white/10 bg-black/60 hover:bg-neutral-900 text-neutral-200 font-semibold flex items-center justify-center gap-2 transition-colors focus:outline-none focus:ring-2 focus:ring-amber-400/50"
                 >
                   <MessageSquarePlus className="w-5 h-5" />
                   New conversation
                 </button>
 
-                {newConversationEntry && (
-                  <ul className="space-y-1 -mx-1 px-1">
-                    <ConversationRow
-                      conversation={newConversationEntry}
-                      isActive
-                      {...conversationRowProps}
-                    />
-                  </ul>
-                )}
+                <div className="-mx-1 px-1">
+                  {newConversationEntry && (
+                    <ul className="space-y-1 mb-3">
+                      <ConversationRow
+                        conversation={newConversationEntry}
+                        isActive
+                        {...conversationRowProps}
+                      />
+                    </ul>
+                  )}
 
-                <div className="shrink-0 -mx-1 px-1">
                   {pinnedConversations.length > 0 && (
                     <section className="mb-4">
                       <h2 className="text-sm font-semibold text-white/60 uppercase tracking-wide px-2 mb-2">
@@ -546,34 +530,51 @@ const ConversationSidebar = ({
                           />
                         ))}
                       </ul>
-                    ) : pinnedConversations.length === 0 ? (
+                    ) : pinnedConversations.length === 0 &&
+                      !newConversationEntry ? (
                       <p className="text-white/50 text-sm px-2 py-4">
                         No conversations yet. Send a message to start one.
                       </p>
                     ) : null}
                   </section>
                 </div>
-              </>
+              </div>
             )}
+          </div>
 
-            {/* Opened, the code is shown at a size worth pointing a phone at.
-              `mt-auto` holds it at the foot of the panel on the screens that
-              list no conversations — account settings, billing, the gallery —
-              where nothing above it grows to fill the space. */}
-            <div className="mt-auto shrink-0 pt-4 border-t border-white/10 flex flex-col items-center gap-2">
+          {/* Stage actions sit with the code, not with account chrome, so
+              mute / share stay next to the QR the way they do on the rail. */}
+          <div className="shrink-0 pt-3 border-t border-white/10 flex flex-col gap-2">
+            <div className="space-y-1">
+              <SidebarVoiceMuteControls variant="rows" />
+            </div>
+            {/* Above the sharing rows, because this is the one control here
+                that a person may be relying on to know what is around them. */}
+            <div data-sidebar-accessibility>
+              <SidebarAccessibilityControls variant="rows" />
+            </div>
+            {showShareControls && (
+              <div data-sidebar-sharing className="flex flex-col gap-2">
+                <div className="space-y-1">
+                  <SidebarShareControls variant="rows" />
+                </div>
+                <SharePreviewSlot name="panel" className="empty:hidden" />
+              </div>
+            )}
+            <div className="flex flex-col items-center gap-1">
               <button
                 onClick={openWelcomePage}
                 className="p-0! border-0! rounded-lg! overflow-hidden ring-1 ring-white/10 hover:ring-2 hover:ring-neutral-300/60 transition-shadow focus:outline-none focus:ring-2 focus:ring-amber-400/50"
                 aria-label="Neural Nexus — scan or open the welcome page"
                 title="Scan to share Neural Nexus, or press to open the welcome page"
               >
-                <span className="flex h-32 w-32 shrink-0 items-center justify-center rounded-lg bg-white p-2">
+                <span className="flex h-16 w-16 sm:h-32 sm:w-32 shrink-0 items-center justify-center rounded-lg bg-white p-1 sm:p-2">
                   <img
                     src={qrCode}
                     alt="QR code linking to Neural Nexus"
                     width={112}
                     height={112}
-                    className="block h-28 w-28 max-w-none shrink-0"
+                    className="block h-14 w-14 sm:h-28 sm:w-28 max-w-none shrink-0"
                   />
                 </span>
               </button>

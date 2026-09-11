@@ -53,7 +53,7 @@ const CustomSiteForm = ({ provider, onNeedsLogin, onCancel }) => {
         name: name.trim(),
       },
       site_url: trimmedUrl,
-      message: `Sign in on ${host} in the window that opens. The avatar keeps the signed-in session.`,
+      message: `Sign in on ${host} in the window that opens. The sign-in is kept, so this is the only time you need to do it.`,
     });
   };
 
@@ -61,7 +61,7 @@ const CustomSiteForm = ({ provider, onNeedsLogin, onCancel }) => {
     <form onSubmit={handleSubmit} className="space-y-3">
       <p className="text-white/60 text-sm">
         {provider?.card_description ??
-          'Sign in to any website on the site’s own login page. The avatar keeps the signed-in session and can read and act on your account there.'}
+          'Sign in to any website on the site’s own login page. The window opens once, for you to sign in. After that the avatar reads the site and acts on it without opening anything.'}
       </p>
       <div>
         <label htmlFor="custom-site-name" className="block text-white/70 text-sm mb-1">
@@ -95,8 +95,9 @@ const CustomSiteForm = ({ provider, onNeedsLogin, onCancel }) => {
           className={CONNECTOR_INPUT_CLASSES}
         />
         <p className="mt-1 text-white/50 text-xs">
-          The page where you sign in. The page opens in a window for you to
-          sign in on.
+          The page where you sign in. This is the only time a window opens; the
+          sign-in is kept, so you are not asked again on another device or in a
+          new conversation.
         </p>
       </div>
       {errorMessage && (

@@ -1,5 +1,5 @@
 const KEEP_MESSAGE_BAR_OPEN =
-  '[data-voice-message-bar], [data-voice-mute-bar], [data-voice-stage-header], [data-voice-caption-dock]';
+  '[data-voice-message-bar], [data-voice-mute-bar], [data-voice-camera-bar], [data-voice-stage-header], [data-voice-caption-dock]';
 
 const KEEP_MESSAGE_BAR_OPEN_CONTROL =
   'button, input, textarea, select, a, [role="menu"], [role="menuitem"], [role="dialog"]';
@@ -58,14 +58,14 @@ export function voiceMessageBarHasDraftAttachments({
 }
 
 /**
- * How the mute/mic pill and the message chrome share a row.
+ * How the optional camera cluster and the message chrome share a row.
  *
- * Folded, the handle stretches to the pill's height so the two sit on
- * one line. Open, mute stays at the foot of the taller composer.
+ * Camera controls sit at the foot of the composer. Without them this is
+ * still `items-end` so a lone message bar does not stretch oddly.
  *
- * @param {boolean} isCollapsed
- * @returns {'items-stretch'|'items-end'}
+ * @param {boolean} [_isCollapsed]
+ * @returns {'items-end'}
  */
-export function voiceComposerDockItemsClass(isCollapsed) {
-  return isCollapsed ? 'items-stretch' : 'items-end';
+export function voiceComposerDockItemsClass(_isCollapsed) {
+  return 'items-end';
 }

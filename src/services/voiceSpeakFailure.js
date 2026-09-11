@@ -1,15 +1,18 @@
-// POST /speak can refuse for three different reasons that must not be
+// POST /speak can refuse for several different reasons that must not be
 // collapsed:
 //
-//   blocked   — a clone exists and ElevenLabs has banned it. More recording
-//               does not clear it. Settings explain the ban; do not call this
-//               "no voice model" or "not yet uploaded".
-//   not_ready — no clone has been uploaded or trained yet. Settings can fix
-//               that, and that is the one case the missing-voice-model toast
-//               is for.
-//   billing   — the month's allotment is spent.
-//   failed    — anything else (vendor 502, network). Not a standing fact
-//               about the avatar's voice.
+//   blocked      — a clone exists and ElevenLabs has banned it. More recording
+//                  does not clear it. Settings explain the ban; do not call this
+//                  "no voice model" or "not yet uploaded".
+//   not_ready    — no clone has been uploaded or trained yet. Settings can fix
+//                  that, and that is the one case the missing-voice-model toast
+//                  is for.
+//   unavailable  — this API process has no voice stack (no ElevenLabs key / no
+//                  media repo). The avatar may already have a clone elsewhere;
+//                  creating another will not help.
+//   billing      — the month's allotment is spent.
+//   failed       — anything else (vendor 502, network). Not a standing fact
+//                  about the avatar's voice.
 
 const PAYMENT_REQUIRED_STATUS = 402;
 
@@ -70,6 +73,17 @@ function textSaysVoiceNotReady(text) {
   );
 }
 
+function textSaysVoiceUnavailable(text) {
+  // Server-side: no ElevenLabs key / media repo on this process. Distinct from
+  // not_ready — the avatar may already have a clone; creating another will not
+  // fix a key the API process never loaded.
+  return (
+    text.includes('voice features are not configured') ||
+    text.includes('elevenlabs_api_key is not configured') ||
+    text.includes('elevenlabs api key is not configured')
+  );
+}
+
 function collectedSecondsFrom(speakError) {
   const body = speakError?.body;
   if (!body || typeof body !== 'object') return undefined;
@@ -111,7 +125,7 @@ export function speakFailureReason(speakError) {
  * Which kind of speak refusal this is.
  *
  * @param {Error|null|undefined} speakError
- * @returns {'blocked'|'not_ready'|'billing'|'failed'}
+ * @returns {'blocked'|'not_ready'|'unavailable'|'billing'|'failed'}
  */
 export function speakFailureKind(speakError) {
   if (speakError?.status === PAYMENT_REQUIRED_STATUS) return 'billing';
@@ -122,6 +136,9 @@ export function speakFailureKind(speakError) {
 
   const text = speakFailureText(speakError);
   if (textSaysVoiceBlocked(text)) return 'blocked';
+  // Check before not_ready: "not configured" is about the server, not a
+  // missing clone on this avatar.
+  if (textSaysVoiceUnavailable(text)) return 'unavailable';
   if (textSaysVoiceNotReady(text)) return 'not_ready';
 
   // Seconds collected are only reported when there is no clone yet. The API

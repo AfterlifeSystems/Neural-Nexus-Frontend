@@ -5,14 +5,14 @@
 // in the transcript.
 //
 // The stage is the avatar: its emotion still or idle loop fills the content
-// well beside the application sidebar, and when video is enabled a lip-synced
-// clip of the reply plays between the loops.
+// well beside the application sidebar, and when lip-synced video replies are
+// on in avatar settings a clip of the reply plays between the loops.
 // Along the bottom sits the composer pill from the reference design — type, or
 // attach; connectors on the personal avatar; share the webcam or the screen;
 // live audio (turn-based, with voice activity detection) or one-shot
-// dictation; enable video; show or hide the captions; and leave for the
-// message view. Mute the avatar and mute the mic sit outside that pill so
-// they stay readable as indicators when the bar is folded.
+// dictation; show or hide the captions; and leave for the
+// message view. Mute the avatar and mute the mic live on the sidebar rail,
+// so they stay put when the message bar folds.
 //
 // Listening is half-duplex: the microphone is shut for the whole of a spoken
 // reply and for a moment after it, so the avatar cannot hear itself. That is
@@ -30,32 +30,29 @@ import React, {
 } from 'react';
 import { createPortal } from 'react-dom';
 import {
+  ArrowLeftRight,
   AudioLines,
   Camera,
   CameraOff,
   Captions,
   ChevronUp,
-  Image,
   Loader2,
-  Mic,
-  MicOff,
+  MessageSquareText,
   MonitorUp,
   Paperclip,
   Plus,
   Send,
-  Sparkles,
+  SwitchCamera,
   User,
-  Video,
-  VideoOff,
-  Volume2,
-  VolumeX,
   Square,
 } from 'lucide-react';
 import { toast } from 'react-hot-toast';
 import { useLocation, useNavigate } from 'react-router-dom';
 
-import { useMedia, NEW_CONVERSATION_ID } from '../context/MediaContext';
+import { useMedia } from '../context/MediaContext';
 import { useMediaShare } from '../context/MediaShareContext';
+import { avatarIsAudible } from './avatarAudioGate';
+import { useVoiceMute } from '../context/VoiceMuteContext';
 import { describeAmbientStatus } from '../services/ambientCaptureScheduler';
 import { useAuth } from '../context/AuthContext';
 import {
@@ -68,6 +65,13 @@ import {
   canUseAvatarSpeechInput,
   canUseAvatarSpeechPlayback,
 } from '../services/avatarSpeechPlayback';
+import usePersonalAvatar from '../hooks/usePersonalAvatar';
+import {
+  SPEAKING_BUBBLE_HIGHLIGHT,
+  speakingBubbleProps,
+  userResponseIsSpeaking,
+} from './speakingIndicator';
+import { transcribeAssistantIdOf } from '../services/personalAvatar';
 import AvatarWorkspaceHeader from './AvatarWorkspaceHeader';
 import useInboxCount from '../hooks/useInboxCount';
 import LoopingVideo from './ui/LoopingVideo';
@@ -75,7 +79,12 @@ import LiveShareVideo from './LiveShareVideo';
 import {
   canShowCameraBackground,
   useCameraPassthrough,
+  useMobileCameraView,
 } from '../hooks/useCameraPassthrough';
+import {
+  CAMERA_FACING_FRONT,
+  describeCameraFlip,
+} from '../services/cameraFacing';
 import useEmotionMedia, { preloadEmotionMedia } from '../hooks/useEmotionMedia';
 import {
   voiceStageEmotion,
@@ -90,11 +99,22 @@ import {
   stripArtifactReferences,
 } from '../services/createdArtifacts';
 import ConversationSuggestions from './ConversationSuggestions';
-import SpeakerScript from './SpeakerScript';
-import { editableScriptText, hasSpeakerScript } from './speakerScript';
+import MessageAuthorIcon from './MessageAuthorIcon';
+import ThirdPartySpeakerIcon from './ThirdPartySpeakerIcon';
+import {
+  SPEAKER_ROLE_OTHER,
+  speakerBubbleRowsOf,
+  speakerCaptionText,
+  spokenTurnText,
+} from './speakerScript';
 import { speakerLabelsDefaultOn } from '../config/voiceSpeakerLabels';
 import ComposerConnectorsMenu from './connections/ComposerConnectorsMenu';
 import ComposerAttachmentStrip from './ComposerAttachmentStrip';
+import ComposerSpeechControls from './ComposerSpeechControls';
+import {
+  COMPOSER_DRAFT_SPEAK_KEY,
+  appendSpokenTranscript,
+} from './composerSpeech';
 import MessageMedia from './MessageMedia';
 import ChartCard from './ChartCard';
 import ConnectionCardStack from './connections/ConnectionCardStack';
@@ -124,18 +144,15 @@ import { startVoiceActivityListening } from '../services/voiceActivity';
 import { enqueueLiveUtterance } from '../services/liveUtteranceQueue';
 import {
   isAvatarSelfEcho,
-  rememberAvatarSpeech,
+  avatarSpokenLines,
 } from '../services/selfEchoGuard';
 import {
+  getAvatarVoice,
   requestLipSyncClip,
   transcribeRecording,
 } from '../services/avatarService';
+import VoiceCaptureNotice from './voice/VoiceCaptureNotice';
 import { showRequestFailureToast } from './requestFailureToast';
-import { showVoiceNotReadyToast } from './showVoiceNotReadyToast';
-import {
-  rememberVoiceNotReadyShown,
-  sameConversationAsVoiceNotReadyShown,
-} from './voiceNotReadyToast';
 import { isConversationSuggestionList } from '../services/conversationSuggestions';
 import { findMessageByKey, messageKeyOf } from '../services/messageKey';
 import {
@@ -158,6 +175,7 @@ import {
 } from './voicePortraitBox';
 import { voiceStageFace } from '../config/avatarFaceSource';
 import useAvatarFaceSource from '../hooks/useAvatarFaceSource';
+import useAvatarVideoReplies from '../hooks/useAvatarVideoReplies';
 
 const PREFERENCES_KEY = 'voice_mode_preferences';
 
@@ -183,7 +201,11 @@ const readPreferences = () => {
 
 const writePreferences = (preferences) => {
   try {
-    localStorage.setItem(PREFERENCES_KEY, JSON.stringify(preferences));
+    const current = readPreferences();
+    localStorage.setItem(
+      PREFERENCES_KEY,
+      JSON.stringify({ ...current, ...preferences })
+    );
   } catch {
     // Storage may be unavailable; the toggles then last for the session.
   }
@@ -200,15 +222,24 @@ const STAGE_FLASH_IN_ANIMATION = 'voice-stage-flash-in';
 const STAGE_FLASH_OUT_ANIMATION = 'voice-stage-flash-out';
 const HUMAN_BUBBLE_CLASSES =
   'max-w-[min(100%,28rem)] sm:max-w-[85%] px-4 py-2 rounded-2xl text-[15px] leading-relaxed self-end bg-neutral-800/80 text-neutral-200 whitespace-pre-wrap';
+const HUMAN_TURN_ROW_CLASSES =
+  'flex items-end gap-2 max-w-[min(100%,28rem)] sm:max-w-[85%] self-end flex-row-reverse';
+const HUMAN_TURN_BUBBLE_CLASSES =
+  'px-4 py-2 rounded-2xl text-[15px] leading-relaxed bg-neutral-800/80 text-neutral-200 whitespace-pre-wrap min-w-0';
 const AVATAR_BUBBLE_CLASSES =
   'max-w-[min(100%,28rem)] sm:max-w-[85%] px-4 py-2 rounded-2xl text-[15px] leading-relaxed self-start bg-black/55 backdrop-blur-md border border-white/15 text-neutral-100 whitespace-pre-wrap';
 const CAPTION_DOCK_CLASSES =
-  'absolute left-0 right-0 max-h-[min(28vh,16rem)] overflow-y-auto px-3 sm:px-6 pb-2';
+  'absolute left-0 right-0 max-h-[min(42vh,22rem)] overflow-y-auto overscroll-contain touch-pan-y pointer-events-auto px-3 sm:px-6 pb-3';
 const CARD_DOCK_CLASSES =
-  'absolute left-0 right-0 max-h-[min(50vh,28rem)] overflow-y-auto px-3 sm:px-6 pb-2';
+  'absolute left-0 right-0 max-h-[min(50vh,28rem)] overflow-y-auto overscroll-contain touch-pan-y pointer-events-auto px-3 sm:px-6 pb-3';
 const CAPTION_COLUMN_CLASSES = 'mx-auto max-w-3xl flex flex-col gap-3 py-2';
-const SPEAKING_BUBBLE_HIGHLIGHT =
-  'ring-2 ring-amber-400/80 border-amber-400/50 bg-amber-400/10';
+
+const SwitchToMessagesIcon = () => (
+  <span className="inline-flex items-center gap-0.5" aria-hidden="true">
+    <MessageSquareText className="w-4 h-4" />
+    <ArrowLeftRight className="w-3.5 h-3.5" />
+  </span>
+);
 
 const TypingDots = () => (
   <div className="flex items-center space-x-2" aria-label="Responding">
@@ -246,30 +277,6 @@ const AssistantActivityLine = ({ activity, stopControl = null }) => {
   );
 };
 
-// Inverse of the composer’s AudioLines “talk out loud” control: same
-// waveform, struck through, so leaving voice mode is the obvious pair.
-const AudioLinesOffIcon = ({ className }) => (
-  <svg
-    xmlns="http://www.w3.org/2000/svg"
-    viewBox="0 0 24 24"
-    fill="none"
-    stroke="currentColor"
-    strokeWidth="2"
-    strokeLinecap="round"
-    strokeLinejoin="round"
-    className={className}
-    aria-hidden="true"
-  >
-    <path d="M2 10v3" />
-    <path d="M6 6v11" />
-    <path d="M10 3v18" />
-    <path d="M14 8v7" />
-    <path d="M18 5v13" />
-    <path d="M22 10v3" />
-    <path d="M2 2l20 20" />
-  </svg>
-);
-
 const isHumanMessage = (message) => {
   const type = message?.type || message?.sender;
   return type === 'human' || type === 'user';
@@ -290,7 +297,6 @@ const LiveVoiceMode = ({
 }) => {
   const {
     messages,
-    activeConversation,
     sendSpokenTurn,
     sendSpokenAudioTurn,
     handleFileChange,
@@ -315,16 +321,38 @@ const LiveVoiceMode = ({
     ambientNextInMs,
     setAmbientVoiceMode,
     registerAmbientReplyHandler,
+    // The accessibility mode reads scene descriptions aloud through its own
+    // audio path, so that it can fall back to this browser's own voice when the
+    // avatar has no clone of its own. That path is still the avatar speaking,
+    // and the microphone below has to know about it.
+    sceneNarrationSpeaking,
   } = useMediaShare();
-  const { user, activeAvatar } = useAuth();
+  const {
+    avatarMuted: isAvatarMuted,
+    micMuted: isMicMuted,
+    setMicMuted,
+  } = useVoiceMute();
+  const { user, activeAvatar, userPortrait, userAvatars } = useAuth();
   const location = useLocation();
   const navigate = useNavigate();
   const readerIsAnonymous = isSharedAvatarChatPath(location.pathname);
+  const readerPortrait = readerIsAnonymous ? null : userPortrait;
   const canDictate = canUseAvatarSpeechInput(activeAvatar, user, {
     pathname: location.pathname,
   });
   const canPlayAvatarVoice = canUseAvatarSpeechPlayback(activeAvatar, user, {
     pathname: location.pathname,
+  });
+  const { personalAvatar, personalAssistantId } = usePersonalAvatar();
+  const canSpeakUser =
+    !readerIsAnonymous &&
+    canUseAvatarSpeechPlayback(personalAvatar, user, {
+      pathname: location.pathname,
+    });
+  const transcribeAssistantId = transcribeAssistantIdOf({
+    userAvatars,
+    fallbackAssistantId: assistantId,
+    isAnonymous: readerIsAnonymous,
   });
   const inboxCount = useInboxCount();
   const canOpenAvatarSettings =
@@ -336,12 +364,6 @@ const LiveVoiceMode = ({
     typeof onNavigateTab === 'function' && !readerIsAnonymous;
 
   const preferences = useMemo(readPreferences, []);
-  const [isAvatarMuted, setIsAvatarMuted] = useState(
-    Boolean(preferences.avatarMuted)
-  );
-  // Opening live voice is asking to be heard. Mute is only something the
-  // person chooses after the stage is already up.
-  const [isMicMuted, setIsMicMuted] = useState(false);
   // The live camera behind the avatar. It exists for one situation only: a
   // person who has physically walked up to a geo-located avatar's place, as
   // the shared position watch reports (`cameraBackground`). Anywhere else
@@ -352,8 +374,20 @@ const LiveVoiceMode = ({
     useState(cameraBackground);
   const canShowTheCameraBehindTheAvatar =
     cameraBackground && canShowCameraBackground();
-  const { stream: cameraBackgroundStream, error: cameraBackgroundError } =
-    useCameraPassthrough(isCameraBackgroundOn && canShowTheCameraBehindTheAvatar);
+  const {
+    stream: cameraBackgroundStream,
+    error: cameraBackgroundError,
+    facingMode: cameraFacingMode,
+    flipCamera,
+    isFlipping: isCameraFlipping,
+  } = useCameraPassthrough(
+    isCameraBackgroundOn && canShowTheCameraBehindTheAvatar
+  );
+  const isMobileCameraViewActive = useMobileCameraView();
+  const canFlipTheCameraBehindTheAvatar =
+    canShowTheCameraBehindTheAvatar &&
+    isCameraBackgroundOn &&
+    isMobileCameraViewActive;
 
   // Arrival turns the live place view on; departure turns it off. While at
   // the place a manual toggle still wins until the standing-at flag changes.
@@ -370,9 +404,8 @@ const LiveVoiceMode = ({
       id: 'voice-camera-unavailable',
     });
   }, [cameraBackgroundError]);
-  const [isVideoEnabled, setIsVideoEnabled] = useState(
-    Boolean(preferences.videoEnabled)
-  );
+  const { videoEnabled: isVideoEnabled, setVideoEnabled } =
+    useAvatarVideoReplies(assistantId);
   const [showCaptions, setShowCaptions] = useState(
     preferences.showCaptions ?? true
   );
@@ -380,28 +413,18 @@ const LiveVoiceMode = ({
   // control can still pause the loop for this visit; that choice is not
   // kept so the next open asks for the microphone again.
   const [liveListeningPreferred, setLiveListeningPreferred] = useState(true);
-  // Each hands-free utterance is sent as audio and labelled by speaker on the
-  // server (the owner by voice, others as Speaker N) so the avatar can tell the
-  // owner from other people in the room. This is not something the person is
-  // asked about: it applies to a personal avatar, which is the only avatar
-  // with the owner's voice to recognise, and is settled by configuration.
-  const speakerLabelsOn =
-    isPersonalAvatar && !readerIsAnonymous && speakerLabelsDefaultOn();
+  // Each hands-free utterance is sent as audio and labelled by speaker on
+  // the server (the signed-in person by voice, others as Speaker N) so the
+  // avatar can tell them from other people in the room. This is not
+  // something the person is asked about. Anonymous visitors have no stored
+  // voice to recognise, so their chats stay unlabelled.
+  const speakerLabelsOn = !readerIsAnonymous && speakerLabelsDefaultOn();
   useEffect(() => {
     writePreferences({
-      avatarMuted: isAvatarMuted,
-      micMuted: isMicMuted,
-      videoEnabled: isVideoEnabled,
       showCaptions,
       liveListening: liveListeningPreferred,
     });
-  }, [
-    isAvatarMuted,
-    isMicMuted,
-    isVideoEnabled,
-    showCaptions,
-    liveListeningPreferred,
-  ]);
+  }, [showCaptions, liveListeningPreferred]);
 
   const [isLiveListening, setIsLiveListening] = useState(false);
   const [isHearingSpeech, setIsHearingSpeech] = useState(false);
@@ -422,10 +445,6 @@ const LiveVoiceMode = ({
   // permission becomes granted. A later unmute, or a permission change, is
   // what asks again — not a toast on every failed start.
   const microphoneBlockedByBrowserRef = useRef(false);
-  const voiceNotReadyShownForRef = useRef(null);
-  // What the avatar has most recently said out loud, so a transcript that
-  // turns out to be its own voice can be dropped instead of answered.
-  const avatarSpokenLinesRef = useRef([]);
   // Whether the avatar is audible now, and until when it counts as having
   // just been audible. Read inside the listener callbacks, which outlive the
   // render that created them.
@@ -458,10 +477,12 @@ const LiveVoiceMode = ({
   const { manifest } = useEmotionMedia(assistantId, {
     asAnonymousIdentity: readerIsAnonymous,
   });
-  const { showGenerated, setShowGenerated } = useAvatarFaceSource(assistantId);
+  const { showGenerated } = useAvatarFaceSource(assistantId);
   const [holdNewCaptions, setHoldNewCaptions] = useState(false);
   const [captionGeneration, setCaptionGeneration] = useState(0);
   const [stageFlash, setStageFlash] = useState(null);
+  const [voiceReadiness, setVoiceReadiness] = useState(null);
+  const [voiceStatus, setVoiceStatus] = useState(null);
   const pendingStageFlashRef = useRef(null);
   const holdNewCaptionsRef = useRef(false);
   const revealedCaptionIdsRef = useRef(new Set());
@@ -493,39 +514,42 @@ const LiveVoiceMode = ({
     avatarName,
     asAnonymousIdentity: readerIsAnonymous,
     speechPlaybackEnabled: canPlayAvatarVoice,
+    userSpeechPlaybackEnabled: canSpeakUser,
+    userSpeechAssistantId: personalAssistantId,
   });
 
-  // Missing clone: prompt to create a voice model once per conversation on
-  // this stage. Speak from the transcript must not stack the same notice, and
-  // a generic "could not speak" toast is the wrong sentence for this case.
   useEffect(() => {
-    if (!speech.notReady) return;
-    const conversationId = activeConversation ?? NEW_CONVERSATION_ID;
-    const previous = voiceNotReadyShownForRef.current;
-    if (
-      previous?.assistantId === assistantId &&
-      sameConversationAsVoiceNotReadyShown(
-        previous.conversationId,
-        conversationId
-      )
-    ) {
-      voiceNotReadyShownForRef.current = { assistantId, conversationId };
-      rememberVoiceNotReadyShown(assistantId, conversationId);
-      return;
+    if (isAvatarMuted) speech.stop();
+  }, [isAvatarMuted, speech]);
+
+  // What the owner can do about their avatar's voice — whether they have been
+  // asked about learning it, and whether it has a reference recording to
+  // recognise them by. Read once per visit: the live seconds arrive with each
+  // transcription instead, so this does not need to be asked for every turn.
+  // Owner-only route, so it is never called for a visitor or a shared link.
+  useEffect(() => {
+    if (!assistantId || !isPersonalAvatar || readerIsAnonymous) {
+      setVoiceStatus(null);
+      return undefined;
     }
-    showVoiceNotReadyToast({
-      assistantId,
-      avatarName,
-      collectedSeconds: speech.notReady.collectedSeconds,
-      conversationId,
-    });
-    voiceNotReadyShownForRef.current = { assistantId, conversationId };
-  }, [
-    speech.notReady,
-    assistantId,
-    avatarName,
-    activeConversation,
-  ]);
+    let cancelled = false;
+    (async () => {
+      try {
+        const status = await getAvatarVoice(assistantId);
+        if (!cancelled) setVoiceStatus(status);
+      } catch {
+        // A voice this screen cannot read about simply shows nothing; live
+        // voice does not depend on it.
+        if (!cancelled) setVoiceStatus(null);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [assistantId, isPersonalAvatar, readerIsAnonymous]);
+
+  // Missing clone: useSpeech raises the create-voice toast (once per
+  // conversation) when speak-aloud or a live reply needs a voice model.
 
   const spokenExchange = messages.filter((message) => {
     if (
@@ -799,7 +823,7 @@ const LiveVoiceMode = ({
           asAnonymousIdentity: readerIsAnonymous,
         }).catch((clipError) => {
           if (clipError?.status === 403) {
-            setIsVideoEnabled(false);
+            setVideoEnabled(false);
             showRequestFailureToast(clipError, {
               fallbackMessage: 'Video replies need a premium plan.',
             });
@@ -844,14 +868,11 @@ const LiveVoiceMode = ({
 
       // Setting this shuts the microphone through the gate below, before a
       // single byte of the avatar's voice is fetched — the avatar must not be
-      // able to hear itself. Remembering the line as well means an echo that
-      // reaches the microphone anyway (loud speakers, a lagging headset) is
-      // recognised and dropped rather than answered.
+      // able to hear itself. The line itself is remembered by `useSpeech` as
+      // it plays, so an echo that reaches the microphone anyway (loud
+      // speakers, a lagging headset) is recognised and dropped rather than
+      // answered.
       setIsPlayingReply(true);
-      avatarSpokenLinesRef.current = rememberAvatarSpeech(
-        avatarSpokenLinesRef.current,
-        spokenReply
-      );
       const replyMessageId =
         [...messagesRef.current]
           .reverse()
@@ -880,6 +901,7 @@ const LiveVoiceMode = ({
       revealHeldCaptions,
       speech,
       waitForStagePresented,
+      setVideoEnabled,
     ]
   );
 
@@ -948,9 +970,10 @@ const LiveVoiceMode = ({
         if (!showCaptions && speakers?.segments?.length) {
           showStageFlash(
             'human',
-            speakers.segments
-              .map((segment) => `${segment.speaker}: ${segment.text}`)
-              .join('\n')
+            speakerCaptionText(speakers.segments, {
+              humanTurn: true,
+              avatarName,
+            })
           );
         }
         if (reply) await handleReply(reply, sentiment, generation);
@@ -967,7 +990,7 @@ const LiveVoiceMode = ({
         }
       }
     },
-    [handleReply, sendSpokenAudioTurn, showCaptions, showStageFlash, speech]
+    [handleReply, sendSpokenAudioTurn, showCaptions, showStageFlash, speech, avatarName]
   );
 
   // Accept / retry must cut the transcript and then present the new reply
@@ -1078,9 +1101,14 @@ const LiveVoiceMode = ({
       }
       setIsTranscribing(true);
       try {
-        const result = await transcribeRecording(assistantId, file, {
+        const result = await transcribeRecording(transcribeAssistantId, file, {
           asAnonymousIdentity: readerIsAnonymous,
         });
+        // The avatar may have finished building its voice while this
+        // conversation was going on; this is how the next reply is spoken
+        // rather than captioned.
+        speech.reportVoiceReadiness?.(result?.voice);
+        setVoiceReadiness(result?.voice ?? null);
         return result?.text?.trim() ?? '';
       } catch (transcribeError) {
         showRequestFailureToast(transcribeError, {
@@ -1091,7 +1119,7 @@ const LiveVoiceMode = ({
         setIsTranscribing(false);
       }
     },
-    [assistantId, canDictate, readerIsAnonymous]
+    [transcribeAssistantId, canDictate, readerIsAnonymous, speech]
   );
 
   // --- live audio (turn-based, voice activity detection) -----------------------
@@ -1106,6 +1134,9 @@ const LiveVoiceMode = ({
   submitSpokenAudioRef.current = submitSpokenAudio;
   const speakerLabelsOnRef = useRef(speakerLabelsOn);
   speakerLabelsOnRef.current = speakerLabelsOn;
+  const diarizeOnThisAvatarRef = useRef(false);
+  diarizeOnThisAvatarRef.current =
+    speakerLabelsOn && isPersonalAvatar && !readerIsAnonymous;
   const transcribeRef = useRef(transcribe);
   transcribeRef.current = transcribe;
   const liveUtteranceQueueRef = useRef([]);
@@ -1127,6 +1158,30 @@ const LiveVoiceMode = ({
     setMicLevel(0);
   }, []);
 
+  // The microphone belongs to this screen, so it goes when this screen goes.
+  // Pressing the close button runs `leaveVoiceMode`, but that is only one of
+  // the ways out: a workspace tab, a route, a different avatar and a browser
+  // back all unmount the stage instead. A listener that outlives it keeps
+  // recording and keeps sending turns, and nothing can quiet it again — the
+  // gate below closes the microphone by reading THIS component's state, and
+  // this component no longer renders. The first thing such a listener hears is
+  // the avatar answering someone else's turn, which it transcribes and sends
+  // back as though a person had said it. Bumping the start generation also
+  // discards a listener whose microphone permission resolves after the exit.
+  useEffect(
+    () => () => {
+      listenerStartGenerationRef.current += 1;
+      listenerRef.current?.stop();
+      listenerRef.current = null;
+      dictationRef.current?.cancel?.();
+      dictationRef.current = null;
+      // Anything heard but not yet sent belongs to the stage that has just
+      // closed; it must not arrive in the conversation afterwards.
+      liveUtteranceQueueRef.current = [];
+    },
+    []
+  );
+
   const startLiveListening = useCallback(async () => {
     if (!canDictate) {
       toast.error(speechInputUnavailableMessage);
@@ -1146,6 +1201,9 @@ const LiveVoiceMode = ({
         onLevel: (level) => setMicLevel(level),
         onSpeechStart: () => {
           setIsHearingSpeech(true);
+        },
+        onSpeechEnd: () => {
+          setIsHearingSpeech(false);
         },
         onUtterance: (file) => {
           setIsHearingSpeech(false);
@@ -1168,17 +1226,19 @@ const LiveVoiceMode = ({
                 const { file: nextFile, followedAvatarSpeech } =
                   liveUtteranceQueueRef.current.shift();
                 try {
-                  if (speakerLabelsOnRef.current) {
-                    // Speaker labelling sends the audio itself, so there are
-                    // no words here to compare against the avatar's own; that
-                    // path relies on the microphone gate alone.
+                  if (diarizeOnThisAvatarRef.current) {
+                    // Speaker labelling on the personal avatar sends the
+                    // audio itself: that avatar's reference clip is the
+                    // person's voice. On any other avatar, transcribe
+                    // through the personal avatar first so the owner is
+                    // recognised, then send the words to this conversation.
                     await submitSpokenAudioRef.current(nextFile);
                     continue;
                   }
                   const words = await transcribeRef.current(nextFile);
                   if (!words) continue;
                   if (
-                    isAvatarSelfEcho(words, avatarSpokenLinesRef.current, {
+                    isAvatarSelfEcho(words, avatarSpokenLines(), {
                       followedAvatarSpeech,
                     })
                   ) {
@@ -1210,7 +1270,7 @@ const LiveVoiceMode = ({
           stopLiveListening();
           if (isMicrophoneAccessRefused(listenError)) {
             microphoneBlockedByBrowserRef.current = true;
-            setIsMicMuted(true);
+            setMicMuted(true);
             setLiveListeningPreferred(false);
             return;
           }
@@ -1226,14 +1286,13 @@ const LiveVoiceMode = ({
       }
       listenerRef.current = listener;
       microphoneBlockedByBrowserRef.current = false;
-      setIsMicMuted(false);
       setIsLiveListening(true);
     } catch (microphoneError) {
       // The stage asks for the microphone as soon as it opens. A refusal is
       // the browser's answer, not a toast: the mic control reads off until
       // they allow it in settings (or press unmute, which asks again).
       setLiveListeningPreferred(false);
-      setIsMicMuted(true);
+      setMicMuted(true);
       if (isMicrophoneAccessRefused(microphoneError)) {
         microphoneBlockedByBrowserRef.current = true;
         return;
@@ -1244,7 +1303,7 @@ const LiveVoiceMode = ({
     } finally {
       listenerStartInFlightRef.current = false;
     }
-  }, [canDictate, stopLiveListening]);
+  }, [canDictate, setMicMuted, stopLiveListening]);
 
   useEffect(() => {
     return watchMicrophonePermission((state) => {
@@ -1252,14 +1311,16 @@ const LiveVoiceMode = ({
       if (!microphoneBlockedByBrowserRef.current) return;
       microphoneBlockedByBrowserRef.current = false;
       if (!canDictate) return;
-      setIsMicMuted(false);
+      setMicMuted(false);
       setLiveListeningPreferred(true);
       startLiveListening();
     });
-  }, [canDictate, startLiveListening]);
+  }, [canDictate, setMicMuted, startLiveListening]);
 
   // --- who may open the microphone ------------------------------------------
-  // One gate, derived from state, rather than a pause here and a resume there.
+  // One gate, derived from state, rather than a pause here and a resume there,
+  // and every way the avatar can be audible has to be an argument to it (see
+  // `avatarAudioGate.js`, which is where the list lives and is tested).
   // Scattered calls made the microphone depend on the order callbacks happened
   // to run in, and one order was reachable: an utterance the person had
   // already talked over reported that it had ended AFTER the reply replacing
@@ -1268,8 +1329,12 @@ const LiveVoiceMode = ({
   // and answered itself. Reading the state instead makes that unreachable —
   // a late callback has nothing to re-open, because nothing re-opens the
   // microphone except the conditions below all being false.
-  const avatarAudioIsActive =
-    isPlayingReply || speech.isSpeaking || loadingSpeechKey !== null;
+  const avatarAudioIsActive = avatarIsAudible({
+    isPlayingReply,
+    isSpeaking: speech.isSpeaking,
+    loadingSpeechKey,
+    sceneNarrationSpeaking,
+  });
   avatarAudioIsActiveRef.current = avatarAudioIsActive;
 
   // The audio element finishing is not the speakers finishing; hold the
@@ -1321,7 +1386,6 @@ const LiveVoiceMode = ({
     if (!canDictate) return;
     if (!canCaptureMicrophone()) return;
     autoStartedListeningRef.current = true;
-    setIsMicMuted(false);
     setLiveListeningPreferred(true);
     startLiveListening();
   }, [activeAvatar, assistantId, canDictate, startLiveListening]);
@@ -1338,22 +1402,21 @@ const LiveVoiceMode = ({
       return;
     }
     microphoneBlockedByBrowserRef.current = false;
-    setIsMicMuted(false);
+    setMicMuted(false);
     setLiveListeningPreferred(true);
     startLiveListening();
   };
 
-  const toggleMicMuted = () => {
-    if (!isMicMuted) {
-      setIsMicMuted(true);
-      return;
-    }
-    setIsMicMuted(false);
+  const wasMicMutedRef = useRef(isMicMuted);
+  useEffect(() => {
+    const wasMuted = wasMicMutedRef.current;
+    wasMicMutedRef.current = isMicMuted;
+    if (!wasMuted || isMicMuted) return;
     if (isLiveListening || !canDictate) return;
     microphoneBlockedByBrowserRef.current = false;
     setLiveListeningPreferred(true);
     startLiveListening();
-  };
+  }, [isMicMuted, isLiveListening, canDictate, startLiveListening]);
 
   // --- dictation (one utterance into the text box) ---------------------------------
   const startDictation = async () => {
@@ -1376,7 +1439,7 @@ const LiveVoiceMode = ({
     } catch (dictationError) {
       setIsDictating(false);
       if (isMicrophoneAccessRefused(dictationError)) {
-        setIsMicMuted(true);
+        setMicMuted(true);
         return;
       }
       toast.error('Could not start recording.');
@@ -1390,8 +1453,13 @@ const LiveVoiceMode = ({
     setIsDictating(false);
     const file = await recording.stop();
     const words = await transcribe(file);
-    if (words)
-      setDraft((previous) => (previous ? `${previous} ${words}` : words));
+    if (!words) return;
+    setDraft((previous) => appendSpokenTranscript(previous, words));
+    if (canSpeakUser && personalAssistantId) {
+      await speech.speak(personalAssistantId, words, {
+        key: COMPOSER_DRAFT_SPEAK_KEY,
+      });
+    }
   };
 
   const toggleDictation = () => {
@@ -1420,7 +1488,17 @@ const LiveVoiceMode = ({
         ? `${avatarName ?? 'The avatar'} · ${activity}…`
         : `${avatarName ?? 'The avatar'} is thinking…`;
     }
-    if (speech.isSpeaking) return `${avatarName ?? 'The avatar'} is speaking…`;
+    if (speech.isSpeaking) {
+      const speakingUserMessage = messages.some(
+        (message) =>
+          isHumanMessage(message) &&
+          messageKeyOf(message) === speech.speakingKey
+      );
+      if (speech.speakingKey === COMPOSER_DRAFT_SPEAK_KEY || speakingUserMessage) {
+        return 'Playing your voice…';
+      }
+      return `${avatarName ?? 'The avatar'} is speaking…`;
+    }
     if (ambientEnabled && ambientStatus?.inFlight) {
       return `${avatarName ?? 'The avatar'} is looking…`;
     }
@@ -1431,8 +1509,16 @@ const LiveVoiceMode = ({
     return '';
   };
 
+  const speakingComposerDraft =
+    speech.speakingKey === COMPOSER_DRAFT_SPEAK_KEY;
+  const speakingUserMessage = messages.some(
+    (message) =>
+      isHumanMessage(message) && messageKeyOf(message) === speech.speakingKey
+  );
   const isAvatarSpeaking =
-    isPlayingReply || speech.isSpeaking || Boolean(lipSyncClipUrl);
+    isPlayingReply ||
+    (speech.isSpeaking && !speakingUserMessage && !speakingComposerDraft) ||
+    Boolean(lipSyncClipUrl);
   const generatingCaption = visibleExchange.find((message) =>
     voiceMessageIsGenerating(message, { turnActive: textTurnIsGenerating })
   );
@@ -1518,51 +1604,23 @@ const LiveVoiceMode = ({
       aria-label={leaveLabel}
       className={`${CLOSE_BUTTON_CLASSES} shrink-0`}
     >
-      <AudioLinesOffIcon />
+      <SwitchToMessagesIcon />
+      Messages
     </button>
   );
 
-  const renderMuteControls = () => (
-    <div
-      data-voice-mute-bar
-      className="pointer-events-auto shrink-0 flex items-center gap-0.5 rounded-full bg-black/60 backdrop-blur-lg border border-white/10 p-1"
-    >
-      <button
-        type="button"
-        onClick={() => {
-          if (!isAvatarMuted) speech.stop();
-          setIsAvatarMuted((muted) => !muted);
-        }}
-        title={isAvatarMuted ? 'Unmute the avatar' : 'Mute the avatar'}
-        aria-label={isAvatarMuted ? 'Unmute the avatar' : 'Mute the avatar'}
-        aria-pressed={!isAvatarMuted}
-        className={`${CONTROL_CLASSES} ${!isAvatarMuted ? ACTIVE_CONTROL_CLASSES : ''}`}
+  const renderCameraControls = () => {
+    if (!canShowTheCameraBehindTheAvatar && !canFlipTheCameraBehindTheAvatar) {
+      return null;
+    }
+    return (
+      <div
+        data-voice-camera-bar
+        className="pointer-events-auto shrink-0 flex items-center gap-0.5 rounded-full bg-black/60 backdrop-blur-lg border border-white/10 p-1"
       >
-        {isAvatarMuted ? (
-          <VolumeX className="w-5 h-5" />
-        ) : (
-          <Volume2 className="w-5 h-5" />
-        )}
-      </button>
-      <button
-        type="button"
-        onClick={toggleMicMuted}
-        title={isMicMuted ? 'Unmute your microphone' : 'Mute your microphone'}
-        aria-label={
-          isMicMuted ? 'Unmute your microphone' : 'Mute your microphone'
-        }
-        aria-pressed={!isMicMuted}
-        className={`${CONTROL_CLASSES} ${!isMicMuted ? ACTIVE_CONTROL_CLASSES : ''}`}
-      >
-        {isMicMuted ? (
-          <MicOff className="w-5 h-5" />
-        ) : (
-          <Mic className="w-5 h-5" />
-        )}
-      </button>
-      {/* The camera belongs in this cluster rather than in the composer's
-          control row: that row lives inside the message bar, and touching the
-          stage to look at the place collapses the bar — which is exactly when
+      {/* The camera belongs beside the composer rather than in its control
+          row: that row lives inside the message bar, and touching the stage
+          to look at the place collapses the bar — which is exactly when
           someone wants the camera off again. */}
       {canShowTheCameraBehindTheAvatar && (
         <button
@@ -1588,8 +1646,26 @@ const LiveVoiceMode = ({
           )}
         </button>
       )}
-    </div>
-  );
+      {canFlipTheCameraBehindTheAvatar && (
+        <button
+          type="button"
+          disabled={isCameraFlipping || !cameraBackgroundStream}
+          onClick={async () => {
+            const flipped = await flipCamera();
+            if (!flipped) {
+              toast('Could not switch cameras.');
+            }
+          }}
+          title={describeCameraFlip(cameraFacingMode)}
+          aria-label={describeCameraFlip(cameraFacingMode)}
+          className={CONTROL_CLASSES}
+        >
+          <SwitchCamera className="w-5 h-5" />
+        </button>
+      )}
+      </div>
+    );
+  };
 
   const statusLine = [describeState(), isRenderingClip ? 'rendering video' : '']
     .filter(Boolean)
@@ -1624,6 +1700,7 @@ const LiveVoiceMode = ({
         <LiveShareVideo
           stream={cameraBackgroundStream}
           label="The place around you"
+          mirrored={cameraFacingMode === CAMERA_FACING_FRONT}
           className="absolute inset-0 w-full h-full object-cover pointer-events-none"
         />
       )}
@@ -1750,12 +1827,11 @@ const LiveVoiceMode = ({
         }) &&
           (stageFlash || assistantActivity || showGeneratingStopRow))) && (
         <div
-          className={`${hasVoiceCards ? CARD_DOCK_CLASSES : CAPTION_DOCK_CLASSES} z-20 ${
-            hasVoiceCards ? 'pointer-events-auto' : 'pointer-events-none'
-          }`}
+          data-voice-caption-dock
+          className={`${hasVoiceCards ? CARD_DOCK_CLASSES : CAPTION_DOCK_CLASSES} z-20`}
           style={{ bottom: composerDockHeight }}
         >
-          <div data-voice-caption-dock className={CAPTION_COLUMN_CLASSES}>
+          <div className={CAPTION_COLUMN_CLASSES}>
             {stageFlash && (
               <div
                 key={stageFlash.id}
@@ -1767,9 +1843,14 @@ const LiveVoiceMode = ({
                     : 'voice-stage-flash'
                 } ${
                   stageFlash.from === 'human'
-                    ? HUMAN_BUBBLE_CLASSES
+                    ? `${HUMAN_BUBBLE_CLASSES} ${
+                        isHearingSpeech || isDictating || isTranscribing
+                          ? SPEAKING_BUBBLE_HIGHLIGHT
+                          : ''
+                      }`
                     : `${AVATAR_BUBBLE_CLASSES} ${
-                        isPlayingReply || speech.isSpeaking
+                        isPlayingReply ||
+                        (speech.isSpeaking && !speakingUserMessage)
                           ? SPEAKING_BUBBLE_HIGHLIGHT
                           : ''
                       }`
@@ -1809,19 +1890,39 @@ const LiveVoiceMode = ({
         </div>
       )}
 
+      {/* The avatar learning its own voice: one quiet strip above the
+          composer, and only while there is something to decide or something
+          changing. A voice already built says nothing — it just speaks. */}
+      {isPersonalAvatar && !readerIsAnonymous && (
+        <div
+          className="pointer-events-none absolute inset-x-0 z-20 px-4"
+          style={{ bottom: composerDockHeight + 12 }}
+        >
+          <VoiceCaptureNotice
+            assistantId={assistantId}
+            status={voiceStatus}
+            readiness={voiceReadiness}
+            onAnswered={setVoiceStatus}
+            onOpenVoiceSettings={() =>
+              navigate(
+                `/chat/${encodeURIComponent(assistantId)}?tab=settings&section=voice`
+              )
+            }
+          />
+        </div>
+      )}
+
       {/* Captions overlay the lower stage. The message bar is a separate
           dock on the bottom edge so toggling captions never lifts it. */}
       {showCaptions && (
         <div
-          className={`${hasVoiceCards ? CARD_DOCK_CLASSES : CAPTION_DOCK_CLASSES} pointer-events-none ${
+          data-voice-caption-dock
+          className={`${hasVoiceCards ? CARD_DOCK_CLASSES : CAPTION_DOCK_CLASSES} ${
             editingKey ? 'z-40' : 'z-20'
           }`}
           style={{ bottom: composerDockHeight }}
         >
-          <div
-            data-voice-caption-dock
-            className={`${CAPTION_COLUMN_CLASSES} pointer-events-auto`}
-          >
+          <div className={CAPTION_COLUMN_CLASSES}>
             {visibleExchange.map((message) => {
               const messageKey =
                 messageKeyOf(message) ??
@@ -1865,17 +1966,171 @@ const LiveVoiceMode = ({
                 speech.speakingKey === messageKey ||
                 (isCurrentReply &&
                   (speech.speakingKey === 'live-reply' || isPlayingReply));
+              const liveUserSpeaking =
+                isHearingSpeech || isDictating || isTranscribing;
+              const isUserSpeaking = userResponseIsSpeaking({
+                messageKey,
+                speakingKey: speech.speakingKey,
+                liveSpeaking: liveUserSpeaking,
+                isPending: Boolean(isHuman && isLoading),
+              });
+              const userSpeakingBubble = isUserSpeaking
+                ? speakingBubbleProps()
+                : { className: '', style: undefined };
+              const speakerOptions = { humanTurn: true, avatarName };
               const captionText = isFromAvatar
                 ? stripArtifactReferences(message.content)
-                : message.content;
+                : spokenTurnText(message, speakerOptions);
+              const speakerRows =
+                isHuman && !isLoading && !isEditingThis
+                  ? speakerBubbleRowsOf(message, speakerOptions)
+                  : null;
+              const captionActionBar =
+                !isLoading && !isGeneratingThis ? (
+                  <MessageActionBar
+                    message={message}
+                    messageKey={messageKey}
+                    isFromAvatar={isFromAvatar}
+                    isFromUser={isHuman}
+                    avatarName={avatarName}
+                    overlay={false}
+                    isSpeaking={isHuman ? isUserSpeaking : isSpeakingThis}
+                    isSpeechLoading={loadingSpeechKey === messageKey}
+                    canSpeak={canPlayAvatarVoice}
+                    canSpeakUser={canSpeakUser}
+                    copiedKey={copiedKey}
+                    feedbackKey={feedbackKey}
+                    feedbackDraft={feedbackDraft}
+                    editingKey={editingKey}
+                    pendingSendCount={pendingSendCount}
+                    onCopy={copyMessage}
+                    onToggleSpeech={() => {
+                      // The gate shuts the microphone off `loadingSpeechKey`
+                      // and then off `speech.isSpeaking`, so playing a line
+                      // from the transcript cannot be recorded either.
+                      if (!isCurrentReply) setLipSyncClipUrl(null);
+                      toggleSpeech(
+                        messageKey,
+                        isFromAvatar
+                          ? speakableReplyText(message.content)
+                          : captionText,
+                        {
+                          alsoStopKeys: isCurrentReply ? ['live-reply'] : [],
+                          forUser: isHuman,
+                        }
+                      );
+                    }}
+                    onRegenerate={(key) => regenerateAvatarReply?.(key)}
+                    onLike={() =>
+                      submitMessageFeedback?.(messageKey, { type: 'like' })
+                    }
+                    onDislike={() =>
+                      submitMessageFeedback?.(messageKey, {
+                        type: 'dislike',
+                      })
+                    }
+                    onFeelsReal={() =>
+                      submitMessageFeedback?.(messageKey, {
+                        feels: 'feels_real',
+                      })
+                    }
+                    onFeelsOff={() =>
+                      submitMessageFeedback?.(messageKey, {
+                        feels: 'feels_fake',
+                      })
+                    }
+                    onToggleFeedback={() => {
+                      setFeedbackKey((current) =>
+                        current === messageKey ? null : messageKey
+                      );
+                      setFeedbackDraft(message.feedback?.comment ?? '');
+                    }}
+                    onFeedbackDraftChange={setFeedbackDraft}
+                    onSubmitFeedback={() => {
+                      submitMessageFeedback?.(messageKey, {
+                        comment: feedbackDraft.trim(),
+                      });
+                      setFeedbackKey(null);
+                    }}
+                    onStartEdit={() => {
+                      setSuggestionSheetOpen(false);
+                      setEditingKey(messageKey);
+                      setEditDraft(captionText);
+                    }}
+                    onRetry={(key) => presentResentTurn(key, captionText)}
+                  />
+                ) : null;
+              if (speakerRows) {
+                return (
+                  <React.Fragment key={messageKey}>
+                    {speakerRows.map((row, index) => {
+                      const isLast = index === speakerRows.length - 1;
+                      const isGuest = row.role === SPEAKER_ROLE_OTHER;
+                      return (
+                        <div
+                          key={`${messageKey}-${row.role}-${row.speaker}-${index}`}
+                          className={`${HUMAN_TURN_ROW_CLASSES} ${
+                            isLast && messageCharts.length > 0 ? 'w-full' : ''
+                          }`}
+                        >
+                          {isGuest ? (
+                            <ThirdPartySpeakerIcon identity={row.identity} />
+                          ) : (
+                            <MessageAuthorIcon
+                              portrait={readerPortrait}
+                              name="You"
+                              isSpeaking={isUserSpeaking}
+                            />
+                          )}
+                          <div
+                            className={`${HUMAN_TURN_BUBBLE_CLASSES} ${
+                              isGuest
+                                ? row.identity?.fill
+                                  ? 'border'
+                                  : 'border border-white/10'
+                                : isUserSpeaking
+                                  ? userSpeakingBubble.className
+                                  : ''
+                            }`}
+                            style={
+                              isGuest
+                                ? row.identity?.fill
+                                  ? { borderColor: row.identity.fill }
+                                  : undefined
+                                : isUserSpeaking
+                                  ? userSpeakingBubble.style
+                                  : undefined
+                            }
+                          >
+                            <div className="whitespace-pre-wrap">{row.text}</div>
+                            {isLast ? (
+                              <>
+                                <MessageMedia media={message.media} />
+                                {captionActionBar}
+                              </>
+                            ) : null}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </React.Fragment>
+                );
+              }
               return (
                 <div
                   key={messageKey}
                   className={`${
                     isHuman ? HUMAN_BUBBLE_CLASSES : AVATAR_BUBBLE_CLASSES
-                  } ${isSpeakingThis ? SPEAKING_BUBBLE_HIGHLIGHT : ''} ${
-                    isEditingThis ? 'relative z-40' : ''
-                  } ${messageCharts.length > 0 ? 'w-full' : ''}`}
+                  } ${
+                    isHuman
+                      ? userSpeakingBubble.className
+                      : isSpeakingThis
+                        ? SPEAKING_BUBBLE_HIGHLIGHT
+                        : ''
+                  } ${isEditingThis ? 'relative z-40' : ''} ${
+                    messageCharts.length > 0 ? 'w-full' : ''
+                  }`}
+                  style={isHuman ? userSpeakingBubble.style : undefined}
                 >
                   {isLoading ? (
                     <div className="flex items-center justify-between gap-3">
@@ -1930,12 +2185,7 @@ const LiveVoiceMode = ({
                           Done at your request
                         </div>
                       )}
-                      {isHuman && hasSpeakerScript(message) ? (
-                        <SpeakerScript
-                          speakers={message.speakers}
-                          fallback={message.content || '…'}
-                        />
-                      ) : captionText ? (
+                      {captionText ? (
                         <div className="whitespace-pre-wrap">{captionText}</div>
                       ) : message.media?.length ? null : (
                         <div className="whitespace-pre-wrap">…</div>
@@ -1976,83 +2226,7 @@ const LiveVoiceMode = ({
                       {renderStopButton()}
                     </div>
                   )}
-                  {!isLoading && !isGeneratingThis && (
-                    <MessageActionBar
-                      message={message}
-                      messageKey={messageKey}
-                      isFromAvatar={isFromAvatar}
-                      isFromUser={isHuman}
-                      overlay={false}
-                      isSpeaking={isSpeakingThis}
-                      isSpeechLoading={loadingSpeechKey === messageKey}
-                      canSpeak={canPlayAvatarVoice}
-                      copiedKey={copiedKey}
-                      feedbackKey={feedbackKey}
-                      feedbackDraft={feedbackDraft}
-                      editingKey={editingKey}
-                      pendingSendCount={pendingSendCount}
-                      onCopy={copyMessage}
-                      onToggleSpeech={() => {
-                        // The gate shuts the microphone off `loadingSpeechKey`
-                        // and then off `speech.isSpeaking`, so playing a line
-                        // from the transcript cannot be recorded either.
-                        if (!isCurrentReply) setLipSyncClipUrl(null);
-                        if (isFromAvatar) {
-                          avatarSpokenLinesRef.current = rememberAvatarSpeech(
-                            avatarSpokenLinesRef.current,
-                            speakableReplyText(message.content)
-                          );
-                        }
-                        toggleSpeech(
-                          messageKey,
-                          isFromAvatar
-                            ? speakableReplyText(message.content)
-                            : editableScriptText(message),
-                          {
-                            alsoStopKeys: isCurrentReply ? ['live-reply'] : [],
-                          }
-                        );
-                      }}
-                      onRegenerate={(key) => regenerateAvatarReply?.(key)}
-                      onLike={() =>
-                        submitMessageFeedback?.(messageKey, { type: 'like' })
-                      }
-                      onDislike={() =>
-                        submitMessageFeedback?.(messageKey, { type: 'dislike' })
-                      }
-                      onFeelsReal={() =>
-                        submitMessageFeedback?.(messageKey, {
-                          feels: 'feels_real',
-                        })
-                      }
-                      onFeelsOff={() =>
-                        submitMessageFeedback?.(messageKey, {
-                          feels: 'feels_fake',
-                        })
-                      }
-                      onToggleFeedback={() => {
-                        setFeedbackKey((current) =>
-                          current === messageKey ? null : messageKey
-                        );
-                        setFeedbackDraft(message.feedback?.comment ?? '');
-                      }}
-                      onFeedbackDraftChange={setFeedbackDraft}
-                      onSubmitFeedback={() => {
-                        submitMessageFeedback?.(messageKey, {
-                          comment: feedbackDraft.trim(),
-                        });
-                        setFeedbackKey(null);
-                      }}
-                      onStartEdit={() => {
-                        setSuggestionSheetOpen(false);
-                        setEditingKey(messageKey);
-                        setEditDraft(editableScriptText(message));
-                      }}
-                      onRetry={(key) =>
-                        presentResentTurn(key, editableScriptText(message))
-                      }
-                    />
-                  )}
+                  {captionActionBar}
                 </div>
               );
             })}
@@ -2063,34 +2237,33 @@ const LiveVoiceMode = ({
         </div>
       )}
 
-      {/* Message bar: docked to the bottom. A press on empty stage folds it.
-          Mute avatar / mute mic sit beside the box so they stay visible. */}
+      {/* Message bar: docked to the bottom. A press on empty stage folds it. */}
       <div
         ref={composerDockRef}
-        className="absolute bottom-0 left-0 right-0 z-30 pointer-events-none px-2 pt-1 pb-[max(0.5rem,env(safe-area-inset-bottom))] sm:px-5 sm:pt-3 sm:pb-5"
+        className="absolute bottom-0 left-0 right-0 z-30 pointer-events-none px-3 pt-2 pb-[max(0.75rem,env(safe-area-inset-bottom))] sm:px-6 sm:pt-3 sm:pb-5"
       >
         <div
-          className={`mx-auto max-w-3xl w-full flex gap-2 ${voiceComposerDockItemsClass(isMessageBarCollapsed)}`}
+          className={`mx-auto max-w-3xl w-full flex gap-2.5 ${voiceComposerDockItemsClass(isMessageBarCollapsed)}`}
         >
-          {renderMuteControls()}
+          {renderCameraControls()}
           {isMessageBarCollapsed ? (
             <div className="relative pointer-events-auto flex-1 min-w-0">
               {collapsedVoiceBarIsSpeaking({
                 hearingSpeech: isHearingSpeech,
                 dictating: isDictating,
-              }) && (
+              }) || speakingComposerDraft ? (
                 <div
                   className="voice-speak-glow absolute inset-0 z-10 rounded-xl"
                   aria-hidden
                 />
-              )}
+              ) : null}
               <button
                 type="button"
                 data-voice-message-bar
                 onClick={() => setIsMessageBarCollapsed(false)}
                 title="Show the message bar"
                 aria-label="Show the message bar"
-                className="suggestions-handle voice-text-btn relative h-full w-full bg-black/60 backdrop-blur-lg rounded-xl border border-white/10 flex items-center justify-center gap-1.5 text-white/50 hover:text-neutral-200 hover:bg-white/5 transition-colors focus:outline-none focus:ring-2 focus:ring-amber-400/50"
+                className="suggestions-handle voice-text-btn relative min-h-10 w-full bg-black/60 backdrop-blur-lg rounded-xl border border-white/10 flex items-center justify-center gap-1.5 text-white/50 hover:text-neutral-200 hover:bg-white/5 transition-colors focus:outline-none focus:ring-2 focus:ring-amber-400/50"
               >
                 <ChevronUp className="w-4 h-4" aria-hidden="true" />
                 <span className="text-xs">Message</span>
@@ -2099,7 +2272,7 @@ const LiveVoiceMode = ({
           ) : (
             <div
               data-voice-message-bar
-              className="pointer-events-auto flex-1 min-w-0 bg-black/60 backdrop-blur-lg rounded-xl border border-white/10 p-2 sm:p-3 overflow-visible"
+              className="pointer-events-auto flex-1 min-w-0 bg-black/60 backdrop-blur-lg rounded-xl border border-white/10 p-2.5 sm:p-3 overflow-visible flex flex-col gap-2 relative"
               onDragOver={(event) => event.preventDefault()}
               onDrop={(event) => {
                 event.preventDefault();
@@ -2108,6 +2281,12 @@ const LiveVoiceMode = ({
                 });
               }}
             >
+              {(isDictating || speakingComposerDraft) && (
+                <div
+                  className="voice-speak-glow absolute inset-0 z-10 rounded-xl"
+                  aria-hidden
+                />
+              )}
               <ConversationSuggestions
                 overlay
                 onSend={(suggestion) => {
@@ -2140,7 +2319,7 @@ const LiveVoiceMode = ({
                   className="w-full bg-transparent px-2 py-1.5 text-sm text-neutral-200 placeholder-white/40 focus:outline-none"
                 />
               </form>
-              <div className="flex items-center gap-1 mt-1 min-w-0">
+              <div className="flex items-center gap-1 min-w-0">
                 <div className="relative shrink-0 flex items-center gap-0.5">
                   <input
                     ref={fileInputRef}
@@ -2238,86 +2417,24 @@ const LiveVoiceMode = ({
                         )}
                       </span>
                     </button>
-                    <button
-                      type="button"
-                      disabled={!canDictate}
-                      onClick={toggleDictation}
-                      title={
-                        !canDictate
-                          ? speechInputUnavailableMessage
-                          : isDictating
-                            ? 'Stop recording and put the words in the message box'
-                            : 'Record a message (the words appear in the message box)'
+                    <ComposerSpeechControls
+                      canDictate={canDictate}
+                      canPlayDraft={canSpeakUser}
+                      isDictating={isDictating}
+                      isTranscribing={isTranscribing && !isLiveListening}
+                      isPlayingDraft={speakingComposerDraft}
+                      isPlayLoading={loadingSpeechKey === COMPOSER_DRAFT_SPEAK_KEY}
+                      hasDraft={Boolean(String(draft ?? '').trim())}
+                      unavailableMessage={speechInputUnavailableMessage}
+                      onToggleDictation={toggleDictation}
+                      onTogglePlay={() =>
+                        toggleSpeech(COMPOSER_DRAFT_SPEAK_KEY, draft, {
+                          forUser: true,
+                        })
                       }
-                      aria-label={
-                        !canDictate
-                          ? 'Speech input unavailable'
-                          : isDictating
-                            ? 'Stop recording'
-                            : 'Start recording'
-                      }
-                      aria-pressed={isDictating}
-                      className={`${CONTROL_CLASSES} ${isDictating ? 'bg-red-500/30 text-red-200' : ''} disabled:opacity-40 disabled:pointer-events-none`}
-                    >
-                      {isDictating ? (
-                        <Square className="w-5 h-5 fill-current" />
-                      ) : isTranscribing && !isLiveListening ? (
-                        <Loader2 className="w-5 h-5 animate-spin" />
-                      ) : (
-                        <Mic className="w-5 h-5" />
-                      )}
-                    </button>
+                      buttonClassName={CONTROL_CLASSES}
+                    />
                   </div>
-
-                  <div
-                    role="group"
-                    aria-label="Avatar face"
-                    className="flex items-center rounded-full bg-white/5 border border-white/10"
-                  >
-                    <button
-                      type="button"
-                      onClick={() => setShowGenerated(false)}
-                      title="Show the original reference photo"
-                      aria-label="Show the original reference photo"
-                      aria-pressed={!showGenerated}
-                      className={`${CONTROL_CLASSES} ${!showGenerated ? ACTIVE_CONTROL_CLASSES : ''}`}
-                    >
-                      <Image className="w-5 h-5" />
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setShowGenerated(true)}
-                      title="Show generated portraits and idle loops"
-                      aria-label="Show generated portraits and idle loops"
-                      aria-pressed={showGenerated}
-                      className={`${CONTROL_CLASSES} ${showGenerated ? ACTIVE_CONTROL_CLASSES : ''}`}
-                    >
-                      <Sparkles className="w-5 h-5" />
-                    </button>
-                  </div>
-
-                  <button
-                    type="button"
-                    onClick={() => setIsVideoEnabled((enabled) => !enabled)}
-                    title={
-                      isVideoEnabled
-                        ? 'Disable generative video replies'
-                        : 'Enable generative video replies'
-                    }
-                    aria-label={
-                      isVideoEnabled
-                        ? 'Disable generative video replies'
-                        : 'Enable generative video replies'
-                    }
-                    aria-pressed={isVideoEnabled}
-                    className={`${CONTROL_CLASSES} ${isVideoEnabled ? ACTIVE_CONTROL_CLASSES : ''}`}
-                  >
-                    {isVideoEnabled ? (
-                      <Video className="w-5 h-5" />
-                    ) : (
-                      <VideoOff className="w-5 h-5" />
-                    )}
-                  </button>
 
                   <button
                     type="button"

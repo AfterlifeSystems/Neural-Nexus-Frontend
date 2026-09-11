@@ -212,3 +212,24 @@ test('a blocked voice still takes spoken input', () => {
   };
   assert.equal(canUseAvatarSpeechInput(blockedPersonal, regularUser), true);
 });
+
+test('a banned cloned voice silences the avatar only without a standard voice', () => {
+  const banned = {
+    ...personalOwned,
+    metadata: { ...personalOwned.metadata, voice_model_blocked: true },
+  };
+  assert.equal(canUseAvatarSpeechPlayback(banned, regularUser), false);
+  const bannedWithStandardVoice = {
+    ...banned,
+    metadata: { ...banned.metadata, standard_voice_id: 'std-rachel' },
+  };
+  assert.equal(
+    canUseAvatarSpeechPlayback(bannedWithStandardVoice, regularUser),
+    true
+  );
+  const cleared = {
+    ...banned,
+    metadata: { ...banned.metadata, standard_voice_id: null },
+  };
+  assert.equal(canUseAvatarSpeechPlayback(cleared, regularUser), false);
+});

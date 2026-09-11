@@ -52,12 +52,13 @@ test('the notice is remembered once per conversation', () => {
   assert.equal(voiceNotReadyAlreadyShown('ava-2', 'thread-a', storage), false);
 });
 
-test('an unminted conversation is not remembered across chats', () => {
+test('an unminted conversation is remembered in this tab, including after mint', () => {
   resetVoiceNotReadyToastForTests();
   const storage = memoryStorage();
   rememberVoiceNotReadyShown('ava-1', '__new__', storage);
-  assert.equal(voiceNotReadyAlreadyShown('ava-1', '__new__', storage), false);
-  assert.equal(voiceNotReadyAlreadyShown('ava-1', 'thread-a', storage), false);
+  assert.equal(voiceNotReadyAlreadyShown('ava-1', '__new__', storage), true);
+  assert.equal(voiceNotReadyAlreadyShown('ava-1', 'thread-a', storage), true);
+  assert.equal(voiceNotReadyAlreadyShown('ava-2', '__new__', storage), false);
 });
 
 test('a minted thread is the same conversation the notice was shown for while new', () => {

@@ -1,7 +1,7 @@
 // src/hooks/useMessageActions.js
 import { useState } from 'react';
 import { toast } from 'react-hot-toast';
-import { useMedia } from '../context/MediaContext';
+import { NEW_CONVERSATION_ID, useMedia } from '../context/MediaContext';
 import useSpeech from './useSpeech';
 
 /**
@@ -13,23 +13,32 @@ import useSpeech from './useSpeech';
  *
  * @param {Object} parameters
  * @param {string} [parameters.assistantId] The avatar whose voice to use.
- * @param {string} [parameters.avatarName] Named on the missing-voice-model toast in voice mode.
+ * @param {string} [parameters.avatarName] Named on the create-voice toast.
  * @param {boolean} [parameters.asAnonymousIdentity] Public chat: withhold the credential.
- * @param {boolean} [parameters.speechPlaybackEnabled] Whether speak-aloud is allowed.
+ * @param {boolean} [parameters.speechPlaybackEnabled] Whether speak-aloud is allowed for avatar replies.
+ * @param {boolean} [parameters.userSpeechPlaybackEnabled] Whether the person's own messages may be spoken in their personal avatar's voice.
+ * @param {string} [parameters.userSpeechAssistantId] The personal avatar, used for those utterances.
  */
 export default function useMessageActions({
   assistantId,
   avatarName,
   asAnonymousIdentity = false,
   speechPlaybackEnabled = false,
+  userSpeechPlaybackEnabled = false,
+  userSpeechAssistantId = null,
 } = {}) {
   const {
+    activeConversation,
     resendFromUserMessage,
     regenerateAvatarReply,
     submitMessageFeedback,
     pendingSendCount,
   } = useMedia();
-  const speech = useSpeech({ asAnonymousIdentity, avatarName });
+  const speech = useSpeech({
+    asAnonymousIdentity,
+    avatarName,
+    conversationId: activeConversation ?? NEW_CONVERSATION_ID,
+  });
   const [loadingSpeechKey, setLoadingSpeechKey] = useState(null);
   const [copiedKey, setCopiedKey] = useState(null);
   const [editingKey, setEditingKey] = useState(null);
@@ -37,8 +46,16 @@ export default function useMessageActions({
   const [feedbackKey, setFeedbackKey] = useState(null);
   const [feedbackDraft, setFeedbackDraft] = useState('');
 
-  const toggleSpeech = async (messageKey, text, { alsoStopKeys = [] } = {}) => {
-    if (!speechPlaybackEnabled) return;
+  const toggleSpeech = async (
+    messageKey,
+    text,
+    { alsoStopKeys = [], forUser = false } = {}
+  ) => {
+    const allowed = forUser
+      ? userSpeechPlaybackEnabled
+      : speechPlaybackEnabled;
+    const speakAssistantId = forUser ? userSpeechAssistantId : assistantId;
+    if (!allowed || !speakAssistantId) return;
     const speakingThis =
       speech.speakingKey === messageKey ||
       alsoStopKeys.includes(speech.speakingKey);
@@ -48,7 +65,7 @@ export default function useMessageActions({
     }
     setLoadingSpeechKey(messageKey);
     try {
-      await speech.speak(assistantId, text, { key: messageKey });
+      await speech.speak(speakAssistantId, text, { key: messageKey });
     } finally {
       setLoadingSpeechKey(null);
     }

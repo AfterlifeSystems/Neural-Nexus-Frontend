@@ -8,6 +8,29 @@
 //   the assistant message token-by-token as server-sent events arrive.
 //   The MessageList renders the messages array on every update.
 
+import {
+  LOOK_NOW_INTERRUPT_KIND,
+  MAXIMUM_LOOKS_PER_TURN,
+  captureLiveShareFrames,
+  liveShareFormValue,
+  getPeekableShareSources,
+  peekAtLiveDesktop,
+  peekThroughLiveCamera,
+  peekableShareFormValue,
+  sourceOfFrameName,
+  startLiveScreenShare,
+  stopLiveShares,
+} from '../services/liveShareRegistry';
+import { readAvatarShareControl } from '../config/avatarShareControl';
+import {
+  readSceneNarration,
+  readSceneNarrationSeconds,
+  sceneNarrationFormValue,
+  sceneNarrationFromFrame,
+  writeSceneNarration,
+  writeSceneNarrationSeconds,
+} from '../config/sceneNarration';
+import { stopNarrationSpeech } from '../services/sceneNarrationSpeech';
 import React, {
   createContext,
   useCallback,
@@ -448,6 +471,10 @@ export const MediaProvider = ({ children }) => {
   // Set when the graph pauses for human approval (an `interrupt` frame). A
   // future approval interface resumes via POST /message/{assistant_id}/resume.
   const [pendingInterrupt, setPendingInterrupt] = useState(null);
+  // A screen share the avatar asked for and cannot start itself. Held
+  // here so one press by the person opens the picker: a screen share
+  // started any other way is refused by every browser.
+  const [pendingShareRequest, setPendingShareRequest] = useState(null);
   // The same pause, readable from an effect or a poll without a stale
   // closure: the auto-resume below and a card's own finish can both try to
   // answer one pause, and only the first may.
@@ -1102,6 +1129,9 @@ export const MediaProvider = ({ children }) => {
    * @param {boolean} [parameters.ambient] The turn is an ambient webcam /
    *   screen observation: disposable context that yields to the person's own
    *   turns (see `yieldAmbientObservations`).
+   * @param {number} [parameters.lookDepth] How many `look_now` pauses this
+   *   turn has already answered. Each look re-enters here on the resume path,
+   *   and `MAXIMUM_LOOKS_PER_TURN` caps how far that can go.
    */
   async function runAssistantTurnStream({
     avatarForMessage,
@@ -1114,6 +1144,7 @@ export const MediaProvider = ({ children }) => {
     bubbleDecorator = null,
     ambient = false,
     connectionPauseMessageId = null,
+    lookDepth = 0,
   }) {
     const assistantId = resolveAssistantId(avatarForMessage);
     // Someone standing at the place a geo-located avatar was pinned to is a
@@ -1124,6 +1155,55 @@ export const MediaProvider = ({ children }) => {
     // that route takes no place flag, so only a fresh turn carries it.
     if (!path.endsWith('/resume') && isStandingAtPlace(assistantId)) {
       formData.set('at_place', 'true');
+    }
+    // What is being shared at this moment, on every way of speaking. Two
+    // things read it: the LIVE_SHARES section of the system prompt, which is
+    // what keeps the avatar from describing a screen that stopped being shared
+    // as though the avatar could still see it, and the `look_now` gate on the
+    // server — the tool is attached only when there is something live to look
+    // at. A resume continues a turn that already reported its shares.
+    if (!path.endsWith('/resume')) {
+      const liveShares = liveShareFormValue();
+      if (liveShares) {
+        formData.set('live_shares', liveShares);
+      }
+      // The avatar-settings permission, reported by the browser that holds it:
+      // this avatar may look on its own and may switch a share off. Per
+      // browser on purpose — a permission over this device's camera or desktop
+      // must not follow the account onto a device where it was never granted.
+      // ...or because the person has a screen capture running in peek mode,
+      // which they can ask the avatar to switch off like any other.
+      const peekable = getPeekableShareSources({
+        cameraAllowed: readAvatarShareControl(assistantId),
+      });
+      if (readAvatarShareControl(assistantId) || peekable.length > 0) {
+        formData.set('may_control_shares', 'true');
+      }
+      // What, specifically, could be looked at ONCE right now — never watched.
+      // A screen being peeked at rather than shared is here rather than in
+      // `live_shares`, which is exactly the difference between the avatar
+      // glancing when something needs it and the avatar watching on a timer.
+      // Sent on every turn, because a capture can end between one and the next.
+      formData.set('peekable_shares', peekableShareFormValue(peekable));
+      // The accessibility switch, reported as `on` or `off` on every turn a
+      // signed-in browser sends. The field's presence is what tells the API
+      // this browser can point a camera and read descriptions aloud, so the
+      // avatar is given the switch; its value tells the avatar which way it
+      // is set. The anonymous shared-avatar page never sends it: it cannot
+      // send observations, so it must never be promised the mode.
+      if (!isSharedAvatarChatPath()) {
+        formData.set(
+          'scene_narration',
+          sceneNarrationFormValue(readSceneNarration())
+        );
+        // The pace as well as the switch: asked to describe things more often,
+        // the avatar has to turn that into a number, and it cannot without
+        // knowing what the pace is now.
+        formData.set(
+          'scene_narration_seconds',
+          String(readSceneNarrationSeconds())
+        );
+      }
     }
     const streamingMessageId = `streaming-${Date.now()}`;
     const streamStartedAtMs = performance.now();
@@ -1336,6 +1416,44 @@ export const MediaProvider = ({ children }) => {
               streamEvent.thread_id,
               streamEvent.conversation_title
             );
+          } else if (streamEvent.type === 'share_stop') {
+            // The avatar switched a share off. Nothing is asked of the person
+            // and nothing is waited for; the stream carries straight on.
+            if (readAvatarShareControl(assistantId)) {
+              stopLiveShares(streamEvent.sources ?? []);
+            }
+          } else if (streamEvent.type === 'scene_narration') {
+            // The avatar was asked — in words, in any conversation, by voice
+            // or by typing — to start or stop describing what the camera is
+            // pointed at. This is the whole reason the mode can be worked by
+            // someone who cannot see the screen: nothing here needs to be
+            // found, pressed, or read. The switch is per browser, so flipping
+            // it takes effect everywhere in the application at once, including
+            // for the help avatar's overlay.
+            const narrationSwitch = sceneNarrationFromFrame(streamEvent);
+            if (narrationSwitch) {
+              // The pace first, so that switching on and asking for a
+              // different pace in one breath ("describe things for me, but
+              // not so often") leaves the loop with both, not with the old
+              // pace for one reading.
+              if (narrationSwitch.intervalSeconds != null) {
+                writeSceneNarrationSeconds(narrationSwitch.intervalSeconds);
+              }
+              writeSceneNarration(narrationSwitch.enabled);
+            }
+          } else if (streamEvent.type === 'share_request') {
+            // The avatar wanted the screen and no browser lets a page start a
+            // capture, so the person is offered one press instead. Deliberately
+            // not gated on the avatar-settings permission: that permission is
+            // about the avatar acting on this device, and this is the opposite
+            // — asking the person, who then decides in their own picker what
+            // the avatar may see.
+            setPendingShareRequest({
+              sources: streamEvent.sources ?? ['screen'],
+              reason: streamEvent.reason ?? '',
+              assistantId,
+              at: Date.now(),
+            });
           } else if (streamEvent.type === 'error') {
             errorFrame = streamEvent;
           } else if (
@@ -1380,6 +1498,130 @@ export const MediaProvider = ({ children }) => {
         suppressed: turnStreamedInternalJson,
         threadId: activeTurn.threadId ?? threadId ?? null,
         requestId: activeTurn.requestId,
+      });
+    }
+
+    // A look is not a question for the person. The avatar asked the browser
+    // for a fresh frame of what is being shared; the browser captures one,
+    // answers the pause, and the reply carries on. No card is raised, nothing
+    // is approved, and the person sees only that the reply took a moment.
+    if (
+      terminalFrame?.type === 'interrupt' &&
+      terminalFrame.interrupt?.kind === LOOK_NOW_INTERRUPT_KIND
+    ) {
+      // A model that keeps asking to look would otherwise pause the same turn
+      // forever; after this many looks the turn answers from what it has.
+      if (lookDepth >= MAXIMUM_LOOKS_PER_TURN) {
+        console.warn(
+          `A turn asked to look more than ${MAXIMUM_LOOKS_PER_TURN} times; refusing further looks.`
+        );
+      }
+      // Whatever was said before the look is kept; an empty placeholder is
+      // dropped, exactly as the pause branch below does, so the resumed reply
+      // does not appear under a blank bubble.
+      updateMessagesIfStillOnScreen((previousMessages) =>
+        previousMessages.filter(
+          (message) =>
+            message.id !== streamingMessageId ||
+            (message.content ?? '').trim() !== ''
+        )
+      );
+      const lookThreadId = terminalFrame.thread_id ?? threadId ?? null;
+      if (!lookThreadId) {
+        // Nothing to address the resume to. The run stays parked on the
+        // server, which the next turn on this conversation clears; saying so
+        // beats raising an approval card for a pause nobody was meant to see.
+        console.warn('A look pause arrived with no thread to resume on.');
+        return { success: false, reply: '', threadId: null };
+      }
+      // `sources` are already being shared and are captured; `open` is the
+      // camera the avatar was allowed to open for this one look, which is
+      // opened, captured, and closed again before the reply resumes.
+      const frames =
+        lookDepth >= MAXIMUM_LOOKS_PER_TURN
+          ? []
+          : await captureLiveShareFrames(terminalFrame.interrupt?.sources);
+      const toOpen = new Set(terminalFrame.interrupt?.open ?? []);
+      if (lookDepth < MAXIMUM_LOOKS_PER_TURN) {
+        // The camera is opened on its standing browser permission, taken from,
+        // and closed again. The screen is never opened here — no browser
+        // allows it — so a screen look is one frame of the capture the person
+        // is already running in peek mode, which is why it needs no permission
+        // of its own: starting that capture was the permission.
+        if (toOpen.has('webcam') && readAvatarShareControl(assistantId)) {
+          const peeked = await peekThroughLiveCamera();
+          if (peeked) frames.push(peeked);
+        }
+        if (toOpen.has('screen')) {
+          const peeked = await peekAtLiveDesktop();
+          if (peeked) frames.push(peeked);
+        }
+      }
+      const lookFormData = new FormData();
+      lookFormData.append('thread_id', lookThreadId);
+      lookFormData.append('decision', 'looked');
+      // The server names each frame's source from this list, aligned with the
+      // files; an empty look sends neither, and the tool reports the look as
+      // unavailable rather than inventing a scene.
+      if (frames.length > 0) {
+        lookFormData.append(
+          'sources',
+          JSON.stringify(frames.map((frame) => sourceOfFrameName(frame.name)))
+        );
+        frames.forEach((frame) => lookFormData.append('files', frame));
+      }
+      const lookTimezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+      if (lookTimezone) {
+        lookFormData.append('user_timezone', lookTimezone);
+      }
+      // The resumed run rebuilds `look_now` from THIS request, and the rebuilt
+      // tool decides whether to take the pause — and so whether to read the
+      // frames attached right here — from these three fields alone. Send the
+      // report again or the look is thrown away unread, which is what an
+      // avatar looks like when it opens your camera and then says it cannot
+      // see anything. (The server also remembers what the paused turn
+      // reported, for a client that never learned this half of the protocol.)
+      const lookLiveShares = liveShareFormValue();
+      if (lookLiveShares) {
+        lookFormData.append('live_shares', lookLiveShares);
+      }
+      const lookPeekable = getPeekableShareSources({
+        cameraAllowed: readAvatarShareControl(assistantId),
+      });
+      if (readAvatarShareControl(assistantId) || lookPeekable.length > 0) {
+        lookFormData.append('may_control_shares', 'true');
+      }
+      lookFormData.append(
+        'peekable_shares',
+        peekableShareFormValue(lookPeekable)
+      );
+      // Same rule, same reason: the resumed run rebuilds every tool from THIS
+      // request, so an accessibility switch left out here comes back as an
+      // avatar that cannot start or stop describing halfway through a turn.
+      // The API remembers the paused turn's report as a second line, but the
+      // request is the one reporting the present.
+      lookFormData.append(
+        'scene_narration',
+        sceneNarrationFormValue(readSceneNarration())
+      );
+      lookFormData.append(
+        'scene_narration_seconds',
+        String(readSceneNarrationSeconds())
+      );
+      if (lookThreadId && !hideFromTranscript) {
+        setActiveConversation(lookThreadId);
+      }
+      return await runAssistantTurnStream({
+        avatarForMessage,
+        threadId: lookThreadId,
+        path: `/message/${encodeURIComponent(assistantId)}/resume`,
+        formData: lookFormData,
+        hideFromTranscript,
+        deferBubbleUntilFirstToken,
+        onExtraEvent,
+        bubbleDecorator,
+        ambient,
+        lookDepth: lookDepth + 1,
       });
     }
 
@@ -1749,6 +1991,11 @@ export const MediaProvider = ({ children }) => {
    * end, not as a failure.
    */
   function yieldAmbientObservations() {
+    // The person's own turn wins over an observation, and that includes the
+    // observation's VOICE. Somebody who has started talking is not still
+    // waiting to hear about the pavement they have already walked past, and
+    // talking over them is how a helpful mode becomes one they switch off.
+    stopNarrationSpeech();
     for (const activeTurn of activeTurnsRef.current) {
       if (activeTurn.ambient && !activeTurn.stopRequested) {
         requestActiveTurnStop(activeTurn).catch((stopError) => {
@@ -1993,6 +2240,31 @@ export const MediaProvider = ({ children }) => {
         setAssistantActivity(null);
       }
     }
+  }
+
+  /**
+   * Open the screen picker for the look the avatar asked for.
+   *
+   * Called straight out of the person's press and from nowhere else: every
+   * browser refuses `getDisplayMedia` without a real gesture, which is the
+   * whole reason the avatar cannot start a screen capture itself. The capture
+   * starts in peek mode — the avatar asked to see the screen once, not to
+   * begin watching it.
+   *
+   * @returns {Promise<void>}
+   */
+  async function acceptShareRequest() {
+    setPendingShareRequest(null);
+    try {
+      await startLiveScreenShare();
+    } catch (shareError) {
+      console.warn('The screen-share picker could not be opened:', shareError);
+    }
+  }
+
+  /** Put the offer away without sharing. */
+  function dismissShareRequest() {
+    setPendingShareRequest(null);
   }
 
   // The newest `resumePendingInterrupt`, for the poll below: the function is
@@ -2484,7 +2756,15 @@ export const MediaProvider = ({ children }) => {
    * @param {boolean} [options.voiceMode] The person is in voice mode.
    * @returns {Promise<{decision: string|null, summary: string|null, reply: string, sentiment: Object|null, threadId: string|null, observationId: string|null}>}
    */
-  async function sendAmbientObservation(files, { voiceMode = false, motionTrack = null } = {}) {
+  async function sendAmbientObservation(
+    files,
+    {
+      voiceMode = false,
+      cameraFacing = null,
+      motionTrack = null,
+      narrate = false,
+    } = {}
+  ) {
     if (!activeAvatar || !files?.length) {
       return {
         decision: null,
@@ -2508,7 +2788,9 @@ export const MediaProvider = ({ children }) => {
         capturedAt: new Date().toISOString(),
         voiceMode,
         userTimezone,
+        cameraFacing,
         motionTrack,
+        narrate,
       }
     );
     let decision = null;
@@ -2549,6 +2831,13 @@ export const MediaProvider = ({ children }) => {
       return {
         decision: decision?.decision ?? null,
         summary: decision?.summary ?? null,
+        // The reading itself, for a narrated observation. It arrives with the
+        // triage decision rather than as an avatar reply, because a narrated
+        // observation is not answered: the description the vision pass wrote
+        // IS the sentence meant to be read out, and putting a whole avatar
+        // turn between the camera and the person's ears is what made readings
+        // arrive half a minute apart.
+        narration: decision?.narration ?? null,
         reply: outcome?.reply ?? '',
         sentiment: outcome?.sentiment ?? null,
         threadId: outcome?.threadId ?? null,
@@ -2998,6 +3287,9 @@ export const MediaProvider = ({ children }) => {
         setPendingInterrupt,
         updateFactReviewDraft,
         resumePendingInterrupt,
+        pendingShareRequest,
+        acceptShareRequest,
+        dismissShareRequest,
         insertConnectionCard,
         settleConnectionCard,
         removeConnectionCard,

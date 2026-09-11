@@ -13,6 +13,13 @@
 // them should not have to change: it asks for a turn to be recorded and for
 // text to be spoken, and does not know how either happens.
 
+import {
+  attachPcmTap,
+  openMicrophoneStream,
+  resumeAudioContext,
+  wavFileFromPcmChunks,
+} from './voiceRecording.js';
+
 /**
  * Whether this browser can capture a microphone at all.
  *
@@ -24,93 +31,58 @@
  * @returns {boolean}
  */
 export function canCaptureMicrophone() {
-  return Boolean(navigator.mediaDevices?.getUserMedia && window.MediaRecorder);
-}
-
-/**
- * Pick a recording format this browser will actually produce.
- *
- * Browsers disagree: Chromium records WebM/Opus, Safari records MP4/AAC.
- * Asking for an unsupported type throws, and passing nothing yields a
- * browser-chosen default whose MIME type the file then has to carry so the
- * server can identify it.
- *
- * @returns {string} A supported MIME type, or '' to let the browser choose.
- */
-function preferredRecordingMimeType() {
-  const candidates = [
-    'audio/webm;codecs=opus',
-    'audio/webm',
-    'audio/mp4',
-    'audio/ogg;codecs=opus',
-  ];
-  return (
-    candidates.find((candidate) =>
-      window.MediaRecorder?.isTypeSupported?.(candidate)
-    ) ?? ''
+  return Boolean(
+    navigator.mediaDevices?.getUserMedia &&
+      (globalThis.AudioContext || globalThis.webkitAudioContext)
   );
 }
 
 /**
  * Record from the microphone until the returned `stop` is called.
  *
- * The microphone track is stopped as soon as the recording ends, so the
- * browser's recording indicator goes out immediately rather than lingering for
- * as long as the page is open.
+ * Captures PCM and encodes WAV at the AudioContext's native rate. MediaRecorder's
+ * Safari/iOS AAC-in-MP4 is what made mobile transcriptions unusable (Whisper
+ * hallucinating or catching only the first second). The microphone track is
+ * stopped as soon as the recording ends, so the browser's recording indicator
+ * goes out immediately rather than lingering for as long as the page is open.
  *
  * @returns {Promise<{stop: function(): Promise<File>, cancel: function(): void}>}
  *   `stop` resolves with the recorded audio as a File ready to attach;
  *   `cancel` discards the recording and releases the microphone.
  */
 export async function recordOneTurn() {
-  const microphoneStream = await navigator.mediaDevices.getUserMedia({
-    audio: true,
+  const microphoneStream = await openMicrophoneStream();
+  const AudioContextCtor = globalThis.AudioContext || globalThis.webkitAudioContext;
+  const audioContext = new AudioContextCtor();
+  await resumeAudioContext(audioContext);
+  const source = audioContext.createMediaStreamSource(microphoneStream);
+  const chunks = [];
+  const tap = attachPcmTap(audioContext, source, (pcm) => {
+    chunks.push(new Float32Array(pcm));
   });
-  const mimeType = preferredRecordingMimeType();
-  const recorder = new MediaRecorder(
-    microphoneStream,
-    mimeType ? { mimeType } : undefined
-  );
-  const recordedChunks = [];
-  recorder.addEventListener('dataavailable', (event) => {
-    if (event.data.size > 0) {
-      recordedChunks.push(event.data);
-    }
-  });
-  recorder.start();
 
   const releaseMicrophone = () => {
+    tap.stop();
     for (const track of microphoneStream.getTracks()) {
       track.stop();
     }
+    audioContext.close().catch(() => {});
   };
 
   return {
-    stop: () =>
-      new Promise((resolve) => {
-        recorder.addEventListener(
-          'stop',
-          () => {
-            releaseMicrophone();
-            const recordedType = recorder.mimeType || mimeType || 'audio/webm';
-            const fileExtension = recordedType.includes('mp4') ? 'm4a' : 'webm';
-            const recording = new Blob(recordedChunks, { type: recordedType });
-            resolve(
-              new File([recording], `voice-turn.${fileExtension}`, {
-                type: recordedType,
-              })
-            );
-          },
-          { once: true }
-        );
-        recorder.stop();
-      }),
+    stop: () => {
+      const recording =
+        wavFileFromPcmChunks(
+          chunks,
+          audioContext.sampleRate,
+          'voice-turn.wav',
+          audioContext.sampleRate
+        ) ??
+        new File([new Uint8Array(0)], 'voice-turn.wav', { type: 'audio/wav' });
+      releaseMicrophone();
+      return Promise.resolve(recording);
+    },
     cancel: () => {
-      try {
-        recorder.stop();
-      } catch {
-        // Already stopped; releasing the microphone is what matters.
-      }
       releaseMicrophone();
     },
   };

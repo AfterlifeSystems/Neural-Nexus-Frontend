@@ -64,11 +64,13 @@ export function reactionButtonClasses(reaction, pressed) {
  * @param {string} parameters.messageKey Stable id for copy/speech/feedback.
  * @param {boolean} parameters.isFromAvatar Whether this is an assistant reply.
  * @param {boolean} parameters.isFromUser Whether this is the reader's turn.
+ * @param {string} [parameters.avatarName] This avatar; stripped from a labelled human script.
  * @param {boolean} [parameters.readOnly] Hide mutate actions (shared thread).
  * @param {boolean} [parameters.overlay] Chip background for captions on a stage.
  * @param {boolean} parameters.isSpeaking Whether this row's speech is playing.
  * @param {boolean} parameters.isSpeechLoading Whether its audio is being fetched.
- * @param {boolean} [parameters.canSpeak] Whether speak-aloud is offered for this avatar.
+ * @param {boolean} [parameters.canSpeak] Whether speak-aloud is offered for avatar replies.
+ * @param {boolean} [parameters.canSpeakUser] Whether the person's own messages may be spoken in their voice.
  * @param {string|null} parameters.copiedKey Which row was just copied.
  * @param {string|null} parameters.feedbackKey Which row's comment box is open.
  * @param {string} parameters.feedbackDraft The open comment.
@@ -92,11 +94,13 @@ const MessageActionBar = ({
   messageKey,
   isFromAvatar,
   isFromUser,
+  avatarName,
   readOnly = false,
   overlay = false,
   isSpeaking,
   isSpeechLoading,
   canSpeak = false,
+  canSpeakUser = false,
   copiedKey,
   feedbackKey,
   feedbackDraft,
@@ -125,7 +129,10 @@ const MessageActionBar = ({
     message?.run_id ?? null
   );
 
-  const actionText = editableScriptText(message);
+  const actionText = editableScriptText(message, {
+    humanTurn: isFromUser,
+    avatarName,
+  });
   if (!actionText) return null;
 
   const metrics = isFromAvatar ? formatMessageMetrics(message) : null;
@@ -302,6 +309,13 @@ const MessageActionBar = ({
             >
               <RefreshCw className="w-3 h-3" aria-hidden="true" />
             </button>
+            {canSpeakUser && (
+              <SpeakButton
+                isSpeaking={isSpeaking}
+                isLoading={isSpeechLoading}
+                onToggle={onToggleSpeech}
+              />
+            )}
           </div>
         ) : (
           <span />

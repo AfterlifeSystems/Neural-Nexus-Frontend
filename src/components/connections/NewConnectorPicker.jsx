@@ -75,6 +75,9 @@ function formKindOf(provider) {
  *   when a form connected on its own.
  * @param {Function} [parameters.onNeedsLogin] Called with the popup card when
  *   a form's answer was `open_login_popup`, or the site signs in on its own page.
+ * @param {Object|null} [parameters.signInBrowser] Present when a machine of the
+ *   owner's is online, so a sign-in opens in THEIR browser rather than in a
+ *   hosted window; carries `device_label`. From `GET /connectable_providers`.
  */
 const NewConnectorPicker = ({
   providers = [],
@@ -82,6 +85,7 @@ const NewConnectorPicker = ({
   onPick,
   onConnected = null,
   onNeedsLogin = null,
+  signInBrowser = null,
 }) => {
   const [query, setQuery] = useState('');
   const [category, setCategory] = useState('all');
@@ -185,6 +189,16 @@ const NewConnectorPicker = ({
         onCategoryChange={setCategory}
         categories={filterOptions}
       />
+
+      {/* Where a sign-in will appear. Said once here rather than on every
+          row, so nobody watches this screen for a window that opened on
+          another desk. */}
+      {signInBrowser && (
+        <p className="text-white/50 text-xs">
+          Sign-ins open in your own browser
+          {signInBrowser.device_label ? ` on ${signInBrowser.device_label}` : ''}.
+        </p>
+      )}
 
       {customRows.length > 0 && (
         <div className="space-y-2">

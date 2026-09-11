@@ -227,15 +227,50 @@ export function buildEvanUserMessage({
  * @param {string|null} [options.threadId]
  * @param {File[]} [options.files]
  * @param {string} [options.userTimezone]
+ * @param {'on'|'off'} [options.sceneNarration] What this browser reports about
+ *   the accessibility narration switch, so the help avatar is offered the tool
+ *   that flips it.
+ * @param {string[]} [options.liveShares] What the person is sharing with the
+ *   overlay AT THIS MOMENT (`webcam`, `screen`). The overlay owns its own
+ *   streams rather than going through `MediaShareContext`, so this is read
+ *   from those and reported here — without it the help avatar is told nothing
+ *   is shared and says so, while the person watches their own screen being
+ *   captured.
  * @returns {{path: string, formData: FormData}}
  */
 export function buildEvanMessageRequest(
   assistantId,
-  { message, threadId, files = [], userTimezone } = {}
+  {
+    message,
+    threadId,
+    files = [],
+    userTimezone,
+    sceneNarration,
+    liveShares = [],
+    peekableShares = [],
+  } = {}
 ) {
   const formData = new FormData();
   formData.append('message', message ?? '');
   formData.append('stream', 'true');
+  if (liveShares.length > 0) {
+    // Two things read this: the LIVE_SHARES section of the prompt, which is
+    // what stops the avatar describing a screen that stopped being shared, and
+    // the look_now gate — the tool is attached only when there is something
+    // live to look at, because only a client with something live can answer
+    // the pause it opens. The overlay answers that pause itself.
+    formData.append('live_shares', JSON.stringify(liveShares));
+  }
+  if (peekableShares.length > 0) {
+    formData.append('peekable_shares', JSON.stringify(peekableShares));
+  }
+  if (sceneNarration) {
+    // The help avatar is asked for help, and "describe what is around me" is
+    // help. Reporting the switch is what attaches the tool that flips it, so
+    // the overlay can start and stop narration by being asked, exactly as any
+    // other avatar can.
+    formData.append('scene_narration', sceneNarration);
+  }
   if (threadId) {
     formData.append('thread_id', threadId);
   }
@@ -260,15 +295,53 @@ export function buildEvanMessageRequest(
  * @param {string} options.decision
  * @param {Array} [options.items]
  * @param {string} [options.userTimezone]
+ * @param {string[]} [options.liveShares] The same share report the paused turn
+ *   sent. It has to ride along for the same reason `sceneNarration` does.
+ * @param {string[]} [options.sources] For `decision: 'looked'`, the source each
+ *   attached frame came from, aligned with `files`.
+ * @param {File[]} [options.files] For `decision: 'looked'`, the frames captured
+ *   to answer the pause.
  * @returns {{path: string, formData: FormData}}
  */
 export function buildEvanResumeRequest(
   assistantId,
-  { threadId, decision, items, userTimezone } = {}
+  {
+    threadId,
+    decision,
+    items,
+    userTimezone,
+    sceneNarration,
+    liveShares = [],
+    peekableShares = [],
+    sources = [],
+    files = [],
+  } = {}
 ) {
   const formData = new FormData();
   formData.append('thread_id', threadId);
   formData.append('decision', decision);
+  if (liveShares.length > 0) {
+    // A resumed run rebuilds look_now from THIS request, and a rebuilt tool
+    // that believes nothing is shared answers "not shared" without ever
+    // reaching the pause holding these frames — so the look would be captured,
+    // described, paid for and thrown away.
+    formData.append('live_shares', JSON.stringify(liveShares));
+  }
+  if (peekableShares.length > 0) {
+    formData.append('peekable_shares', JSON.stringify(peekableShares));
+  }
+  if (sources.length > 0) {
+    formData.append('sources', JSON.stringify(sources));
+  }
+  for (const file of files ?? []) {
+    formData.append('files', file);
+  }
+  if (sceneNarration) {
+    // A resumed run rebuilds every tool from THIS request, so the switch has
+    // to ride along or the continuation is answered by an avatar that believes
+    // it cannot narrate at all.
+    formData.append('scene_narration', sceneNarration);
+  }
   if (items) {
     formData.append('items', JSON.stringify(items));
   }

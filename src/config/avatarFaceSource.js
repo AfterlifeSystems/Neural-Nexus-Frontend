@@ -16,9 +16,9 @@ const listeners = new Set();
  * @returns {'generated'|'reference'}
  */
 export function normalizeAvatarFaceSource(value) {
-  return value === AVATAR_FACE_SOURCE_REFERENCE
-    ? AVATAR_FACE_SOURCE_REFERENCE
-    : AVATAR_FACE_SOURCE_GENERATED;
+  return value === AVATAR_FACE_SOURCE_GENERATED
+    ? AVATAR_FACE_SOURCE_GENERATED
+    : AVATAR_FACE_SOURCE_REFERENCE;
 }
 
 /**
@@ -37,10 +37,11 @@ function assistantIdOf(assistantId) {
 /**
  * The stored map plus the default for avatars that have not been set.
  *
- * The first version of this preference was a single `'generated'` /
- * `'reference'` string for every avatar. That string is still honoured as the
- * default so a browser that already chose the original photo does not flip
- * every card the first time one avatar is saved on its own.
+ * Unset avatars stay on the original reference photo. The first version of
+ * this preference was a single `'generated'` / `'reference'` string for every
+ * avatar. That string is still honoured as the default so a browser that
+ * already chose generated faces does not flip every card the first time one
+ * avatar is saved on its own.
  *
  * @param {Storage|null|undefined} [storage]
  * @returns {{defaultSource: 'generated'|'reference', byId: Record<string, string>}}
@@ -49,7 +50,7 @@ export function readAvatarFaceSourceStore(storage) {
   try {
     const raw = storageOf(storage)?.getItem(STORAGE_KEY);
     if (!raw) {
-      return { defaultSource: AVATAR_FACE_SOURCE_GENERATED, byId: {} };
+      return { defaultSource: AVATAR_FACE_SOURCE_REFERENCE, byId: {} };
     }
     if (
       raw === AVATAR_FACE_SOURCE_REFERENCE ||
@@ -59,7 +60,7 @@ export function readAvatarFaceSourceStore(storage) {
     }
     const parsed = JSON.parse(raw);
     if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
-      return { defaultSource: AVATAR_FACE_SOURCE_GENERATED, byId: {} };
+      return { defaultSource: AVATAR_FACE_SOURCE_REFERENCE, byId: {} };
     }
     if (parsed.byId && typeof parsed.byId === 'object' && !Array.isArray(parsed.byId)) {
       return {
@@ -68,11 +69,11 @@ export function readAvatarFaceSourceStore(storage) {
       };
     }
     return {
-      defaultSource: AVATAR_FACE_SOURCE_GENERATED,
+      defaultSource: AVATAR_FACE_SOURCE_REFERENCE,
       byId: parsed,
     };
   } catch {
-    return { defaultSource: AVATAR_FACE_SOURCE_GENERATED, byId: {} };
+    return { defaultSource: AVATAR_FACE_SOURCE_REFERENCE, byId: {} };
   }
 }
 

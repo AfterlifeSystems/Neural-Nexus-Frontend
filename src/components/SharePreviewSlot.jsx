@@ -4,9 +4,12 @@ import { registerSharePreviewSlot } from './sharePreviewSlots';
 /**
  * A mount point in the sidebar for the webcam and screen tiles.
  *
- * @param {{ name: 'rail' | 'panel', className?: string, isolateClicks?: boolean }} props
+ * Clicks on the collapsed rail well are left to bubble: the rail opens the
+ * sidebar, and the footage tiles are how a person asks to see them larger.
+ *
+ * @param {{ name: 'rail' | 'panel', className?: string }} props
  */
-const SharePreviewSlot = ({ name, className = '', isolateClicks = false }) => {
+const SharePreviewSlot = ({ name, className = '' }) => {
   const slotRef = useRef(null);
 
   useLayoutEffect(() => {
@@ -15,14 +18,7 @@ const SharePreviewSlot = ({ name, className = '', isolateClicks = false }) => {
   }, [name]);
 
   return (
-    <div
-      ref={slotRef}
-      data-sidebar-share={name}
-      className={className}
-      onClick={
-        isolateClicks ? (event) => event.stopPropagation() : undefined
-      }
-    />
+    <div ref={slotRef} data-sidebar-share={name} className={className} />
   );
 };
 

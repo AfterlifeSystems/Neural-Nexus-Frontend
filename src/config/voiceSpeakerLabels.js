@@ -1,9 +1,12 @@
 // src/config/voiceSpeakerLabels.js
 //
-// Whether live-voice turns on a personal avatar are labelled by speaker (the
-// owner by voice, others as Speaker N). There is no control for this in voice
-// mode: telling the owner from other people in the room is how the avatar is
-// meant to hear, not a preference to weigh up, so the deployment decides.
+// Whether overheard voices in the room are split onto their own bubbles
+// (a stable animal-and-colour identity each, like anonymous guests in a
+// shared Google Doc). The signed-in person and this avatar are already named
+// by the bubble, so they stay unlabelled. There is no control for this in
+// voice mode: telling those other people apart is how the avatar is meant to
+// hear, not a preference to weigh up, so the deployment decides. Shared /
+// anonymous chats stay unlabelled: there is no stored voice to recognise.
 
 /**
  * @returns {boolean}

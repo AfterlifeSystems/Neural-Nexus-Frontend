@@ -10,6 +10,10 @@
 // Retry-After header to a client that captures faster than that floor.
 
 import { ambientCaptureIntervalMilliseconds } from './ambientCaptureInterval';
+import {
+  ambientFrameChangeThreshold,
+  ambientQuietHeartbeatMilliseconds,
+} from './ambientFrameChange';
 
 export {
   DEFAULT_AMBIENT_CAPTURE_INTERVAL_SECONDS,
@@ -19,4 +23,21 @@ export {
 
 export const AMBIENT_CAPTURE_INTERVAL_MS = ambientCaptureIntervalMilliseconds(
   import.meta.env.VITE_AMBIENT_CAPTURE_INTERVAL_SECONDS
+);
+
+export {
+  DEFAULT_AMBIENT_FRAME_CHANGE_THRESHOLD,
+  DEFAULT_AMBIENT_QUIET_HEARTBEAT_SECONDS,
+  ambientFrameChangeThreshold,
+  ambientQuietHeartbeatMilliseconds,
+} from './ambientFrameChange';
+
+/** How much a frame must change from the last one sent to be worth sending. */
+export const AMBIENT_FRAME_CHANGE_THRESHOLD = ambientFrameChangeThreshold(
+  import.meta.env.VITE_AMBIENT_FRAME_CHANGE_THRESHOLD
+);
+
+/** How long an unchanging scene may go unsent before one frame is sent anyway. */
+export const AMBIENT_QUIET_HEARTBEAT_MS = ambientQuietHeartbeatMilliseconds(
+  import.meta.env.VITE_AMBIENT_QUIET_HEARTBEAT_SECONDS
 );

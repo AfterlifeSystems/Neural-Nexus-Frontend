@@ -99,7 +99,14 @@ import AvatarDocumentRow, {
 } from './AvatarDocumentRow';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import Switch from './ui/Switch';
+import LipSyncRepliesSetting from './media/LipSyncRepliesSetting';
+import ShareControlSetting from './media/ShareControlSetting';
 import useAvatarFaceSource from '../hooks/useAvatarFaceSource';
+import { useResearchBootstrapOutcome } from '../hooks/useResearchBootstrapOutcome';
+import {
+  portraitEmptyStateNotice,
+  voiceEmptyStateNotice,
+} from './research/researchBootstrapNotices';
 
 // Social Media Platform Configuration
 const SOCIAL_PLATFORMS = [
@@ -140,6 +147,13 @@ const AvatarSettings = ({ avatarId, onPortraitChanged }) => {
   const { activeConversation } = useMedia();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
+  // Derived before any hook that reads it. A later `const assistantId` would
+  // leave those calls in the temporal dead zone and blank the settings screen.
+  const assistantId =
+    activeAvatar?.assistant_id ??
+    activeAvatar?.avatar_id ??
+    activeAvatar?.metadata?.assistant_id ??
+    avatarId;
   const [editingDesc, setEditingDesc] = useState(false);
   const [updatedDesc, setUpdatedDesc] = useState('');
   const [isGeneratingDescription, setIsGeneratingDescription] = useState(false);
@@ -192,6 +206,13 @@ const AvatarSettings = ({ avatarId, onPortraitChanged }) => {
   // Bumped when deep research writes new facts, so the card listing what
   // the avatar has learned re-reads the list without a remount.
   const [learnedFactsReloadToken, setLearnedFactsReloadToken] = useState(0);
+  // What the research managed to acquire for this avatar. It is what lets the
+  // portrait tile and the voice panel say "no photograph of this subject could
+  // be found" instead of the prompt an unresearched avatar would show.
+  const { outcome: researchAcquisition } = useResearchBootstrapOutcome(
+    assistantId,
+    learnedFactsReloadToken
+  );
   // Why the file list is empty, when it is empty because something FAILED
   // rather than because the avatar genuinely has no files. Without this the two
   // states render identically, and "No files attached to this avatar" is shown
@@ -200,11 +221,6 @@ const AvatarSettings = ({ avatarId, onPortraitChanged }) => {
   // Bumped by the retry control to re-run the loading effect below.
   const [avatarDocumentsReloadCount, setAvatarDocumentsReloadCount] =
     useState(0);
-  const assistantId =
-    activeAvatar?.assistant_id ??
-    activeAvatar?.avatar_id ??
-    activeAvatar?.metadata?.assistant_id ??
-    avatarId;
 
   // The emotion portraits and idle loops generated from the reference image,
   // from GET /avatar_emotion_media (cached per avatar across screens). They are
@@ -212,7 +228,6 @@ const AvatarSettings = ({ avatarId, onPortraitChanged }) => {
   const { manifest: emotionManifest, refresh: refreshEmotionManifest } =
     useEmotionMedia(assistantId);
   const { showGenerated, setShowGenerated } = useAvatarFaceSource(assistantId);
-
   // The avatar's portrait from GET /avatar_reference_image (data URI or URL).
   // Seeded from what this browser already holds for the avatar, so the screen
   // opens with the portrait in place; the effect below re-asks the API and
@@ -1497,6 +1512,11 @@ const AvatarSettings = ({ avatarId, onPortraitChanged }) => {
             <p className="text-xs text-white/40 text-center w-32">
               {avatarIcon ? 'Click to replace' : 'Drop, click, or paste a URL'}
             </p>
+            {!avatarIcon && portraitEmptyStateNotice(researchAcquisition) && (
+              <p className="text-xs text-amber-200/80 text-center w-48">
+                {portraitEmptyStateNotice(researchAcquisition)}
+              </p>
+            )}
             <EmotionMediaStatus
               assistantId={assistantId}
               hasPortrait={Boolean(avatarIcon)}
@@ -1524,11 +1544,6 @@ const AvatarSettings = ({ avatarId, onPortraitChanged }) => {
                       onClick={() => {
                         handleUpdateName(updatedAvatarName);
                         setEditingName(false);
-          {/* How the person moves: learned from the camera and uploaded video,
-              rendered to the text that drives the generated video. */}
-          <div className="w-full min-w-0 rounded-2xl bg-black/40 border border-white/10 p-4">
-            <MotionProfilePanel assistantId={assistantId} />
-          </div>
                       }}
                       className="bg-amber-400/15 hover:bg-amber-400/25 text-amber-300 rounded-lg transition-all duration-300 border border-amber-400/30"
                     >
@@ -1711,7 +1726,7 @@ const AvatarSettings = ({ avatarId, onPortraitChanged }) => {
           enterprise plan, from Create generative reference videos under the
           portrait.
         </p>
-        <div className="mt-4 pt-4 border-t border-white/10">
+        <div className="mt-4 pt-4 border-t border-white/10 space-y-4">
           <div className="flex flex-wrap items-center gap-2">
             <button
               type="button"
@@ -1728,6 +1743,7 @@ const AvatarSettings = ({ avatarId, onPortraitChanged }) => {
               checked={showGenerated}
               onChange={setShowGenerated}
               label="Use generated videos"
+              showLabel={false}
             />
             <button
               type="button"
@@ -1741,6 +1757,7 @@ const AvatarSettings = ({ avatarId, onPortraitChanged }) => {
               Use generated videos
             </button>
           </div>
+          <LipSyncRepliesSetting assistantId={assistantId} />
         </div>
         {portraitJobs.length > 0 && (
           <div className="mt-3 space-y-3">
@@ -1770,8 +1787,22 @@ const AvatarSettings = ({ avatarId, onPortraitChanged }) => {
             onCancelJob={cancelSectionJob}
             onDismissJob={dismissSectionJob}
             refreshToken={voiceStatusVersion}
+            acquisitionNotice={voiceEmptyStateNotice(researchAcquisition)}
           />
         </div>
+      </div>
+      {/* What the avatar may do with the camera and a screen share. */}
+      <div className="bg-black/60 backdrop-blur-lg rounded-2xl border border-white/10 p-6">
+        <h2 className="text-xl sm:text-2xl font-semibold text-neutral-200 mb-4 flex items-center gap-2">
+          <Camera size={22} />
+          Camera Settings
+        </h2>
+        <ShareControlSetting assistantId={assistantId} />
+      </div>
+      {/* How the person moves: learned from the camera and uploaded video,
+          rendered to the text that drives the generated video. */}
+      <div className="bg-black/60 backdrop-blur-lg rounded-2xl border border-white/10 p-4 sm:p-6 min-w-0">
+        <MotionProfilePanel assistantId={assistantId} />
       </div>
       {/* Social Media Section */}
       {/* <div className="bg-black/60 backdrop-blur-lg rounded-2xl border border-white/10 p-6">
@@ -1967,6 +1998,9 @@ const AvatarSettings = ({ avatarId, onPortraitChanged }) => {
             avatarName={activeAvatar?.name}
             onFactsApplied={() =>
               setLearnedFactsReloadToken((previous) => previous + 1)
+            }
+            onVoiceAcquired={() =>
+              setVoiceStatusVersion((version) => version + 1)
             }
           />
         </div>

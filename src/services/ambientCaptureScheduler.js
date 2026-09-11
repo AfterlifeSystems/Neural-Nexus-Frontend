@@ -245,3 +245,117 @@ export function describeAmbientStatus(status, nextInMs) {
   const seconds = Math.ceil(nextInMs / 1000);
   return seconds > 0 ? `First look in ${seconds}s` : 'Looking…';
 }
+
+// --- Whether a captured frame is worth sending at all -----------------------
+//
+// A webcam pointed at a person who is sitting still produces the same picture
+// every interval. Sending it costs a description call and a triage call, and
+// asks the avatar to judge a scene it has already judged. Neither buys the
+// person anything: nothing happened, so there is nothing to say. These helpers
+// let the capture loop drop an unchanged frame before it ever leaves the
+// browser.
+//
+// The pixel work stays in the caller: this half takes plain arrays so the Node
+// test runner can exercise it without a canvas.
+
+/** Edge length of the thumbnail a frame is reduced to before comparison. */
+export const AMBIENT_FRAME_SIGNATURE_EDGE = 32;
+
+/**
+ * Reduce one RGBA thumbnail to a grayscale signature.
+ *
+ * @param {Uint8ClampedArray|number[]} rgbaPixels Four bytes per pixel.
+ * @returns {Uint8Array} One byte of brightness per pixel.
+ */
+export function frameSignatureFromPixels(rgbaPixels) {
+  const pixelCount = Math.floor((rgbaPixels?.length ?? 0) / 4);
+  const signature = new Uint8Array(pixelCount);
+  for (let index = 0; index < pixelCount; index += 1) {
+    const offset = index * 4;
+    // Rec. 601 luma: brightness the eye actually weights, so a colour shift
+    // that leaves the scene looking identical does not read as a change.
+    signature[index] = Math.round(
+      0.299 * rgbaPixels[offset] +
+        0.587 * rgbaPixels[offset + 1] +
+        0.114 * rgbaPixels[offset + 2]
+    );
+  }
+  return signature;
+}
+
+/**
+ * How much two frame signatures differ, from 0 (identical) to 1 (opposite).
+ *
+ * @param {Uint8Array|number[]|null} previous
+ * @param {Uint8Array|number[]|null} next
+ * @returns {number} Mean absolute difference, normalized to 0..1.
+ */
+export function frameDifference(previous, next) {
+  if (!previous || !next || previous.length === 0) return 1;
+  if (previous.length !== next.length) return 1;
+  let total = 0;
+  for (let index = 0; index < next.length; index += 1) {
+    total += Math.abs(next[index] - previous[index]);
+  }
+  return total / next.length / 255;
+}
+
+/**
+ * Whether a frame changed enough since the last one sent to be worth sending.
+ *
+ * With no previous frame the answer is always yes: the first look at a share
+ * is what gives the avatar its context.
+ *
+ * @param {Object} comparison
+ * @param {Uint8Array|number[]|null} comparison.previous The last frame SENT,
+ *   not the last one captured, so that a scene drifting slowly still trips the
+ *   threshold once it has drifted far enough.
+ * @param {Uint8Array|number[]|null} comparison.next The frame just captured.
+ * @param {number} comparison.threshold Mean difference, 0..1, to count as a change.
+ * @returns {boolean}
+ */
+export function isFrameMateriallyDifferent({ previous, next, threshold }) {
+  if (!next || next.length === 0) return false;
+  if (!previous) return true;
+  return frameDifference(previous, next) >= threshold;
+}
+
+/**
+ * Whether a captured frame should be sent: it changed, or the quiet has run long.
+ *
+ * The heartbeat exists so an unchanging scene still reaches the avatar
+ * occasionally. A heartbeat frame is context, never a message: it is triaged
+ * like any other observation, and an unchanged scene carries no intent for the
+ * avatar to answer, so it is noticed silently.
+ *
+ * @param {Object} decision
+ * @param {Uint8Array|number[]|null} decision.previousSignature
+ * @param {Uint8Array|number[]|null} decision.nextSignature
+ * @param {number} decision.threshold
+ * @param {number|null} decision.lastSentAt When a frame was last actually sent.
+ * @param {number} decision.heartbeatMs How long a quiet scene may go unsent.
+ * @param {number} decision.now
+ * @returns {boolean}
+ */
+export function shouldSendCapturedFrame({
+  previousSignature,
+  nextSignature,
+  threshold,
+  lastSentAt,
+  heartbeatMs,
+  now,
+}) {
+  if (!nextSignature || nextSignature.length === 0) return false;
+  if (
+    isFrameMateriallyDifferent({
+      previous: previousSignature,
+      next: nextSignature,
+      threshold,
+    })
+  ) {
+    return true;
+  }
+  if (!heartbeatMs || heartbeatMs <= 0) return false;
+  if (lastSentAt == null) return true;
+  return now - lastSentAt >= heartbeatMs;
+}

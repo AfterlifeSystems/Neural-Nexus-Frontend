@@ -72,6 +72,21 @@ export function hasBlockedVoiceModel(avatar) {
 }
 
 /**
+ * Whether the owner chose a standard (stock vendor) voice for this avatar.
+ *
+ * The API mirrors the choice onto the avatar's metadata when the owner makes
+ * it. A standard voice stands in for a banned cloned voice, so an avatar with
+ * both is still heard.
+ *
+ * @param {Object|null|undefined} avatar
+ * @returns {boolean}
+ */
+export function hasStandardVoice(avatar) {
+  const voiceId = avatar?.metadata?.standard_voice_id;
+  return typeof voiceId === 'string' && voiceId.trim().length > 0;
+}
+
+/**
  * Decide whether this reader may dictate to the avatar (speech-to-text).
  *
  * Distinct from {@link canUseAvatarSpeechPlayback}. Talking in is allowed
@@ -98,7 +113,8 @@ export function canUseAvatarSpeechInput(avatar, user, { pathname } = {}) {
  * permission question: there is no audio to play, so the avatar is treated
  * exactly as one with no voice audio model — the speak button is not offered
  * and live voice mode replies in text. The ban is explained in one place, the
- * settings Voice panel, rather than reported again on every reply.
+ * settings Voice panel, rather than reported again on every reply. A standard
+ * voice the owner chose lifts that: the avatar speaks with the stock voice.
  *
  * @param {Object|null|undefined} avatar The open avatar.
  * @param {Object|null|undefined} user The signed-in user, if any.
@@ -109,7 +125,7 @@ export function canUseAvatarSpeechInput(avatar, user, { pathname } = {}) {
  */
 export function canUseAvatarSpeechPlayback(avatar, user, { pathname } = {}) {
   if (!avatar) return false;
-  if (hasBlockedVoiceModel(avatar)) return false;
+  if (hasBlockedVoiceModel(avatar) && !hasStandardVoice(avatar)) return false;
 
   const isPersonal = isPersonalAvatar(avatar);
   const owned = isAvatarOwnedByUser(avatar, user);

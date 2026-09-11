@@ -7,9 +7,15 @@ import { useEffect, useRef } from 'react';
  * and the chat both mount a tile, so the last one stole the ref and the
  * visible video never received the stream.
  *
- * @param {{ stream: MediaStream, className?: string, label: string }} props
+ * @param {{ stream: MediaStream, className?: string, label: string, mirrored?: boolean, decorative?: boolean }} props
  */
-const LiveShareVideo = ({ stream, className = '', label }) => {
+const LiveShareVideo = ({
+  stream,
+  className = '',
+  label,
+  mirrored = false,
+  decorative = false,
+}) => {
   const videoRef = useRef(null);
 
   useEffect(() => {
@@ -32,8 +38,9 @@ const LiveShareVideo = ({ stream, className = '', label }) => {
       muted
       playsInline
       draggable={false}
-      aria-label={label}
-      className={className}
+      aria-hidden={decorative ? true : undefined}
+      aria-label={decorative ? undefined : label}
+      className={`${className} ${mirrored ? 'scale-x-[-1]' : ''} ${decorative ? 'pointer-events-none' : ''}`.trim()}
     />
   );
 };

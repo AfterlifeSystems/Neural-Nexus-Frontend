@@ -20,6 +20,7 @@ import { useMedia, NEW_CONVERSATION_ID } from '../context/MediaContext';
 import AnonymousSidebar from './AnonymousSidebar';
 import SharePreviewOutlet from './SharePreviewOutlet';
 import { MediaShareProvider } from '../context/MediaShareContext';
+import { VoiceMuteProvider } from '../context/VoiceMuteContext';
 import { listRememberedSharedAvatarThreadIds } from './utils';
 import { GeoAvatarProvider } from '../context/GeoAvatarContext';
 import {
@@ -119,7 +120,8 @@ const SharedAvatarLayout = () => {
   };
 
   return (
-    <MediaShareProvider ambientAllowed={false}>
+    <VoiceMuteProvider>
+      <MediaShareProvider ambientAllowed={false}>
       <GeoAvatarProvider
         asAnonymousIdentity
         onTalkNow={openAvatarOverTheCamera}
@@ -142,7 +144,8 @@ const SharedAvatarLayout = () => {
           <Outlet />
         </div>
       </GeoAvatarProvider>
-    </MediaShareProvider>
+      </MediaShareProvider>
+    </VoiceMuteProvider>
   );
 };
 

@@ -28,11 +28,11 @@ function memoryStorage(initial = {}) {
   };
 }
 
-test('an unknown source falls back to generated faces', () => {
+test('an unknown source falls back to the original reference photo', () => {
   assert.equal(normalizeAvatarFaceSource('reference'), AVATAR_FACE_SOURCE_REFERENCE);
   assert.equal(normalizeAvatarFaceSource('generated'), AVATAR_FACE_SOURCE_GENERATED);
-  assert.equal(normalizeAvatarFaceSource('nope'), AVATAR_FACE_SOURCE_GENERATED);
-  assert.equal(normalizeAvatarFaceSource(null), AVATAR_FACE_SOURCE_GENERATED);
+  assert.equal(normalizeAvatarFaceSource('nope'), AVATAR_FACE_SOURCE_REFERENCE);
+  assert.equal(normalizeAvatarFaceSource(null), AVATAR_FACE_SOURCE_REFERENCE);
 });
 
 test('the voice stage drops generated loops when the original photo is on', () => {
@@ -110,15 +110,15 @@ test('an unset avatar follows the legacy global choice', () => {
   assert.equal(readAvatarFaceSource('evan', storage), AVATAR_FACE_SOURCE_REFERENCE);
 });
 
-test('a missing store and a write without an avatar stay on generated', () => {
-  assert.equal(readAvatarFaceSource('maya', memoryStorage()), AVATAR_FACE_SOURCE_GENERATED);
-  assert.equal(readAvatarFaceSource('maya', null), AVATAR_FACE_SOURCE_GENERATED);
+test('a missing store and a write without an avatar stay on the original photo', () => {
+  assert.equal(readAvatarFaceSource('maya', memoryStorage()), AVATAR_FACE_SOURCE_REFERENCE);
+  assert.equal(readAvatarFaceSource('maya', null), AVATAR_FACE_SOURCE_REFERENCE);
   assert.equal(
-    writeAvatarFaceSource('', AVATAR_FACE_SOURCE_REFERENCE, memoryStorage()),
-    AVATAR_FACE_SOURCE_REFERENCE
+    writeAvatarFaceSource('', AVATAR_FACE_SOURCE_GENERATED, memoryStorage()),
+    AVATAR_FACE_SOURCE_GENERATED
   );
   assert.equal(
     readAvatarFaceSource('maya', memoryStorage()),
-    AVATAR_FACE_SOURCE_GENERATED
+    AVATAR_FACE_SOURCE_REFERENCE
   );
 });

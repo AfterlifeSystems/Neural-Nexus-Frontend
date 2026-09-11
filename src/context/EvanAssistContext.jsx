@@ -29,10 +29,23 @@ import { AMBIENT_CAPTURE_INTERVAL_MS } from '../config/ambientCapture';
 import { useAuth } from './AuthContext';
 import { snapshotStream } from './MediaShareContext';
 import {
+  LOOK_NOW_INTERRUPT_KIND,
+  MAXIMUM_LOOKS_PER_TURN,
+  captureLiveShareFrames,
+  getLiveShareSources,
+  getPeekableShareSources,
+  peekAtLiveDesktop,
+  sourceOfFrameName,
+} from '../services/liveShareRegistry';
+import {
   canCaptureDisplay,
   requestDisplayMedia,
 } from '../services/displayCapture';
 import { canCaptureMicrophone } from '../services/voiceSession';
+import {
+  readSceneNarration,
+  sceneNarrationFormValue,
+} from '../config/sceneNarration';
 import { isMicrophoneAccessRefused } from '../services/microphonePermission';
 import { startVoiceActivityListening } from '../services/voiceActivity';
 import {
@@ -375,6 +388,155 @@ export function EvanAssistProvider({ children }) {
   );
 
   /**
+   * What the person is sharing at this moment, from EITHER capture.
+   *
+   * There are two independent owners of a camera or screen capture in this
+   * app and the person cannot tell them apart, because the browser shows one
+   * indicator for both. The overlay opens its own streams for its own toggles;
+   * `MediaShareContext` opens the ones the main sidebar controls, and
+   * publishes them through `liveShareRegistry`. Reading only the overlay's own
+   * is what produced the bug this exists to fix: share the screen from the
+   * sidebar, ask the help avatar what is on it, and the avatar says nothing is
+   * being shared while the browser sits there saying "sharing your screen".
+   *
+   * @returns {string[]} `webcam` / `screen`, in that order.
+   */
+  const liveShareSources = useCallback(() => {
+    const ownStreams = [
+      ...(webcamStreamRef.current ? ['webcam'] : []),
+      ...(screenStreamRef.current ? ['screen'] : []),
+    ];
+    const elsewhere = getLiveShareSources();
+    return ['webcam', 'screen'].filter(
+      (source) => ownStreams.includes(source) || elsewhere.includes(source)
+    );
+  }, []);
+
+  /**
+   * What could be looked at ONCE but is not being watched — again from either
+   * owner. A screen the person is running in peek mode from the main app is
+   * still a screen the help avatar can be shown when it asks.
+   *
+   * @returns {string[]}
+   */
+  const peekableShareSources = useCallback(() => {
+    const live = liveShareSources();
+    return getPeekableShareSources().filter((source) => !live.includes(source));
+  }, [liveShareSources]);
+
+  /**
+   * One JPEG per requested source, captured this instant, to answer a look.
+   *
+   * Tries the overlay's own streams first and falls back to the registry for
+   * anything it does not hold, so a look is answered whichever context owns
+   * the capture.
+   *
+   * @param {string[]} sources Which to capture; everything live by default.
+   * @param {string[]} [open] Sources to look at that are peekable rather than
+   *   shared — a screen running in peek mode in the main app.
+   * @returns {Promise<File[]>}
+   */
+  const captureNamedStills = useCallback(
+    async (sources, open = []) => {
+      const wanted = new Set(
+        Array.isArray(sources) && sources.length > 0
+          ? sources
+          : liveShareSources()
+      );
+      const own = (
+        await Promise.all([
+          wanted.has('webcam')
+            ? snapshotStream(webcamStreamRef.current, 'webcam.jpg')
+            : null,
+          wanted.has('screen')
+            ? snapshotStream(screenStreamRef.current, 'screen.jpg')
+            : null,
+        ])
+      ).filter(Boolean);
+      const taken = new Set(own.map((frame) => sourceOfFrameName(frame.name)));
+      const elsewhere = await captureLiveShareFrames(
+        [...wanted].filter((source) => !taken.has(source))
+      );
+      const peeked = (open ?? []).includes('screen')
+        ? [await peekAtLiveDesktop()].filter(Boolean)
+        : [];
+      return [...own, ...elsewhere, ...peeked];
+    },
+    [liveShareSources]
+  );
+
+  /**
+   * Answer any `look_now` pause the avatar opens, without asking the person.
+   *
+   * A look is not a question for the person: the avatar asked the browser for
+   * a fresh frame of what is being shared, so the browser captures one,
+   * answers the pause, and the reply carries on. The person sees only that the
+   * reply took a moment. Every OTHER kind of pause still falls through to the
+   * approval card — this branch is keyed on the look's own kind precisely so
+   * it cannot swallow one.
+   *
+   * Capped like the main composer's: a model that keeps asking to look would
+   * otherwise park the turn on the server and pay for a capture each time.
+   * Past the cap the pause is still answered, with nothing, which the tool
+   * reports as a look it could not take — better than leaving the run parked.
+   *
+   * @param {Object} outcome The streamed turn's final state.
+   * @param {Object} options
+   * @param {string} options.assistantId
+   * @param {Function} [options.onUpdate] Grows the same reply bubble.
+   * @param {AbortSignal} [options.signal]
+   * @returns {Promise<Object>} The outcome once no look is outstanding.
+   */
+  const answerLookPauses = useCallback(
+    async (outcome, { assistantId, onUpdate, signal }) => {
+      let settled = outcome;
+      for (let look = 0; ; look += 1) {
+        const pause = settled?.interrupt;
+        if (!pause || pause.kind !== LOOK_NOW_INTERRUPT_KIND) return settled;
+        const threadId = settled.threadId ?? threadIdRef.current;
+        if (!threadId) {
+          // Nothing to address the resume to. The run stays parked on the
+          // server, which the next turn on this conversation clears; that
+          // beats raising a card for a pause nobody was meant to see.
+          console.warn('A look pause arrived with no thread to resume on.');
+          return { ...settled, interrupt: null };
+        }
+        const beyondTheCap = look >= MAXIMUM_LOOKS_PER_TURN;
+        const frames = beyondTheCap
+          ? []
+          : await captureNamedStills(pause.sources, pause.open);
+        const request = buildEvanResumeRequest(assistantId, {
+          threadId,
+          decision: 'looked',
+          userTimezone: userTimezone(),
+          sceneNarration: sceneNarrationFormValue(readSceneNarration()),
+          liveShares: liveShareSources(),
+          peekableShares: peekableShareSources(),
+          sources: frames.map((frame) => sourceOfFrameName(frame.name)),
+          files: frames,
+        });
+        settled = await streamEvanTurn(request, {
+          asAnonymousIdentity,
+          signal,
+          onUpdate,
+        });
+        if (beyondTheCap) {
+          console.warn(
+            `A turn asked to look more than ${MAXIMUM_LOOKS_PER_TURN} times; refusing further looks.`
+          );
+          return { ...settled, interrupt: null };
+        }
+      }
+    },
+    [
+      asAnonymousIdentity,
+      captureNamedStills,
+      liveShareSources,
+      peekableShareSources,
+    ]
+  );
+
+  /**
    * One JPEG per live share, for the background look. The file names are the
    * ones the ambient request builder reads to label each snapshot's source.
    */
@@ -480,25 +642,39 @@ export function EvanAssistProvider({ children }) {
             message: composed.apiText,
             threadId: threadIdRef.current,
             userTimezone: userTimezone(),
+            sceneNarration: sceneNarrationFormValue(readSceneNarration()),
+            liveShares: liveShareSources(),
+            peekableShares: peekableShareSources(),
           });
-          const outcome = await streamEvanTurn(request, {
+          // Named so a look resume grows the same bubble this turn started,
+          // instead of the reply appearing to restart when the avatar looks.
+          const growTheReply = (state) => {
+            setActivity(state.activity);
+            if (state.streamedText) {
+              setMessages((current) =>
+                current.map((message) =>
+                  message.id === streamingId
+                    ? {
+                        ...message,
+                        isLoading: false,
+                        content: state.streamedText,
+                      }
+                    : message
+                )
+              );
+            }
+          };
+          let outcome = await streamEvanTurn(request, {
             asAnonymousIdentity,
-            onUpdate: (state) => {
-              setActivity(state.activity);
-              if (state.streamedText) {
-                setMessages((current) =>
-                  current.map((message) =>
-                    message.id === streamingId
-                      ? {
-                          ...message,
-                          isLoading: false,
-                          content: state.streamedText,
-                        }
-                      : message
-                  )
-                );
-              }
-            },
+            onUpdate: growTheReply,
+          });
+          // Adopted before the look as well as after it: a first turn mints
+          // the thread, and the look's resume has to be addressed to it.
+          adoptThreadId(outcome.threadId);
+          // A look answers itself and never reaches the card below.
+          outcome = await answerLookPauses(outcome, {
+            assistantId,
+            onUpdate: growTheReply,
           });
           adoptThreadId(outcome.threadId);
           if (outcome.interrupt) {
@@ -597,27 +773,35 @@ export function EvanAssistProvider({ children }) {
             threadId: paused.threadId,
             decision,
             userTimezone: userTimezone(),
+            sceneNarration: sceneNarrationFormValue(readSceneNarration()),
           });
-          const outcome = await streamEvanTurn(request, {
+          // Named so a look resume grows the same bubble this turn started,
+          // instead of the reply appearing to restart when the avatar looks.
+          const growTheReply = (state) => {
+            setActivity(state.activity);
+            if (state.streamedText) {
+              setMessages((current) =>
+                current.map((message) =>
+                  message.id === streamingId
+                    ? {
+                        ...message,
+                        isLoading: false,
+                        content: state.streamedText,
+                      }
+                    : message
+                )
+              );
+            }
+          };
+          let outcome = await streamEvanTurn(request, {
             asAnonymousIdentity,
-            onUpdate: (state) => {
-              setActivity(state.activity);
-              if (state.streamedText) {
-                setMessages((current) =>
-                  current.map((message) =>
-                    message.id === streamingId
-                      ? {
-                          ...message,
-                          isLoading: false,
-                          content: state.streamedText,
-                        }
-                      : message
-                  )
-                );
-              }
-            },
+            onUpdate: growTheReply,
           });
           adoptThreadId(outcome.threadId);
+          outcome = await answerLookPauses(outcome, {
+            assistantId,
+            onUpdate: growTheReply,
+          });
           if (outcome.interrupt) {
             setPendingInterrupt({
               threadId: outcome.threadId ?? paused.threadId,
@@ -893,6 +1077,12 @@ export function EvanAssistProvider({ children }) {
           apply({ type: 'done' });
           return;
         }
+        // No `live_shares` on a background look, deliberately: this turn
+        // already carries a frame captured a moment ago, and the graph
+        // withholds look_now from an observation turn for exactly that reason
+        // (`answering_an_observation` in graph.py). Reporting the shares here
+        // would offer a tool that is not attached and pay for a section of
+        // prompt that repeats what the attached frame already says.
         const outcome = await streamEvanObservation(assistantId, stills, {
           threadId: threadIdRef.current,
           voiceMode: conditions.isLiveListening,

@@ -155,24 +155,23 @@ export function describePhotoPlaceError(error) {
  * @param {File} [parameters.photoFile] The chosen or captured picture.
  * @param {string} [parameters.photoUrl] An image address instead of a file.
  *   The server fetches it; the same media endpoint takes `url`.
- * @param {string} [parameters.researchHint]
  * @param {Function} [parameters.uploadIdentityMedia]
- * @param {Function} [parameters.startResearch]
- * @param {Function} [parameters.rememberJob]
- * @returns {Promise<{portraitOk: boolean, identityOk: boolean, researchJobId: string|null}>}
+ * @returns {Promise<{portraitOk: boolean, identityOk: boolean}>}
+ *
+ * Research is deliberately NOT started here. POST /create_avatar starts it
+ * server-side for every avatar, whether or not a photo was chosen, and returns
+ * the job so the modal can remember it. Starting one here as well would run two
+ * research jobs over the same subject and bill for both.
  */
 export async function startCreateAvatarPhotoFollowUp({
   assistantId,
   photoFile,
   photoUrl,
-  researchHint,
   uploadIdentityMedia,
-  startResearch,
-  rememberJob,
 }) {
   const trimmedUrl = String(photoUrl ?? '').trim();
   if (!assistantId || (!photoFile && !trimmedUrl)) {
-    return { portraitOk: false, identityOk: false, researchJobId: null };
+    return { portraitOk: false, identityOk: false };
   }
   const media = photoFile
     ? { files: [photoFile], urls: [] }
@@ -181,13 +180,6 @@ export async function startCreateAvatarPhotoFollowUp({
   const upload =
     uploadIdentityMedia ??
     (await import('./identityMediaJobs.js')).startIdentityMediaUpload;
-  const research =
-    startResearch ??
-    (await import('./avatarService.jsx')).startAvatarDeepResearch;
-  const remember =
-    rememberJob ??
-    (await import('../components/research/researchJobMemory.js'))
-      .rememberResearchJob;
 
   const portraitPromise = Promise.resolve(
     upload({
@@ -213,19 +205,6 @@ export async function startCreateAvatarPhotoFollowUp({
     console.error('Identity upload after create-from-photo failed:', error);
   }
 
-  let researchJobId = null;
-  try {
-    const started = await research(assistantId, {
-      researchHint: researchHint || undefined,
-    });
-    if (started?.job_id) {
-      remember(assistantId, started.job_id);
-      researchJobId = started.job_id;
-    }
-  } catch (error) {
-    console.error('Deep research after create-from-photo failed:', error);
-  }
-
   const portraitOk = Boolean(await portraitPromise);
-  return { portraitOk, identityOk, researchJobId };
+  return { portraitOk, identityOk };
 }

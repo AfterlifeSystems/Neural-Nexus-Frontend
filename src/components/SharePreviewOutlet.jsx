@@ -8,12 +8,19 @@ import { openCollapsedSidebar, subscribeSharePreviewSlots } from './sharePreview
 import { describeAmbientStatus } from '../services/ambientCaptureScheduler';
 
 /**
- * Play the live webcam and screen shares in the sidebar, not over the chat.
+ * Play the live webcam and screen capture in the sidebar, not over the chat.
+ *
+ * A screen capture running in PEEK mode is shown here like any other, because
+ * seeing what has been handed over is the whole point of these tiles — but it
+ * is not labelled as being shared, because it is not. Nothing reads it until
+ * the avatar asks a question that needs a look; `screenWatched` is what tells
+ * the two apart.
  */
 const SharePreviewOutlet = () => {
   const {
     webcamStream,
     screenStream,
+    screenWatched,
     ambientEnabled,
     ambientStatus,
     ambientNextInMs,
@@ -36,6 +43,7 @@ const SharePreviewOutlet = () => {
           <SidebarShareTiles
             webcamStream={webcamStream}
             screenStream={screenStream}
+            screenWatched={screenWatched}
             size="rail"
             ambientLabel={ambientLabel}
             motionPoints={motionPoints}
@@ -48,6 +56,7 @@ const SharePreviewOutlet = () => {
           <SidebarShareTiles
             webcamStream={webcamStream}
             screenStream={screenStream}
+            screenWatched={screenWatched}
             size="panel"
             ambientLabel={ambientLabel}
             motionPoints={motionPoints}
@@ -106,8 +115,21 @@ function renderShareTile({ stream, label, isRail, className, overlayPoints = nul
   );
 }
 
-function SidebarShareTiles({ webcamStream, screenStream, size, ambientLabel, motionPoints, motionStatus }) {
+function SidebarShareTiles({
+  webcamStream,
+  screenStream,
+  screenWatched,
+  size,
+  ambientLabel,
+  motionPoints,
+  motionStatus,
+}) {
   const isRail = size === 'rail';
+  // A screen capture the avatar may only glance at must not call itself
+  // shared. The heading follows the same rule: with nothing being watched,
+  // nothing here is being shared.
+  const screenLabel = screenWatched ? 'Shared screen' : 'Screen (looks only)';
+  const anythingIsWatched = Boolean(webcamStream) || Boolean(screenWatched);
   return (
     <div
       className={
@@ -118,7 +140,7 @@ function SidebarShareTiles({ webcamStream, screenStream, size, ambientLabel, mot
     >
       {!isRail && (
         <h2 className="text-sm font-semibold text-white/60 uppercase tracking-wide">
-          Sharing
+          {anythingIsWatched ? 'Sharing' : 'Open to a look'}
         </h2>
       )}
       {!isRail && (
@@ -126,7 +148,7 @@ function SidebarShareTiles({ webcamStream, screenStream, size, ambientLabel, mot
           {screenStream &&
             renderShareTile({
               stream: screenStream,
-              label: 'Shared screen',
+              label: screenLabel,
               isRail: false,
               className:
                 'min-w-0 flex-1 sm:flex-none sm:w-full aspect-video max-h-24 sm:max-h-none rounded-lg border border-white/20 bg-black object-cover touch-pan-y',
@@ -145,7 +167,7 @@ function SidebarShareTiles({ webcamStream, screenStream, size, ambientLabel, mot
       {isRail && screenStream &&
         renderShareTile({
           stream: screenStream,
-          label: 'Shared screen',
+          label: screenLabel,
           isRail,
           className:
             'w-11 h-8 rounded-md border border-white/20 bg-black object-cover',

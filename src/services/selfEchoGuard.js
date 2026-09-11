@@ -170,3 +170,44 @@ export function rememberAvatarSpeech(spokenLines, line, keep = 3) {
   const next = [...(spokenLines ?? []), line];
   return next.length <= keep ? next : next.slice(next.length - keep);
 }
+
+// --- the lines the avatar has spoken out loud -------------------------------
+//
+// The memory of what the avatar just said belongs to the page, not to one
+// screen. The screen that plays a line is not always the screen that hears it:
+// the transcript's speak button plays a reply while live voice mode is
+// listening, and a live voice screen that has been replaced (a workspace tab,
+// a route, a different avatar) can leave a microphone listening beside the one
+// that speaks. A memory kept in a component's ref is empty in every one of
+// those cases, and an empty memory hands the avatar its own sentence as though
+// a person had said it.
+
+let linesTheAvatarSpoke = [];
+
+/**
+ * Remember a line the browser is about to say in the avatar's voice.
+ *
+ * @param {string|null|undefined} line
+ * @returns {string[]} The remembered lines, newest last.
+ */
+export function rememberAvatarSpokenLine(line) {
+  linesTheAvatarSpoke = rememberAvatarSpeech(linesTheAvatarSpoke, line);
+  return linesTheAvatarSpoke;
+}
+
+/**
+ * What the avatar has most recently said out loud, newest last.
+ *
+ * @returns {string[]}
+ */
+export function avatarSpokenLines() {
+  return linesTheAvatarSpoke;
+}
+
+/**
+ * Forget them. Nothing older than the last few lines can still be coming out
+ * of a speaker; this is for tests and for leaving a conversation behind.
+ */
+export function forgetAvatarSpokenLines() {
+  linesTheAvatarSpoke = [];
+}

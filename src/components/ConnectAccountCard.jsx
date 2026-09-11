@@ -3,7 +3,9 @@ import React, { useEffect, useRef, useState } from 'react';
 import { Check, ExternalLink, Loader2, RotateCcw } from 'lucide-react';
 import ConnectorIcon from './icons/ConnectorIcon';
 import {
+  cancelConnectionLogin,
   connectAccount,
+  finishConnectionLogin,
   isDeviceProvider,
   listConnections,
   startConnectionLogin,
@@ -30,6 +32,14 @@ import {
   cardFromLoginResult,
   cardStatusLine,
 } from '../services/connectionCards';
+import {
+  hostedWindowRetry,
+  ownBrowserInstructions,
+  ownBrowserLoginFromStart,
+  ownBrowserSignInFailure,
+  ownBrowserSignInSucceeded,
+  startedInOwnBrowser,
+} from '../services/ownBrowserSignIn';
 import AddDevicePanel from './connections/AddDevicePanel';
 
 // How long a closed popup is given to still deliver a result (a result posts
@@ -183,7 +193,7 @@ const ConnectionRecordCard = ({ card, compact, className }) => {
  * endpoint to post to comes from that payload rather than from this file, so
  * a provider added to the backend registry renders here with no change.
  *
- * THREE WAYS IN, BY `login_mode`
+ * FOUR WAYS IN, BY `login_mode`
  *   `form`            — a credential form posted to `connect_endpoint`.
  *   `oauth_popup`,
  *   `plaid_link`,
@@ -192,6 +202,14 @@ const ConnectionRecordCard = ({ card, compact, className }) => {
  *                       page the login endpoint names. The popup finishes by
  *                       posting a result back; the connections list is polled
  *                       in parallel for a popup whose opener was blocked.
+ *   `desktop_browser` — the sign-in page opened as a tab in the owner's OWN
+ *                       browser, on a machine of theirs running the
+ *                       connector. The API decides this at start time, so a
+ *                       card that asked for `browser_session` can be answered
+ *                       with this instead. Nothing here can see that window:
+ *                       the pre-opened popup is closed, the owner signs in on
+ *                       their own screen, and pressing "I've signed in" asks
+ *                       their machine for the session.
  *   `none`            — a device: installing the connector, not a form.
  *
  * THE CREDENTIAL DOES NOT GO THROUGH THE RESUME
@@ -276,6 +294,11 @@ const ConnectAccountCard = ({
   // sign in on (a bank's own website when Plaid is not configured).
   const [siteRequest, setSiteRequest] = useState(null);
   const [siteUrlValue, setSiteUrlValue] = useState('');
+  // The sign-in opened as a tab in the owner's OWN browser, on a machine of
+  // theirs running the connector. There is no window here to watch and no
+  // result posted back, so the card waits for the owner to say they are done
+  // and then asks their machine for the session.
+  const [ownBrowserLogin, setOwnBrowserLogin] = useState(null);
   const loginControllerRef = useRef(null);
   const popupRef = useRef(null);
 
@@ -423,6 +446,22 @@ const ConnectAccountCard = ({
         setIsSubmitting(false);
         return;
       }
+      if (startedInOwnBrowser(started)) {
+        // The page opened in the owner's own browser, on their own machine.
+        // The window opened here on the click has nothing to show, so close
+        // it and wait for the owner rather than for a postMessage.
+        closePopup(popup);
+        popupRef.current = null;
+        controller.abort();
+        setOwnBrowserLogin(
+          ownBrowserLoginFromStart(started, {
+            loginEndpoint: login.login_endpoint,
+            loginRequest: withLoginExtras(login.login_request),
+          })
+        );
+        setIsSubmitting(false);
+        return;
+      }
       const url = absoluteApiUrl(
         started?.authorization_url ?? started?.link_url ?? started?.view_url,
         NEURAL_NEXUS_API_BASE_URL
@@ -525,6 +564,66 @@ const ConnectAccountCard = ({
       );
     } finally {
       setIsSubmitting(false);
+    }
+  };
+
+  /**
+   * The owner says they have signed in in their own browser: bring the
+   * session back from their machine and store the account.
+   */
+  const handleOwnBrowserSignedIn = async () => {
+    if (isSubmitting || !ownBrowserLogin) return;
+    setIsSubmitting(true);
+    setErrorMessage(null);
+    try {
+      const result = await finishConnectionLogin(
+        ownBrowserLogin.login_id,
+        ownBrowserLogin.login_token
+      );
+      if (ownBrowserSignInSucceeded(result)) {
+        setOwnBrowserLogin(null);
+        finishConnected(cardFromLoginResult(result, payload));
+        return;
+      }
+      // The daemon's own words: the browser holds no session for the site
+      // yet, the machine went offline, or the keyring is locked.
+      setErrorMessage(ownBrowserSignInFailure(result, displayName));
+    } catch (finishError) {
+      setErrorMessage(
+        finishError?.message ?? 'The sign-in could not be finished.'
+      );
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  /** Give up on the tab in the owner's browser; the tab itself is theirs. */
+  const handleOwnBrowserCancel = async () => {
+    const login = ownBrowserLogin;
+    setOwnBrowserLogin(null);
+    setErrorMessage(null);
+    if (!login) return;
+    try {
+      await cancelConnectionLogin(login.login_id, login.login_token);
+    } catch {
+      // Abandoning is local either way: the sign-in expires on its own.
+    }
+  };
+
+  /**
+   * Sign in in a hosted window instead (a machine that is no longer at hand).
+   *
+   * The window opens first and the abandoned sign-in is forgotten in the
+   * background: a popup can only be opened from the click itself, and an
+   * awaited request in between is enough for the browser to refuse it.
+   */
+  const handleUseHostedWindow = () => {
+    const login = ownBrowserLogin;
+    setOwnBrowserLogin(null);
+    setErrorMessage(null);
+    handlePopupLogin(hostedWindowRetry(login, provider));
+    if (login) {
+      cancelConnectionLogin(login.login_id, login.login_token).catch(() => {});
     }
   };
 
@@ -751,12 +850,26 @@ const ConnectAccountCard = ({
               </div>
             )}
 
-          {isWaitingForPopup && !errorMessage && (
+          {isWaitingForPopup && !errorMessage && !ownBrowserLogin && (
             <p className="text-amber-200/90 text-sm inline-flex items-center gap-2">
               <Loader2 className="w-4 h-4 animate-spin" aria-hidden="true" />
               Finish signing in in the window that opened. This card updates on
               its own.
             </p>
+          )}
+
+          {/* The page opened in the owner's OWN browser. Nothing here can see
+              that window, so the owner says when they are done. */}
+          {ownBrowserLogin && (
+            <div className="rounded-lg border border-amber-400/30 bg-amber-400/5 px-3 py-2.5 space-y-1">
+              <p className="text-amber-200/90 text-sm whitespace-normal break-words">
+                {ownBrowserInstructions(ownBrowserLogin)}
+              </p>
+              <p className="text-white/50 text-xs">
+                Sign in there as you normally would, then press the button
+                below and the session comes back to your avatar.
+              </p>
+            </div>
           )}
 
           {fallbackLink && (
@@ -780,46 +893,83 @@ const ConnectAccountCard = ({
             </p>
           )}
 
-          <div className="flex items-center gap-2 flex-wrap">
-            <button
-              type="button"
-              disabled={Boolean(siteRequest) && !siteUrlValue.trim()}
-              onClick={() =>
-                siteRequest
-                  ? handlePopupLogin({
-                      login_endpoint: siteRequest.login_endpoint,
-                      login_request: {
-                        ...siteRequest.login_request,
-                        site_url: siteUrlValue.trim(),
-                      },
-                      login_mode: 'browser_session',
-                    })
-                  : handlePopupLogin()
-              }
-              disabled={isSubmitting}
-              className="px-4 py-2 rounded-lg bg-neutral-100/10 hover:bg-neutral-100/15 disabled:opacity-40 disabled:hover:bg-neutral-100/10 border border-neutral-700 text-neutral-300 text-sm font-medium transition-colors inline-flex items-center gap-2"
-            >
-              {isSubmitting ? (
-                <Loader2 className="w-4 h-4 animate-spin" aria-hidden="true" />
-              ) : errorMessage ? (
-                <RotateCcw className="w-4 h-4" aria-hidden="true" />
-              ) : null}
-              {isSubmitting
-                ? isWaitingForPopup
-                  ? 'Waiting for sign-in…'
-                  : 'Opening…'
-                : errorMessage
-                  ? 'Try again'
-                  : popupLabel}
-            </button>
-            <button
-              type="button"
-              onClick={handleDismiss}
-              className="px-4 py-2 rounded-lg text-white/50 hover:text-white/80 text-sm transition-colors"
-            >
-              {isWaitingForPopup ? 'Stop waiting' : 'Cancel'}
-            </button>
-          </div>
+          {ownBrowserLogin ? (
+            <div className="flex items-center gap-2 flex-wrap">
+              <button
+                type="button"
+                onClick={handleOwnBrowserSignedIn}
+                disabled={isSubmitting}
+                className="px-4 py-2 rounded-lg bg-neutral-100/10 hover:bg-neutral-100/15 disabled:opacity-40 disabled:hover:bg-neutral-100/10 border border-neutral-700 text-neutral-300 text-sm font-medium transition-colors inline-flex items-center gap-2"
+              >
+                {isSubmitting && (
+                  <Loader2 className="w-4 h-4 animate-spin" aria-hidden="true" />
+                )}
+                {isSubmitting
+                  ? 'Keeping the session…'
+                  : errorMessage
+                    ? 'Try again'
+                    : "I've signed in"}
+              </button>
+              <button
+                type="button"
+                onClick={handleUseHostedWindow}
+                disabled={isSubmitting}
+                className="px-4 py-2 rounded-lg text-white/50 hover:text-white/80 text-sm transition-colors"
+              >
+                Sign in here instead
+              </button>
+              <button
+                type="button"
+                onClick={handleOwnBrowserCancel}
+                disabled={isSubmitting}
+                className="px-4 py-2 rounded-lg text-white/50 hover:text-white/80 text-sm transition-colors"
+              >
+                Cancel
+              </button>
+            </div>
+          ) : (
+            <div className="flex items-center gap-2 flex-wrap">
+              <button
+                type="button"
+                onClick={() =>
+                  siteRequest
+                    ? handlePopupLogin({
+                        login_endpoint: siteRequest.login_endpoint,
+                        login_request: {
+                          ...siteRequest.login_request,
+                          site_url: siteUrlValue.trim(),
+                        },
+                        login_mode: 'browser_session',
+                      })
+                    : handlePopupLogin()
+                }
+                disabled={
+                  isSubmitting || (Boolean(siteRequest) && !siteUrlValue.trim())
+                }
+                className="px-4 py-2 rounded-lg bg-neutral-100/10 hover:bg-neutral-100/15 disabled:opacity-40 disabled:hover:bg-neutral-100/10 border border-neutral-700 text-neutral-300 text-sm font-medium transition-colors inline-flex items-center gap-2"
+              >
+                {isSubmitting ? (
+                  <Loader2 className="w-4 h-4 animate-spin" aria-hidden="true" />
+                ) : errorMessage ? (
+                  <RotateCcw className="w-4 h-4" aria-hidden="true" />
+                ) : null}
+                {isSubmitting
+                  ? isWaitingForPopup
+                    ? 'Waiting for sign-in…'
+                    : 'Opening…'
+                  : errorMessage
+                    ? 'Try again'
+                    : popupLabel}
+              </button>
+              <button
+                type="button"
+                onClick={handleDismiss}
+                className="px-4 py-2 rounded-lg text-white/50 hover:text-white/80 text-sm transition-colors"
+              >
+                {isWaitingForPopup ? 'Stop waiting' : 'Cancel'}
+              </button>
+            </div>
+          )}
         </div>
       )}
 

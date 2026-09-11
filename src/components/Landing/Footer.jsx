@@ -8,13 +8,13 @@ export default function Footer() {
         <p>© 2026 Afterlife Systems Inc. All rights reserved.</p>
         <a
           href="/privacy"
-          className="mx-2 text-neutral-300 hover:text-neutral-100 transition"
+          className="mx-2 text-neutral-200 hover:text-neutral-100 underline transition"
         >
           Privacy Policy
         </a>
         <a
           href="/terms"
-          className="mx-2 text-neutral-300 hover:text-neutral-100 transition"
+          className="mx-2 text-neutral-200 hover:text-neutral-100 underline transition"
         >
           Terms of Service
         </a>

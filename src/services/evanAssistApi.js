@@ -10,6 +10,10 @@ import {
   INITIAL_EVAN_STREAM,
   reduceEvanStreamEvent,
 } from './evanAssistSession';
+import {
+  sceneNarrationFromFrame,
+  writeSceneNarration,
+} from '../config/sceneNarration';
 
 /**
  * Stream one Evan turn and reduce every frame into a single snapshot.
@@ -32,6 +36,15 @@ export async function streamEvanTurn(
     asAnonymousIdentity,
     signal,
     onEvent: (streamEvent) => {
+      // The help avatar was asked to start or stop describing the person's
+      // surroundings. Applied here rather than in each caller because every
+      // Evan turn — typed, spoken, a background look, a resumed run — passes
+      // through this one function, and a switch that worked from only some of
+      // them would be worse than one that did not work at all.
+      const narrationSwitch = sceneNarrationFromFrame(streamEvent);
+      if (narrationSwitch) {
+        writeSceneNarration(narrationSwitch.enabled);
+      }
       state = reduceEvanStreamEvent(state, streamEvent);
       onUpdate?.(state, streamEvent);
     },

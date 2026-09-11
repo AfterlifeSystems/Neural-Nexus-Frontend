@@ -36,3 +36,41 @@ export function registerSharePreviewSlot(name, node) {
     listeners.forEach((listener) => listener(slots));
   };
 }
+
+export const SIDEBAR_SHARE_SECTION_SELECTOR = '[data-sidebar-sharing]';
+const SHARE_REVEAL_AFTER_SLIDE_MS = 320;
+
+/**
+ * Scroll the open panel to the webcam / screen previews.
+ *
+ * @param {ParentNode | null | undefined} [root]
+ * @returns {boolean} Whether the sharing section was found.
+ */
+export function revealSidebarSharePreviews(root = globalThis.document) {
+  const target = root?.querySelector?.(SIDEBAR_SHARE_SECTION_SELECTOR);
+  if (!target?.scrollIntoView) return false;
+  target.scrollIntoView({ behavior: 'smooth', block: 'end' });
+  return true;
+}
+
+/**
+ * Open the collapsed icon rail and bring the share previews into view.
+ * Footage tiles and the rail webcam / screen controls use this so their
+ * click is not lost to a wrapping well that used to swallow it.
+ *
+ * @param {Element | null | undefined} fromNode
+ * @returns {boolean} Whether a rail was found and clicked.
+ */
+export function openCollapsedSidebar(fromNode) {
+  const rail = fromNode?.closest?.('[data-sidebar-rail]');
+  if (!rail) return false;
+  rail.click();
+  revealSidebarSharePreviews();
+  if (typeof globalThis.requestAnimationFrame === 'function') {
+    globalThis.requestAnimationFrame(() => {
+      revealSidebarSharePreviews();
+      globalThis.setTimeout(revealSidebarSharePreviews, SHARE_REVEAL_AFTER_SLIDE_MS);
+    });
+  }
+  return true;
+}
