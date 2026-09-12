@@ -64,9 +64,14 @@ test('signed-in personal avatar may speak', () => {
   assert.equal(canUseAvatarSpeechPlayback(personalOwned, regularUser), true);
 });
 
-test('signed-in non-personal avatar may dictate but not play cloned audio', () => {
+test('signed-in owner may hear a character avatar they created', () => {
   assert.equal(canUseAvatarSpeechInput(characterOwned, regularUser), true);
-  assert.equal(canUseAvatarSpeechPlayback(characterOwned, regularUser), false);
+  assert.equal(canUseAvatarSpeechPlayback(characterOwned, regularUser), true);
+});
+
+test('another account may dictate a character avatar but not hear it', () => {
+  assert.equal(canUseAvatarSpeechInput(characterOwned, otherUser), true);
+  assert.equal(canUseAvatarSpeechPlayback(characterOwned, otherUser), false);
 });
 
 test('signed-in user may dictate on an admin character inside /chat', () => {
@@ -77,7 +82,7 @@ test('signed-in user may dictate on an admin character inside /chat', () => {
   );
 });
 
-test('string "false" personal flag does not unlock speech', () => {
+test('string "false" personal flag does not unlock speech for another account', () => {
   const spoofed = {
     ...characterOwned,
     metadata: {
@@ -85,7 +90,7 @@ test('string "false" personal flag does not unlock speech', () => {
       is_personal_avatar_of_creator: 'false',
     },
   };
-  assert.equal(canUseAvatarSpeechPlayback(spoofed, regularUser), false);
+  assert.equal(canUseAvatarSpeechPlayback(spoofed, otherUser), false);
 });
 
 test('unsigned reader may not dictate or play audio on a private personal avatar', () => {

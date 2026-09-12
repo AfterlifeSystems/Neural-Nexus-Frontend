@@ -62,6 +62,7 @@ import ConnectionsSection from './connections/ConnectionsSection';
 import UsageAnalyticsSection from './analytics/UsageAnalyticsSection';
 import ReportsSection from './reports/ReportsSection';
 import EmotionMediaStatus from './media/EmotionMediaStatus';
+import MotionCaptureSection from './media/MotionCaptureSection';
 import MotionProfilePanel from './media/MotionProfilePanel';
 import UploadProcessPanel from './media/UploadProcessPanel';
 import ResearchPanel from './research/ResearchPanel';
@@ -81,7 +82,10 @@ import {
   canShareAvatar,
   buildSharedAvatarUrl,
 } from './utils';
-import { isAdminAccount } from '../config/adminAccount';
+import {
+  canUploadReferenceMedia,
+  isAdminAccount,
+} from '../config/adminAccount';
 import { parseHttpUrls } from '../services/parseHttpUrls';
 import { resolveIdentityMediaUrls } from '../services/identityMediaUrls';
 import { singleReferenceImageUrl } from '../services/referenceImageUrl';
@@ -99,6 +103,8 @@ import AvatarDocumentRow, {
 } from './AvatarDocumentRow';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import Switch from './ui/Switch';
+import ImageViewport from './ImageViewport';
+import { profileBubblePersistKey } from '../services/profileBubbleViewport';
 import LipSyncRepliesSetting from './media/LipSyncRepliesSetting';
 import ShareControlSetting from './media/ShareControlSetting';
 import useAvatarFaceSource from '../hooks/useAvatarFaceSource';
@@ -182,6 +188,13 @@ const AvatarSettings = ({ avatarId, onPortraitChanged }) => {
     password: '',
   });
   const [manualUrl, setManualUrl] = useState('');
+  // Upload section checkbox: store what is added next as consultable
+  // reference material (a menu PDF, a price list) rather than identity.
+  // Read through a ref by the document-wide drop and paste handlers, which
+  // are registered once and must see the current choice.
+  const [uploadAsReferenceMedia, setUploadAsReferenceMedia] = useState(false);
+  const uploadAsReferenceMediaRef = useRef(false);
+  uploadAsReferenceMediaRef.current = uploadAsReferenceMedia;
   const [portraitUrl, setPortraitUrl] = useState('');
   // Bumped whenever something outside the Voice panel changes the voice
   // (a deleted upload, a new reference clip) so the panel re-reads status.
@@ -248,6 +261,7 @@ const AvatarSettings = ({ avatarId, onPortraitChanged }) => {
   // them at all, because the sharing control below is otherwise reserved for
   // the personal avatar.
   const isAdministrator = isAdminAccount(user);
+  const mayUploadReferenceMedia = canUploadReferenceMedia(user);
   const canChangeSharing = canShareAvatar(activeAvatar, user);
 
   // The avatar that depicts its creator. Two things belong only to it: sharing
@@ -269,6 +283,7 @@ const AvatarSettings = ({ avatarId, onPortraitChanged }) => {
     if (documentEntry.source === 'emotion') return documentEntry.bucket;
     if (documentEntry.isReferenceImage) return 'reference_image';
     if (documentEntry.isReferenceAudio) return 'reference_audio';
+    if (documentEntry.isReferenceMedia) return 'reference_media';
     const sourceUrl = parseDocumentSourceUrl(documentEntry.label);
     if (sourceUrl) {
       // Links are bucketed by where they point — YouTube, Instagram, X — so a
@@ -282,6 +297,7 @@ const AvatarSettings = ({ avatarId, onPortraitChanged }) => {
     all: 'All',
     reference_image: 'Reference image',
     reference_audio: 'Reference audio',
+    reference_media: 'Reference material',
     emotion_portrait: 'Generated portraits',
     emotion_loop: 'Generated videos',
     image: 'Images',
@@ -386,6 +402,10 @@ const AvatarSettings = ({ avatarId, onPortraitChanged }) => {
    * @param {File[]} [options.files]
    * @param {string[]} [options.urls]
    * @param {boolean} [options.isReferenceImage]
+   * @param {boolean} [options.isReferenceMedia] Treat the upload as consultable
+   *   reference material (a menu), not identity. Left undefined, the Upload
+   *   section's "Reference file" checkbox decides; portrait and voice uploads
+   *   never send the flag.
    * @param {'portrait'|'voice'|'document'} [options.kind] Skip the split and
    *   start one job of this kind (the Voice panel passes 'voice').
    * @param {Function} [options.confirmStored] After the job reports done, check
@@ -409,7 +429,25 @@ const AvatarSettings = ({ avatarId, onPortraitChanged }) => {
           block: 'start',
         });
       if (options?.isReferenceImage) {
-        return startUpload(options);
+        return startUpload({
+          ...options,
+          isReferenceMedia: false,
+        });
+      }
+      // The Upload section checkbox applies to anything that did not already
+      // say what it is: chosen files, added or pasted URLs, and drops. Voice
+      // and portrait uploads name their kind and are never reference media.
+      const asReferenceMedia =
+        options?.isReferenceMedia ??
+        (mayUploadReferenceMedia &&
+          uploadAsReferenceMediaRef.current &&
+          !options?.kind);
+      if (asReferenceMedia) {
+        return startUpload({
+          ...options,
+          kind: options.kind ?? 'document',
+          isReferenceImage: false,
+        });
       }
       if (options?.kind) {
         if (options.kind === 'voice') scrollToVoice();
@@ -451,7 +489,7 @@ const AvatarSettings = ({ avatarId, onPortraitChanged }) => {
       const results = await Promise.all(started);
       return results.length > 0 && results.every(Boolean);
     },
-    [assistantId, avatarDocuments, startUpload, user]
+    [assistantId, avatarDocuments, mayUploadReferenceMedia, startUpload, user]
   );
   startSectionUploadRef.current = startSectionUpload;
 
@@ -1479,19 +1517,32 @@ const AvatarSettings = ({ avatarId, onPortraitChanged }) => {
                   <div
                     {...getRootProps()}
                     onPaste={handlePortraitPaste}
-                    className="relative w-32 h-32 rounded-2xl overflow-hidden cursor-pointer group"
+                    className="relative w-32"
                   >
-                    <img
-                      src={avatarIcon}
-                      alt="avatar"
-                      className="w-full h-full object-cover"
-                    />
-                    <div
-                      className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity duration-300 flex items-center justify-center"
-                      onClick={open}
+                    <ImageViewport
+                      className="h-32 w-32 rounded-2xl border border-white/10 bg-black"
+                      label="Profile bubble"
+                      fit="cover"
+                      resetKey={avatarIcon}
+                      persistKey={profileBubblePersistKey(assistantId)}
+                      controlsPlacement="below"
                     >
-                      <Edit3 size={24} color="white" />
-                    </div>
+                      <img
+                        src={avatarIcon}
+                        alt="avatar"
+                        draggable={false}
+                        className="h-full w-full object-contain"
+                      />
+                    </ImageViewport>
+                    <button
+                      type="button"
+                      onClick={open}
+                      className="absolute right-1 top-1 z-20 rounded-md border border-neutral-700 bg-black/60 p-1 text-neutral-200 hover:bg-neutral-900 focus:outline-none focus:ring-2 focus:ring-amber-400/50"
+                      aria-label="Replace this portrait"
+                      title="Replace this portrait"
+                    >
+                      <Edit3 size={14} color="white" />
+                    </button>
                     <input {...getInputProps()} />
                   </div>
                 ) : (
@@ -1509,8 +1560,10 @@ const AvatarSettings = ({ avatarId, onPortraitChanged }) => {
                 );
               }}
             </Dropzone>
-            <p className="text-xs text-white/40 text-center w-32">
-              {avatarIcon ? 'Click to replace' : 'Drop, click, or paste a URL'}
+            <p className="text-xs text-white/40 text-center w-40">
+              {avatarIcon
+                ? 'Drag to frame the picture everyone sees — the header, message icons, and profile bubbles. Scroll or pinch to zoom. The edit button replaces the picture.'
+                : 'Drop, click, or paste a URL'}
             </p>
             {!avatarIcon && portraitEmptyStateNotice(researchAcquisition) && (
               <p className="text-xs text-amber-200/80 text-center w-48">
@@ -1800,9 +1853,22 @@ const AvatarSettings = ({ avatarId, onPortraitChanged }) => {
         <ShareControlSetting assistantId={assistantId} />
       </div>
       {/* How the person moves: learned from the camera and uploaded video,
-          rendered to the text that drives the generated video. */}
-      <div className="bg-black/60 backdrop-blur-lg rounded-2xl border border-white/10 p-4 sm:p-6 min-w-0">
-        <MotionProfilePanel assistantId={assistantId} />
+          rendered to the text that drives the generated video. The switch
+          that lets the camera teach it belongs to the person, so it is shown
+          on the personal avatar only — the same switch account settings
+          shows — and an invented avatar learns from uploaded video alone. */}
+      <div className="bg-black/60 backdrop-blur-lg rounded-2xl border border-white/10 p-4 sm:p-6 min-w-0 flex flex-col gap-4">
+        <MotionProfilePanel
+          assistantId={assistantId}
+          learnsFromCamera={isPersonalAvatar}
+        />
+        {isPersonalAvatar && (
+          <MotionCaptureSection
+            source="avatar_settings"
+            avatarName={activeAvatar?.name}
+            embedded
+          />
+        )}
       </div>
       {/* Social Media Section */}
       {/* <div className="bg-black/60 backdrop-blur-lg rounded-2xl border border-white/10 p-6">
@@ -1893,6 +1959,39 @@ const AvatarSettings = ({ avatarId, onPortraitChanged }) => {
           <Upload size={22} />
           Upload
         </h2>
+        {/* Administrator only: the API accepts reference_media solely on
+            avatars that account created. Checked, everything added below —
+            chosen files, URLs, drops, pastes — is stored as material the
+            avatar consults (a menu PDF), not as who the avatar is. */}
+        {mayUploadReferenceMedia && (
+          <label className="mb-4 flex items-start gap-3 rounded-lg border border-white/10 bg-black/50 px-4 py-3 cursor-pointer hover:bg-white/5 transition-colors">
+            <input
+              type="checkbox"
+              checked={uploadAsReferenceMedia}
+              onChange={(event) =>
+                setUploadAsReferenceMedia(event.target.checked)
+              }
+              className="mt-0.5 h-4 w-4 shrink-0 accent-amber-400"
+            />
+            <span className="min-w-0">
+              <span className="flex items-center gap-2 text-sm font-medium text-neutral-200">
+                <FileText size={16} className="text-amber-300" aria-hidden="true" />
+                Reference material
+                {uploadAsReferenceMedia && (
+                  <span className="rounded-full border border-amber-400/40 bg-amber-400/15 px-1.5 py-px text-[10px] uppercase tracking-wide text-amber-200">
+                    On
+                  </span>
+                )}
+              </span>
+              <span className="block text-xs text-white/60 mt-0.5">
+                A menu, price list, or other material{' '}
+                {activeAvatar?.name || 'this avatar'} consults when answering.
+                Not used to reconstruct who the avatar is. Applies to the
+                files and URLs added while checked.
+              </span>
+            </span>
+          </label>
+        )}
         {/* URLs start processing as soon as Add is pressed. */}
         <div className="mb-6">
           <label className="block text-sm font-medium text-white/70 mb-2">
@@ -1947,7 +2046,22 @@ const AvatarSettings = ({ avatarId, onPortraitChanged }) => {
             more than anyone else.
           </p>
         </div>
-        <div className="border-2 border-dashed border-white/30 rounded-xl p-4 sm:p-8 text-center hover:border-white/50 transition-all duration-300 bg-black/60">
+        <div
+          className={`border-2 border-dashed rounded-xl p-4 sm:p-8 text-center transition-all duration-300 bg-black/60 ${
+            uploadAsReferenceMedia
+              ? 'border-amber-400/40 hover:border-amber-400/60'
+              : 'border-white/30 hover:border-white/50'
+          }`}
+        >
+          {uploadAsReferenceMedia && (
+            <p
+              className="mx-auto mb-3 inline-flex items-center gap-1.5 rounded-full border border-amber-400/40 bg-amber-400/15 px-3 py-1 text-xs font-semibold uppercase tracking-wide text-amber-200"
+              data-testid="upload-reference-material-mode"
+            >
+              <FileText size={14} aria-hidden="true" />
+              Adding as reference material
+            </p>
+          )}
           <Upload className="mx-auto mb-3 sm:mb-4 text-white/60" size={36} />
           <p className="text-neutral-200 mb-2">
             Drag & drop anywhere on the page
@@ -1956,7 +2070,7 @@ const AvatarSettings = ({ avatarId, onPortraitChanged }) => {
             or paste URLs with Ctrl+V / Cmd+V to start processing
           </p>
           <label className="inline-block px-5 py-2.5 bg-amber-400/15 hover:bg-amber-400/25 text-amber-300 font-semibold rounded-lg cursor-pointer transition-all duration-300 border border-amber-400/30">
-            Choose Files
+            {uploadAsReferenceMedia ? 'Choose reference files' : 'Choose Files'}
             <input
               type="file"
               multiple

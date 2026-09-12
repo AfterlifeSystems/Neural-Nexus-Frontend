@@ -22,7 +22,6 @@ import AuthComponent from './components/AuthComponent';
 import ChatArea from './components/ChatArea';
 
 import AccountSettings from './components/AccountSettings';
-import AccessibilityPage from './components/AccessibilityPage';
 import InboxPanel from './components/inbox/InboxPanel';
 import BillingManagement from './components/BillingManagement';
 import WorldMapScreen from './components/geo/WorldMapScreen';
@@ -150,10 +149,12 @@ createRoot(document.getElementById('root')).render(
               <Route path="/avatars" element={<AvatarSelectionComponent />} />
               <Route path="/chat/:avatarId" element={<ChatArea />} />
               <Route path="/account" element={<AccountSettings />} />
-              {/* Its own screen, reachable from the sidebar on every page:
-                  somebody who needs this is not going to hunt for it inside
-                  another settings screen. */}
-              <Route path="/accessibility" element={<AccessibilityPage />} />
+              {/* Accessibility now lives in account settings. Keep the old
+                  address so bookmarks and spoken directions still arrive. */}
+              <Route
+                path="/accessibility"
+                element={<Navigate to="/account#accessibility" replace />}
+              />
               <Route path="/inbox" element={<InboxPanel />} />
               <Route path="/billing" element={<BillingManagement />} />
               <Route path="/map" element={<WorldMapScreen />} />

@@ -28,6 +28,7 @@ import {
   noticePreview,
   noticeShowsIgnoreAction,
 } from '../services/ambientNotice';
+import LinkifiedText from './ui/LinkifiedText';
 import { ACTION_BUTTON_CLASSES } from './media/MessageActionBar';
 
 /**
@@ -266,7 +267,9 @@ const AmbientNotificationCard = ({
       </div>
       {collapsed ? (
         preview ? (
-          <p className="mt-2 text-xs text-white/50 truncate">{preview}</p>
+          <p className="mt-2 text-xs text-white/50 whitespace-normal break-words [overflow-wrap:anywhere]">
+            {preview}
+          </p>
         ) : null
       ) : message?.isLoading ? (
         <div className="mt-2 flex items-center gap-2 text-white/60 text-sm">
@@ -274,13 +277,19 @@ const AmbientNotificationCard = ({
           Writing a heads-up…
         </div>
       ) : (
-        <div className="mt-2 whitespace-pre-wrap">{message?.content}</div>
+        <div className="mt-2 whitespace-pre-wrap break-words [overflow-wrap:anywhere]">
+          <LinkifiedText text={message?.content} />
+        </div>
       )}
       {!collapsed && ambient.summary && (
-        <p className="mt-2 text-xs text-white/50 italic">{ambient.summary}</p>
+        <p className="mt-2 text-xs text-white/50 italic break-words [overflow-wrap:anywhere]">
+          {ambient.summary}
+        </p>
       )}
       {!collapsed && ambient.reason && (
-        <p className="mt-1 text-xs text-white/40">{ambient.reason}</p>
+        <p className="mt-1 text-xs text-white/40 break-words [overflow-wrap:anywhere]">
+          {ambient.reason}
+        </p>
       )}
       {!collapsed && offer && !message?.isLoading && (
         <div className="mt-3 flex flex-wrap items-center gap-2 rounded-lg border border-sky-400/20 bg-sky-400/5 px-3 py-2">

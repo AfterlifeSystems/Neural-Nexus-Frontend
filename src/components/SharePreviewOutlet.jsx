@@ -3,7 +3,7 @@ import { createPortal } from 'react-dom';
 import { useMediaShare } from '../context/MediaShareContext';
 import LiveShareVideo from './LiveShareVideo';
 import MotionWireframeOverlay from './MotionWireframeOverlay';
-import { MOTION_WIREFRAME_OVERLAY } from '../config/motionWireframe';
+import useMotionMeshDeveloperOverlay from '../hooks/useMotionMeshDeveloperOverlay';
 import { openCollapsedSidebar, subscribeSharePreviewSlots } from './sharePreviewSlots';
 import { describeAmbientStatus } from '../services/ambientCaptureScheduler';
 
@@ -30,6 +30,11 @@ const SharePreviewOutlet = () => {
     motionStatus,
     sceneNarrationActive,
   } = useMediaShare();
+  // The wireframe is a developer view: drawn only for the administrator in a
+  // development build who has switched it on (account settings → Developer
+  // options). Everybody else sees the plain camera, and is told in words —
+  // "Learning how you move" — when their movement is being recorded.
+  const { draw: drawMotionMesh } = useMotionMeshDeveloperOverlay();
   const [slots, setSlots] = useState({ rail: null, panel: null });
   const ambientLabel = ambientEnabled
     ? describeAmbientStatus(ambientStatus, ambientNextInMs)
@@ -53,6 +58,7 @@ const SharePreviewOutlet = () => {
             motionMeshEdges={motionMeshEdges}
             motionFrameSize={motionFrameSize}
             motionStatus={motionStatus}
+            drawMotionMesh={drawMotionMesh}
             sceneNarrationActive={sceneNarrationActive}
           />,
           slots.rail
@@ -69,6 +75,7 @@ const SharePreviewOutlet = () => {
             motionMeshEdges={motionMeshEdges}
             motionFrameSize={motionFrameSize}
             motionStatus={motionStatus}
+            drawMotionMesh={drawMotionMesh}
             sceneNarrationActive={sceneNarrationActive}
           />,
           slots.panel
@@ -97,11 +104,11 @@ function renderShareTile({
       decorative
     />
   );
-  // The wireframe sits over the webcam tile only: the same green landmarks
-  // the person's own prototype drew, so it is visible that movement is being
-  // learned while the camera faces them.
+  // The wireframe sits over the webcam tile only, and only when the caller
+  // has decided it should be drawn (the developer option; see
+  // `useMotionMeshDeveloperOverlay`). An `overlay` arrives only then.
   const video =
-    overlay && MOTION_WIREFRAME_OVERLAY ? (
+    overlay ? (
       <div className={`relative ${isRail ? 'w-11 h-11' : 'w-24 h-24 shrink-0 sm:w-full sm:h-auto sm:aspect-square sm:max-h-44'}`}>
         <LiveShareVideo
           stream={stream}
@@ -169,9 +176,20 @@ function SidebarShareTiles({
   motionMeshEdges,
   motionFrameSize,
   motionStatus,
+  drawMotionMesh = false,
   sceneNarrationActive = false,
 }) {
   const isRail = size === 'rail';
+  // The overlay exists only while the landmarker is running AND the developer
+  // option says to draw it. One value, used by both the panel and rail tiles.
+  const motionOverlay =
+    drawMotionMesh && motionStatus === 'running'
+      ? {
+          frame: motionFrame,
+          meshEdges: motionMeshEdges,
+          frameSize: motionFrameSize,
+        }
+      : null;
   // A screen capture the avatar may only glance at must not call itself
   // shared. The heading follows the same rule: with nothing being watched,
   // nothing here is being shared.
@@ -207,14 +225,7 @@ function SidebarShareTiles({
               isRail: false,
               className:
                 'w-24 h-24 shrink-0 sm:w-full sm:h-auto sm:aspect-square sm:max-h-44 rounded-lg border border-white/20 bg-black object-cover touch-pan-y',
-              overlay:
-                motionStatus === 'running'
-                  ? {
-                      frame: motionFrame,
-                      meshEdges: motionMeshEdges,
-                      frameSize: motionFrameSize,
-                    }
-                  : null,
+              overlay: motionOverlay,
               narrating: sceneNarrationActive,
             })}
         </div>
@@ -234,14 +245,7 @@ function SidebarShareTiles({
           isRail,
           className:
             'w-11 h-11 rounded-md border border-white/20 bg-black object-cover',
-          overlay:
-            motionStatus === 'running'
-              ? {
-                  frame: motionFrame,
-                  meshEdges: motionMeshEdges,
-                  frameSize: motionFrameSize,
-                }
-              : null,
+          overlay: motionOverlay,
           narrating: sceneNarrationActive,
         })}
       {ambientLabel && (
@@ -267,15 +271,26 @@ function SidebarShareTiles({
           it.
         </p>
       )}
-      {webcamStream && motionStatus && motionStatus !== 'idle' && (
+      {/* The person is told in words that movement is being recorded — that
+          is their switch ("Learn how I move") at work, and it must never run
+          silently. The loading and failure states name the wireframe, which
+          only the developer view knows about, so they show only there. */}
+      {webcamStream && motionStatus === 'running' && (
         <p className={isRail ? 'sr-only' : 'text-[11px] text-emerald-300/80 leading-tight'}>
-          {motionStatus === 'running'
-            ? 'Learning how you move'
-            : motionStatus === 'loading'
-              ? 'Loading the wireframe…'
-              : 'Wireframe unavailable in this browser'}
+          Learning how you move
         </p>
       )}
+      {webcamStream &&
+        drawMotionMesh &&
+        (motionStatus === 'loading' ||
+          motionStatus === 'unsupported' ||
+          motionStatus === 'error') && (
+          <p className={isRail ? 'sr-only' : 'text-[11px] text-emerald-300/80 leading-tight'}>
+            {motionStatus === 'loading'
+              ? 'Loading the wireframe…'
+              : 'Wireframe unavailable in this browser'}
+          </p>
+        )}
     </div>
   );
 }

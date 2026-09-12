@@ -21,18 +21,17 @@ import { MAP_TILE_ATTRIBUTION, MAP_TILE_URL } from '../../config/maps';
 import { mapMarkOf } from '../../services/avatarMapMark';
 import {
   DEFAULT_GEOFENCE_RADIUS_METERS,
-  METERS_PER_MILE,
   avatarIdOf,
   mapKeyOf,
-  clampGeofenceRadius,
   describeGeofenceRadius,
   formatCoordinate,
   isValidCoordinate,
-  milesFromMeters,
+  pinCoordinate,
   pinOf,
   spreadStackedPinPositions,
 } from '../../services/avatarProximity';
 import { devicePositionIcon, labeledPinIcon } from './avatarPinMarker';
+import GeofenceRadiusField from './GeofenceRadiusField';
 import 'leaflet/dist/leaflet.css';
 import './leafletMapStyles.css';
 
@@ -121,30 +120,18 @@ function OwnedPinEditor({ avatar, pin, onSave, onRemove, onOpen, isSaving }) {
   const [latitude, setLatitude] = useState(String(pin.latitude));
   const [longitude, setLongitude] = useState(String(pin.longitude));
   const [locationName, setLocationName] = useState(pin.location_name ?? '');
-  const [unit, setUnit] = useState('m');
-  const [radiusInput, setRadiusInput] = useState(
-    String(pin.geofence_radius_meters ?? DEFAULT_GEOFENCE_RADIUS_METERS)
+  const [radiusMeters, setRadiusMeters] = useState(
+    pin.geofence_radius_meters ?? DEFAULT_GEOFENCE_RADIUS_METERS
   );
 
   useEffect(() => {
     setLatitude(String(pin.latitude));
     setLongitude(String(pin.longitude));
     setLocationName(pin.location_name ?? '');
-    setRadiusInput(
-      unit === 'mi'
-        ? milesFromMeters(
-            pin.geofence_radius_meters ?? DEFAULT_GEOFENCE_RADIUS_METERS
-          ).toFixed(2)
-        : String(pin.geofence_radius_meters ?? DEFAULT_GEOFENCE_RADIUS_METERS)
+    setRadiusMeters(
+      pin.geofence_radius_meters ?? DEFAULT_GEOFENCE_RADIUS_METERS
     );
-    // The unit toggle is the person's choice; only the pin itself resets fields.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pin.latitude, pin.longitude, pin.location_name, pin.geofence_radius_meters]);
-
-  const radiusMeters =
-    unit === 'mi'
-      ? clampGeofenceRadius(Number(radiusInput) * METERS_PER_MILE)
-      : clampGeofenceRadius(Number(radiusInput));
 
   return (
     <div className="space-y-1.5 min-w-[14rem]">
@@ -180,46 +167,11 @@ function OwnedPinEditor({ avatar, pin, onSave, onRemove, onOpen, isSaving }) {
           />
         </label>
       </div>
-      <label className="block text-white/50">
-        Here within ({unit === 'mi' ? 'miles' : 'meters'})
-        <input
-          type="number"
-          min={unit === 'mi' ? 0.001 : 1}
-          step={unit === 'mi' ? 0.01 : 1}
-          value={radiusInput}
-          onChange={(event) => setRadiusInput(event.target.value)}
-          className="mt-0.5 w-full rounded border border-white/10 bg-black/40 px-1.5 py-1 text-neutral-200"
-        />
-        <span className="mt-0.5 block text-white/40">
-          {describeGeofenceRadius(radiusMeters)}
-        </span>
-      </label>
-      <div className="flex gap-1">
-        <button
-          type="button"
-          onClick={() => {
-            setUnit('m');
-            setRadiusInput(String(radiusMeters));
-          }}
-          className={`rounded px-1.5 py-0.5 text-[10px] ${
-            unit === 'm' ? 'bg-white/10 text-neutral-100' : 'text-white/50'
-          }`}
-        >
-          meters
-        </button>
-        <button
-          type="button"
-          onClick={() => {
-            setUnit('mi');
-            setRadiusInput(milesFromMeters(radiusMeters).toFixed(2));
-          }}
-          className={`rounded px-1.5 py-0.5 text-[10px] ${
-            unit === 'mi' ? 'bg-white/10 text-neutral-100' : 'text-white/50'
-          }`}
-        >
-          miles
-        </button>
-      </div>
+      <GeofenceRadiusField
+        appearance="compact"
+        radiusMeters={radiusMeters}
+        onChange={setRadiusMeters}
+      />
       <div className="flex flex-wrap gap-1.5 pt-1">
         <button
           type="button"
@@ -398,8 +350,8 @@ const WorldStreetMap = ({
                         dragend: (dragEvent) => {
                           const moved = dragEvent.target.getLatLng();
                           onSavePin(avatar, {
-                            latitude: Number(moved.lat.toFixed(6)),
-                            longitude: Number(moved.lng.toFixed(6)),
+                            latitude: pinCoordinate(moved.lat),
+                            longitude: pinCoordinate(moved.lng),
                             locationName: pin.location_name ?? '',
                             geofenceRadiusMeters:
                               pin.geofence_radius_meters ??

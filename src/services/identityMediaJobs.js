@@ -382,6 +382,9 @@ export const hydrateIdentityMediaJobs = async (
  * @param {boolean} [options.isReferenceAudio] Legacy flag: the server now
  *   decides the reference clip on its own, so callers pass `kind: 'voice'`
  *   for speech instead.
+ * @param {boolean} [options.isReferenceMedia] Treat the upload as consultable
+ *   reference material (a menu), not identity. Ignored on a portrait or an
+ *   explicit reference-audio upload.
  * @param {'portrait'|'voice'|'document'} [options.kind] Which card and steps
  *   to show. Defaults from the reference flags, else 'document'.
  * @param {Function} [options.confirmStored]
@@ -394,6 +397,7 @@ export const startIdentityMediaUpload = async ({
   urls = [],
   isReferenceImage = false,
   isReferenceAudio = false,
+  isReferenceMedia = false,
   kind: explicitKind,
   confirmStored,
   onDocumentsChanged,
@@ -445,6 +449,9 @@ export const startIdentityMediaUpload = async ({
     jobId: null,
     title,
     kind,
+    // Shown on the card so the owner can see this upload is consultable
+    // material (a menu), not identity, while the job is still running.
+    isReferenceMedia: Boolean(isReferenceMedia),
     items,
     steps: stepsForMediaKind(kind),
     status: 'running',
@@ -465,6 +472,7 @@ export const startIdentityMediaUpload = async ({
       urls: resolvedUrls,
       isReferenceImage,
       isReferenceAudio,
+      isReferenceMedia,
       signal: abortController.signal,
     });
     const rejectedMessage = describeRejected(

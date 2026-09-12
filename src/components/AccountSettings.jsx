@@ -1,18 +1,31 @@
 // /components/AccountSettings.jsx
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { toast } from 'react-hot-toast';
-import { useNavigate } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
 
 import { useAuth } from '../context/AuthContext';
 
+import AccessibilitySection from './AccessibilitySection';
+import DeveloperOptionsSection from './DeveloperOptionsSection';
 import UserSettingsMenu from './UserSettingsMenu';
 import UsageAnalyticsSection from './analytics/UsageAnalyticsSection';
+import MotionCaptureSection from './media/MotionCaptureSection';
 
 const AccountSettings = ({ activeTab }) => {
   const { user, requestPasswordReset, rotateApiKey, deleteAccount } = useAuth();
   const navigate = useNavigate();
+  const location = useLocation();
   const [newApiKey, setNewApiKey] = useState('');
   const [isWorking, setIsWorking] = useState(false);
+
+  // Old bookmarks and the former /accessibility route land here with this
+  // hash so the person is not left at the top of a longer page.
+  useEffect(() => {
+    if (location.hash !== '#accessibility') return;
+    document
+      .getElementById('accessibility')
+      ?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }, [location.hash]);
 
   /**
    * Replace the account's API key.
@@ -272,9 +285,19 @@ const AccountSettings = ({ activeTab }) => {
         </div>
       </div>
 
+      <AccessibilitySection />
+
+      {/* Learning how the person moves from the webcam: the same switch the
+          personal avatar's settings show, off until turned on. */}
+      <MotionCaptureSection source="account_settings" />
+
       {/* Opt-in usage analytics: the same account-level switch the personal
           avatar's settings show. */}
       <UsageAnalyticsSection source="account_settings" />
+
+      {/* Administrator in a development build only; renders nothing for
+          anybody else. */}
+      <DeveloperOptionsSection />
 
       {/* The control this page is usually reached from. Without it the menu
           vanished on arrival, leaving no way back except the sidebar. */}

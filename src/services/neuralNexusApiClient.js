@@ -444,7 +444,8 @@ function dispatchServerSentEventFrame(frame, onEvent) {
  *
  * @param {string} path API path.
  * @param {Object} [options] Same options as `requestJson`.
- * @returns {Promise<Blob>} The response body.
+ * @returns {Promise<Blob|{blob: Blob, headers: Headers}>} The response body,
+ *   or the body plus headers when `returnHeaders` is true.
  */
 export async function requestBinary(path, options = {}) {
   const {
@@ -454,6 +455,7 @@ export async function requestBinary(path, options = {}) {
     formData,
     signal,
     asAnonymousIdentity = false,
+    returnHeaders = false,
   } = options;
 
   const headers = buildAuthenticationHeaders(asAnonymousIdentity);
@@ -484,5 +486,9 @@ export async function requestBinary(path, options = {}) {
   if (!response.ok) {
     await raiseApiError(response, sessionCredentialWasSent);
   }
-  return response.blob();
+  const blob = await response.blob();
+  if (returnHeaders) {
+    return { blob, headers: response.headers };
+  }
+  return blob;
 }

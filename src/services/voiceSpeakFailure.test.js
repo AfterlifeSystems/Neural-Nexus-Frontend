@@ -96,6 +96,14 @@ test('no voice model in the sentence is not_ready', () => {
     }),
     'not_ready'
   );
+  assert.equal(
+    speakFailureKind({
+      status: 409,
+      message: 'Voice not yet added to this model.',
+      body: { detail: 'Voice not yet added to this model.' },
+    }),
+    'not_ready'
+  );
 });
 
 test('voice features not configured is unavailable, not a missing voice model', () => {

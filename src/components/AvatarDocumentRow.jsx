@@ -46,6 +46,7 @@ import {
   X,
 } from 'lucide-react';
 import LoopingVideo from './ui/LoopingVideo';
+import ImageViewport from './ImageViewport';
 import { titleCaseEmotion } from '../hooks/emotionMediaRows';
 import { describeDocumentKind } from './documentKind';
 
@@ -289,7 +290,17 @@ const AvatarDocumentRow = ({
             badgeClassName:
               'bg-emerald-500/20 text-emerald-200 border-emerald-400/40',
           }
-        : null;
+        : documentEntry.isReferenceMedia
+          ? {
+              Icon: FileText,
+              iconClassName: 'text-amber-300',
+              label: 'Reference material',
+              description:
+                'Reference material this avatar consults when answering (a menu or similar). Not used to reconstruct identity.',
+              badgeClassName:
+                'bg-amber-400/15 text-amber-200 border-amber-400/40',
+            }
+          : null;
   // Speech that reached the voice model is marked with the seconds it added,
   // so the owner can see which uploads the text-to-speech voice is built from.
   const voiceCorpusMark =
@@ -327,9 +338,13 @@ const AvatarDocumentRow = ({
     ? null
     : parseDocumentSourceUrl(documentEntry.label);
   const youTubeVideoId = extractYouTubeVideoId(sourceUrl);
-  // Generated rows open a larger preview the same way a YouTube row opens its
-  // player: the thumbnail, or the row itself, toggles it.
-  const canOpenPreview = Boolean(youTubeVideoId) || isGeneratedMedia;
+  // Generated rows and the reference image open a larger preview the same
+  // way a YouTube row opens its player: the thumbnail, or the row itself,
+  // toggles it. The reference image is the one still the API actually keeps.
+  const canOpenPreview =
+    Boolean(youTubeVideoId) ||
+    isGeneratedMedia ||
+    Boolean(documentEntry.isReferenceImage && portraitDataUri);
   // The portrait is fetched for the avatar as a whole, so the reference-image
   // row can show it without a second request. Ordinary image uploads are not
   // retained by the API and therefore have no thumbnail to show.
@@ -431,11 +446,29 @@ const AvatarDocumentRow = ({
 
     if (referenceImageThumbnail) {
       return (
-        <img
-          src={referenceImageThumbnail}
-          alt={`Preview of ${documentEntry.label}`}
-          className="shrink-0 w-16 h-16 rounded-md object-cover border border-white/10 bg-black/30"
-        />
+        <button
+          type="button"
+          onClick={() => setIsPlayerOpen((wasOpen) => !wasOpen)}
+          aria-expanded={isPlayerOpen}
+          aria-controls={isPlayerOpen ? previewRegionId : undefined}
+          aria-label={
+            isPlayerOpen
+              ? 'Close this preview'
+              : 'Preview the reference image'
+          }
+          className="group relative shrink-0 w-16 h-16 rounded-md overflow-hidden border border-white/10 bg-black/30"
+        >
+          <img
+            src={referenceImageThumbnail}
+            alt={`Preview of ${documentEntry.label}`}
+            className="w-full h-full object-cover"
+          />
+          {isPlayerOpen && (
+            <span className="absolute inset-0 flex items-center justify-center bg-black/30">
+              <X size={20} className="text-neutral-200 drop-shadow" />
+            </span>
+          )}
+        </button>
       );
     }
 
@@ -589,6 +622,37 @@ const AvatarDocumentRow = ({
         </div>
       </div>
 
+      {isPlayerOpen && referenceImageThumbnail && !isGeneratedMedia && (
+        <div id={previewRegionId} data-video-preview className="mt-3 space-y-2">
+          <div className="flex justify-end">
+            <button
+              type="button"
+              onClick={() => setIsPlayerOpen(false)}
+              className="inline-flex items-center gap-1 px-2 py-1 rounded-md text-xs text-white/70 hover:text-neutral-100 hover:bg-white/10 transition-colors focus:outline-none focus:ring-2 focus:ring-amber-400/50"
+            >
+              <X size={14} />
+              Close preview
+            </button>
+          </div>
+          <ImageViewport
+            className="w-full max-w-sm mx-auto h-80 rounded-lg border border-white/10 bg-black"
+            label="Original reference image"
+            resetKey={referenceImageThumbnail}
+          >
+            <img
+              src={referenceImageThumbnail}
+              alt={`Preview of ${documentEntry.label}`}
+              draggable={false}
+              className="h-full w-full object-contain"
+            />
+          </ImageViewport>
+          <p className="text-center text-[11px] text-white/40">
+            Drag to move the part that is showing. Scroll, pinch, or use + / −
+            to zoom.
+          </p>
+        </div>
+      )}
+
       {isPlayerOpen && isGeneratedMedia && (
         <div id={previewRegionId} data-video-preview className="mt-3 space-y-2">
           <div className="flex justify-end">
@@ -601,7 +665,11 @@ const AvatarDocumentRow = ({
               Close preview
             </button>
           </div>
-          <div className="w-full max-w-sm mx-auto aspect-[9/16] max-h-[60vh] rounded-lg overflow-hidden border border-white/10 bg-black">
+          <ImageViewport
+            className="w-full max-w-sm mx-auto aspect-[9/16] max-h-[60vh] rounded-lg border border-white/10 bg-black"
+            label={documentEntry.label}
+            resetKey={documentEntry.url}
+          >
             {isGeneratedLoop ? (
               <LoopingVideo
                 src={documentEntry.url}
@@ -614,10 +682,11 @@ const AvatarDocumentRow = ({
               <img
                 src={documentEntry.url}
                 alt={`Preview of ${documentEntry.label}`}
+                draggable={false}
                 className="w-full h-full object-contain"
               />
             )}
-          </div>
+          </ImageViewport>
         </div>
       )}
 

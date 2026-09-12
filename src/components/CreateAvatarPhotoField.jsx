@@ -9,6 +9,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { Camera, ImageUp, Link, Loader2, X } from 'lucide-react';
 
+import ImageViewport from './ImageViewport';
 import { canShowCameraBackground } from '../hooks/useCameraPassthrough';
 import {
   describePhotoPlaceError,
@@ -292,43 +293,58 @@ const CreateAvatarPhotoField = ({
           </div>
         </div>
       ) : previewUrl || url ? (
-        <div className="relative mt-3">
+        <div className="mt-3">
+          <div className="relative">
+            {previewUrl || !urlPreviewFailed ? (
+              <ImageViewport
+                className="h-52 w-full rounded-lg border border-white/10 bg-black"
+                label="Photograph for this avatar"
+                resetKey={previewUrl ?? url}
+              >
+                <img
+                  src={previewUrl ?? url}
+                  alt="Photograph for this avatar"
+                  draggable={false}
+                  className="h-full w-full object-contain"
+                  onError={() => {
+                    if (!previewUrl) setUrlPreviewFailed(true);
+                  }}
+                />
+              </ImageViewport>
+            ) : (
+              <div className="flex h-40 w-full flex-col items-center justify-center gap-1 rounded-lg border border-white/10 bg-black/60 px-4 text-center">
+                <Link className="h-5 w-5 text-white/40" aria-hidden="true" />
+                <span className="text-xs text-white/40">
+                  The preview did not load here. The server will still try to
+                  fetch this address.
+                </span>
+              </div>
+            )}
+            <button
+              type="button"
+              onClick={onClear}
+              disabled={disabled || isResolving}
+              className="absolute right-2 top-2 z-20 rounded-md border border-neutral-700 bg-black/60 p-1 text-neutral-200 hover:bg-neutral-900 focus:outline-none focus:ring-2 focus:ring-amber-400/50 disabled:opacity-50"
+              aria-label={url ? 'Remove image link' : 'Remove photograph'}
+            >
+              <X className="h-4 w-4" aria-hidden="true" />
+            </button>
+            {isResolving && (
+              <div className="absolute inset-0 z-20 flex items-center justify-center rounded-lg bg-black/50">
+                <Loader2
+                  className="h-6 w-6 animate-spin text-amber-300"
+                  aria-hidden="true"
+                />
+                <span className="sr-only">Finding where this was taken</span>
+              </div>
+            )}
+          </div>
           {previewUrl || !urlPreviewFailed ? (
-            <img
-              src={previewUrl ?? url}
-              alt="Photograph for this avatar"
-              className="h-40 w-full rounded-lg border border-white/10 object-cover"
-              onError={() => {
-                if (!previewUrl) setUrlPreviewFailed(true);
-              }}
-            />
-          ) : (
-            <div className="flex h-40 w-full flex-col items-center justify-center gap-1 rounded-lg border border-white/10 bg-black/60 px-4 text-center">
-              <Link className="h-5 w-5 text-white/40" aria-hidden="true" />
-              <span className="text-xs text-white/40">
-                The preview did not load here. The server will still try to
-                fetch this address.
-              </span>
-            </div>
-          )}
-          <button
-            type="button"
-            onClick={onClear}
-            disabled={disabled || isResolving}
-            className="absolute right-2 top-2 rounded-md border border-neutral-700 bg-black/60 p-1 text-neutral-200 hover:bg-neutral-900 focus:outline-none focus:ring-2 focus:ring-amber-400/50 disabled:opacity-50"
-            aria-label={url ? 'Remove image link' : 'Remove photograph'}
-          >
-            <X className="h-4 w-4" aria-hidden="true" />
-          </button>
-          {isResolving && (
-            <div className="absolute inset-0 flex items-center justify-center rounded-lg bg-black/50">
-              <Loader2
-                className="h-6 w-6 animate-spin text-amber-300"
-                aria-hidden="true"
-              />
-              <span className="sr-only">Finding where this was taken</span>
-            </div>
-          )}
+            <p className="mt-1 text-[11px] text-white/40">
+              Drag to move the part that is showing. Scroll, pinch, or use + / −
+              to zoom.
+            </p>
+          ) : null}
         </div>
       ) : isUrlFormOpen ? (
         <div className="mt-3 space-y-2">

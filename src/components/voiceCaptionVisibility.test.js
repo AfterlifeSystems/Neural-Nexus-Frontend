@@ -187,6 +187,19 @@ test('captions on means this overlay stays off', () => {
   );
 });
 
+test('a blocked play keeps the line up even when the bar is folded', () => {
+  assert.equal(
+    shouldShowVoiceStageText({
+      messageBarCollapsed: true,
+      captionsShown: false,
+      avatarMuted: false,
+      hasVoiceModel: true,
+      playbackBlocked: true,
+    }),
+    true
+  );
+});
+
 test('no voice model keeps the line up even when the bar is folded', () => {
   assert.equal(
     shouldShowVoiceStageText({

@@ -1,8 +1,9 @@
 // src/components/showVoiceNotReadyToast.jsx
 //
-// The avatar does not have a voice model. Shown when speak-aloud or a live
-// reply needs a clone that is not there yet. Clicking the notice opens the
-// avatar's Voice settings so the owner can create one; Close dismisses it.
+// A cloned voice has not been added to this model. Shown when speak-aloud or
+// a live reply has no clone yet — including when a standard voice is standing
+// in. Clicking the notice opens the avatar's Voice settings so the owner can
+// create one; Close dismisses it.
 // A plain toast would dismiss on press (see main.jsx) and never take the
 // reader where they need to go.
 
@@ -25,13 +26,17 @@ import {
  * @param {string} [parameters.avatarName] For the sentence.
  * @param {number} [parameters.collectedSeconds] Seconds of speech already held.
  * @param {string} [parameters.conversationId] Thread this notice belongs to.
+ * @param {boolean} [parameters.prompt] False when this avatar should not be
+ *   asked to add a clone (administrator-created characters).
  */
 export function showVoiceNotReadyToast({
   assistantId,
   avatarName,
   collectedSeconds = 0,
   conversationId,
+  prompt = true,
 }) {
+  if (!prompt) return;
   if (voiceNotReadyAlreadyShown(assistantId, conversationId)) return;
   rememberVoiceNotReadyShown(assistantId, conversationId);
 
@@ -72,9 +77,10 @@ export function showVoiceNotReadyToast({
                 {voiceNotReadyToastTitle(avatarName)}
               </p>
               <p className="mt-1 text-sm text-white/60">
+                Replies can use a standard voice until a clone is added.
                 Record or upload about two minutes of speech
                 {collected > 0 ? ` (${collected}s collected so far)` : ''} to
-                create a voice. Open{' '}
+                create one. Open{' '}
                 <span className="font-semibold text-neutral-300 underline underline-offset-2 group-hover:text-neutral-100">
                   Voice
                 </span>

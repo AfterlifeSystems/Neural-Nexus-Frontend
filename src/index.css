@@ -329,8 +329,13 @@ html.voice-stage-open [data-rail-badge] {
   width: 1.125rem;
   height: 1.125rem;
 }
+.voice-stage button:hover,
 .voice-stage button:focus,
-.voice-stage button:focus-visible {
+.voice-stage button:focus-visible,
+.voice-stage button:active {
+  /* Unlayered `button:hover { border-color }` adds a 1px edge that the
+     message-bar row clips on the top and bottom when a control is pressed. */
+  border-color: transparent;
   outline: none;
 }
 .voice-stage .composer-attachment-strip button.composer-attachment-remove {
@@ -393,6 +398,23 @@ html.voice-stage-open [data-rail-badge] {
 }
 .avatar-settings button:focus,
 .avatar-settings button:focus-visible {
+  outline: none;
+}
+
+/* Unlayered `button { padding; border-radius: 8px }` would squash a
+   portrait disc into a rounded square. Same specificity, later in the file. */
+button.profile-bubble-disc {
+  padding: 0;
+  min-width: 0;
+  min-height: 0;
+  border-radius: 9999px;
+  border-color: transparent;
+}
+button.profile-bubble-disc:hover {
+  border-color: transparent;
+}
+button.profile-bubble-disc:focus,
+button.profile-bubble-disc:focus-visible {
   outline: none;
 }
 

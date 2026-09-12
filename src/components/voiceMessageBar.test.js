@@ -4,7 +4,9 @@ import {
   collapsedVoiceBarIsSpeaking,
   shouldCollapseVoiceMessageBar,
   voiceComposerDockItemsClass,
+  voiceMessageBarControlsRowClass,
   voiceMessageBarHasDraftAttachments,
+  voiceMessageBarOverflowControlsClass,
 } from './voiceMessageBar.js';
 
 test('a click on the message bar itself does not collapse it', () => {
@@ -65,6 +67,16 @@ test('a click on the mute or camera cluster does not collapse the message bar', 
   );
 });
 
+test('a click on the portrait collapses the message bar', () => {
+  assert.equal(
+    shouldCollapseVoiceMessageBar({
+      closest: (selector) =>
+        selector.includes('[data-image-viewport]') ? {} : null,
+    }),
+    true
+  );
+});
+
 test('a click on empty stage collapses the message bar', () => {
   assert.equal(
     shouldCollapseVoiceMessageBar({ closest: () => null }),
@@ -86,6 +98,15 @@ test('the folded bar glows while the person is speaking or dictating', () => {
 test('the composer dock keeps camera controls at the foot of the message bar', () => {
   assert.equal(voiceComposerDockItemsClass(true), 'items-end');
   assert.equal(voiceComposerDockItemsClass(false), 'items-end');
+});
+
+test('message-bar control rows keep vertical room so a press is not clipped', () => {
+  const rowClassName = voiceMessageBarControlsRowClass();
+  const overflowClassName = voiceMessageBarOverflowControlsClass();
+  assert.match(rowClassName, /\bpy-0\.5\b/);
+  assert.match(overflowClassName, /\bpy-0\.5\b/);
+  assert.match(overflowClassName, /\boverflow-x-auto\b/);
+  assert.equal(overflowClassName.includes('overflow-hidden'), false);
 });
 
 test('a waiting or in-flight attachment keeps the message bar open', () => {

@@ -9,6 +9,7 @@ import { useMedia } from '../context/MediaContext';
 import { useAuth } from '../context/AuthContext';
 import { isSharedAvatarChatPath } from './utils';
 import { canUseAvatarSpeechPlayback } from '../services/avatarSpeechPlayback';
+import { shouldPromptForMissingClonedVoice } from '../services/missingClonedVoicePrompt';
 import usePersonalAvatar from '../hooks/usePersonalAvatar';
 import {
   SPEAKING_BUBBLE_HIGHLIGHT,
@@ -32,6 +33,7 @@ import { focusComposer } from '../services/composerFocus';
 import CreatedArtifacts from './CreatedArtifacts';
 import ChartCard from './ChartCard';
 import ConnectionCardStack from './connections/ConnectionCardStack';
+import LinkifiedText from './ui/LinkifiedText';
 import {
   connectionsOf,
   isConnectionCardOnly,
@@ -87,6 +89,7 @@ const MessageList = ({
   avatarName,
   assistantId,
   readOnly = false,
+  onAvatarPortraitClick,
 }) => {
   const {
     assistantActivity,
@@ -160,6 +163,10 @@ const MessageList = ({
     speechPlaybackEnabled: canSpeak,
     userSpeechPlaybackEnabled: canSpeakUser,
     userSpeechAssistantId: personalAssistantId,
+    promptForMissingClonedVoice: shouldPromptForMissingClonedVoice({
+      avatar: activeAvatar,
+      user,
+    }),
   });
 
   // Who the reader is on THIS screen, which is not always who this browser has
@@ -386,6 +393,7 @@ const MessageList = ({
                             portrait={readerPortrait}
                             name="You"
                             isSpeaking={isUserSpeaking}
+                            assistantId={personalAssistantId}
                           />
                         )}
                         <div
@@ -402,7 +410,9 @@ const MessageList = ({
                                 : undefined
                           }
                         >
-                          <div className="whitespace-pre-wrap">{row.text}</div>
+                          <div className="whitespace-pre-wrap">
+                            <LinkifiedText text={row.text} />
+                          </div>
                           {isLast ? (
                             <>
                               <MessageMedia media={msg.media} />
@@ -427,6 +437,14 @@ const MessageList = ({
                     emotionMedia={isFromAvatar ? emotionMedia : null}
                     showGenerated={showGenerated}
                     isSpeaking={isFromUser ? isUserSpeaking : isSpeakingThis}
+                    assistantId={
+                      isFromUser ? personalAssistantId : resolvedAssistantId
+                    }
+                    onClick={
+                      isFromAvatar && typeof onAvatarPortraitClick === 'function'
+                        ? onAvatarPortraitClick
+                        : undefined
+                    }
                   />
                 )}
                 <div
@@ -488,7 +506,9 @@ const MessageList = ({
                         />
                       ) : (
                         bubbleText && (
-                          <div className="whitespace-pre-wrap">{bubbleText}</div>
+                          <div className="whitespace-pre-wrap">
+                            <LinkifiedText text={bubbleText} />
+                          </div>
                         )
                       )}
 

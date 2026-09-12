@@ -501,12 +501,9 @@ const WorldMapScreen = () => {
         <h1 className="text-lg font-semibold text-neutral-100">
           Avatars in the world
         </h1>
-        <p className="text-sm text-white/50">
-          One map: the globe is the world, the street inset is the same place
-          close up. Click the globe or a pin and the inset follows; drag a pin
-          on the street map and the globe follows. Reset world view, beneath
-          the map, pulls the globe back to the whole Earth. Distances are
-          metres or miles. The live camera opens only when you are standing at the place.
+        <p className="text-sm leading-relaxed text-white/50">
+          Globe and street are the same place. Stand in the circle to open the
+          live camera. 1 m is a doorway. Distances use m, km, yd, or mi.
         </p>
       </header>
 

@@ -75,6 +75,8 @@ import { transcribeAssistantIdOf } from '../services/personalAvatar';
 import AvatarWorkspaceHeader from './AvatarWorkspaceHeader';
 import useInboxCount from '../hooks/useInboxCount';
 import LoopingVideo from './ui/LoopingVideo';
+import LinkifiedText from './ui/LinkifiedText';
+import ProfileBubbleImage from './ProfileBubbleImage';
 import LiveShareVideo from './LiveShareVideo';
 import {
   canShowCameraBackground,
@@ -132,7 +134,12 @@ import {
 } from '../services/chartSpecs';
 import AmbientNotificationCard from './AmbientNotificationCard';
 import InterruptPanel from './InterruptPanel';
-import { isAmbientNotice, isNoticeDismissed } from '../services/ambientNotice';
+import {
+  isAmbientNotice,
+  isNoticeDismissed,
+  noticeStartsCollapsed,
+} from '../services/ambientNotice';
+import { primeAvatarSpeechPlayback } from '../services/avatarSpeechUnlock';
 import { noticeDecisionFor } from '../services/avatarPreferences';
 import { focusComposer } from '../services/composerFocus';
 import { composerHasSendableDraft } from './composerSendState';
@@ -149,12 +156,19 @@ import {
 } from '../services/selfEchoGuard';
 import {
   getAvatarVoice,
+  listStandardVoices,
   requestLipSyncClip,
+  setAvatarStandardVoice,
   transcribeRecording,
 } from '../services/avatarService';
 import VoiceCaptureNotice from './voice/VoiceCaptureNotice';
 import { showRequestFailureToast } from './requestFailureToast';
 import { isConversationSuggestionList } from '../services/conversationSuggestions';
+import { inferAvatarGenderFromName } from '../services/avatarGenderFromName';
+import { avatarHasClonedVoice } from '../services/avatarHasClonedVoice';
+import { shouldPromptForMissingClonedVoice } from '../services/missingClonedVoicePrompt';
+import { showVoiceNotReadyToast } from './showVoiceNotReadyToast';
+import { NEW_CONVERSATION_ID } from '../context/MediaContext';
 import { findMessageByKey, messageKeyOf } from '../services/messageKey';
 import {
   captionForVoiceStage,
@@ -167,9 +181,10 @@ import {
   collapsedVoiceBarIsSpeaking,
   shouldCollapseVoiceMessageBar,
   voiceComposerDockItemsClass,
+  voiceMessageBarControlsRowClass,
   voiceMessageBarHasDraftAttachments,
+  voiceMessageBarOverflowControlsClass,
 } from './voiceMessageBar';
-import { setSuggestionSheetOpen } from './conversationSuggestionSheet';
 import {
   paintedMediaIn,
   portraitWellSizeForConstraint,
@@ -221,18 +236,19 @@ const SEND_BUTTON_CLASSES =
   'voice-action shrink-0 rounded-full bg-neutral-200 hover:bg-neutral-100 text-neutral-900 inline-flex items-center gap-1 transition-colors';
 const STAGE_FLASH_IN_ANIMATION = 'voice-stage-flash-in';
 const STAGE_FLASH_OUT_ANIMATION = 'voice-stage-flash-out';
+const LEGIBLE_TEXT_CLASSES = 'break-words [overflow-wrap:anywhere]';
 const HUMAN_BUBBLE_CLASSES =
-  'max-w-[min(100%,28rem)] sm:max-w-[85%] px-4 py-2 rounded-2xl text-[15px] leading-relaxed self-end bg-neutral-800/80 text-neutral-200 whitespace-pre-wrap';
+  `max-w-[min(100%,28rem)] sm:max-w-[85%] px-4 py-2 rounded-2xl text-[15px] leading-relaxed self-end bg-neutral-800/80 text-neutral-200 whitespace-pre-wrap min-w-0 ${LEGIBLE_TEXT_CLASSES}`;
 const HUMAN_TURN_ROW_CLASSES =
   'flex items-end gap-2 max-w-[min(100%,28rem)] sm:max-w-[85%] self-end flex-row-reverse';
 const HUMAN_TURN_BUBBLE_CLASSES =
-  'px-4 py-2 rounded-2xl text-[15px] leading-relaxed bg-neutral-800/80 text-neutral-200 whitespace-pre-wrap min-w-0';
+  `px-4 py-2 rounded-2xl text-[15px] leading-relaxed bg-neutral-800/80 text-neutral-200 whitespace-pre-wrap min-w-0 ${LEGIBLE_TEXT_CLASSES}`;
 const AVATAR_BUBBLE_CLASSES =
-  'max-w-[min(100%,28rem)] sm:max-w-[85%] px-4 py-2 rounded-2xl text-[15px] leading-relaxed self-start bg-black/55 backdrop-blur-md border border-white/15 text-neutral-100 whitespace-pre-wrap';
+  `max-w-[min(100%,28rem)] sm:max-w-[85%] px-4 py-2 rounded-2xl text-[15px] leading-relaxed self-start bg-black/55 backdrop-blur-md border border-white/15 text-neutral-100 whitespace-pre-wrap min-w-0 ${LEGIBLE_TEXT_CLASSES}`;
 const CAPTION_DOCK_CLASSES =
-  'absolute left-0 right-0 max-h-[min(42vh,22rem)] overflow-y-auto overscroll-contain touch-pan-y pointer-events-auto px-3 sm:px-6 pb-3';
+  'absolute left-0 right-0 max-h-[min(55dvh,28rem)] overflow-y-auto overscroll-contain touch-pan-y pointer-events-auto px-3 sm:px-6 pb-3';
 const CARD_DOCK_CLASSES =
-  'absolute left-0 right-0 max-h-[min(50vh,28rem)] overflow-y-auto overscroll-contain touch-pan-y pointer-events-auto px-3 sm:px-6 pb-3';
+  'absolute left-0 right-0 max-h-[min(60dvh,32rem)] overflow-y-auto overscroll-contain touch-pan-y pointer-events-auto px-3 sm:px-6 pb-3';
 const CAPTION_COLUMN_CLASSES = 'mx-auto max-w-3xl flex flex-col gap-3 py-2';
 
 const SwitchToMessagesIcon = () => (
@@ -315,6 +331,7 @@ const LiveVoiceMode = ({
     noteNoticeInteraction,
     dismissNotice,
     dismissedNoticeIds,
+    activeConversation,
   } = useMedia();
   const {
     ambientEnabled,
@@ -344,6 +361,7 @@ const LiveVoiceMode = ({
   const canPlayAvatarVoice = canUseAvatarSpeechPlayback(activeAvatar, user, {
     pathname: location.pathname,
   });
+  const readerOwnsAvatar = isAvatarOwnedByUser(activeAvatar, user);
   const { personalAvatar, personalAssistantId } = usePersonalAvatar();
   const canSpeakUser =
     !readerIsAnonymous &&
@@ -433,6 +451,7 @@ const LiveVoiceMode = ({
   const [isTranscribing, setIsTranscribing] = useState(false);
   const [isWaitingForReply, setIsWaitingForReply] = useState(false);
   const [isPlayingReply, setIsPlayingReply] = useState(false);
+  const [speechPlaybackBlocked, setSpeechPlaybackBlocked] = useState(false);
   const [draft, setDraft] = useState('');
   const [isComposerMenuOpen, setIsComposerMenuOpen] = useState(false);
   const [isMessageBarCollapsed, setIsMessageBarCollapsed] = useState(false);
@@ -445,7 +464,18 @@ const LiveVoiceMode = ({
   // Set when getUserMedia is refused so the mic stays off until the browser
   // permission becomes granted. A later unmute, or a permission change, is
   // what asks again — not a toast on every failed start.
+  //
+  // A refusal is the browser's answer for this visit, never the person's
+  // saved choice: it must not be written into the persisted mic mute. On a
+  // phone the first automatic start often fails (the prompt needs a tap, or
+  // was dismissed), and recording that as "muted" made every later visit
+  // open with the microphone off even after the person had allowed it once.
   const microphoneBlockedByBrowserRef = useRef(false);
+  const [isMicrophoneBlocked, setIsMicrophoneBlocked] = useState(false);
+  const markMicrophoneBlocked = useCallback((blocked) => {
+    microphoneBlockedByBrowserRef.current = blocked;
+    setIsMicrophoneBlocked(blocked);
+  }, []);
   // Whether the avatar is audible now, and until when it counts as having
   // just been audible. Read inside the listener callbacks, which outlive the
   // render that created them.
@@ -517,6 +547,12 @@ const LiveVoiceMode = ({
     speechPlaybackEnabled: canPlayAvatarVoice,
     userSpeechPlaybackEnabled: canSpeakUser,
     userSpeechAssistantId: personalAssistantId,
+    missingClonedVoice:
+      voiceStatus != null && !avatarHasClonedVoice(voiceStatus),
+    promptForMissingClonedVoice: shouldPromptForMissingClonedVoice({
+      avatar: activeAvatar,
+      user,
+    }),
   });
 
   useEffect(() => {
@@ -528,29 +564,58 @@ const LiveVoiceMode = ({
   // recognise them by. Read once per visit: the live seconds arrive with each
   // transcription instead, so this does not need to be asked for every turn.
   // Owner-only route, so it is never called for a visitor or a shared link.
+  // A character with no clone yet is given the first stock voice for the
+  // gender inferred from its name, so voice mode is heard immediately. The
+  // missing-clone toast still fires once so they can upload a voice.
   useEffect(() => {
-    if (!assistantId || !isPersonalAvatar || readerIsAnonymous) {
+    if (!assistantId || !readerOwnsAvatar || readerIsAnonymous) {
       setVoiceStatus(null);
       return undefined;
     }
     let cancelled = false;
     (async () => {
       try {
-        const status = await getAvatarVoice(assistantId);
-        if (!cancelled) setVoiceStatus(status);
+        let status = await getAvatarVoice(assistantId);
+        if (cancelled) return;
+        const hasClone = avatarHasClonedVoice(status);
+        if (!hasClone && !status?.standard_voice?.voice_id) {
+          const gender = inferAvatarGenderFromName(avatarName) ?? 'female';
+          const catalogue = await listStandardVoices(gender);
+          const firstVoiceId = catalogue[0]?.voice_id;
+          if (firstVoiceId && !cancelled) {
+            status = await setAvatarStandardVoice(assistantId, firstVoiceId);
+          }
+        }
+        if (cancelled) return;
+        setVoiceStatus(status);
+        if (!hasClone) {
+          showVoiceNotReadyToast({
+            assistantId,
+            avatarName,
+            collectedSeconds: status?.collected_seconds ?? 0,
+            conversationId: activeConversation ?? NEW_CONVERSATION_ID,
+            prompt: shouldPromptForMissingClonedVoice({
+              avatar: activeAvatar,
+              user,
+            }),
+          });
+        }
       } catch {
-        // A voice this screen cannot read about simply shows nothing; live
-        // voice does not depend on it.
         if (!cancelled) setVoiceStatus(null);
       }
     })();
     return () => {
       cancelled = true;
     };
-  }, [assistantId, isPersonalAvatar, readerIsAnonymous]);
-
-  // Missing clone: useSpeech raises the create-voice toast (once per
-  // conversation) when speak-aloud or a live reply needs a voice model.
+  }, [
+    activeAvatar,
+    activeConversation,
+    assistantId,
+    avatarName,
+    readerIsAnonymous,
+    readerOwnsAvatar,
+    user,
+  ]);
 
   const spokenExchange = messages.filter((message) => {
     if (
@@ -884,7 +949,10 @@ const LiveVoiceMode = ({
               !message.isPending
           )?.id ?? 'live-reply';
       try {
-        await speech.speak(assistantId, spokenReply, { key: replyMessageId });
+        const played = await speech.speak(assistantId, spokenReply, {
+          key: replyMessageId,
+        });
+        setSpeechPlaybackBlocked(!played);
       } finally {
         setIsPlayingReply(false);
       }
@@ -913,6 +981,7 @@ const LiveVoiceMode = ({
         ? attachedFiles
         : takePendingAttachmentsRef.current();
       if (!words && files.length === 0) return;
+      primeAvatarSpeechPlayback();
       // Message view lets another line go out while a reply is still
       // arriving. Voice mode keeps that: this send is not blocked by an
       // earlier turn. A newer send just takes the stage and the older
@@ -952,6 +1021,7 @@ const LiveVoiceMode = ({
   const submitSpokenAudio = useCallback(
     async (recording) => {
       if (!recording) return;
+      primeAvatarSpeechPlayback();
       const extraFiles = takePendingAttachmentsRef.current();
       userTurnsInFlightRef.current += 1;
       const generation = ++turnGenerationRef.current;
@@ -1002,11 +1072,11 @@ const LiveVoiceMode = ({
     async (messageKey, text) => {
       const words = String(text ?? '').trim();
       if (!words) return;
+      primeAvatarSpeechPlayback();
       if (!findMessageByKey(messages, messageKey)) {
         toast.error('Could not update that message.');
         return;
       }
-      setSuggestionSheetOpen(false);
       setEditingKey(null);
       userTurnsInFlightRef.current += 1;
       const generation = ++turnGenerationRef.current;
@@ -1184,6 +1254,7 @@ const LiveVoiceMode = ({
   );
 
   const startLiveListening = useCallback(async () => {
+    primeAvatarSpeechPlayback();
     if (!canDictate) {
       toast.error(speechInputUnavailableMessage);
       return;
@@ -1270,8 +1341,7 @@ const LiveVoiceMode = ({
           console.error('Live listening failed:', listenError);
           stopLiveListening();
           if (isMicrophoneAccessRefused(listenError)) {
-            microphoneBlockedByBrowserRef.current = true;
-            setMicMuted(true);
+            markMicrophoneBlocked(true);
             setLiveListeningPreferred(false);
             return;
           }
@@ -1286,16 +1356,16 @@ const LiveVoiceMode = ({
         return;
       }
       listenerRef.current = listener;
-      microphoneBlockedByBrowserRef.current = false;
+      markMicrophoneBlocked(false);
       setIsLiveListening(true);
     } catch (microphoneError) {
       // The stage asks for the microphone as soon as it opens. A refusal is
       // the browser's answer, not a toast: the mic control reads off until
-      // they allow it in settings (or press unmute, which asks again).
+      // they allow it in settings (or press unmute, which asks again). The
+      // saved mic mute is left alone — see `markMicrophoneBlocked`.
       setLiveListeningPreferred(false);
-      setMicMuted(true);
       if (isMicrophoneAccessRefused(microphoneError)) {
-        microphoneBlockedByBrowserRef.current = true;
+        markMicrophoneBlocked(true);
         return;
       }
       toast.error('Could not start listening.', {
@@ -1304,19 +1374,49 @@ const LiveVoiceMode = ({
     } finally {
       listenerStartInFlightRef.current = false;
     }
-  }, [canDictate, setMicMuted, stopLiveListening]);
+  }, [canDictate, markMicrophoneBlocked, stopLiveListening]);
 
   useEffect(() => {
     return watchMicrophonePermission((state) => {
       if (state !== 'granted') return;
       if (!microphoneBlockedByBrowserRef.current) return;
-      microphoneBlockedByBrowserRef.current = false;
+      markMicrophoneBlocked(false);
       if (!canDictate) return;
       setMicMuted(false);
       setLiveListeningPreferred(true);
       startLiveListening();
     });
-  }, [canDictate, setMicMuted, startLiveListening]);
+  }, [canDictate, markMicrophoneBlocked, setMicMuted, startLiveListening]);
+
+  // Phones often refuse a microphone request that no tap led to, and iOS
+  // cannot report permission changes, so the watcher above never fires
+  // there. The first tap anywhere on the stage after a refusal asks again,
+  // once — the tap is the gesture the browser wanted. The person's own mute
+  // still wins; only a browser refusal is retried.
+  const retriedMicrophoneAfterTapRef = useRef(false);
+  useEffect(() => {
+    if (!isMicrophoneBlocked) {
+      retriedMicrophoneAfterTapRef.current = false;
+      return undefined;
+    }
+    if (isMicMuted || !canDictate || retriedMicrophoneAfterTapRef.current) {
+      return undefined;
+    }
+    const retryOnTap = () => {
+      retriedMicrophoneAfterTapRef.current = true;
+      markMicrophoneBlocked(false);
+      setLiveListeningPreferred(true);
+      startLiveListening();
+    };
+    document.addEventListener('pointerdown', retryOnTap, { once: true });
+    return () => document.removeEventListener('pointerdown', retryOnTap);
+  }, [
+    canDictate,
+    isMicMuted,
+    isMicrophoneBlocked,
+    markMicrophoneBlocked,
+    startLiveListening,
+  ]);
 
   // --- who may open the microphone ------------------------------------------
   // One gate, derived from state, rather than a pause here and a resume there,
@@ -1393,7 +1493,7 @@ const LiveVoiceMode = ({
 
   const toggleLiveListening = () => {
     if (isLiveListening) {
-      microphoneBlockedByBrowserRef.current = false;
+      markMicrophoneBlocked(false);
       setLiveListeningPreferred(false);
       stopLiveListening();
       return;
@@ -1402,7 +1502,7 @@ const LiveVoiceMode = ({
       toast.error(speechInputUnavailableMessage);
       return;
     }
-    microphoneBlockedByBrowserRef.current = false;
+    markMicrophoneBlocked(false);
     setMicMuted(false);
     setLiveListeningPreferred(true);
     startLiveListening();
@@ -1414,13 +1514,20 @@ const LiveVoiceMode = ({
     wasMicMutedRef.current = isMicMuted;
     if (!wasMuted || isMicMuted) return;
     if (isLiveListening || !canDictate) return;
-    microphoneBlockedByBrowserRef.current = false;
+    markMicrophoneBlocked(false);
     setLiveListeningPreferred(true);
     startLiveListening();
-  }, [isMicMuted, isLiveListening, canDictate, startLiveListening]);
+  }, [
+    isMicMuted,
+    isLiveListening,
+    canDictate,
+    markMicrophoneBlocked,
+    startLiveListening,
+  ]);
 
   // --- dictation (one utterance into the text box) ---------------------------------
   const startDictation = async () => {
+    primeAvatarSpeechPlayback();
     if (!canDictate) {
       toast.error(speechInputUnavailableMessage);
       return;
@@ -1440,7 +1547,8 @@ const LiveVoiceMode = ({
     } catch (dictationError) {
       setIsDictating(false);
       if (isMicrophoneAccessRefused(dictationError)) {
-        setMicMuted(true);
+        // The browser's refusal, not a saved choice to mute.
+        markMicrophoneBlocked(true);
         return;
       }
       toast.error('Could not start recording.');
@@ -1505,6 +1613,7 @@ const LiveVoiceMode = ({
       return `${avatarName ?? 'The avatar'} is looking…`;
     }
     if (isMicMuted) return 'Mic muted';
+    if (isMicrophoneBlocked) return 'Microphone blocked — tap to allow';
     if (isLiveListening) return 'Live — say something';
     if (ambientEnabled)
       return describeAmbientStatus(ambientStatus, ambientNextInMs);
@@ -1568,17 +1677,22 @@ const LiveVoiceMode = ({
     requestAnimationFrame(() => requestAnimationFrame(focus));
   };
 
+  const latestNotice = noticeMessages[noticeMessages.length - 1];
   const renderNoticeCard = (message, messageKey) => (
     <div
       key={messageKey}
-      className="self-start w-full max-w-[min(100%,28rem)] sm:max-w-[85%] caption-actions pointer-events-auto"
+      className="self-start w-full max-w-[min(100%,28rem)] sm:max-w-[85%] caption-actions pointer-events-auto min-w-0"
     >
       <AmbientNotificationCard
         message={message}
         assistantId={assistantId}
         avatarName={avatarName}
         onReply={replyToNotice}
-        defaultCollapsed
+        defaultCollapsed={noticeStartsCollapsed({
+          isLatestNotice:
+            message === latestNotice ||
+            messageKeyOf(latestNotice) === messageKey,
+        })}
         storedDecision={noticeDecisionFor(avatarPreferences, message)}
         onRecorded={refreshAvatarPreferences}
         onAllowAction={allowAmbientAction}
@@ -1679,6 +1793,7 @@ const LiveVoiceMode = ({
     <div
       className="voice-stage fixed top-0 right-0 bottom-0 left-[var(--app-rail-width)] z-30 bg-transparent overflow-hidden"
       onPointerDown={(event) => {
+        primeAvatarSpeechPlayback();
         if (!shouldCollapseVoiceMessageBar(event.target)) return;
         // A waiting attachment is a draft. Folding the bar would hide the
         // only sign it is there, the same strip message mode keeps in view.
@@ -1692,7 +1807,6 @@ const LiveVoiceMode = ({
         }
         setIsMessageBarCollapsed(true);
         setIsComposerMenuOpen(false);
-        setSuggestionSheetOpen(false);
       }}
     >
       {/* The place the person is standing in, behind the avatar. The stage and
@@ -1713,7 +1827,7 @@ const LiveVoiceMode = ({
       >
         <div
           ref={portraitWellRef}
-          className="relative max-w-full max-h-full"
+          className="relative max-w-full max-h-full pointer-events-none"
           style={
             portraitWellSize
               ? {
@@ -1730,7 +1844,7 @@ const LiveVoiceMode = ({
         >
           {isAvatarSpeaking && (
             <div
-              className="voice-speak-glow absolute inset-0 z-10 rounded-2xl"
+              className="voice-speak-glow absolute inset-0 z-10 rounded-2xl pointer-events-none"
               aria-hidden
             />
           )}
@@ -1776,6 +1890,7 @@ const LiveVoiceMode = ({
               className="px-3 pt-[max(0.5rem,env(safe-area-inset-top))]"
               avatarName={avatarName}
               headerFace={headerFace}
+              assistantId={assistantId}
               activeTab="chat"
               isPersonalAvatar={isPersonalAvatar}
               canOpenAvatarSettings={canOpenAvatarSettings}
@@ -1791,17 +1906,29 @@ const LiveVoiceMode = ({
         ) : (
           <div className="flex items-center justify-between gap-2 px-3 pt-[max(0.5rem,env(safe-area-inset-top))] pb-2">
             <div className="flex items-center gap-2 min-w-0">
-              <div className="w-7 h-7 shrink-0 rounded-full overflow-hidden bg-black/50 border border-white/10 flex items-center justify-center">
+              <button
+                type="button"
+                onClick={() => {
+                  onNavigateTab?.('chat');
+                  onClose?.();
+                }}
+                title={avatarName ? `Open chat with ${avatarName}` : 'Open chat'}
+                aria-label={
+                  avatarName ? `Open chat with ${avatarName}` : 'Open chat'
+                }
+                className="profile-bubble-disc relative w-7 h-7 shrink-0 rounded-full overflow-hidden bg-black/50 border border-white/10 hover:bg-white/10 focus:outline-none focus:ring-2 focus:ring-white/20"
+              >
                 {avatarPortrait && isValidImageUrl(avatarPortrait) ? (
-                  <img
+                  <ProfileBubbleImage
                     src={avatarPortrait}
                     alt=""
-                    className="w-full h-full object-cover"
+                    assistantId={assistantId}
+                    className="h-full w-full"
                   />
                 ) : (
-                  <User className="w-4 h-4 text-white/40" />
+                  <User className="absolute inset-0 m-auto w-4 h-4 text-white/40" />
                 )}
-              </div>
+              </button>
               <div className="min-w-0">
                 <p className="text-neutral-200 font-semibold leading-tight truncate">
                   {avatarName ?? 'Your avatar'}
@@ -1826,6 +1953,7 @@ const LiveVoiceMode = ({
           avatarMuted: isAvatarMuted,
           hasVoiceModel:
             canPlayAvatarVoice && !speech.notReady && !speech.blocked,
+          playbackBlocked: speechPlaybackBlocked,
         }) &&
           (stageFlash || assistantActivity || showGeneratingStopRow))) && (
         <div
@@ -2055,7 +2183,6 @@ const LiveVoiceMode = ({
                       setFeedbackKey(null);
                     }}
                     onStartEdit={() => {
-                      setSuggestionSheetOpen(false);
                       setEditingKey(messageKey);
                       setEditDraft(captionText);
                     }}
@@ -2082,6 +2209,7 @@ const LiveVoiceMode = ({
                               portrait={readerPortrait}
                               name="You"
                               isSpeaking={isUserSpeaking}
+                              assistantId={personalAssistantId}
                             />
                           )}
                           <div
@@ -2104,7 +2232,9 @@ const LiveVoiceMode = ({
                                   : undefined
                             }
                           >
-                            <div className="whitespace-pre-wrap">{row.text}</div>
+                            <div className={`whitespace-pre-wrap ${LEGIBLE_TEXT_CLASSES}`}>
+                              <LinkifiedText text={row.text} />
+                            </div>
                             {isLast ? (
                               <>
                                 <MessageMedia media={message.media} />
@@ -2167,9 +2297,13 @@ const LiveVoiceMode = ({
                         </div>
                       )}
                       {captionText ? (
-                        <div className="whitespace-pre-wrap">{captionText}</div>
+                        <div className={`whitespace-pre-wrap ${LEGIBLE_TEXT_CLASSES}`}>
+                          <LinkifiedText text={captionText} />
+                        </div>
                       ) : message.media?.length ? null : (
-                        <div className="whitespace-pre-wrap">…</div>
+                        <div className={`whitespace-pre-wrap ${LEGIBLE_TEXT_CLASSES}`}>
+                          …
+                        </div>
                       )}
                       <MessageMedia media={message.media} />
                       {messageCharts.map((chart, index) => (
@@ -2300,7 +2434,7 @@ const LiveVoiceMode = ({
                   className="w-full bg-transparent px-2 py-1.5 text-sm text-neutral-200 placeholder-white/40 focus:outline-none"
                 />
               </form>
-              <div className="flex items-center gap-1 min-w-0">
+              <div className={voiceMessageBarControlsRowClass()}>
                 <div className="relative shrink-0 flex items-center gap-0.5">
                   <input
                     ref={fileInputRef}
@@ -2362,8 +2496,8 @@ const LiveVoiceMode = ({
                     </>
                   )}
                 </div>
-                <div className="flex items-center gap-0.5 min-w-0 overflow-x-auto scrollbar-none flex-1">
-                  <div className="flex items-center rounded-full bg-white/5 border border-white/10">
+                <div className={voiceMessageBarOverflowControlsClass()}>
+                  <div className="flex items-center rounded-full bg-white/5 border border-white/10 p-0.5">
                     <button
                       type="button"
                       onClick={toggleLiveListening}

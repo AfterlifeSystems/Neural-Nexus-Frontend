@@ -42,7 +42,9 @@ import {
   stopNarrationSpeech,
 } from '../services/sceneNarrationSpeech';
 import useMotionWireframe from '../hooks/useMotionWireframe';
+import useMotionCapture from '../hooks/useMotionCapture';
 import { MOTION_WIREFRAME_ENABLED } from '../config/motionWireframe';
+import { shouldRunMotionCapture } from '../config/motionCapture';
 import { getAvatarMotionBasis, postAvatarMotionTrack } from '../services/avatarService';
 import { resolveAssistantId } from '../components/utils';
 import {
@@ -323,15 +325,35 @@ export function MediaShareProvider({
   };
 
   // The wireframe over the person (src/hooks/useMotionWireframe.js): runs on
-  // the webcam while an observation could be sent, and hands windows to the
-  // ambient loop below. Once the API has fitted this avatar's expression
-  // basis the browser encodes face frames locally and the dense mesh stops
-  // crossing the wire; the basis is re-read now and then to pick up a refit.
+  // the webcam while an observation could be sent AND the person has switched
+  // "Learn how I move" on (src/config/motionCapture.js — off by default, per
+  // browser, flipped from account settings or the personal avatar's
+  // settings), and hands windows to the ambient loop below. Once the API has
+  // fitted this avatar's expression basis the browser encodes face frames
+  // locally and the dense mesh stops crossing the wire; the basis is re-read
+  // now and then to pick up a refit.
+  const { motionCaptureEnabled } = useMotionCapture();
   const motionAssistantId = activeAvatar ? resolveAssistantId(activeAvatar) : null;
+  const motionCaptureRuns = shouldRunMotionCapture({
+    captureEnabled: motionCaptureEnabled,
+    ambientAllowed,
+    ambientCaptureAllowed,
+    hasAvatar: Boolean(activeAvatar),
+    // Only a camera facing the person can teach how the person moves; a
+    // rear camera pointed at the world (the accessibility narration mode
+    // paces those as fast as every five seconds) is not landmarked at all,
+    // so a phone's battery is not spent on frames the API would refuse.
+    cameraFacesPerson: webcamFacingMode === CAMERA_FACING_FRONT,
+  });
   const [motionBasis, setMotionBasis] = useState(null);
   const motionBasisAvatarRef = useRef(null);
   useEffect(() => {
-    if (!MOTION_WIREFRAME_ENABLED || !motionAssistantId || !webcamStream) {
+    if (
+      !MOTION_WIREFRAME_ENABLED ||
+      !motionCaptureRuns ||
+      !motionAssistantId ||
+      !webcamStream
+    ) {
       return undefined;
     }
     let cancelled = false;
@@ -353,7 +375,7 @@ export function MediaShareProvider({
       cancelled = true;
       clearInterval(timer);
     };
-  }, [motionAssistantId, webcamStream]);
+  }, [motionAssistantId, motionCaptureRuns, webcamStream]);
   const {
     frame: motionFrame,
     meshEdges: motionMeshEdges,
@@ -361,15 +383,7 @@ export function MediaShareProvider({
     status: motionStatus,
     takeWindow: takeMotionWindow,
   } = useMotionWireframe(webcamStream, {
-    // Only a camera facing the person can teach how the person moves; a
-    // rear camera pointed at the world (the accessibility narration mode
-    // paces those as fast as every five seconds) is not landmarked at all,
-    // so a phone's battery is not spent on frames the API would refuse.
-    enabled:
-      ambientAllowed &&
-      ambientCaptureAllowed &&
-      Boolean(activeAvatar) &&
-      webcamFacingMode === CAMERA_FACING_FRONT,
+    enabled: motionCaptureRuns,
     basis: motionBasisAvatarRef.current === motionAssistantId ? motionBasis : null,
   });
   const takeMotionWindowRef = useRef(takeMotionWindow);

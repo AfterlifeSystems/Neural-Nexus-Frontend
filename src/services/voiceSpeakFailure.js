@@ -67,6 +67,7 @@ function textSaysVoiceNotReady(text) {
     text.includes('no voice yet') ||
     text.includes('no voice model') ||
     text.includes('does not have a voice') ||
+    text.includes('voice not yet added') ||
     text.includes('has no voice') ||
     text.includes('without a voice model') ||
     text.includes('record about two minutes')

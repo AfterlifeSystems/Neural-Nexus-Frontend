@@ -19,8 +19,6 @@ import {
   Users,
 } from 'lucide-react';
 
-import { MdAccessible } from 'react-icons/md';
-
 import { useNavigate, useSearchParams } from 'react-router-dom';
 
 import { useAuth } from '../context/AuthContext';
@@ -223,14 +221,6 @@ const AccountMenu = ({
         ariaLabel="World map of geo-located avatars"
         onClick={() => goTo('/map')}
         isCurrent={currentPath === '/map'}
-      />
-      <AccountMenuItem
-        iconOnly={iconOnly}
-        icon={<MdAccessible className={iconClass} />}
-        label="Accessibility"
-        ariaLabel="Accessibility settings"
-        onClick={() => goTo('/accessibility')}
-        isCurrent={currentPath === '/accessibility'}
       />
       <AccountMenuItem
         iconOnly={iconOnly}

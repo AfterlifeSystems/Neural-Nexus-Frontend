@@ -16,6 +16,7 @@ import { ChevronDown, ChevronUp, MapPin, Trash2 } from 'lucide-react';
 import {
   DEFAULT_GEOFENCE_RADIUS_METERS,
   describeGeofenceRadius,
+  formatCoordinate,
   isValidCoordinate,
   pinOf,
   withPin,
@@ -178,11 +179,9 @@ const AvatarPlaceCard = ({
 
       {!isOpen ? null : (
         <div id="avatar-real-world-location">
-          <p className="mb-4 text-sm text-white/50">
-            Pin this avatar to a place and it appears on your world map. Share
-            the avatar to list the pin for everyone else. Anyone can still talk
-            to it from anywhere; someone standing at the place sees it over
-            their camera. Remove the pin here or from the street map.
+          <p className="mb-4 text-sm leading-relaxed text-white/50">
+            Pin the avatar. Stand in the circle and it opens on the phone. 1 m
+            is a doorway.
           </p>
 
           {savedPin && !isEditing ? (
@@ -192,8 +191,8 @@ const AvatarPlaceCard = ({
                   {savedPin.location_name ?? 'An unnamed place'}
                 </p>
                 <p className="text-xs text-white/40">
-                  {Number(savedPin.latitude).toFixed(6)},{' '}
-                  {Number(savedPin.longitude).toFixed(6)} · visitors count as
+                  {formatCoordinate(savedPin.latitude)},{' '}
+                  {formatCoordinate(savedPin.longitude)} · visitors count as
                   here within{' '}
                   {describeGeofenceRadius(savedPin.geofence_radius_meters)}
                 </p>
@@ -205,7 +204,7 @@ const AvatarPlaceCard = ({
                   disabled={isSaving}
                   className="rounded-md border border-white/10 bg-black/40 px-3 py-1.5 text-sm text-neutral-200 hover:bg-black/60 focus:outline-none focus:ring-2 focus:ring-amber-400/50 disabled:opacity-60"
                 >
-                  Move this avatar
+                  Edit avatar location
                 </button>
                 <button
                   type="button"
