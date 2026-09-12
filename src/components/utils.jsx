@@ -1,5 +1,13 @@
 import { isAdminAccount } from '../config/adminAccount';
 import { getSessionCredential } from '../services/neuralNexusApiClient';
+import { forgetCachedAvatarIcon } from './avatarIconCache';
+
+export {
+  forgetCachedAvatarIcon,
+  forgetCachedAvatarIconsExcept,
+  readCachedAvatarIcons,
+  writeCachedAvatarIcon,
+} from './avatarIconCache';
 
 export const isValidImageUrl = (url) => {
   if (!url) return false;
@@ -264,76 +272,6 @@ export const resolveBillingPath = (pathname = currentPathname()) => {
     : '/billing';
 };
 
-// Portraits are cached under one key each. The prefix is named once so the
-// readers, the writer, and the two eviction paths cannot disagree about it.
-const AVATAR_ICON_KEY_PREFIX = 'avatar_icon_';
-
-/**
- * Every portrait this browser has already seen, keyed by assistant_id.
- *
- * Read synchronously at mount so the gallery can paint immediately instead of
- * waiting on a request per avatar. What comes back may be stale — the caller is
- * expected to revalidate against the API and correct any entry that changed.
- *
- * @returns {Object} A map of assistant_id to data URI / URL.
- */
-export const readCachedAvatarIcons = () => {
-  const cachedIcons = {};
-  try {
-    for (let keyIndex = 0; keyIndex < localStorage.length; keyIndex++) {
-      const key = localStorage.key(keyIndex);
-      if (!key?.startsWith(AVATAR_ICON_KEY_PREFIX)) continue;
-      const iconSource = localStorage.getItem(key);
-      if (iconSource) {
-        cachedIcons[key.slice(AVATAR_ICON_KEY_PREFIX.length)] = iconSource;
-      }
-    }
-  } catch (cacheError) {
-    // Private mode and disabled storage both throw here. A cold gallery is the
-    // cost; it still fills in from the API.
-    console.error('Failed to read cached avatar portraits:', cacheError);
-  }
-  return cachedIcons;
-};
-
-/**
- * Remember one avatar's portrait for the next visit.
- *
- * A portrait is a base64 data URI and can run to hundreds of kilobytes, so a
- * large account can exhaust the storage quota. That is survivable — the cache
- * is an optimisation, and the API remains the source of truth — so a failed
- * write is logged and otherwise ignored.
- *
- * @param {string} avatarId The assistant_id the portrait belongs to.
- * @param {string} iconSource A data URI or image URL.
- */
-export const writeCachedAvatarIcon = (avatarId, iconSource) => {
-  if (!avatarId || !iconSource) return;
-  try {
-    localStorage.setItem(`${AVATAR_ICON_KEY_PREFIX}${avatarId}`, iconSource);
-  } catch (cacheError) {
-    console.error('Failed to cache an avatar portrait:', cacheError);
-  }
-};
-
-/**
- * Forget one avatar's portrait, leaving the rest of its cached state alone.
- *
- * Used when the API answers that an avatar has no stored portrait: the entry is
- * not stale, it is wrong, and leaving it would show a picture the avatar no
- * longer has.
- *
- * @param {string} avatarId The assistant_id whose portrait is gone.
- */
-export const forgetCachedAvatarIcon = (avatarId) => {
-  if (!avatarId) return;
-  try {
-    localStorage.removeItem(`${AVATAR_ICON_KEY_PREFIX}${avatarId}`);
-  } catch (cacheError) {
-    console.error('Failed to drop a cached avatar portrait:', cacheError);
-  }
-};
-
 /**
  * Drop every browser-local trace of one avatar.
  *
@@ -347,7 +285,7 @@ export const forgetCachedAvatarIcon = (avatarId) => {
 export const forgetCachedAvatar = (avatarId) => {
   if (!avatarId) return;
   try {
-    localStorage.removeItem(`${AVATAR_ICON_KEY_PREFIX}${avatarId}`);
+    forgetCachedAvatarIcon(avatarId);
     localStorage.removeItem(`avatar_position_${avatarId}`);
     for (const sharedKey of [
       'last_used_avatar_id',

@@ -38,6 +38,7 @@ import {
   readCachedAvatarIcons,
   writeCachedAvatarIcon,
   forgetCachedAvatarIcon,
+  forgetCachedAvatarIconsExcept,
   resolveAssistantId,
 } from './utils';
 import { useMedia } from '../context/MediaContext';
@@ -169,6 +170,11 @@ const AvatarSelectionComponent = ({}) => {
     if (!Array.isArray(userAvatars) || userAvatars.length === 0) {
       return undefined;
     }
+    // Production profiles keep portraits for avatars that no longer exist.
+    // Those leftovers are what fill the origin quota on neuralnexus.site.
+    forgetCachedAvatarIconsExcept(
+      userAvatars.map((avatar) => resolveAssistantId(avatar)).filter(Boolean)
+    );
     let cancelled = false;
 
     for (const avatar of userAvatars) {
@@ -275,11 +281,6 @@ const AvatarSelectionComponent = ({}) => {
       // One writer for the portrait cache, shared with the gallery's
       // revalidation, so the key shape is defined in exactly one place.
       writeCachedAvatarIcon(avatarId, iconUrl);
-      try {
-        localStorage.setItem('last_avatar_icon', iconUrl);
-      } catch (error) {
-        console.error('Failed to record the last avatar icon:', error);
-      }
     }
     cacheAvatarPosition(avatarId, avatarIndex);
   };
