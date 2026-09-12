@@ -12,6 +12,7 @@ export default function Footer() {
         >
           Privacy Policy
         </a>
+        <span aria-hidden="true"> · </span>
         <a
           href="/terms"
           className="mx-2 text-neutral-200 hover:text-neutral-100 underline transition"

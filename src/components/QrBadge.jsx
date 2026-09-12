@@ -14,11 +14,8 @@ import { useNavigate, useLocation } from 'react-router-dom';
 
 import { useAuth } from '../context/AuthContext';
 import { isSharedAvatarLinkPath } from './utils';
+import { pathCarriesItsOwnQrCode } from './qrBadgePath';
 import qrCode from '../assets/qr-neuralnexus-transparent.png';
-
-// The landing page already devotes a section to this code at a size worth
-// scanning, so the corner badge would only repeat it there.
-const PATHS_WITH_THEIR_OWN_CODE = ['/welcome'];
 
 const QrBadge = () => {
   const navigate = useNavigate();
@@ -43,7 +40,9 @@ const QrBadge = () => {
     return null;
   }
 
-  if (PATHS_WITH_THEIR_OWN_CODE.includes(location.pathname)) {
+  // `/` and `/welcome` already show a scan-sized code in the hero, so a
+  // second copy in the corner only pollutes the page text and the camera.
+  if (pathCarriesItsOwnQrCode(location.pathname)) {
     return null;
   }
 

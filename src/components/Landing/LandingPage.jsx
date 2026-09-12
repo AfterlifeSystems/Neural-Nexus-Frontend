@@ -11,7 +11,10 @@ import Footer from './Footer';
 
 export default function LandingPage() {
   return (
-    <div className="min-h-screen flex flex-col">
+    // `relative z-10` lifts this screen above the full-viewport Vanta net.
+    // Without it the DOM still has Product, About, and the rest — a copy of
+    // the page text is complete — and the canvas paints over them.
+    <div className="relative z-10 min-h-screen flex flex-col">
       <Header />
       <Hero /> {/* Hero now contains the embedded live avatar demo */}
       <Product />
