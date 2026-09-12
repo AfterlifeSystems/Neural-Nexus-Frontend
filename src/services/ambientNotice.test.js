@@ -19,6 +19,7 @@ import {
   noticeHasSomethingToReplyTo,
   noticeOffer,
   noticePreview,
+  noticeStartsCollapsed,
   noticeShowsIgnoreAction,
   offerVerb,
   noticeWasDecided,
@@ -93,6 +94,12 @@ test('a click on the card body folds it; a click on a control does not', () => {
     }),
     false
   );
+});
+
+test('the latest notice starts open so the full observation is readable', () => {
+  assert.equal(noticeStartsCollapsed({ isLatestNotice: true }), false);
+  assert.equal(noticeStartsCollapsed({ isLatestNotice: false }), true);
+  assert.equal(noticeStartsCollapsed(), false);
 });
 
 test('a folded notice shows the summary, else the first line of the heads-up', () => {

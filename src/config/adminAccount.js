@@ -1,7 +1,9 @@
 // src/config/adminAccount.js
 //
-// Who the administrator is, for the one capability the API grants that account
-// beyond an ordinary user's: sharing avatars.
+// Who the administrator is, for the capabilities the API grants that account
+// beyond an ordinary user's: sharing any avatar, and uploading reference
+// media (a menu or other consultable material, not identity) on avatars
+// that account created.
 //
 // The Neural Nexus API resolves the administrator from ADMIN_USER_ID and lets
 // that account publish or withdraw ANY avatar, including avatars it did not
@@ -40,3 +42,17 @@ export const isAdminAccount = (user) => {
     ADMIN_ACCOUNT_EMAIL.trim().toLowerCase()
   );
 };
+
+/**
+ * Decide whether Avatar Settings should offer reference-media upload.
+ *
+ * Reference media is a consultable item (a restaurant menu, a price list)
+ * stored for the avatar to retrieve. The API accepts that flag only on
+ * avatars created by the administrator, and only the creator sees the full
+ * settings screen, so the signed-in account being the administrator is the
+ * whole question. Other accounts never see the option.
+ *
+ * @param {Object} user The signed-in user, as held in AuthContext.
+ * @returns {boolean} Whether the reference-media control should render.
+ */
+export const canUploadReferenceMedia = (user) => isAdminAccount(user);

@@ -9,6 +9,7 @@
 // downloaded here; a URL has no EXIF and does not pin the avatar anywhere.
 
 import { isValidCoordinate } from './avatarProximity.js';
+import { identityUrlsForUpload } from './createAvatarIdentityLinks.js';
 import { readDevicePositionOnce } from './deviceLocation.js';
 import { readImageFileGps, roundCoordinate } from './jpegExifGps.js';
 
@@ -147,14 +148,19 @@ export function describePhotoPlaceError(error) {
 
 /**
  * After the avatar exists, store the photograph as the portrait and as
- * identity media, then start deep research. Settings shows both jobs; research
- * waits until the identity ingest finishes so it can read the picture.
+ * identity media, and ingest any optional identity-source links. Settings
+ * shows the jobs; research waits until identity ingest finishes so it can
+ * read the picture and the pages.
  *
  * @param {Object} parameters
  * @param {string} parameters.assistantId
  * @param {File} [parameters.photoFile] The chosen or captured picture.
  * @param {string} [parameters.photoUrl] An image address instead of a file.
  *   The server fetches it; the same media endpoint takes `url`.
+ * @param {string[]} [parameters.identityUrls] Extra http(s) pages about the
+ *   subject (YouTube, articles). Posted as identity media, not as the
+ *   portrait. The photograph address is omitted when it is already in this
+ *   list so the same URL is not ingested twice.
  * @param {Function} [parameters.uploadIdentityMedia]
  * @returns {Promise<{portraitOk: boolean, identityOk: boolean}>}
  *
@@ -167,37 +173,51 @@ export async function startCreateAvatarPhotoFollowUp({
   assistantId,
   photoFile,
   photoUrl,
+  identityUrls = [],
   uploadIdentityMedia,
 }) {
   const trimmedUrl = String(photoUrl ?? '').trim();
-  if (!assistantId || (!photoFile && !trimmedUrl)) {
+  const extraUrls = identityUrlsForUpload(identityUrls, trimmedUrl);
+  const hasPhoto = Boolean(photoFile || trimmedUrl);
+  const hasLinks = extraUrls.length > 0;
+  if (!assistantId || (!hasPhoto && !hasLinks)) {
     return { portraitOk: false, identityOk: false };
   }
-  const media = photoFile
+
+  const photoMedia = photoFile
     ? { files: [photoFile], urls: [] }
-    : { files: [], urls: [trimmedUrl] };
+    : trimmedUrl
+      ? { files: [], urls: [trimmedUrl] }
+      : { files: [], urls: [] };
+
+  const identityMedia = {
+    files: photoMedia.files,
+    urls: [...photoMedia.urls, ...extraUrls],
+  };
 
   const upload =
     uploadIdentityMedia ??
     (await import('./identityMediaJobs.js')).startIdentityMediaUpload;
 
-  const portraitPromise = Promise.resolve(
-    upload({
-      assistantId,
-      ...media,
-      isReferenceImage: true,
-    })
-  ).catch((error) => {
-    console.error('Portrait upload after create-from-photo failed:', error);
-    return false;
-  });
+  const portraitPromise = hasPhoto
+    ? Promise.resolve(
+        upload({
+          assistantId,
+          ...photoMedia,
+          isReferenceImage: true,
+        })
+      ).catch((error) => {
+        console.error('Portrait upload after create-from-photo failed:', error);
+        return false;
+      })
+    : Promise.resolve(false);
 
   let identityOk = false;
   try {
     identityOk = Boolean(
       await upload({
         assistantId,
-        ...media,
+        ...identityMedia,
         isReferenceImage: false,
       })
     );
@@ -205,6 +225,6 @@ export async function startCreateAvatarPhotoFollowUp({
     console.error('Identity upload after create-from-photo failed:', error);
   }
 
-  const portraitOk = Boolean(await portraitPromise);
+  const portraitOk = hasPhoto ? Boolean(await portraitPromise) : false;
   return { portraitOk, identityOk };
 }

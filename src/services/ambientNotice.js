@@ -155,6 +155,21 @@ export function noticePreview(message) {
 }
 
 /**
+ * Whether a notice card should start folded.
+ *
+ * Older cards fold so the stage is not a stack of full observations. The
+ * latest one stays open: on a phone a folded preview with `truncate` cut
+ * words in half (Method → Meth) and hid the rest of the heads-up.
+ *
+ * @param {Object} [options]
+ * @param {boolean} [options.isLatestNotice]
+ * @returns {boolean}
+ */
+export function noticeStartsCollapsed({ isLatestNotice = true } = {}) {
+  return !isLatestNotice;
+}
+
+/**
  * The Agent Inbox decision a thumbs-up or thumbs-down on a notice records.
  *
  * Like is `accept`: keep telling me about this kind of scene. Dislike is

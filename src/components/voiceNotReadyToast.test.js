@@ -26,11 +26,11 @@ function memoryStorage(initial = {}) {
 test('the notice names a missing voice model', () => {
   assert.equal(
     voiceNotReadyToastTitle('Maya'),
-    'Maya does not have a voice model'
+    'Maya: voice not yet added to this model'
   );
   assert.equal(
     voiceNotReadyToastTitle(),
-    'This avatar does not have a voice model'
+    'Voice not yet added to this model'
   );
 });
 

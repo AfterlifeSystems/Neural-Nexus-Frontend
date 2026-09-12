@@ -24,6 +24,7 @@
 import React, { useEffect, useState } from 'react';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { MessageCircle, Sparkles, User } from 'lucide-react';
+import ProfileBubbleImage from './ProfileBubbleImage';
 
 import { useAuth } from '../context/AuthContext';
 import { useMedia, NEW_CONVERSATION_ID } from '../context/MediaContext';
@@ -39,6 +40,7 @@ import LoadingSpinner from './LoadingSpinner';
 import LiveVoiceMode from './LiveVoiceMode';
 import { useGeoAvatars } from '../context/GeoAvatarContext';
 import { searchRequestsVoiceMode } from '../services/voiceModePreference';
+import { primeAvatarSpeechPlayback } from '../services/avatarSpeechUnlock';
 import MessageList from './MessageList';
 import InputBar from './InputBar';
 
@@ -282,15 +284,16 @@ const SharedAvatarChat = () => {
             switch to and nothing to administer, so it carries no tabs. */}
         <div className="flex items-center justify-between gap-3 px-4 py-3 border-b border-white/10">
           <div className="flex items-center gap-3 min-w-0">
-            <div className="w-9 h-9 shrink-0 rounded-full bg-black/50 border border-white/10 overflow-hidden flex items-center justify-center">
+            <div className="relative w-9 h-9 shrink-0 rounded-full bg-black/50 border border-white/10 overflow-hidden">
               {avatarPortrait && isValidImageUrl(avatarPortrait) ? (
-                <img
+                <ProfileBubbleImage
                   src={avatarPortrait}
                   alt={activeAvatar?.name ?? 'Avatar'}
-                  className="w-full h-full object-cover"
+                  assistantId={avatarId}
+                  className="h-full w-full"
                 />
               ) : (
-                <User className="w-5 h-5 text-white/40" />
+                <User className="absolute inset-0 m-auto w-5 h-5 text-white/40" />
               )}
             </div>
             <span className="text-neutral-200 font-semibold truncate">
@@ -362,7 +365,10 @@ const SharedAvatarChat = () => {
               suggestionsEnabled={
                 hasCheckedForEarlierChats && !isOfferingTheOpeningQuestion
               }
-              onActivateLiveChat={() => setIsLiveModeOpen(true)}
+              onActivateLiveChat={() => {
+                primeAvatarSpeechPlayback();
+                setIsLiveModeOpen(true);
+              }}
             />
           </div>
 

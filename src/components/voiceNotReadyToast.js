@@ -45,7 +45,9 @@ export function avatarVoiceSettingsPath(assistantId) {
 }
 
 export function voiceNotReadyToastTitle(avatarName) {
-  return `${avatarName ?? 'This avatar'} does not have a voice model`;
+  return avatarName
+    ? `${avatarName}: voice not yet added to this model`
+    : 'Voice not yet added to this model';
 }
 
 function readableStorage(storage) {

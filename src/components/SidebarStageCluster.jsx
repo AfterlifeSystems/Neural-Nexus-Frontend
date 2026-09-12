@@ -15,8 +15,8 @@ export const RAIL_SHARE_PREVIEW_WELL_CLASS = 'w-full px-1 min-h-20';
  * New conversation, mute, mic, webcam, and share screen — the stage actions
  * that sit above the QR on the collapsed rail, separated from account chrome.
  *
- * Describing your surroundings is NOT one of them: it is a setting on the
- * Accessibility page (or something the avatar is asked for in words) that
+ * Describing your surroundings is NOT one of them: it is a setting in
+ * account settings (or something the avatar is asked for in words) that
  * changes what the webcam does, not a capture of its own with its own button.
  *
  * The preview well keeps its height whether a share is live or not, so those

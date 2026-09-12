@@ -28,6 +28,7 @@ import {
   voiceModeIsOpen,
   writeVoiceModePreference,
 } from '../services/voiceModePreference';
+import { primeAvatarSpeechPlayback } from '../services/avatarSpeechUnlock';
 
 const ChatArea = ({ onActivateLiveChat, onEndLiveChat, className }) => {
   const { activeAvatar, setActiveAvatar, userAvatars, user, setContext } =
@@ -391,6 +392,7 @@ const ChatArea = ({ onActivateLiveChat, onEndLiveChat, className }) => {
             className="mb-2"
             avatarName={activeAvatar?.name}
             headerFace={headerFace}
+            assistantId={headerAssistantId}
             onPortraitError={() => setAvatarPortrait(null)}
             activeTab={activeTab}
             isPersonalAvatar={isPersonalAvatar}
@@ -412,6 +414,11 @@ const ChatArea = ({ onActivateLiveChat, onEndLiveChat, className }) => {
                     avatarPortrait={avatarPortrait}
                     avatarName={activeAvatar?.name}
                     assistantId={activeAvatar?.assistant_id ?? avatarId}
+                    onAvatarPortraitClick={
+                      canOpenAvatarSettings
+                        ? () => handleTabChange('avatar-settings')
+                        : undefined
+                    }
                   />
                 </div>
               </div>
@@ -419,7 +426,10 @@ const ChatArea = ({ onActivateLiveChat, onEndLiveChat, className }) => {
               <div className="flex-shrink-0 min-w-0 mt-2">
                 <InputBar
                   avatarId={activeAvatar?.assistant_id ?? avatarId}
-                  onActivateLiveChat={() => rememberVoiceModePreference(true)}
+                  onActivateLiveChat={() => {
+                    primeAvatarSpeechPlayback();
+                    rememberVoiceModePreference(true);
+                  }}
                 />
               </div>
             </div>

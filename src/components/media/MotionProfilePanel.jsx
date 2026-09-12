@@ -108,9 +108,15 @@ function describeSeconds(seconds) {
  * and the exact text those numbers produce — with the one control that
  * forgets it all.
  *
- * @param {{ assistantId: string }} props
+ * @param {{ assistantId: string, learnsFromCamera?: boolean }} props
+ *   `learnsFromCamera` is true for the personal avatar, the one the webcam
+ *   can teach; any other avatar learns from uploaded video alone, and the
+ *   copy must not send its owner to a webcam that will not be read.
  */
-export default function MotionProfilePanel({ assistantId }) {
+export default function MotionProfilePanel({
+  assistantId,
+  learnsFromCamera = false,
+}) {
   const [profile, setProfile] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
@@ -175,10 +181,11 @@ export default function MotionProfilePanel({ assistantId }) {
             Motion
           </h2>
           <p className="text-sm text-white/60">
-            How you move, learned from your webcam when it faces you and from
-            videos of you that you upload. The words below are rendered from
-            measurements, and they drive your stills, idle loops and lip-synced
-            clips.
+            {learnsFromCamera
+              ? 'How you move, learned from your webcam while "Learn how I move" is on and from videos of you that you upload. '
+              : 'How this person moves, learned from videos of them that you upload. '}
+            The words below are rendered from measurements, and they drive
+            the stills, idle loops and lip-synced clips.
           </p>
         </div>
         <button
@@ -196,8 +203,9 @@ export default function MotionProfilePanel({ assistantId }) {
 
       {profile && !hasAnything && (
         <p className="text-sm text-white/50">
-          Nothing recorded yet. Turn the webcam on while chatting with your
-          personal avatar, or upload a video of yourself.
+          {learnsFromCamera
+            ? 'Nothing recorded yet. Switch on "Learn how I move" below and turn the webcam on while chatting with your personal avatar, or upload a video of yourself.'
+            : 'Nothing recorded yet. Upload a video of this person.'}
         </p>
       )}
 

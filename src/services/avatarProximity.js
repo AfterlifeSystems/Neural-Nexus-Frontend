@@ -8,10 +8,56 @@
 //
 // No JSX and no import.meta.env, so the Node test runner can import this file.
 
-export const DEFAULT_GEOFENCE_RADIUS_METERS = 6;
+// These bounds match the API. The field must never send a radius outside them.
+export const DEFAULT_GEOFENCE_RADIUS_METERS = 1;
 export const MINIMUM_GEOFENCE_RADIUS_METERS = 1;
 export const MAXIMUM_GEOFENCE_RADIUS_METERS = 5000;
+export const GEOFENCE_RADIUS_PRECISION_METERS = 0.01;
+export const DOORWAY_GEOFENCE_RADIUS_METERS = 1;
+export const METERS_PER_KILOMETER = 1000;
+export const METERS_PER_YARD = 0.9144;
 export const METERS_PER_MILE = 1609.344;
+// Seven decimal places is about 1.1 cm — enough to name a one-metre doorway.
+export const PIN_COORDINATE_DIGITS = 7;
+
+export const GEOFENCE_RADIUS_UNITS = {
+  m: {
+    id: 'm',
+    label: 'm',
+    group: 'metric',
+    metersPerUnit: 1,
+    step: 0.01,
+    displayDigits: 2,
+  },
+  km: {
+    id: 'km',
+    label: 'km',
+    group: 'metric',
+    metersPerUnit: METERS_PER_KILOMETER,
+    step: 0.00001,
+    displayDigits: 5,
+  },
+  yd: {
+    id: 'yd',
+    label: 'yd',
+    group: 'imperial',
+    metersPerUnit: METERS_PER_YARD,
+    step: 0.01,
+    displayDigits: 2,
+  },
+  mi: {
+    id: 'mi',
+    label: 'mi',
+    group: 'imperial',
+    metersPerUnit: METERS_PER_MILE,
+    // 0.000001 mi is about 1.6 mm. Two decimal places used to snap the
+    // control to 0.10 mi (161 m) — the first value that looked non-zero.
+    step: 0.000001,
+    displayDigits: 6,
+  },
+};
+
+export const GEOFENCE_RADIUS_UNIT_ORDER = ['m', 'km', 'yd', 'mi'];
 
 // A desktop Wi-Fi / IP fix is often accurate only to a few kilometres (people
 // read that as "about five miles"). Sending that figure to the API widens every
@@ -56,14 +102,16 @@ export function isValidCoordinate(latitude, longitude) {
  * Clamp a geofence radius to the range the API accepts.
  *
  * @param {unknown} radiusMeters
- * @returns {number} A whole number of meters.
+ * @returns {number} Metres, rounded to the nearest centimetre.
  */
 export function clampGeofenceRadius(radiusMeters) {
   const radius = Number(radiusMeters);
   if (!Number.isFinite(radius)) return DEFAULT_GEOFENCE_RADIUS_METERS;
+  const centimetres = Math.round(radius / GEOFENCE_RADIUS_PRECISION_METERS);
+  const rounded = centimetres * GEOFENCE_RADIUS_PRECISION_METERS;
   return Math.min(
     MAXIMUM_GEOFENCE_RADIUS_METERS,
-    Math.max(MINIMUM_GEOFENCE_RADIUS_METERS, Math.round(radius))
+    Math.max(MINIMUM_GEOFENCE_RADIUS_METERS, rounded)
   );
 }
 
@@ -155,19 +203,104 @@ export function describeDistance(meters) {
 }
 
 /**
- * A geofence radius with both units, so typing "1" cannot be mistaken for
- * miles or metres.
+ * Trim trailing zeros from a decimal so "0.50" reads as "0.5" and "6.00" as "6",
+ * without ever collapsing "0.000311" to "0".
+ *
+ * @param {string} text
+ * @returns {string}
+ */
+function trimTrailingZeros(text) {
+  if (!text.includes('.')) return text;
+  return text.replace(/(\.\d*?)0+$/, '$1').replace(/\.$/, '');
+}
+
+/**
+ * The unit record for a geofence radius control.
+ *
+ * @param {unknown} unitId
+ * @returns {typeof GEOFENCE_RADIUS_UNITS[keyof typeof GEOFENCE_RADIUS_UNITS]}
+ */
+export function geofenceRadiusUnitOf(unitId) {
+  return GEOFENCE_RADIUS_UNITS[unitId] ?? GEOFENCE_RADIUS_UNITS.m;
+}
+
+/**
+ * @param {unknown} value
+ * @param {unknown} unitId
+ * @returns {number}
+ */
+export function metersFromRadiusUnit(value, unitId) {
+  const amount = Number(value);
+  if (!Number.isFinite(amount)) return DEFAULT_GEOFENCE_RADIUS_METERS;
+  return clampGeofenceRadius(amount * geofenceRadiusUnitOf(unitId).metersPerUnit);
+}
+
+/**
+ * @param {unknown} meters
+ * @param {unknown} unitId
+ * @returns {number}
+ */
+export function radiusUnitFromMeters(meters, unitId) {
+  const amount = Number(meters);
+  if (!Number.isFinite(amount) || amount < 0) return 0;
+  return amount / geofenceRadiusUnitOf(unitId).metersPerUnit;
+}
+
+/**
+ * The typed value of a radius in the chosen unit, with enough digits that a
+ * one-metre doorway does not become "0.00 mi".
+ *
+ * @param {unknown} meters
+ * @param {unknown} unitId
+ * @returns {string}
+ */
+export function formatRadiusUnitValue(meters, unitId) {
+  const unit = geofenceRadiusUnitOf(unitId);
+  const amount = radiusUnitFromMeters(meters, unitId);
+  return trimTrailingZeros(amount.toFixed(unit.displayDigits));
+}
+
+/**
+ * @param {unknown} unitId
+ * @returns {number}
+ */
+export function radiusUnitMinimum(unitId) {
+  return radiusUnitFromMeters(MINIMUM_GEOFENCE_RADIUS_METERS, unitId);
+}
+
+/**
+ * @param {unknown} unitId
+ * @returns {number}
+ */
+export function radiusUnitMaximum(unitId) {
+  return radiusUnitFromMeters(MAXIMUM_GEOFENCE_RADIUS_METERS, unitId);
+}
+
+/**
+ * Metres written so 1 stays 1 and 1.5 stays 1.5.
+ *
+ * @param {number} meters
+ * @returns {string}
+ */
+function formatMetersLabel(meters) {
+  if (Math.abs(meters - Math.round(meters)) < 0.0005) {
+    return `${Math.round(meters)} m`;
+  }
+  return `${trimTrailingZeros(meters.toFixed(2))} m`;
+}
+
+/**
+ * A geofence radius in base-ten metric, the units a visitor already knows.
  *
  * @param {unknown} meters
  * @returns {string}
  */
 export function describeGeofenceRadius(meters) {
   const radius = clampGeofenceRadius(meters);
-  const miles = radius / METERS_PER_MILE;
-  if (miles >= 0.1) {
-    return `${radius} m · ${miles < 10 ? miles.toFixed(2) : miles.toFixed(1)} mi`;
+  if (radius >= METERS_PER_KILOMETER) {
+    return `${trimTrailingZeros((radius / METERS_PER_KILOMETER).toFixed(3))} km`;
   }
-  return `${radius} m`;
+  return formatMetersLabel(radius);
 }
 
 /**
@@ -175,9 +308,7 @@ export function describeGeofenceRadius(meters) {
  * @returns {number}
  */
 export function metersFromMiles(miles) {
-  const value = Number(miles);
-  if (!Number.isFinite(value)) return DEFAULT_GEOFENCE_RADIUS_METERS;
-  return value * METERS_PER_MILE;
+  return metersFromRadiusUnit(miles, 'mi');
 }
 
 /**
@@ -185,9 +316,7 @@ export function metersFromMiles(miles) {
  * @returns {number}
  */
 export function milesFromMeters(meters) {
-  const value = Number(meters);
-  if (!Number.isFinite(value) || value < 0) return 0;
-  return value / METERS_PER_MILE;
+  return radiusUnitFromMeters(meters, 'mi');
 }
 
 /**
@@ -541,10 +670,20 @@ export function globePointRadius(altitude, count = 1) {
  * @param {number} [digits]
  * @returns {string}
  */
-export function formatCoordinate(value, digits = 6) {
+export function formatCoordinate(value, digits = PIN_COORDINATE_DIGITS) {
   const number = Number(value);
   if (!Number.isFinite(number)) return '';
   return number.toFixed(digits);
+}
+
+/**
+ * A coordinate stored with enough digits for a one-square-metre place.
+ *
+ * @param {unknown} value
+ * @returns {number}
+ */
+export function pinCoordinate(value) {
+  return Number(Number(value).toFixed(PIN_COORDINATE_DIGITS));
 }
 
 /**
@@ -592,14 +731,15 @@ export function clusterPins(avatars, degreesPerCell = 5) {
 /**
  * A stable key for pins that a person reads as the same doorway.
  *
- * Five decimal places is about one metre.
+ * Six decimal places is about eleven centimetres — two one-square-metre
+ * doorways on the same block stay distinct.
  *
  * @param {unknown} latitude
  * @param {unknown} longitude
  * @param {number} [digits]
  * @returns {string}
  */
-export function samePlaceKey(latitude, longitude, digits = 5) {
+export function samePlaceKey(latitude, longitude, digits = 6) {
   if (!isValidCoordinate(Number(latitude), Number(longitude))) return '';
   return `${Number(latitude).toFixed(digits)}:${Number(longitude).toFixed(digits)}`;
 }

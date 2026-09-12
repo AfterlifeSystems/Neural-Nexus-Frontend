@@ -13,3 +13,5 @@ There will be camera-related login/ new-user awareness leading to onboarding and
 Geo-location enabled in this web app pulls the messaging for logged in users through facial recognition to the LLM of the location (LLM ordering for fast food restaraunts, Pastors or other pertinent avatars for other in-person locations)
 
 new-user awareness brought upon by the facial recognition login always starts the new-user onboarding walkthrough then re-routes per geo-location (regular neural nexus for non geo-fenced locations; llm serving skip-the-line order placement, pastors or religious figures, interactive exhibits AVINA-like virtual presence, Museum, walking path facts, service members, user-created geo-located avatars, etc.)
+
+

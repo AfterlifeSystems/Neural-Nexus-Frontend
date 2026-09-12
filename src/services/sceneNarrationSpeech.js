@@ -26,6 +26,10 @@
 // useless — it is misleading. So starting an utterance ends the one before it.
 
 import { rememberAvatarSpokenLine } from './selfEchoGuard.js';
+import {
+  playOnUnlockedSpeechElement,
+  primeAvatarSpeechPlayback,
+} from './avatarSpeechUnlock.js';
 
 // The avatar's voice is fetched through the API client, which is loaded only
 // when an utterance actually needs it. Two reasons: this module is reached on
@@ -173,7 +177,7 @@ export async function speakNarration(
       });
       if (controller.signal.aborted) return 'silent';
       const objectUrl = URL.createObjectURL(audioBlob);
-      const audio = new Audio(objectUrl);
+      const audio = playOnUnlockedSpeechElement(objectUrl);
       playingObjectUrl = objectUrl;
       playingAudio = audio;
       // A microphone listening in the same room will hear this. Remembering it
@@ -251,6 +255,7 @@ export function announceSceneNarration(
     : 'Surroundings descriptions stopped.';
   if (!enabled) stopNarrationSpeech();
   primeLocalVoice();
+  primeAvatarSpeechPlayback();
   if (!assistantId) {
     return speakLocally(line, { rate: 1 }).then((spoken) =>
       spoken ? 'browser' : 'silent'

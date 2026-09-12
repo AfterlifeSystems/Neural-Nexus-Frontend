@@ -27,7 +27,6 @@ Live Mode lip-synced video generation (launch asset)
 # Llama-Maverick-17B-128E-Instruct Adapter data is created
 # Finetune and use and adapter via together api
 
-
 ----
 
 geo location real-world feature:

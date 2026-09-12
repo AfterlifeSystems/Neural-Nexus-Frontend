@@ -73,6 +73,7 @@ export const collapseDuplicateIdentityDocuments = (documents) => {
     keeper.sourceLabels = group.map((entry) => entry.label);
     keeper.isReferenceAudio = group.some((entry) => entry.isReferenceAudio);
     keeper.isReferenceImage = group.some((entry) => entry.isReferenceImage);
+    keeper.isReferenceMedia = group.some((entry) => entry.isReferenceMedia);
     if (keeper.isReferenceAudio) {
       keeper.referenceRole = 'reference_audio';
     } else if (keeper.isReferenceImage) {

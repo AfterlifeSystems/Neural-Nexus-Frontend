@@ -132,6 +132,9 @@ export function canUseAvatarSpeechPlayback(avatar, user, { pathname } = {}) {
   const userIsAdmin = isAdminAccount(user);
   const onSharedLink = isSharedAvatarChatPath(pathname);
 
+  // Owner may hear any avatar they created (clone or standard voice).
+  if (user?.id && owned) return true;
+
   // Administrator may use spoken audio on any avatar they created.
   if (userIsAdmin && owned) return true;
 

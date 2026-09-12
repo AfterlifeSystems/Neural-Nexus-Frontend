@@ -9,13 +9,18 @@
 // For the avatar's replies the face follows the reply: when generated faces are
 // on for this avatar, the reply's classified emotion is not neutral, and a
 // still exists for that emotion, that still is shown in place of the
-// portrait, so a joyful answer is delivered by a joyful face.
+// portrait, so a joyful answer is delivered by a joyful face. The Settings
+// crop still frames that still.
 
 import React from 'react';
 import { User } from 'lucide-react';
 import { isValidImageUrl } from './utils';
 import { stillFor } from '../hooks/useEmotionMedia';
 import { speakingGlowStyle } from './speakingIndicator';
+import ProfileBubbleImage from './ProfileBubbleImage';
+
+const discClassName =
+  'relative w-8 h-8 rounded-full bg-black/50 border border-white/10 overflow-hidden';
 
 /**
  * @param {Object} props
@@ -26,6 +31,8 @@ import { speakingGlowStyle } from './speakingIndicator';
  * @param {boolean} [props.showGenerated]
  * @param {boolean} [props.isSpeaking] Pulse the identity disc while this person talks.
  * @param {{fill?: string, ring?: string}|null} [props.speakingColor] Identity colour for the pulse.
+ * @param {string|null} [props.assistantId] Applies the profile-bubble crop from settings.
+ * @param {Function} [props.onClick] Opens Avatar Settings for this face.
  */
 export default function MessageAuthorIcon({
   portrait,
@@ -35,12 +42,28 @@ export default function MessageAuthorIcon({
   showGenerated = false,
   isSpeaking = false,
   speakingColor = null,
+  assistantId = null,
+  onClick,
 }) {
   const emotionStill =
     showGenerated && emotion && emotion !== 'neutral'
       ? stillFor(emotionMedia, emotion)
       : null;
   const face = emotionStill ?? portrait;
+  const faceAlt = emotionStill ? `${name} (${emotion})` : name;
+  const openSettingsLabel = `Open avatar settings for ${name}`;
+  const faceNode =
+    face && isValidImageUrl(face) ? (
+      <ProfileBubbleImage
+        src={face}
+        alt={faceAlt}
+        assistantId={assistantId}
+        className="h-full w-full"
+      />
+    ) : (
+      <User className="absolute inset-0 m-auto w-4 h-4 text-white/40" />
+    );
+
   return (
     <div className="relative w-8 h-8 shrink-0">
       {isSpeaking && (
@@ -50,20 +73,26 @@ export default function MessageAuthorIcon({
           aria-hidden
         />
       )}
-      <div
-        className="relative w-8 h-8 rounded-full bg-black/50 border border-white/10 overflow-hidden flex items-center justify-center"
-        title={emotionStill ? emotion : undefined}
-      >
-        {face && isValidImageUrl(face) ? (
-          <img
-            src={face}
-            alt={emotionStill ? `${name} (${emotion})` : name}
-            className="w-full h-full object-cover transition-opacity duration-300"
-          />
-        ) : (
-          <User className="w-4 h-4 text-white/40" />
-        )}
-      </div>
+      {typeof onClick === 'function' ? (
+        <button
+          type="button"
+          onClick={onClick}
+          title={
+            emotionStill ? `${emotion} — ${openSettingsLabel}` : openSettingsLabel
+          }
+          aria-label={openSettingsLabel}
+          className={`profile-bubble-disc ${discClassName} hover:bg-white/10 focus:outline-none focus:ring-2 focus:ring-white/20`}
+        >
+          {faceNode}
+        </button>
+      ) : (
+        <div
+          className={discClassName}
+          title={emotionStill ? emotion : undefined}
+        >
+          {faceNode}
+        </div>
+      )}
     </div>
   );
 }

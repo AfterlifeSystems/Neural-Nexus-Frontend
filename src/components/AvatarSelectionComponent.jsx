@@ -1,4 +1,10 @@
-import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
+import React, {
+  useState,
+  useEffect,
+  useRef,
+  useMemo,
+  useCallback,
+} from 'react';
 import { toast } from 'react-hot-toast';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
@@ -19,9 +25,11 @@ import {
   LogOut,
   Edit,
   User,
+  UserPlus,
 } from 'lucide-react';
 import { FiCircle } from 'react-icons/fi';
 import CreateAvatarComponent from './CreateAvatarComponent';
+import ProfileBubbleImage from './ProfileBubbleImage';
 import CreateAvatarModal from './CreateAvatarModal';
 import AvatarCardComponent from './AvatarCardComponent';
 import LoadingSpinner from './LoadingSpinner';
@@ -76,18 +84,14 @@ import useInboxCount from '../hooks/useInboxCount';
  */
 function describesTheSameAvatars(freshAvatars, displayedAvatars) {
   return (
-    JSON.stringify(freshAvatars ?? []) === JSON.stringify(displayedAvatars ?? [])
+    JSON.stringify(freshAvatars ?? []) ===
+    JSON.stringify(displayedAvatars ?? [])
   );
 }
 
 const AvatarSelectionComponent = ({}) => {
-  const {
-    user,
-    userAvatars,
-    setUserAvatars,
-    setActiveAvatar,
-    setContext,
-  } = useAuth();
+  const { user, userAvatars, setUserAvatars, setActiveAvatar, setContext } =
+    useAuth();
 
   const { setActiveConversation } = useMedia();
   const faceSourceRevision = useAvatarFaceSourceRevision();
@@ -107,25 +111,28 @@ const AvatarSelectionComponent = ({}) => {
   const cardActionsRef = useRef(null);
   const createCardIsFrontRef = useRef(false);
   const [createCardIsFront, setCreateCardIsFront] = useState(false);
-  const handleCreateCardMove = useCallback(({ x, frontX, visible, isFront }) => {
-    const overlay = createCardOverlayRef.current;
-    if (overlay) {
-      overlay.style.transform = `translate(calc(-50% + ${x}px), -50%)`;
-      overlay.style.visibility = visible ? 'visible' : 'hidden';
-    }
-    const createIsFront = Boolean(isFront);
-    const actions = cardActionsRef.current;
-    if (actions) {
-      const underFrontCard = Number.isFinite(frontX) ? frontX : 0;
-      actions.style.transform = `translateX(calc(-50% + ${underFrontCard}px))`;
-      actions.style.visibility = createIsFront ? 'hidden' : '';
-      actions.style.pointerEvents = createIsFront ? 'none' : '';
-    }
-    if (createCardIsFrontRef.current !== createIsFront) {
-      createCardIsFrontRef.current = createIsFront;
-      setCreateCardIsFront(createIsFront);
-    }
-  }, []);
+  const handleCreateCardMove = useCallback(
+    ({ x, frontX, visible, isFront }) => {
+      const overlay = createCardOverlayRef.current;
+      if (overlay) {
+        overlay.style.transform = `translate(calc(-50% + ${x}px), -50%)`;
+        overlay.style.visibility = visible ? 'visible' : 'hidden';
+      }
+      const createIsFront = Boolean(isFront);
+      const actions = cardActionsRef.current;
+      if (actions) {
+        const underFrontCard = Number.isFinite(frontX) ? frontX : 0;
+        actions.style.transform = `translateX(calc(-50% + ${underFrontCard}px))`;
+        actions.style.visibility = createIsFront ? 'hidden' : '';
+        actions.style.pointerEvents = createIsFront ? 'none' : '';
+      }
+      if (createCardIsFrontRef.current !== createIsFront) {
+        createCardIsFrontRef.current = createIsFront;
+        setCreateCardIsFront(createIsFront);
+      }
+    },
+    []
+  );
   const handleGalleryIndexChange = useCallback((index) => {
     setCurrentCardIndex(index);
     try {
@@ -314,7 +321,9 @@ const AvatarSelectionComponent = ({}) => {
       localStorage.setItem('last_used_avatar_id', avatarId);
 
       const selectedAvatar =
-        carouselAvatars.find((avatar) => carouselAvatarId(avatar) === avatarId) ??
+        carouselAvatars.find(
+          (avatar) => carouselAvatarId(avatar) === avatarId
+        ) ??
         orderedAvatars.find((avatar) => carouselAvatarId(avatar) === avatarId);
 
       cacheAvatarPosition(avatarId, avatarIndex);
@@ -482,7 +491,10 @@ const AvatarSelectionComponent = ({}) => {
     (async () => {
       try {
         const freshAvatars = await listUserAvatars();
-        if (isCurrentRequest && !describesTheSameAvatars(freshAvatars, userAvatars)) {
+        if (
+          isCurrentRequest &&
+          !describesTheSameAvatars(freshAvatars, userAvatars)
+        ) {
           setUserAvatars(freshAvatars ?? []);
         }
       } catch (listError) {
@@ -522,7 +534,6 @@ const AvatarSelectionComponent = ({}) => {
       clampCarouselIndex(current, authenticatedCards.length)
     );
   }, [authenticatedCards.length]);
-
 
   useEffect(() => {
     const handleClickOutside = (e) => {
@@ -711,7 +722,8 @@ const AvatarSelectionComponent = ({}) => {
       avatar && typeof avatar === 'object'
         ? avatar
         : orderedAvatars.find(
-            (candidate) => carouselAvatarId(candidate) === carouselAvatarId(avatar)
+            (candidate) =>
+              carouselAvatarId(candidate) === carouselAvatarId(avatar)
           );
     const settingsPath = avatarSettingsPath(selectedAvatar ?? avatar);
     if (!settingsPath) {
@@ -824,6 +836,12 @@ const AvatarSelectionComponent = ({}) => {
   const frontCompanionAction = carouselCompanionAction(
     authenticatedCards[currentCardIndex]?.avatar_data
   );
+  const createSearchSuggestion = suggestions.find(
+    (suggestion) => suggestion.type === 'create'
+  );
+  const createSearchSuggestionIndex = suggestions.findIndex(
+    (suggestion) => suggestion.type === 'create'
+  );
 
   return (
     <div className="flex flex-col items-center justify-start p-4 relative mx-auto min-h-screen w-full">
@@ -848,38 +866,60 @@ const AvatarSelectionComponent = ({}) => {
           />
           <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-white/80" />
           {isDropdownOpen && suggestions.length > 0 && (
-            <ul className="absolute z-30 w-full bg-black/50 rounded-lg border border-white/10 mt-1 max-h-60 overflow-auto">
-              {suggestions.map((suggestion, idx) => (
-                <li
-                  key={suggestion.id}
-                  onClick={() => handleSuggestionSelect(suggestion)}
-                  className={`px-4 py-2 text-neutral-200 cursor-pointer flex items-center gap-2 ${
-                    idx === highlightedIndex
+            <div className="absolute z-30 w-full mt-1 max-h-60 flex flex-col overflow-hidden rounded-lg border border-white/10 bg-black/50">
+              <ul className="min-h-0 overflow-auto">
+                {suggestions.map((suggestion, idx) =>
+                  suggestion.type === 'create' ? null : (
+                    <li
+                      key={suggestion.id}
+                      onClick={() => handleSuggestionSelect(suggestion)}
+                      className={`px-4 py-2 text-neutral-200 cursor-pointer flex items-center gap-2 ${
+                        idx === highlightedIndex
+                          ? 'bg-white/10'
+                          : 'hover:bg-white/10'
+                      }`}
+                    >
+                      <span className="flex-grow min-w-0 truncate">
+                        {suggestion.text}
+                      </span>
+                      {suggestion.canAddToCarousel && (
+                        <button
+                          type="button"
+                          data-search-add-avatar
+                          onClick={(clickEvent) => {
+                            clickEvent.stopPropagation();
+                            handleAddAvatarToCarousel(suggestion.avatar);
+                          }}
+                          className="shrink-0 p-1 rounded-md text-white/40 hover:text-neutral-100 hover:bg-white/10"
+                          aria-label={`Add ${suggestion.text} to the carousel`}
+                          title={`Add ${suggestion.text} to the carousel`}
+                        >
+                          <Plus className="w-4 h-4" />
+                        </button>
+                      )}
+                    </li>
+                  )
+                )}
+                {/* asdf */}
+              </ul>
+              {createSearchSuggestion && (
+                <div
+                  role="button"
+                  data-search-create-avatar
+                  onClick={() => handleSuggestionSelect(createSearchSuggestion)}
+                  className={`shrink-0 border-t border-white/10 px-4 py-2 text-neutral-200 cursor-pointer flex items-center gap-2 ${
+                    createSearchSuggestionIndex === highlightedIndex
                       ? 'bg-white/10'
-                      : 'hover:bg-white/10'
+                      : 'bg-black/60 hover:bg-white/10'
                   }`}
                 >
                   <span className="flex-grow min-w-0 truncate">
-                    {suggestion.text}
+                    {createSearchSuggestion.text}
                   </span>
-                  {suggestion.canAddToCarousel && (
-                    <button
-                      type="button"
-                      data-search-add-avatar
-                      onClick={(clickEvent) => {
-                        clickEvent.stopPropagation();
-                        handleAddAvatarToCarousel(suggestion.avatar);
-                      }}
-                      className="shrink-0 p-1 rounded-md text-white/40 hover:text-neutral-100 hover:bg-white/10"
-                      aria-label={`Add ${suggestion.text} to the carousel`}
-                      title={`Add ${suggestion.text} to the carousel`}
-                    >
-                      <Plus className="w-4 h-4" />
-                    </button>
-                  )}
-                </li>
-              ))}
-            </ul>
+                  <UserPlus class="w-4 h-4" />
+                </div>
+              )}
+            </div>
           )}
         </div>
         <div className="h-full flex flex-col min-h-0 w-full mb-2 relative">
@@ -919,64 +959,64 @@ const AvatarSelectionComponent = ({}) => {
           />
           {authenticatedCards[currentCardIndex]?.type === 'avatar' &&
             !createCardIsFront && (
-            <div
-              ref={cardActionsRef}
-              className="absolute left-1/2 z-20 flex items-center gap-3 pointer-events-none"
-              style={{
-                top: 'calc(50% + 30% + 0.35rem)',
-                transform: 'translateX(-50%)',
-              }}
-              data-carousel-card-actions
-            >
-              {frontCompanionAction === 'hide' ? (
-                <button
-                  type="button"
-                  data-carousel-hide-avatar
-                  onMouseDown={(event) => event.stopPropagation()}
-                  onTouchStart={(event) => event.stopPropagation()}
-                  onClick={handleHideFrontAvatar}
-                  className="pointer-events-auto p-1.5 rounded-md text-white/40 hover:text-neutral-100 hover:bg-white/10 transition-colors"
-                  aria-label="Hide avatar from the carousel"
-                  title="Hide avatar from the carousel"
-                >
-                  <EyeOff className="w-5 h-5" />
-                </button>
-              ) : frontCompanionAction === 'inbox' ? (
-                <button
-                  type="button"
-                  data-carousel-avatar-inbox
-                  onMouseDown={(event) => event.stopPropagation()}
-                  onTouchStart={(event) => event.stopPropagation()}
-                  onClick={handleOpenFrontAvatarInbox}
-                  className="pointer-events-auto relative p-1.5 rounded-md text-white/40 hover:text-neutral-100 hover:bg-white/10 transition-colors"
-                  aria-label="Open avatar inbox"
-                  title="Open avatar inbox"
-                >
-                  <Inbox className="w-5 h-5" />
-                  {inboxCount > 0 && (
-                    <span
-                      aria-label={`${inboxCount} items waiting`}
-                      className="absolute -top-0.5 -right-0.5 min-w-[0.875rem] h-3.5 px-0.5 rounded-full bg-amber-400 text-neutral-900 text-[9px] font-semibold flex items-center justify-center"
-                    >
-                      {inboxCount > 9 ? '9+' : inboxCount}
-                    </span>
-                  )}
-                </button>
-              ) : null}
-              <button
-                type="button"
-                data-carousel-avatar-settings
-                onMouseDown={(event) => event.stopPropagation()}
-                onTouchStart={(event) => event.stopPropagation()}
-                onClick={handleOpenFrontAvatarSettings}
-                className="pointer-events-auto p-1.5 rounded-md text-white/40 hover:text-neutral-100 hover:bg-white/10 transition-colors"
-                aria-label="Open avatar settings"
-                title="Open avatar settings"
+              <div
+                ref={cardActionsRef}
+                className="absolute left-1/2 z-20 flex items-center gap-3 pointer-events-none"
+                style={{
+                  top: 'calc(50% + 30% + 0.35rem)',
+                  transform: 'translateX(-50%)',
+                }}
+                data-carousel-card-actions
               >
-                <Settings className="w-5 h-5" />
-              </button>
-            </div>
-          )}
+                {frontCompanionAction === 'hide' ? (
+                  <button
+                    type="button"
+                    data-carousel-hide-avatar
+                    onMouseDown={(event) => event.stopPropagation()}
+                    onTouchStart={(event) => event.stopPropagation()}
+                    onClick={handleHideFrontAvatar}
+                    className="pointer-events-auto p-1.5 rounded-md text-white/40 hover:text-neutral-100 hover:bg-white/10 transition-colors"
+                    aria-label="Hide avatar from the carousel"
+                    title="Hide avatar from the carousel"
+                  >
+                    <EyeOff className="w-5 h-5" />
+                  </button>
+                ) : frontCompanionAction === 'inbox' ? (
+                  <button
+                    type="button"
+                    data-carousel-avatar-inbox
+                    onMouseDown={(event) => event.stopPropagation()}
+                    onTouchStart={(event) => event.stopPropagation()}
+                    onClick={handleOpenFrontAvatarInbox}
+                    className="pointer-events-auto relative p-1.5 rounded-md text-white/40 hover:text-neutral-100 hover:bg-white/10 transition-colors"
+                    aria-label="Open avatar inbox"
+                    title="Open avatar inbox"
+                  >
+                    <Inbox className="w-5 h-5" />
+                    {inboxCount > 0 && (
+                      <span
+                        aria-label={`${inboxCount} items waiting`}
+                        className="absolute -top-0.5 -right-0.5 min-w-[0.875rem] h-3.5 px-0.5 rounded-full bg-amber-400 text-neutral-900 text-[9px] font-semibold flex items-center justify-center"
+                      >
+                        {inboxCount > 9 ? '9+' : inboxCount}
+                      </span>
+                    )}
+                  </button>
+                ) : null}
+                <button
+                  type="button"
+                  data-carousel-avatar-settings
+                  onMouseDown={(event) => event.stopPropagation()}
+                  onTouchStart={(event) => event.stopPropagation()}
+                  onClick={handleOpenFrontAvatarSettings}
+                  className="pointer-events-auto p-1.5 rounded-md text-white/40 hover:text-neutral-100 hover:bg-white/10 transition-colors"
+                  aria-label="Open avatar settings"
+                  title="Open avatar settings"
+                >
+                  <Settings className="w-5 h-5" />
+                </button>
+              </div>
+            )}
         </div>
         <div className="flex flex-col items-center w-full gap-2 z-10">
           {/* <button
@@ -1043,7 +1083,7 @@ const AvatarSelectionComponent = ({}) => {
                     type="button"
                     data-avatar-dot
                     onClick={() => handleDotClick(card.originalIndex)}
-                    className={`rounded-full shrink-0 overflow-hidden border-2 transition-transform duration-300 hover:scale-110 ${
+                    className={`relative rounded-full shrink-0 overflow-hidden border-2 transition-transform duration-300 hover:scale-110 ${
                       isSelected
                         ? 'border-neutral-300'
                         : 'border-white/30 hover:border-white/60'
@@ -1061,10 +1101,11 @@ const AvatarSelectionComponent = ({}) => {
                         <CirclePlus className="w-5 h-5 text-neutral-200" />
                       </span>
                     ) : card.image && isValidImageUrl(card.image) ? (
-                      <img
+                      <ProfileBubbleImage
                         src={card.image}
                         alt=""
-                        className="w-full h-full object-cover rounded-full"
+                        assistantId={card.id}
+                        className="h-full w-full rounded-full"
                       />
                     ) : (
                       <span className="w-full h-full flex items-center justify-center bg-black/50 rounded-full">

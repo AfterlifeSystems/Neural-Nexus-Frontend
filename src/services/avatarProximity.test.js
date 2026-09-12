@@ -4,6 +4,9 @@ import assert from 'node:assert/strict';
 import {
   DEFAULT_GEOFENCE_RADIUS_METERS,
   MAXIMUM_ARRIVAL_ACCURACY_METERS,
+  DOORWAY_GEOFENCE_RADIUS_METERS,
+  MINIMUM_GEOFENCE_RADIUS_METERS,
+  PIN_COORDINATE_DIGITS,
   STREET_LEVEL_GROUPING_DEGREES,
   avatarIdOf,
   avatarsFromResponse,
@@ -16,6 +19,7 @@ import {
   describeGeofenceRadius,
   distanceInMeters,
   formatCoordinate,
+  formatRadiusUnitValue,
   geoLocationQuery,
   globeClusterDegreesForAltitude,
   globeMarkerGroups,
@@ -28,6 +32,8 @@ import {
   avatarsInFocusGroup,
   groupIdsForFocus,
   mergePinnedAvatars,
+  metersFromRadiusUnit,
+  pinCoordinate,
   samePlaceKey,
   spreadGroupPinPositions,
   spreadStackedPinPositions,
@@ -52,11 +58,34 @@ test('a coordinate must name a real point on Earth', () => {
 });
 
 test('a geofence radius is clamped to the range the API accepts', () => {
-  assert.equal(DEFAULT_GEOFENCE_RADIUS_METERS, 6);
-  assert.equal(clampGeofenceRadius(undefined), 6);
+  assert.equal(DEFAULT_GEOFENCE_RADIUS_METERS, 1);
+  assert.equal(MINIMUM_GEOFENCE_RADIUS_METERS, 1);
+  assert.equal(DOORWAY_GEOFENCE_RADIUS_METERS, 1);
+  assert.equal(clampGeofenceRadius(undefined), 1);
   assert.equal(clampGeofenceRadius('120'), 120);
   assert.equal(clampGeofenceRadius(1), 1);
+  assert.equal(clampGeofenceRadius(0.4), 1);
   assert.equal(clampGeofenceRadius(999999), 5000);
+});
+
+test('a one-metre doorway can be typed in miles without snapping to 0.10 mi', () => {
+  assert.equal(formatRadiusUnitValue(1, 'mi'), '0.000621');
+  assert.equal(formatRadiusUnitValue(1, 'yd'), '1.09');
+  assert.equal(formatRadiusUnitValue(1, 'km'), '0.001');
+  assert.equal(metersFromRadiusUnit(0.000621, 'mi'), 1);
+  assert.ok(metersFromRadiusUnit(0.1, 'mi') > 160);
+});
+
+test('no unit can send a radius below the API minimum', () => {
+  assert.equal(metersFromRadiusUnit(0.001, 'm'), 1);
+  assert.equal(metersFromRadiusUnit(0.0001, 'km'), 1);
+  assert.equal(metersFromRadiusUnit(0.5, 'yd'), 1);
+  assert.equal(metersFromRadiusUnit(0.0001, 'mi'), 1);
+  assert.equal(geoLocationQuery({
+    latitude: 44.98,
+    longitude: -93.25,
+    geofenceRadiusMeters: 0.2,
+  }).geofence_radius_meters, 1);
 });
 
 test('a pin becomes snake-case query parameters, and nothing when incomplete', () => {
@@ -141,7 +170,8 @@ test('a distance is written the way a person reads one', () => {
   assert.equal(describeDistance(null), '');
   assert.equal(describeDistance(-5), '');
   assert.equal(describeGeofenceRadius(1), '1 m');
-  assert.equal(describeGeofenceRadius(1609.344), '1609 m · 1.00 mi');
+  assert.equal(describeGeofenceRadius(0.4), '1 m');
+  assert.equal(describeGeofenceRadius(1609.344), '1.609 km');
 });
 
 test('the pin is read from the owner record and from a public listing alike', () => {
@@ -250,6 +280,23 @@ test('owned private pins join the public globe listing', () => {
   assert.ok(pinOf(bridge));
 });
 
+test('standing one metre from the pin counts as arriving', () => {
+  assert.equal(
+    isInsideGeofence({
+      distanceMeters: 0.4,
+      radiusMeters: DOORWAY_GEOFENCE_RADIUS_METERS,
+    }),
+    true
+  );
+  assert.equal(
+    isInsideGeofence({
+      distanceMeters: 1.2,
+      radiusMeters: DOORWAY_GEOFENCE_RADIUS_METERS,
+    }),
+    false
+  );
+});
+
 test('a kilometres-wide accuracy reading cannot count as standing at a doorway', () => {
   assert.equal(
     isInsideGeofence({ distanceMeters: 4, radiusMeters: 6, accuracyMeters: 8 }),
@@ -288,7 +335,9 @@ test('the globe groups down to about six metres when the camera is close', () =>
   assert.ok(groupingDegreesForAltitude(2) < 5);
   assert.equal(groupingDegreesForAltitude(0.002), STREET_LEVEL_GROUPING_DEGREES);
   assert.ok(globePointRadius(0.01, 1) < globePointRadius(1, 1));
-  assert.equal(formatCoordinate(44.9809012), '44.980901');
+  assert.equal(PIN_COORDINATE_DIGITS, 7);
+  assert.equal(formatCoordinate(44.9809012), '44.9809012');
+  assert.equal(pinCoordinate(44.980901234), 44.9809012);
 });
 
 test('avatars on the same doorway stay one place and spread on the street map', () => {

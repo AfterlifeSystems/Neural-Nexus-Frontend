@@ -13,7 +13,7 @@ import { announceSceneNarration } from '../services/sceneNarrationSpeech';
  * the person continuously, and a way to flip it.
  *
  * Every reader of this hook sees the same switch, whoever flipped it — the
- * sidebar, the Accessibility page, or an avatar the person asked.
+ * Accessibility section in account settings, or an avatar the person asked.
  *
  * @returns {{sceneNarrationOn: boolean, sceneNarrationSeconds: number, setSceneNarrationOn: (enabled: boolean, options?: {avatarName?: string, assistantId?: string}) => void, setSceneNarrationSeconds: (seconds: number) => void}}
  */
@@ -50,7 +50,7 @@ export default function useSceneNarration() {
   /**
    * Change how often the scene is read out, without touching the switch.
    *
-   * The slider on the Accessibility page and an avatar asked to describe
+   * The slider in account settings and an avatar asked to describe
    * things more or less often both end up here.
    */
   const setSceneNarrationSeconds = useCallback((seconds) => {

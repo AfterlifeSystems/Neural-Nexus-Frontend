@@ -9,7 +9,7 @@
 // browser like the other voice-mode preferences. Any avatar the person talks
 // to may flip it by being asked (the API's `set_scene_narration` tool sends a
 // `scene_narration` stream frame, which lands here), the help avatar included;
-// the sidebar and the Accessibility page flip it by hand. Whichever avatar is
+// account settings flip it by hand. Whichever avatar is
 // on screen when the mode is on is the one that does the describing.
 //
 // Nothing about the camera is decided here. `MediaShareContext` reads this
@@ -130,7 +130,7 @@ export function writeSceneNarration(enabled, storage) {
 /**
  * Change how often the scene is read out, leaving the switch alone.
  *
- * Set by the slider on the Accessibility page and by any avatar asked to
+ * Set by the slider in account settings and by any avatar asked to
  * describe things more or less often. Both land here, so the two can never
  * disagree about the pace.
  *

@@ -32,8 +32,8 @@ function matchesQuery(text, query) {
 /**
  * Suggestions under the gallery search box.
  *
- * Create Avatar stays on the list when the query is empty, or when nothing
- * else matches — the same fallback the box had before hide/add existed.
+ * Create Avatar is always the last row so the menu can pin it in view,
+ * including when the typed query matches other avatars.
  *
  * @param {Object} parameters
  * @param {Array|null|undefined} parameters.avatars The full listing.
@@ -75,11 +75,6 @@ export function buildAvatarSearchSuggestions({
     ...CREATE_SUGGESTION,
     originalIndex: createIndex,
   };
-  const showCreate = matchesQuery(createRow.text, query);
 
-  if (String(query ?? '').trim() && rows.length === 0) {
-    return [createRow];
-  }
-
-  return showCreate ? [...rows, createRow] : rows;
+  return [...rows, createRow];
 }

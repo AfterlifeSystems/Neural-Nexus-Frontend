@@ -22,7 +22,8 @@ export function describeAssistLocation(
 
   if (path === '/welcome' || path === '/') return 'the welcome page';
   if (path.startsWith('/avatars')) return 'the avatar gallery';
-  if (path === '/account') return 'account settings';
+  if (path === '/account' || path === '/accessibility')
+    return 'account settings';
   if (path === '/inbox' || tab === 'inbox') return 'the avatar inbox';
   if (path === '/billing' || /\/billing\/?$/.test(path)) return 'billing';
   if (tab === 'settings') {

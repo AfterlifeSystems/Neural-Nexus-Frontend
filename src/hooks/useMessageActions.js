@@ -18,6 +18,8 @@ import useSpeech from './useSpeech';
  * @param {boolean} [parameters.speechPlaybackEnabled] Whether speak-aloud is allowed for avatar replies.
  * @param {boolean} [parameters.userSpeechPlaybackEnabled] Whether the person's own messages may be spoken in their personal avatar's voice.
  * @param {string} [parameters.userSpeechAssistantId] The personal avatar, used for those utterances.
+ * @param {boolean} [parameters.missingClonedVoice] No clone added to this model yet.
+ * @param {boolean} [parameters.promptForMissingClonedVoice] False when a clone is not expected.
  */
 export default function useMessageActions({
   assistantId,
@@ -26,6 +28,8 @@ export default function useMessageActions({
   speechPlaybackEnabled = false,
   userSpeechPlaybackEnabled = false,
   userSpeechAssistantId = null,
+  missingClonedVoice = false,
+  promptForMissingClonedVoice = true,
 } = {}) {
   const {
     activeConversation,
@@ -38,6 +42,8 @@ export default function useMessageActions({
     asAnonymousIdentity,
     avatarName,
     conversationId: activeConversation ?? NEW_CONVERSATION_ID,
+    missingClonedVoice,
+    promptForMissingClonedVoice,
   });
   const [loadingSpeechKey, setLoadingSpeechKey] = useState(null);
   const [copiedKey, setCopiedKey] = useState(null);
