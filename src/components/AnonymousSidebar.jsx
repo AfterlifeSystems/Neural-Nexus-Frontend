@@ -353,10 +353,10 @@ const AnonymousSidebar = ({
               <div className="shrink-0 rounded-xl border border-neutral-400/30 bg-neutral-100/5 p-4">
                 <p className="text-white/80 text-sm">
                   You are chatting as a guest
-                  {avatarName ? ` with ${avatarName}` : ''}. These chats are kept
-                  against this network connection rather than an account, so they
-                  will not follow you to another device. Sign up to keep them and
-                  to build an avatar of your own.
+                  {avatarName ? ` with ${avatarName}` : ''}. These chats stay with
+                  this visit, not an account, so they will not follow you to
+                  another device. Sign up to keep them and to build an avatar of
+                  your own.
                 </p>
                 <button
                   onClick={() => goTo('/signup')}

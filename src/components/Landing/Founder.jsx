@@ -33,7 +33,7 @@ export default function Founder() {
         <div className="max-w-3xl mx-auto flex flex-col sm:flex-row items-center gap-8 bg-black/60 border border-white/10 rounded-2xl p-8">
           <img
             src={FOUNDER.portraitUrl}
-            alt={FOUNDER.name}
+            alt=""
             className="w-40 h-40 rounded-2xl object-cover border border-white/10 shrink-0"
             loading="lazy"
           />
@@ -45,11 +45,10 @@ export default function Founder() {
             </div>
 
             <p className="text-white/80">
-              A strong data science and engineering professional. I created the
-              Neural Nexus to capture, share, and celebrate the memories of
-              loved ones as an interactive digital memorialization. I hope you
-              use the Neural Nexus to share and understand yourself and improve
-              the quality of your life.
+              I am a data scientist and engineer. I created Neural Nexus to
+              capture, share, and celebrate the memories of loved ones as an
+              interactive digital memorial. I hope you use Neural Nexus to share
+              and understand yourself, and to improve the quality of your life.
             </p>
 
             <div className="flex gap-3 justify-center sm:justify-start pt-1">

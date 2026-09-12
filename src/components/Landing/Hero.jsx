@@ -39,7 +39,7 @@ export default function Hero() {
       ref={vantaRef}
       className="min-h-screen flex items-center justify-center text-neutral-200 relative py-16 lg:py-28"
     >
-      <div className="w-full max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 text-center z-10">
+      <div className="relative z-10 w-full max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 text-center">
         {/* The QR sits alongside the headline from lg up rather than beneath it,
             so it adds no height above the demo on short laptop viewports. */}
         <div className="flex flex-col items-center gap-6 lg:flex-row lg:items-center lg:justify-between lg:gap-10 lg:text-left">

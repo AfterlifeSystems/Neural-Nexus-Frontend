@@ -373,9 +373,8 @@ const SharedAvatarChat = () => {
           </div>
 
           <p className="text-white/40 text-xs text-center px-4 pb-3 pt-1">
-            You are chatting as a guest. Your chats with this avatar are kept
-            against this network connection rather than an account — sign up to
-            keep them wherever you sign in.
+            You are chatting as a guest. These chats stay with this visit, not
+            an account. Sign up to keep them wherever you sign in.
           </p>
         </div>
       </div>

@@ -89,25 +89,18 @@ function ScrollingSuggestions() {
     return () => clearInterval(rotation);
   }, []);
 
+  const suggestion = CONVERSATION_SUGGESTIONS[visibleIndex];
+
   return (
     <div className="mt-4 h-16 relative overflow-hidden rounded-lg bg-black/20 border border-white/10">
-      {CONVERSATION_SUGGESTIONS.map((suggestion, index) => (
-        <p
-          key={suggestion}
-          // Every line is stacked in the same place; only the current one is
-          // opaque and centred, the rest are nudged out of the way. Animating
-          // opacity and transform keeps this off the layout path, so nothing
-          // around it moves as the text changes.
-          className={`absolute inset-0 flex items-center justify-center px-4 text-center text-neutral-200 transition-all duration-700 ease-out ${
-            index === visibleIndex
-              ? 'opacity-100 translate-y-0'
-              : 'opacity-0 translate-y-4'
-          }`}
-          aria-hidden={index !== visibleIndex}
-        >
-          “{suggestion}”
-        </p>
-      ))}
+      {/* One line in the document at a time. Stacking the whole list at
+          opacity 0 left every suggestion in the page text after a reload. */}
+      <p
+        key={suggestion}
+        className="absolute inset-0 flex items-center justify-center px-4 text-center text-neutral-200"
+      >
+        “{suggestion}”
+      </p>
     </div>
   );
 }
@@ -155,7 +148,7 @@ export default function Product() {
 
           <div className="bg-black/60 border border-white/10 p-6 rounded-lg shadow-lg text-neutral-200">
             <h3 className="text-xl font-semibold mb-4 ">
-              <p>💬 Realtime Conversation Suggestions</p>
+              <p>💬 Real-time Conversation Suggestions</p>
             </h3>
             <p>
               Get real-time suggestions to enhance your everyday interactions.

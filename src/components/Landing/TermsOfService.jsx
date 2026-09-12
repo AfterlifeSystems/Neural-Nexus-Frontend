@@ -230,10 +230,10 @@ export default function TermsOfService() {
           11. Governing Law and Dispute Resolution
         </h2>
         <p className="mb-4">
-          These Terms are governed by the laws of the State of [Your State],
-          United States, without regard to conflict of law principles. Any
-          disputes shall be resolved through binding arbitration in [Your City],
-          in accordance with the rules of the American Arbitration Association.
+          These Terms are governed by the laws of the United States, without
+          regard to conflict of law principles. Any disputes shall be resolved
+          through binding arbitration in accordance with the rules of the
+          American Arbitration Association.
           You waive the right to participate in class action lawsuits.
         </p>
 
