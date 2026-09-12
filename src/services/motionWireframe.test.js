@@ -12,7 +12,8 @@ import {
   float32ToFloat16Bits,
   headPoseFromMatrix,
   headPoseGeometric,
-  overlayPoints,
+  coverTransform,
+  overlayFrame,
   windowByteLength,
 } from './motionWireframe.js';
 
@@ -130,11 +131,34 @@ test('the accumulator paces streams, encodes with a basis, and serializes the AP
   assert.equal(coefficients[1], 0);
 });
 
-test('overlay points keep visible joints and a sparse face', () => {
+test('the overlay frame keeps every mesh vertex and every joint with its visibility', () => {
   const body = bodyFrameFromLandmarks(
-    Array.from({ length: BODY_JOINT_COUNT }, (_, index) => ({ x: 0.1, y: 0.2, z: 0, visibility: index % 2 ? 0.9 : 0.1 }))
+    Array.from({ length: BODY_JOINT_COUNT }, (_, index) => ({
+      x: 0.1 * index,
+      y: 0.2,
+      z: 0,
+      visibility: index % 2 ? 0.9 : 0.1,
+    }))
   );
-  const points = overlayPoints({ body, face: faceFrameFromLandmarks(syntheticFace()) });
-  assert.equal(points.filter((point) => point.kind === 'body').length, 16);
-  assert.ok(points.filter((point) => point.kind === 'face').length > 20);
+  const frame = overlayFrame({ body, face: faceFrameFromLandmarks(syntheticFace()) });
+  // The whole mesh, because the mesh is what gets drawn.
+  assert.equal(frame.face.length, FACE_POINT_COUNT * 2);
+  assert.equal(frame.body.length, BODY_JOINT_COUNT * 3);
+  assert.ok(Math.abs(frame.body[11 * 3] - 1.1) < 1e-5);
+  assert.ok(frame.body[11 * 3 + 2] > 0.8 && frame.body[12 * 3 + 2] < 0.2);
+  assert.deepEqual(overlayFrame({}), { face: null, body: null });
+});
+
+test('the cover transform lands normalized coordinates on a cropped preview', () => {
+  // A 16:9 frame inside a square tile: cropped left and right, full height.
+  const wide = coverTransform({ width: 1280, height: 720 }, { width: 100, height: 100 });
+  assert.ok(Math.abs(wide.scale - 100 / 720) < 1e-9);
+  assert.ok(wide.offsetY === 0 && wide.offsetX < 0);
+  // The centre of the frame stays the centre of the tile.
+  assert.ok(Math.abs(wide.offsetX + 0.5 * 1280 * wide.scale - 50) < 1e-6);
+  // A 9:16 phone frame in the same tile is cropped top and bottom instead.
+  const tall = coverTransform({ width: 720, height: 1280 }, { width: 100, height: 100 });
+  assert.ok(tall.offsetX === 0 && tall.offsetY < 0);
+  // No frame size yet: never divide by zero.
+  assert.ok(Number.isFinite(coverTransform({ width: 0, height: 0 }, { width: 10, height: 10 }).scale));
 });

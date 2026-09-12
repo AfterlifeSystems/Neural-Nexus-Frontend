@@ -23,6 +23,11 @@ export const MOTION_WIREFRAME_OVERLAY = readFlag(
   import.meta.env?.VITE_MOTION_WIREFRAME_OVERLAY,
   true
 );
+/** Below this width the full 2,556-edge mesh is mud; draw the contours instead. */
+export const MOTION_MESH_MIN_WIDTH_PX = readNumber(
+  import.meta.env?.VITE_MOTION_MESH_MIN_WIDTH_PX,
+  120
+);
 export const MOTION_FACE_FPS = readNumber(import.meta.env?.VITE_MOTION_FACE_FPS, 30);
 export const MOTION_BODY_FPS = readNumber(import.meta.env?.VITE_MOTION_BODY_FPS, 15);
 export const MOTION_TRACK_WINDOW_SECONDS = readNumber(
@@ -43,10 +48,10 @@ export const MOTION_TRACK_MAX_BYTES = readNumber(
  */
 export const MOTION_TASKS_VISION_MODULE_URL =
   import.meta.env?.VITE_MOTION_TASKS_VISION_MODULE_URL ??
-  'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.22/vision_bundle.mjs';
+  'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@1.0.1/vision_bundle.mjs';
 export const MOTION_TASKS_VISION_WASM_URL =
   import.meta.env?.VITE_MOTION_TASKS_VISION_WASM_URL ??
-  'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.22/wasm';
+  'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@1.0.1/wasm';
 export const MOTION_POSE_MODEL_URL =
   import.meta.env?.VITE_MOTION_POSE_MODEL_URL ??
   'https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_lite/float16/1/pose_landmarker_lite.task';

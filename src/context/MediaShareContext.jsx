@@ -355,7 +355,9 @@ export function MediaShareProvider({
     };
   }, [motionAssistantId, webcamStream]);
   const {
-    points: motionPoints,
+    frame: motionFrame,
+    meshEdges: motionMeshEdges,
+    frameSize: motionFrameSize,
     status: motionStatus,
     takeWindow: takeMotionWindow,
   } = useMotionWireframe(webcamStream, {
@@ -1148,7 +1150,9 @@ export function MediaShareProvider({
         ambientStatus,
         ambientNextInMs,
         ambientIntervalMs: AMBIENT_CAPTURE_INTERVAL_MS,
-        motionPoints,
+        motionFrame,
+        motionMeshEdges,
+        motionFrameSize,
         motionStatus,
         setAmbientVoiceMode,
         registerAmbientReplyHandler,

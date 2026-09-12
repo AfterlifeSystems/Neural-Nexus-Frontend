@@ -444,33 +444,63 @@ export function windowByteLength(payload) {
 }
 
 /**
- * The 2-D points to draw as the overlay: body joints with visibility, and a
- * sparse set of face points (eyes, brows, nose, mouth) so the sketch stays
- * legible at tile size.
+ * The frame the overlay draws: every face mesh vertex and every body joint, in
+ * normalized image coordinates, indexed so an edge list can be drawn straight
+ * from it. Face points are kept whole (all 478) because the mesh is the point;
+ * body joints carry their visibility so the skeleton can skip what the model
+ * only guessed at.
+ *
  * @param {{body?:Float32Array|null, face?:Float32Array|null}} frames
- * @returns {{x:number,y:number,kind:'body'|'face'}[]} normalized image coordinates
+ * @returns {{face: Float32Array|null, body: Float32Array|null}} face is
+ *   `[478 * 2]` (x, y), body is `[33 * 3]` (x, y, visibility)
  */
-export function overlayPoints({ body = null, face = null }) {
-  const points = [];
+export function overlayFrame({ body = null, face = null }) {
+  let bodyPoints = null;
   if (body) {
+    bodyPoints = new Float32Array(BODY_JOINT_COUNT * 3);
     for (let index = 0; index < BODY_JOINT_COUNT; index += 1) {
-      const offset = index * BODY_VALUES_PER_JOINT;
-      if (body[offset + 3] >= 0.5) points.push({ x: body[offset], y: body[offset + 1], kind: 'body' });
+      const from = index * BODY_VALUES_PER_JOINT;
+      bodyPoints[index * 3] = body[from];
+      bodyPoints[index * 3 + 1] = body[from + 1];
+      bodyPoints[index * 3 + 2] = body[from + 3];
     }
   }
+  let facePoints = null;
   if (face) {
-    for (const index of FACE_OVERLAY_INDICES) {
-      points.push({ x: face[index * 3], y: face[index * 3 + 1], kind: 'face' });
+    facePoints = new Float32Array(FACE_POINT_COUNT * 2);
+    for (let index = 0; index < FACE_POINT_COUNT; index += 1) {
+      facePoints[index * 2] = face[index * FACE_VALUES_PER_POINT];
+      facePoints[index * 2 + 1] = face[index * FACE_VALUES_PER_POINT + 1];
     }
   }
-  return points;
+  return { face: facePoints, body: bodyPoints };
 }
 
-export const FACE_OVERLAY_INDICES = [
-  1, 4, 6, 10, 13, 14, 33, 61, 70, 105, 107, 133, 145, 152, 159, 173, 234, 263, 291,
-  300, 334, 336, 362, 374, 386, 398, 454,
-];
+/**
+ * Map normalized frame coordinates onto a box the video fills with
+ * `object-cover`. Without this the mesh sits beside the face rather than on
+ * it: cover crops the video to the box's aspect, so normalized coordinates do
+ * not run edge to edge.
+ *
+ * @param {{width:number, height:number}} frame the video's intrinsic size
+ * @param {{width:number, height:number}} box the element the video fills
+ * @returns {{scale:number, offsetX:number, offsetY:number}}
+ */
+export function coverTransform(frame, box) {
+  const frameWidth = frame?.width || 0;
+  const frameHeight = frame?.height || 0;
+  if (frameWidth <= 0 || frameHeight <= 0) {
+    return { scale: Math.max(box.width, box.height), offsetX: 0, offsetY: 0 };
+  }
+  const scale = Math.max(box.width / frameWidth, box.height / frameHeight);
+  return {
+    scale,
+    offsetX: (box.width - frameWidth * scale) / 2,
+    offsetY: (box.height - frameHeight * scale) / 2,
+  };
+}
 
+/** The skeleton drawn over the body: shoulders, arms, torso, and the head link. */
 export const BODY_OVERLAY_EDGES = [
   [11, 12], [11, 13], [13, 15], [12, 14], [14, 16], [11, 23], [12, 24], [23, 24],
   [0, 11], [0, 12], [9, 10], [2, 5],

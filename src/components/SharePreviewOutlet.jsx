@@ -24,7 +24,9 @@ const SharePreviewOutlet = () => {
     ambientEnabled,
     ambientStatus,
     ambientNextInMs,
-    motionPoints,
+    motionFrame,
+    motionMeshEdges,
+    motionFrameSize,
     motionStatus,
     sceneNarrationActive,
   } = useMediaShare();
@@ -47,7 +49,9 @@ const SharePreviewOutlet = () => {
             screenWatched={screenWatched}
             size="rail"
             ambientLabel={ambientLabel}
-            motionPoints={motionPoints}
+            motionFrame={motionFrame}
+            motionMeshEdges={motionMeshEdges}
+            motionFrameSize={motionFrameSize}
             motionStatus={motionStatus}
             sceneNarrationActive={sceneNarrationActive}
           />,
@@ -61,7 +65,9 @@ const SharePreviewOutlet = () => {
             screenWatched={screenWatched}
             size="panel"
             ambientLabel={ambientLabel}
-            motionPoints={motionPoints}
+            motionFrame={motionFrame}
+            motionMeshEdges={motionMeshEdges}
+            motionFrameSize={motionFrameSize}
             motionStatus={motionStatus}
             sceneNarrationActive={sceneNarrationActive}
           />,
@@ -80,7 +86,7 @@ function renderShareTile({
   label,
   isRail,
   className,
-  overlayPoints = null,
+  overlay = null,
   narrating = false,
 }) {
   const plainVideo = (
@@ -95,7 +101,7 @@ function renderShareTile({
   // the person's own prototype drew, so it is visible that movement is being
   // learned while the camera faces them.
   const video =
-    overlayPoints && MOTION_WIREFRAME_OVERLAY ? (
+    overlay && MOTION_WIREFRAME_OVERLAY ? (
       <div className={`relative ${isRail ? 'w-11 h-11' : 'w-24 h-24 shrink-0 sm:w-full sm:h-auto sm:aspect-square sm:max-h-44'}`}>
         <LiveShareVideo
           stream={stream}
@@ -103,7 +109,11 @@ function renderShareTile({
           className={`${className} !w-full !h-full`}
           decorative
         />
-        <MotionWireframeOverlay points={overlayPoints} />
+        <MotionWireframeOverlay
+          frame={overlay.frame}
+          meshEdges={overlay.meshEdges}
+          frameSize={overlay.frameSize}
+        />
       </div>
     ) : (
       plainVideo
@@ -155,7 +165,9 @@ function SidebarShareTiles({
   screenWatched,
   size,
   ambientLabel,
-  motionPoints,
+  motionFrame,
+  motionMeshEdges,
+  motionFrameSize,
   motionStatus,
   sceneNarrationActive = false,
 }) {
@@ -195,7 +207,14 @@ function SidebarShareTiles({
               isRail: false,
               className:
                 'w-24 h-24 shrink-0 sm:w-full sm:h-auto sm:aspect-square sm:max-h-44 rounded-lg border border-white/20 bg-black object-cover touch-pan-y',
-              overlayPoints: motionStatus === 'running' ? motionPoints : null,
+              overlay:
+                motionStatus === 'running'
+                  ? {
+                      frame: motionFrame,
+                      meshEdges: motionMeshEdges,
+                      frameSize: motionFrameSize,
+                    }
+                  : null,
               narrating: sceneNarrationActive,
             })}
         </div>
@@ -215,7 +234,14 @@ function SidebarShareTiles({
           isRail,
           className:
             'w-11 h-11 rounded-md border border-white/20 bg-black object-cover',
-          overlayPoints: motionStatus === 'running' ? motionPoints : null,
+          overlay:
+            motionStatus === 'running'
+              ? {
+                  frame: motionFrame,
+                  meshEdges: motionMeshEdges,
+                  frameSize: motionFrameSize,
+                }
+              : null,
           narrating: sceneNarrationActive,
         })}
       {ambientLabel && (
