@@ -14,18 +14,21 @@ import {
 import { toast } from 'react-hot-toast';
 import { recordAmbientPreference } from '../services/avatarService';
 import {
-  ALLOW_ACTION_TOOLTIP,
   COLLAPSE_NOTICE_TOOLTIP,
   DISLIKE_NOTICE_TOOLTIP,
   DISMISS_NOTICE_TOOLTIP,
   EXPAND_NOTICE_TOOLTIP,
+  IGNORE_NOTICE_TOOLTIP,
   LIKE_NOTICE_TOOLTIP,
   ambientPreferenceForNoticeRating,
   ambientPreferencePayload,
   noticeClickTogglesCard,
+  noticeHasSomethingToReplyTo,
   noticeOffer,
   noticePreview,
+  noticeShowsIgnoreAction,
 } from '../services/ambientNotice';
+import LinkifiedText from './ui/LinkifiedText';
 import { ACTION_BUTTON_CLASSES } from './media/MessageActionBar';
 
 /**
@@ -37,14 +40,18 @@ import { ACTION_BUTTON_CLASSES } from './media/MessageActionBar';
  * (`response_metadata.ambient` with `decision: "notify"`). Feedback uses the
  * same thumbs grouping as a chat bubble: like is `accept` (more notices like
  * this), dislike is `ignore` (fewer). The comment box is the standing note
- * the next triage reads as precedent. Reply is the next ordinary turn, so it
- * moves focus to the composer (in voice mode the person can also speak) and
- * records that the person replied in person. When the triage named something
- * the avatar could do once allowed, the card shows the offer with a button;
- * allowing the offer makes the action the avatar's next turn and records
- * that the avatar was allowed to act. Clicking anywhere on the card folds
- * or unfolds it and records nothing; clicks on Reply, thumbs, or the note
- * stay those actions. The × takes the notice off the screen completely.
+ * the next triage reads as precedent. Ignore records that same preference
+ * and takes the notice off the screen — that is the button on a plain
+ * heads-up, where the avatar has nothing to reply to. Reply appears only
+ * when the offer is a waiting message, email, or call the person can answer
+ * themselves; it moves focus to the composer and records that the person
+ * replied in person. When the triage named something the avatar will do on
+ * the conversation partner's behalf, the card shows that offer with a
+ * button; allowing the offer makes the action the avatar's next turn.
+ * Action buttons (Reply, or the offered verb) appear only when that
+ * action exists. Clicking anywhere on the card folds or unfolds it and records
+ * nothing; clicks on Ignore, Reply, thumbs, or the note stay those actions.
+ * The × takes the notice off the screen completely.
  *
  * @param {Object} parameters
  * @param {Object} parameters.message The rendered message (`content`, `ambient`, `isLoading`).
@@ -104,6 +111,8 @@ const AmbientNotificationCard = ({
 
   const [actionState, setActionState] = useState('idle'); // idle | running | done
   const offer = noticeOffer(message);
+  const showOwnerReply = noticeHasSomethingToReplyTo(message);
+  const showIgnore = noticeShowsIgnoreAction(message);
   const actionTaken = storedDecision?.actionTaken ?? null;
   const avatarActed = actionTaken === 'avatar_replied' || actionState === 'done';
   const ownerReplied = actionTaken === 'owner_replied';
@@ -161,6 +170,23 @@ const AmbientNotificationCard = ({
       record('act', { action: 'owner' });
     }
     onReply?.(message);
+  };
+
+  const handleIgnore = async () => {
+    if (state === 'saving' || rating === 'dislike') return;
+    const previousState = state;
+    const previousRating = rating;
+    setRating('dislike');
+    setState('saving');
+    const recorded = await record('ignore', null);
+    if (!recorded) {
+      setRating(previousRating);
+      setState(previousState);
+      return;
+    }
+    setState('disliked');
+    toast.success('Your avatar will ignore notices like this.');
+    onDismiss?.(message);
   };
 
   const handleAllowAction = async () => {
@@ -241,7 +267,9 @@ const AmbientNotificationCard = ({
       </div>
       {collapsed ? (
         preview ? (
-          <p className="mt-2 text-xs text-white/50 truncate">{preview}</p>
+          <p className="mt-2 text-xs text-white/50 whitespace-normal break-words [overflow-wrap:anywhere]">
+            {preview}
+          </p>
         ) : null
       ) : message?.isLoading ? (
         <div className="mt-2 flex items-center gap-2 text-white/60 text-sm">
@@ -249,13 +277,19 @@ const AmbientNotificationCard = ({
           Writing a heads-up…
         </div>
       ) : (
-        <div className="mt-2 whitespace-pre-wrap">{message?.content}</div>
+        <div className="mt-2 whitespace-pre-wrap break-words [overflow-wrap:anywhere]">
+          <LinkifiedText text={message?.content} />
+        </div>
       )}
       {!collapsed && ambient.summary && (
-        <p className="mt-2 text-xs text-white/50 italic">{ambient.summary}</p>
+        <p className="mt-2 text-xs text-white/50 italic break-words [overflow-wrap:anywhere]">
+          {ambient.summary}
+        </p>
       )}
       {!collapsed && ambient.reason && (
-        <p className="mt-1 text-xs text-white/40">{ambient.reason}</p>
+        <p className="mt-1 text-xs text-white/40 break-words [overflow-wrap:anywhere]">
+          {ambient.reason}
+        </p>
       )}
       {!collapsed && offer && !message?.isLoading && (
         <div className="mt-3 flex flex-wrap items-center gap-2 rounded-lg border border-sky-400/20 bg-sky-400/5 px-3 py-2">
@@ -277,7 +311,7 @@ const AmbientNotificationCard = ({
               type="button"
               disabled={actionState === 'running'}
               onClick={handleAllowAction}
-              title={ALLOW_ACTION_TOOLTIP}
+              title={offer.description}
               className="px-2 py-1 rounded-md bg-sky-500/20 text-sky-200 text-xs border border-sky-400/30 hover:bg-sky-500/30 disabled:opacity-50 inline-flex items-center gap-1"
             >
               {actionState === 'running' ? (
@@ -286,7 +320,7 @@ const AmbientNotificationCard = ({
                   Working…
                 </>
               ) : (
-                `Let ${avatarName ?? 'your avatar'} ${offer.action}`
+                offer.action
               )}
             </button>
           )}
@@ -303,13 +337,27 @@ const AmbientNotificationCard = ({
       {!readOnly && !message?.isLoading && !collapsed && (
         <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
           <div className="flex flex-wrap items-center gap-0.5">
-            <button
-              type="button"
-              onClick={handleReply}
-              className="px-2 py-1 mr-1 rounded-md bg-amber-400/15 text-amber-300 text-xs border border-amber-400/30 hover:bg-amber-400/25"
-            >
-              Reply
-            </button>
+            {showIgnore && !avatarActed && !ownerReplied && (
+              <button
+                type="button"
+                disabled={actionsLocked || rating === 'dislike'}
+                onClick={handleIgnore}
+                title={IGNORE_NOTICE_TOOLTIP}
+                aria-label={IGNORE_NOTICE_TOOLTIP}
+                className="px-2 py-1 mr-1 rounded-md bg-white/5 text-white/70 text-xs border border-white/15 hover:bg-white/10 disabled:opacity-50"
+              >
+                Ignore
+              </button>
+            )}
+            {showOwnerReply && !avatarActed && !ownerReplied && (
+              <button
+                type="button"
+                onClick={handleReply}
+                className="px-2 py-1 mr-1 rounded-md bg-amber-400/15 text-amber-300 text-xs border border-amber-400/30 hover:bg-amber-400/25"
+              >
+                Reply
+              </button>
+            )}
             <button
               type="button"
               disabled={actionsLocked}

@@ -33,11 +33,11 @@ test('a hidden avatar is offered with a plus, not a carousel seat', () => {
     query: 'gui',
     hiddenIds: ['guide'],
   });
-  assert.equal(rows.length, 1);
   assert.equal(rows[0].id, 'guide');
   assert.equal(rows[0].canAddToCarousel, true);
   assert.equal(rows[0].onCarousel, false);
   assert.equal(rows[0].originalIndex, -1);
+  assert.equal(rows.at(-1).id, 'create-avatar');
 });
 
 test('no name match still offers Create Avatar', () => {
@@ -57,19 +57,19 @@ test('a hidden personal avatar is still on the carousel, not offered as add', ()
     query: 'evan',
     hiddenIds: ['me'],
   });
-  assert.equal(rows.length, 1);
   assert.equal(rows[0].id, 'me');
   assert.equal(rows[0].onCarousel, true);
   assert.equal(rows[0].canAddToCarousel, false);
+  assert.equal(rows.at(-1).id, 'create-avatar');
 });
 
-test('Create Avatar is omitted when the query matches only avatars', () => {
+test('Create Avatar stays last when the query matches avatars', () => {
   const rows = buildAvatarSearchSuggestions({
     avatars: [personal, guide],
     query: 'evan',
   });
   assert.deepEqual(
     rows.map((row) => row.id),
-    ['me']
+    ['me', 'create-avatar']
   );
 });

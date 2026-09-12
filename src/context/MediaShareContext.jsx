@@ -42,7 +42,9 @@ import {
   stopNarrationSpeech,
 } from '../services/sceneNarrationSpeech';
 import useMotionWireframe from '../hooks/useMotionWireframe';
+import useMotionCapture from '../hooks/useMotionCapture';
 import { MOTION_WIREFRAME_ENABLED } from '../config/motionWireframe';
+import { shouldRunMotionCapture } from '../config/motionCapture';
 import { getAvatarMotionBasis, postAvatarMotionTrack } from '../services/avatarService';
 import { resolveAssistantId } from '../components/utils';
 import {
@@ -81,6 +83,7 @@ const INACTIVE_SHARE = {
   setAmbientVoiceMode: () => {},
   registerAmbientReplyHandler: () => () => {},
   sceneNarrationOn: false,
+  sceneNarrationActive: false,
   setSceneNarration: () => {},
   sceneNarrationSpeaking: false,
 };
@@ -279,6 +282,14 @@ export function MediaShareProvider({
   // that read a peek capture would turn a glance into surveillance.
   const screenIsWatched = screenWatched && Boolean(screenStream);
   const hasLiveShare = Boolean(webcamStream) || screenIsWatched;
+  // Whether the surroundings are being described RIGHT NOW, as opposed to the
+  // setting being on. The camera is what decides: closing the webcam stops the
+  // describing and clears the indicator on its tile, and opening it again
+  // while the setting is on starts the describing back up, with no trip to the
+  // Accessibility page in between. That is what "the setting changes what the
+  // webcam does" means — one capture doing more, rather than a second camera.
+  const sceneNarrationActive =
+    sceneNarrationOn && Boolean(webcamStream) && Boolean(activeAvatar);
   const ambientEnabled = isAmbientVisionActive({
     allowed: ambientAllowed,
     hasWebcam: Boolean(webcamStream),
@@ -306,7 +317,7 @@ export function MediaShareProvider({
     // taken, how long an unchanging scene may go undescribed, and what happens
     // to the answer. Read through the same ref as everything else so a tick
     // never acts on a stale closure.
-    narrating: sceneNarrationOn,
+    narrating: sceneNarrationActive,
     // The person's own pace, from the slider or from asking the avatar for
     // more or less often — not a build-time constant.
     narrationIntervalMs: Math.round((sceneNarrationSeconds || 0) * 1000),
@@ -314,15 +325,35 @@ export function MediaShareProvider({
   };
 
   // The wireframe over the person (src/hooks/useMotionWireframe.js): runs on
-  // the webcam while an observation could be sent, and hands windows to the
-  // ambient loop below. Once the API has fitted this avatar's expression
-  // basis the browser encodes face frames locally and the dense mesh stops
-  // crossing the wire; the basis is re-read now and then to pick up a refit.
+  // the webcam while an observation could be sent AND the person has switched
+  // "Learn how I move" on (src/config/motionCapture.js — off by default, per
+  // browser, flipped from account settings or the personal avatar's
+  // settings), and hands windows to the ambient loop below. Once the API has
+  // fitted this avatar's expression basis the browser encodes face frames
+  // locally and the dense mesh stops crossing the wire; the basis is re-read
+  // now and then to pick up a refit.
+  const { motionCaptureEnabled } = useMotionCapture();
   const motionAssistantId = activeAvatar ? resolveAssistantId(activeAvatar) : null;
+  const motionCaptureRuns = shouldRunMotionCapture({
+    captureEnabled: motionCaptureEnabled,
+    ambientAllowed,
+    ambientCaptureAllowed,
+    hasAvatar: Boolean(activeAvatar),
+    // Only a camera facing the person can teach how the person moves; a
+    // rear camera pointed at the world (the accessibility narration mode
+    // paces those as fast as every five seconds) is not landmarked at all,
+    // so a phone's battery is not spent on frames the API would refuse.
+    cameraFacesPerson: webcamFacingMode === CAMERA_FACING_FRONT,
+  });
   const [motionBasis, setMotionBasis] = useState(null);
   const motionBasisAvatarRef = useRef(null);
   useEffect(() => {
-    if (!MOTION_WIREFRAME_ENABLED || !motionAssistantId || !webcamStream) {
+    if (
+      !MOTION_WIREFRAME_ENABLED ||
+      !motionCaptureRuns ||
+      !motionAssistantId ||
+      !webcamStream
+    ) {
       return undefined;
     }
     let cancelled = false;
@@ -344,21 +375,15 @@ export function MediaShareProvider({
       cancelled = true;
       clearInterval(timer);
     };
-  }, [motionAssistantId, webcamStream]);
+  }, [motionAssistantId, motionCaptureRuns, webcamStream]);
   const {
-    points: motionPoints,
+    frame: motionFrame,
+    meshEdges: motionMeshEdges,
+    frameSize: motionFrameSize,
     status: motionStatus,
     takeWindow: takeMotionWindow,
   } = useMotionWireframe(webcamStream, {
-    // Only a camera facing the person can teach how the person moves; a
-    // rear camera pointed at the world (the accessibility narration mode
-    // paces those as fast as every five seconds) is not landmarked at all,
-    // so a phone's battery is not spent on frames the API would refuse.
-    enabled:
-      ambientAllowed &&
-      ambientCaptureAllowed &&
-      Boolean(activeAvatar) &&
-      webcamFacingMode === CAMERA_FACING_FRONT,
+    enabled: motionCaptureRuns,
     basis: motionBasisAvatarRef.current === motionAssistantId ? motionBasis : null,
   });
   const takeMotionWindowRef = useRef(takeMotionWindow);
@@ -516,10 +541,17 @@ export function MediaShareProvider({
     }
   }, [flipWebcam]);
 
-  // Follow the switch: on opens the camera and the loop below begins
-  // describing; off closes what narration opened and silences what is being
-  // said mid-sentence, because "stop" from someone who cannot see the screen
-  // means stop now.
+  // Follow the SETTING: switching it on opens the camera and the loop below
+  // begins describing; switching it off closes what narration opened and
+  // silences what is being said mid-sentence, because "stop" from someone who
+  // cannot see the screen means stop now.
+  //
+  // This effect deliberately does not depend on `webcamStream`. The setting is
+  // a standing preference about what the webcam DOES, not a capture of its
+  // own: a person who closes the camera has closed it, and an effect that
+  // re-ran on that would reopen the very camera they just turned off. Whether
+  // narration is running right now is `sceneNarrationActive` below, which is
+  // the setting AND a live camera.
   useEffect(() => {
     // No avatar open means nobody to do the describing, and a camera light on
     // with nothing being said is the worst of both: the person cannot see that
@@ -558,6 +590,19 @@ export function MediaShareProvider({
       cancelled = true;
     };
   }, [sceneNarrationOn, activeAvatar, setAvatarMuted, startNarrationCamera]);
+
+  // A camera that is gone cannot be described. Stop mid-sentence rather than
+  // finishing a description of a scene nobody is pointing at any more, and let
+  // go of the claim that narration owns this camera — the next switch-on opens
+  // its own.
+  useEffect(() => {
+    if (webcamStream) return;
+    narrationOpenedCameraRef.current = false;
+    if (!narrationSpeakingRef.current) return;
+    stopNarrationSpeech();
+    narrationSpeakingRef.current = false;
+    setSceneNarrationSpeaking(false);
+  }, [webcamStream]);
 
   const stopScreenCapture = useCallback(() => {
     screenStreamRef.current?.getTracks().forEach((track) => track.stop());
@@ -1119,11 +1164,18 @@ export function MediaShareProvider({
         ambientStatus,
         ambientNextInMs,
         ambientIntervalMs: AMBIENT_CAPTURE_INTERVAL_MS,
-        motionPoints,
+        motionFrame,
+        motionMeshEdges,
+        motionFrameSize,
         motionStatus,
         setAmbientVoiceMode,
         registerAmbientReplyHandler,
+        // The standing setting, and whether it is actually running on a live
+        // camera right now. The tiles show the second one; the Accessibility
+        // page reflects the first, because a setting that switched itself off
+        // every time a camera closed could not be a setting.
         sceneNarrationOn,
+        sceneNarrationActive,
         setSceneNarration: setSceneNarrationOn,
         sceneNarrationSpeaking,
       }}

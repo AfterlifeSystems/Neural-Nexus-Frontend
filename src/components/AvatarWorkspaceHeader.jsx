@@ -8,6 +8,7 @@
 import React from 'react';
 import { User } from 'lucide-react';
 import { isValidImageUrl } from './utils';
+import ProfileBubbleImage from './ProfileBubbleImage';
 
 const tabButtonClass = (isActive) =>
   `voice-workspace-tab px-3 sm:px-4 py-2 whitespace-nowrap text-sm sm:text-base text-neutral-200 ${
@@ -20,6 +21,7 @@ const tabButtonClass = (isActive) =>
  * @param {Object} parameters
  * @param {string} [parameters.avatarName]
  * @param {string|null} [parameters.headerFace] Portrait or emotion still.
+ * @param {string|null} [parameters.assistantId] Profile-bubble crop from settings.
  * @param {Function} [parameters.onPortraitError]
  * @param {'chat'|'inbox'|'avatar-settings'|'avatar-selection'} parameters.activeTab
  * @param {boolean} parameters.isPersonalAvatar
@@ -32,6 +34,7 @@ const tabButtonClass = (isActive) =>
 const AvatarWorkspaceHeader = ({
   avatarName,
   headerFace,
+  assistantId = null,
   onPortraitError,
   activeTab,
   isPersonalAvatar,
@@ -46,27 +49,33 @@ const AvatarWorkspaceHeader = ({
       className={`flex items-center shrink-0 border-b border-white/10 gap-1 sm:gap-4 ${className}`}
     >
       <div className="flex items-center min-w-0 flex-1 gap-1 sm:gap-4 justify-safe-center overflow-x-auto overflow-y-hidden scrollbar-none">
-        <div className="w-9 h-9 shrink-0 rounded-full bg-black/50 border border-white/10 flex items-center justify-center overflow-hidden">
-          {headerFace && isValidImageUrl(headerFace) ? (
-            <img
-              src={headerFace}
-              alt={avatarName ?? 'Avatar'}
-              className="w-full h-full object-cover"
-              onError={onPortraitError}
-            />
-          ) : (
-            <User className="w-5 h-5 text-white/40" />
-          )}
-        </div>
         <button
           type="button"
-          className={tabButtonClass(activeTab === 'chat')}
+          className={`${tabButtonClass(activeTab === 'chat')} inline-flex items-center gap-2`}
           onClick={() => onTabChange('chat')}
         >
-          <span className="hidden sm:inline">
-            {avatarName ? `A.I. ${avatarName} ` : 'A.I. '}
+          <span
+            aria-hidden
+            className="relative w-9 h-9 shrink-0 rounded-full bg-black/50 border border-white/10 overflow-hidden"
+          >
+            {headerFace && isValidImageUrl(headerFace) ? (
+              <ProfileBubbleImage
+                src={headerFace}
+                alt=""
+                assistantId={assistantId}
+                className="h-full w-full"
+                onError={onPortraitError}
+              />
+            ) : (
+              <User className="absolute inset-0 m-auto w-5 h-5 text-white/40" />
+            )}
           </span>
-          Chat
+          <span>
+            <span className="hidden sm:inline">
+              {avatarName ? `A.I. ${avatarName} ` : 'A.I. '}
+            </span>
+            Chat
+          </span>
         </button>
         {isPersonalAvatar && (
           <button

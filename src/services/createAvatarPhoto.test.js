@@ -195,3 +195,71 @@ test('startCreateAvatarPhotoFollowUp no-ops without an avatar, or without a file
     nothing
   );
 });
+
+test('startCreateAvatarPhotoFollowUp ingests identity links without a photograph', async () => {
+  const uploads = [];
+  const result = await startCreateAvatarPhotoFollowUp({
+    assistantId: 'avatar-9',
+    identityUrls: [
+      ' https://example.com/bio ',
+      'https://youtu.be/dQw4w9WgXcQ',
+      'https://www.youtube.com/watch?v=dQw4w9WgXcQ',
+    ],
+    uploadIdentityMedia: async (options) => {
+      uploads.push(options);
+      return true;
+    },
+  });
+  assert.equal(uploads.length, 1);
+  assert.equal(uploads[0].isReferenceImage, false);
+  assert.deepEqual(uploads[0].files, []);
+  assert.deepEqual(uploads[0].urls, [
+    'https://example.com/bio',
+    'https://www.youtube.com/watch?v=dQw4w9WgXcQ',
+  ]);
+  assert.deepEqual(result, { portraitOk: false, identityOk: true });
+});
+
+test('startCreateAvatarPhotoFollowUp adds identity links to the photograph identity ingest', async () => {
+  const uploads = [];
+  const result = await startCreateAvatarPhotoFollowUp({
+    assistantId: 'avatar-9',
+    photoFile: { name: 'sign.jpg' },
+    identityUrls: ['https://example.com/bio'],
+    uploadIdentityMedia: async (options) => {
+      uploads.push(options);
+      return true;
+    },
+  });
+  assert.equal(uploads.length, 2);
+  assert.equal(uploads[0].isReferenceImage, true);
+  assert.deepEqual(uploads[0].files, [{ name: 'sign.jpg' }]);
+  assert.deepEqual(uploads[0].urls, []);
+  assert.equal(uploads[1].isReferenceImage, false);
+  assert.deepEqual(uploads[1].files, [{ name: 'sign.jpg' }]);
+  assert.deepEqual(uploads[1].urls, ['https://example.com/bio']);
+  assert.deepEqual(result, { portraitOk: true, identityOk: true });
+});
+
+test('startCreateAvatarPhotoFollowUp does not send the photograph URL twice as identity media', async () => {
+  const uploads = [];
+  await startCreateAvatarPhotoFollowUp({
+    assistantId: 'avatar-9',
+    photoUrl: 'https://example.com/maya.jpg',
+    identityUrls: [
+      'https://example.com/maya.jpg',
+      'https://example.com/bio',
+    ],
+    uploadIdentityMedia: async (options) => {
+      uploads.push(options);
+      return true;
+    },
+  });
+  assert.deepEqual(uploads[0].urls, ['https://example.com/maya.jpg']);
+  assert.equal(uploads[0].isReferenceImage, true);
+  assert.deepEqual(uploads[1].urls, [
+    'https://example.com/maya.jpg',
+    'https://example.com/bio',
+  ]);
+  assert.equal(uploads[1].isReferenceImage, false);
+});

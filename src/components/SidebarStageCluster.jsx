@@ -1,7 +1,6 @@
 import { MessageSquarePlus } from 'lucide-react';
 
 import SharePreviewSlot from './SharePreviewSlot';
-import SidebarAccessibilityControls from './SidebarAccessibilityControls';
 import SidebarShareControls from './SidebarShareControls';
 import SidebarVoiceMuteControls from './SidebarVoiceMuteControls';
 
@@ -13,9 +12,12 @@ import SidebarVoiceMuteControls from './SidebarVoiceMuteControls';
 export const RAIL_SHARE_PREVIEW_WELL_CLASS = 'w-full px-1 min-h-20';
 
 /**
- * New conversation, mute, mic, describe-my-surroundings, webcam, and share
- * screen — the stage actions that sit above the QR on the collapsed rail,
- * separated from account chrome.
+ * New conversation, mute, mic, webcam, and share screen — the stage actions
+ * that sit above the QR on the collapsed rail, separated from account chrome.
+ *
+ * Describing your surroundings is NOT one of them: it is a setting in
+ * account settings (or something the avatar is asked for in words) that
+ * changes what the webcam does, not a capture of its own with its own button.
  *
  * The preview well keeps its height whether a share is live or not, so those
  * five icons do not jump when a tile appears.
@@ -23,17 +25,12 @@ export const RAIL_SHARE_PREVIEW_WELL_CLASS = 'w-full px-1 min-h-20';
  * @param {Object} props
  * @param {boolean} [props.showConversations]
  * @param {boolean} [props.showShareControls]
- * @param {boolean} [props.showAccessibilityControl] Whether to offer "describe
- *   my surroundings" on the rail. Signed-in screens do; the anonymous
- *   shared-avatar page does not, because narration rides on ambient
- *   observations and those need an account to be billed to.
  * @param {Function} [props.onStartNewConversation]
  * @param {React.ReactNode} props.children The QR control.
  */
 const SidebarStageCluster = ({
   showConversations = false,
   showShareControls = false,
-  showAccessibilityControl = false,
   onStartNewConversation,
   children,
 }) => (
@@ -56,7 +53,6 @@ const SidebarStageCluster = ({
         </button>
       )}
       <SidebarVoiceMuteControls />
-      {showAccessibilityControl && <SidebarAccessibilityControls />}
       {showShareControls && <SidebarShareControls />}
     </div>
     {showShareControls ? (

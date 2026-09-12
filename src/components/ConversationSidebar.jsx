@@ -9,6 +9,7 @@
 
 import React from 'react';
 import {
+  FileJson,
   MessageSquarePlus,
   MoreHorizontal,
   Pin,
@@ -25,14 +26,16 @@ import { NEW_CONVERSATION_ID } from '../context/MediaContext';
 import { useMedia } from '../context/MediaContext';
 import { useAuth } from '../context/AuthContext';
 import { isValidImageUrl } from './utils';
+import usePersonalAvatar from '../hooks/usePersonalAvatar';
+import ProfileBubbleImage from './ProfileBubbleImage';
 import AccountMenu, {
   usePersonalAvatarWorkspaceNavigation,
 } from './AccountMenu';
 import qrCode from '../assets/qr-neuralnexus.png';
 import { toast } from 'react-hot-toast';
 import { sortConversationsChronologically } from '../services/pinnedConversations';
+import { shouldOfferConversationJsonDownload } from '../services/conversationExport';
 import SharePreviewSlot from './SharePreviewSlot';
-import SidebarAccessibilityControls from './SidebarAccessibilityControls';
 import SidebarShareControls from './SidebarShareControls';
 import SidebarStageCluster from './SidebarStageCluster';
 import SidebarVoiceMuteControls from './SidebarVoiceMuteControls';
@@ -110,10 +113,16 @@ function ConversationRow({
   renameConversation,
   shareConversation,
   deleteConversation,
+  downloadConversationJson,
 }) {
   const threadId = conversation.thread_id;
   const isPlaceholder = threadId === NEW_CONVERSATION_ID;
   const isPinned = isConversationPinned(conversation);
+  // Development only: production builds never render the entry.
+  const offerJsonDownload = shouldOfferConversationJsonDownload({
+    isDev: import.meta.env.DEV,
+    threadId,
+  });
 
   return (
     <li className="relative">
@@ -230,6 +239,28 @@ function ConversationRow({
             <Share2 className="w-3.5 h-3.5" />
             Share
           </button>
+          {offerJsonDownload && (
+            <button
+              type="button"
+              className="w-full flex items-center gap-2 px-3 py-1.5 text-sm text-white/80 hover:bg-white/10"
+              title="Development only: save this conversation as a JSON file"
+              onClick={async () => {
+                setMenuThreadId(null);
+                try {
+                  const filename = await downloadConversationJson(threadId);
+                  toast.success(`Saved ${filename}`);
+                } catch (downloadError) {
+                  toast.error(
+                    downloadError.message ||
+                      'Could not download that conversation.'
+                  );
+                }
+              }}
+            >
+              <FileJson className="w-3.5 h-3.5" />
+              Download JSON
+            </button>
+          )}
           <button
             type="button"
             className="w-full flex items-center gap-2 px-3 py-1.5 text-sm text-red-300 hover:bg-red-900/40"
@@ -275,11 +306,13 @@ const ConversationSidebar = ({
   const location = useLocation();
   const navigate = useNavigate();
   const { user, userPortrait } = useAuth();
+  const { personalAssistantId } = usePersonalAvatar();
   const {
     pinConversation,
     renameConversation,
     deleteConversation,
     shareConversation,
+    downloadConversationJson,
   } = useMedia();
   const [menuThreadId, setMenuThreadId] = React.useState(null);
   const [renamingThreadId, setRenamingThreadId] = React.useState(null);
@@ -327,6 +360,7 @@ const ConversationSidebar = ({
     renameConversation,
     shareConversation,
     deleteConversation,
+    downloadConversationJson,
   };
 
   return (
@@ -371,7 +405,6 @@ const ConversationSidebar = ({
           <SidebarStageCluster
             showConversations={showConversations}
             showShareControls={showShareControls}
-            showAccessibilityControl
             onStartNewConversation={onStartNewConversation}
           >
             {/* The code stays reachable while the sidebar is collapsed. Sized
@@ -427,15 +460,16 @@ const ConversationSidebar = ({
               aria-label="Open your avatar's chat"
               className="flex items-center gap-2 min-w-0 -ml-1 pl-1 pr-2 py-1 rounded-lg text-left hover:bg-white/10 transition-colors focus:outline-none focus:ring-2 focus:ring-white/20"
             >
-              <div className="w-9 h-9 shrink-0 rounded-full bg-black/50 border border-white/10 overflow-hidden flex items-center justify-center">
+              <div className="relative w-9 h-9 shrink-0 rounded-full bg-black/50 border border-white/10 overflow-hidden">
                 {userPortrait && isValidImageUrl(userPortrait) ? (
-                  <img
+                  <ProfileBubbleImage
                     src={userPortrait}
                     alt="You"
-                    className="w-full h-full object-cover"
+                    assistantId={personalAssistantId}
+                    className="h-full w-full"
                   />
                 ) : (
-                  <User className="w-4 h-4 text-white/40" />
+                  <User className="absolute inset-0 m-auto w-4 h-4 text-white/40" />
                 )}
               </div>
               <span className="text-neutral-200 font-semibold truncate">
@@ -547,11 +581,6 @@ const ConversationSidebar = ({
           <div className="shrink-0 pt-3 border-t border-white/10 flex flex-col gap-2">
             <div className="space-y-1">
               <SidebarVoiceMuteControls variant="rows" />
-            </div>
-            {/* Above the sharing rows, because this is the one control here
-                that a person may be relying on to know what is around them. */}
-            <div data-sidebar-accessibility>
-              <SidebarAccessibilityControls variant="rows" />
             </div>
             {showShareControls && (
               <div data-sidebar-sharing className="flex flex-col gap-2">

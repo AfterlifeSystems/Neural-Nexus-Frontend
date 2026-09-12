@@ -11,9 +11,19 @@ import {
   resolveCreatedAvatar,
 } from './createdAvatarSettings';
 import CreateAvatarPhotoField from './CreateAvatarPhotoField';
+import CreateAvatarIdentityLinksField from './CreateAvatarIdentityLinksField';
+import CreateAvatarVoiceField from './CreateAvatarVoiceField';
+import {
+  assignCreatedAvatarStandardVoice,
+  standardVoiceIdToAssign,
+} from '../services/createAvatarVoice';
 import AvatarLocationPicker from './geo/AvatarLocationPicker';
 import { rememberResearchJob } from './research/researchJobMemory';
 import { startIdentityMediaUpload } from '../services/identityMediaJobs';
+import {
+  composeCreateAvatarResearchHint,
+  takeIdentityLinkDraft,
+} from '../services/createAvatarIdentityLinks';
 import {
   researchHintFromCreatePhoto,
   resolveCreateAvatarName,
@@ -37,6 +47,14 @@ const CreateAvatarModal = ({ setShowCreateModal }) => {
   const [photoPlaceSource, setPhotoPlaceSource] = useState(null);
   const [photoPlaceError, setPhotoPlaceError] = useState('');
   const [isResolvingPhotoPlace, setIsResolvingPhotoPlace] = useState(false);
+  // Optional identity-source pages. Zero is fine. Ingested after create via
+  // /update_avatar_identity_with_media, the same path Settings uses for URLs.
+  const [identityLinks, setIdentityLinks] = useState([]);
+  const [identityLinkDraft, setIdentityLinkDraft] = useState('');
+  const [identityLinkError, setIdentityLinkError] = useState('');
+  const [voiceGender, setVoiceGender] = useState('');
+  const [standardVoiceId, setStandardVoiceId] = useState('');
+  const [standardVoices, setStandardVoices] = useState([]);
   // An avatar may be pinned to a real-world place here, but the place is never
   // required: a memorial or a marker is often placed long after the avatar was
   // made, from Avatar Settings. A photograph of a place pins it automatically.
@@ -98,23 +116,36 @@ const CreateAvatarModal = ({ setShowCreateModal }) => {
       setError('Place this avatar on the map, or turn the pin off.');
       return;
     }
+    const takenIdentityLinks = takeIdentityLinkDraft(
+      identityLinks,
+      identityLinkDraft
+    );
+    if (takenIdentityLinks.error) {
+      setIdentityLinkError(takenIdentityLinks.error);
+      return;
+    }
+    const resolvedIdentityLinks = takenIdentityLinks.links;
     setIsLoading(true);
     setError(null);
     try {
       // The hint is sent whether or not a photo was chosen: it carries the
       // typed name and the place, which is what tells the research which of
-      // several people with this name the avatar is about.
+      // several people with this name the avatar is about. Identity links
+      // are appended so research can open the pages the creator already has.
       const created = await createAvatar({
         name: resolvedName,
         description: newAvatarDescription,
         geoLocation: isPinnedToAPlace ? geoLocation : undefined,
-        researchHint: researchHintFromCreatePhoto({
-          name: resolvedName,
-          locationName: geoLocation.locationName,
-          latitude: geoLocation.latitude,
-          longitude: geoLocation.longitude,
-          imageUrl: photoUrl,
-        }),
+        researchHint: composeCreateAvatarResearchHint(
+          researchHintFromCreatePhoto({
+            name: resolvedName,
+            locationName: geoLocation.locationName,
+            latitude: geoLocation.latitude,
+            longitude: geoLocation.longitude,
+            imageUrl: photoUrl,
+          }),
+          resolvedIdentityLinks
+        ),
       });
 
       // Refresh the avatar list so the new avatar appears immediately.
@@ -157,6 +188,26 @@ const CreateAvatarModal = ({ setShowCreateModal }) => {
       }
 
       const createdId = assistantIdOf(createdAvatar);
+      const voiceIdToStore = standardVoiceIdToAssign({
+        selectedVoiceId: standardVoiceId,
+        voices: standardVoices,
+      });
+      if (createdId && voiceIdToStore) {
+        try {
+          await assignCreatedAvatarStandardVoice({
+            assistantId: createdId,
+            voiceId: voiceIdToStore,
+          });
+        } catch (voiceError) {
+          console.error(
+            'Avatar created, but the initial standard voice was not saved:',
+            voiceError
+          );
+          toast.error(
+            'The avatar was created. Choose a standard voice in Settings if you want it to speak before a clone is uploaded.'
+          );
+        }
+      }
       // The server starts research for every new avatar and hands the job back
       // here. Remembering it now is what lets the research panel pick the job
       // up and stream its progress the moment Settings mounts — including the
@@ -164,19 +215,23 @@ const CreateAvatarModal = ({ setShowCreateModal }) => {
       if (createdId && created?.research_job?.job_id) {
         rememberResearchJob(createdId, created.research_job.job_id);
       }
-      if (hasPhoto && createdId) {
-        // The photograph is ingested after the dialog closes. Settings shows
-        // the portrait and document jobs. A link is fetched by the server.
+      if ((hasPhoto || resolvedIdentityLinks.length > 0) && createdId) {
+        // Photograph and optional identity links are ingested after the
+        // dialog closes. Settings shows the portrait and document jobs. A
+        // link is fetched by the server.
         void startCreateAvatarPhotoFollowUp({
           assistantId: createdId,
           photoFile,
           photoUrl,
+          identityUrls: resolvedIdentityLinks,
           uploadIdentityMedia: startIdentityMediaUpload,
         }).catch((followUpError) => {
           console.error('Create-from-photo follow-up failed:', followUpError);
           toast.error(
             followUpError?.message ||
-              'The photograph could not be processed. Add it again in Settings.'
+              (hasPhoto
+                ? 'The photograph could not be processed. Add it again in Settings.'
+                : 'The links could not be processed. Add them again in Settings.')
           );
         });
       }
@@ -186,6 +241,12 @@ const CreateAvatarModal = ({ setShowCreateModal }) => {
       setNewAvatarDescription('');
       setPhotoFile(null);
       setPhotoUrl(null);
+      setIdentityLinks([]);
+      setIdentityLinkDraft('');
+      setIdentityLinkError('');
+      setVoiceGender('');
+      setStandardVoiceId('');
+      setStandardVoices([]);
 
       const settingsPath = avatarSettingsPath(createdAvatar);
       if (settingsPath) {
@@ -295,6 +356,24 @@ const CreateAvatarModal = ({ setShowCreateModal }) => {
             disabled={isLoading}
           />
         </label>
+        <CreateAvatarIdentityLinksField
+          links={identityLinks}
+          draft={identityLinkDraft}
+          error={identityLinkError}
+          disabled={isLoading}
+          onLinksChange={setIdentityLinks}
+          onDraftChange={setIdentityLinkDraft}
+          onErrorChange={setIdentityLinkError}
+        />
+        <CreateAvatarVoiceField
+          avatarName={resolvedName}
+          gender={voiceGender}
+          voiceId={standardVoiceId}
+          disabled={isLoading}
+          onGenderChange={setVoiceGender}
+          onVoiceChange={setStandardVoiceId}
+          onVoicesChange={setStandardVoices}
+        />
         <div className="mb-4">
           <label className="flex items-start gap-2 text-sm text-neutral-300">
             <input
@@ -311,10 +390,10 @@ const CreateAvatarModal = ({ setShowCreateModal }) => {
               Pin this avatar to a real-world place
             </span>
           </label>
-          <p className="mt-1 ml-6 text-xs text-white/40">
+          <p className="mt-1 ml-6 text-xs leading-relaxed text-white/40">
             {photoFile
-              ? 'A photograph pins the avatar where it was taken. You can move or clear the pin.'
-              : 'A pinned avatar appears on your world map. Share it to list it for everyone else. Someone who walks up to the place sees it over their camera. You can add, move, or remove the place later.'}
+              ? 'A photograph pins the avatar where it was taken. 1 m is a doorway.'
+              : 'Walk up to the pin and the avatar opens on the phone. 1 m is a doorway.'}
           </p>
           {isPinnedToAPlace && (
             <div className="mt-3">

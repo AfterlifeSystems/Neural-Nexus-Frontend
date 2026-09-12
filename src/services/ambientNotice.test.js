@@ -6,16 +6,21 @@ import {
   DISLIKE_NOTICE_TOOLTIP,
   DISMISS_NOTICE_TOOLTIP,
   EXPAND_NOTICE_TOOLTIP,
+  IGNORE_NOTICE_TOOLTIP,
   LIKE_NOTICE_TOOLTIP,
   ambientPreferenceForNoticeRating,
   ambientActionFields,
   ambientPreferencePayload,
   isAmbientNotice,
+  isAvatarOnBehalfAction,
   isNoticeDismissed,
   loadDismissedNoticeIds,
   noticeDismissId,
+  noticeHasSomethingToReplyTo,
   noticeOffer,
   noticePreview,
+  noticeStartsCollapsed,
+  noticeShowsIgnoreAction,
   offerVerb,
   noticeWasDecided,
   noticeClickTogglesCard,
@@ -91,6 +96,12 @@ test('a click on the card body folds it; a click on a control does not', () => {
   );
 });
 
+test('the latest notice starts open so the full observation is readable', () => {
+  assert.equal(noticeStartsCollapsed({ isLatestNotice: true }), false);
+  assert.equal(noticeStartsCollapsed({ isLatestNotice: false }), true);
+  assert.equal(noticeStartsCollapsed(), false);
+});
+
 test('a folded notice shows the summary, else the first line of the heads-up', () => {
   assert.equal(
     noticePreview({
@@ -131,6 +142,73 @@ test('the preference payload carries the observation the card answered', () => {
       type: 'accept',
       args: null,
     }
+  );
+});
+
+test('a plain heads-up shows ignore, not reply', () => {
+  const notice = { ambient: { decision: 'notify', proposed_action: 'none' } };
+  assert.equal(noticeShowsIgnoreAction(notice), true);
+  assert.equal(noticeHasSomethingToReplyTo(notice), false);
+  assert.equal(noticeOffer(notice), null);
+  assert.equal(IGNORE_NOTICE_TOOLTIP, 'Ignore notices like this');
+});
+
+test('reply is only an offer when the avatar can answer a waiting message', () => {
+  assert.equal(
+    isAvatarOnBehalfAction('reply', 'Say something useful about the terminal'),
+    false
+  );
+  assert.equal(
+    isAvatarOnBehalfAction('explain', 'Explain the close dialog'),
+    false
+  );
+  assert.equal(
+    isAvatarOnBehalfAction('cancel', 'Cancel the terminal close prompt'),
+    false
+  );
+  assert.equal(
+    isAvatarOnBehalfAction('research', 'Research the error on the screen'),
+    true
+  );
+  assert.equal(
+    noticeOffer({
+      ambient: {
+        decision: 'notify',
+        proposed_action: 'reply',
+        action_description: 'Say something useful about the terminal',
+      },
+    }),
+    null
+  );
+  assert.deepEqual(
+    noticeOffer({
+      ambient: {
+        decision: 'notify',
+        proposed_action: 'reply',
+        action_description: 'Reply to the invoice email',
+      },
+    }),
+    { action: 'reply', description: 'Reply to the invoice email' }
+  );
+  assert.equal(
+    noticeHasSomethingToReplyTo({
+      ambient: {
+        decision: 'notify',
+        proposed_action: 'reply',
+        action_description: 'Reply to the invoice email',
+      },
+    }),
+    true
+  );
+  assert.equal(
+    noticeHasSomethingToReplyTo({
+      ambient: {
+        decision: 'notify',
+        proposed_action: 'research',
+        action_description: 'Research the error on the screen',
+      },
+    }),
+    false
   );
 });
 

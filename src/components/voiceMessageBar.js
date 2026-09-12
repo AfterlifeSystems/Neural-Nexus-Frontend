@@ -8,8 +8,8 @@ const KEEP_MESSAGE_BAR_OPEN_CONTROL =
  * Whether a pointer on the voice stage should fold the message bar.
  *
  * The bar, the mute indicators, the header, the caption dock, and any
- * control stay put.
- * Everything else is empty stage.
+ * control stay put. Everything else is empty stage — including the
+ * portrait, which is not a zoom surface.
  *
  * @param {EventTarget|null|undefined} target
  * @returns {boolean}
@@ -68,4 +68,26 @@ export function voiceMessageBarHasDraftAttachments({
  */
 export function voiceComposerDockItemsClass(_isCollapsed) {
   return 'items-end';
+}
+
+/**
+ * The attach / dictate / send row in the voice message bar.
+ *
+ * A 1px hover border and the focus ring sit on the button edge.
+ * Vertical padding keeps those press states from being sliced off
+ * by the overflow-x-auto scroller (which also clips overflow-y).
+ *
+ * @returns {string}
+ */
+export function voiceMessageBarControlsRowClass() {
+  return 'flex items-center gap-1 min-w-0 py-0.5';
+}
+
+/**
+ * The scrolling cluster of live-audio and caption controls.
+ *
+ * @returns {string}
+ */
+export function voiceMessageBarOverflowControlsClass() {
+  return 'flex items-center gap-0.5 min-w-0 overflow-x-auto scrollbar-none flex-1 py-0.5';
 }

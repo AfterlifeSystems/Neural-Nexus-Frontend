@@ -114,8 +114,9 @@ export const NOTICE_CARD_CONTROL_SELECTOR =
 /**
  * Whether a click on a notice card should fold or unfold it.
  *
- * The card body is the toggle. A control (Reply, thumbs, the comment field)
- * keeps its own action. Drag-selecting the heads-up is not a toggle.
+ * The card body is the toggle. A control (Ignore, Reply, thumbs, the
+ * comment field) keeps its own action. Drag-selecting the heads-up is not
+ * a toggle.
  *
  * @param {MouseEvent|null|undefined} event The click on the card.
  * @returns {boolean}
@@ -154,6 +155,21 @@ export function noticePreview(message) {
 }
 
 /**
+ * Whether a notice card should start folded.
+ *
+ * Older cards fold so the stage is not a stack of full observations. The
+ * latest one stays open: on a phone a folded preview with `truncate` cut
+ * words in half (Method → Meth) and hid the rest of the heads-up.
+ *
+ * @param {Object} [options]
+ * @param {boolean} [options.isLatestNotice]
+ * @returns {boolean}
+ */
+export function noticeStartsCollapsed({ isLatestNotice = true } = {}) {
+  return !isLatestNotice;
+}
+
+/**
  * The Agent Inbox decision a thumbs-up or thumbs-down on a notice records.
  *
  * Like is `accept`: keep telling me about this kind of scene. Dislike is
@@ -187,8 +203,48 @@ export function ambientPreferencePayload(message, { type, args } = {}) {
   };
 }
 
-/** Tooltip on the button that lets the avatar do what the avatar offered. */
-export const ALLOW_ACTION_TOOLTIP = 'Let your avatar do this';
+/** Tooltip on Ignore: the next similar observation should stay quiet. */
+export const IGNORE_NOTICE_TOOLTIP = 'Ignore notices like this';
+
+/** Verbs that mean the avatar would only talk. The heads-up already did that. */
+const CONVERSATIONAL_OFFER_VERBS = new Set([
+  'advise',
+  'comment',
+  'explain',
+  'mention',
+  'note',
+  'observe',
+  'remark',
+  'say',
+  'tell',
+  'warn',
+]);
+
+/** Verbs that mean clicking or typing on this machine. The avatar cannot. */
+const LOCAL_MACHINE_OFFER_VERBS = new Set([
+  'cancel',
+  'click',
+  'close',
+  'dismiss',
+  'press',
+  'tap',
+  'type',
+]);
+
+/** A proposed reply is on-behalf only when the wording names a waiting channel. */
+const REPLY_CHANNEL_MARKERS = [
+  'call',
+  'discord',
+  'dm',
+  'email',
+  'inbox',
+  'mail',
+  'message',
+  'slack',
+  'sms',
+  'thread',
+  'tweet',
+];
 
 /**
  * The one verb an offer names, lowercase letters only, or null.
@@ -208,10 +264,34 @@ export function offerVerb(value) {
 }
 
 /**
+ * Whether this offer is something the avatar can do for the conversation
+ * partner. Talking about what was seen is not an action. Clicking a local
+ * dialog is not an action the avatar can take. `reply` counts only when the
+ * wording names a waiting message, email, or call.
+ *
+ * @param {unknown} action The triage's `proposed_action`.
+ * @param {unknown} [description] The wording that details the verb.
+ * @returns {boolean}
+ */
+export function isAvatarOnBehalfAction(action, description = '') {
+  const verb = offerVerb(action);
+  if (!verb) return false;
+  if (CONVERSATIONAL_OFFER_VERBS.has(verb)) return false;
+  if (LOCAL_MACHINE_OFFER_VERBS.has(verb)) return false;
+  if (verb === 'reply') {
+    const wording = String(description ?? '').toLowerCase();
+    return REPLY_CHANNEL_MARKERS.some((marker) => wording.includes(marker));
+  }
+  return true;
+}
+
+/**
  * What the avatar offered to do about this notice, or null for a plain
- * heads-up. The triage names one verb the avatar will perform
- * (`proposed_action`: draft, reply, remind, research ...) and one line of
- * wording detailing the verb; the card puts the verb on the button.
+ * heads-up. The triage names one verb the avatar will perform on the
+ * conversation partner's behalf (`proposed_action`: draft, remind,
+ * research ...) and one line of wording detailing the verb; the card puts
+ * the verb on the button. A conversational `reply` or a local-dialog verb
+ * is not an offer.
  *
  * @param {Object|null|undefined} message The notice.
  * @returns {{action: string, description: string}|null}
@@ -222,7 +302,32 @@ export function noticeOffer(message) {
   const action = offerVerb(ambient.proposed_action);
   const description = String(ambient.action_description ?? '').trim();
   if (!action || !description) return null;
+  if (!isAvatarOnBehalfAction(action, description)) return null;
   return { action, description };
+}
+
+/**
+ * Whether this notice has a waiting message, email, or call the person or
+ * the avatar could answer. A terminal dialog does not.
+ *
+ * @param {Object|null|undefined} message The notice.
+ * @returns {boolean}
+ */
+export function noticeHasSomethingToReplyTo(message) {
+  const offer = noticeOffer(message);
+  return Boolean(offer && (offer.action === 'reply' || offer.action === 'draft'));
+}
+
+/**
+ * Whether a notify card should show Ignore. A plain heads-up has no avatar
+ * action, so Ignore is how the person teaches the next triage to stay quiet
+ * about this kind of scene.
+ *
+ * @param {Object|null|undefined} message The notice.
+ * @returns {boolean}
+ */
+export function noticeShowsIgnoreAction(message) {
+  return isAmbientNotice(message);
 }
 
 /**

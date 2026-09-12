@@ -16,14 +16,10 @@ import { Crosshair, Loader2, MapPin, Search, Trash2 } from 'lucide-react';
 import { GEOCODER_URL, MAP_TILE_ATTRIBUTION, MAP_TILE_URL } from '../../config/maps';
 import {
   DEFAULT_GEOFENCE_RADIUS_METERS,
-  MAXIMUM_GEOFENCE_RADIUS_METERS,
-  METERS_PER_MILE,
-  MINIMUM_GEOFENCE_RADIUS_METERS,
   clampGeofenceRadius,
-  describeGeofenceRadius,
   formatCoordinate,
   isValidCoordinate,
-  milesFromMeters,
+  pinCoordinate,
 } from '../../services/avatarProximity';
 import { describeLocationError, readDevicePositionOnce } from '../../services/deviceLocation';
 import {
@@ -33,6 +29,7 @@ import {
   parseDecimal,
   searchPlaces,
 } from '../../services/placeSearch';
+import GeofenceRadiusField from './GeofenceRadiusField';
 import { draftPinIcon } from './avatarPinMarker';
 import 'leaflet/dist/leaflet.css';
 import './leafletMapStyles.css';
@@ -134,8 +131,6 @@ function ClickToPlacePin({ onPlace }) {
 const AvatarLocationPicker = ({ value, onChange, heightClassName = 'h-56' }) => {
   const [isLocating, setIsLocating] = useState(false);
   const [locationError, setLocationError] = useState('');
-  const [radiusUnit, setRadiusUnit] = useState('m');
-
   const latitude = value?.latitude;
   const longitude = value?.longitude;
   const hasPin = isValidCoordinate(latitude, longitude);
@@ -155,8 +150,8 @@ const AvatarLocationPicker = ({ value, onChange, heightClassName = 'h-56' }) => 
     (nextLatitude, nextLongitude) => {
       onChange({
         ...value,
-        latitude: Number(nextLatitude.toFixed(6)),
-        longitude: Number(nextLongitude.toFixed(6)),
+        latitude: pinCoordinate(nextLatitude),
+        longitude: pinCoordinate(nextLongitude),
       });
     },
     [onChange, value]
@@ -223,8 +218,8 @@ const AvatarLocationPicker = ({ value, onChange, heightClassName = 'h-56' }) => 
 
   const choosePlace = useCallback(
     (place) => {
-      const nextLatitude = Number(place.latitude.toFixed(6));
-      const nextLongitude = Number(place.longitude.toFixed(6));
+      const nextLatitude = pinCoordinate(place.latitude);
+      const nextLongitude = pinCoordinate(place.longitude);
       const keepsName = (value?.locationName ?? '').trim().length > 0;
       onChange({
         ...value,
@@ -454,9 +449,9 @@ const AvatarLocationPicker = ({ value, onChange, heightClassName = 'h-56' }) => 
         </MapContainer>
       </div>
 
-      <p className="text-xs text-white/50">
-        Click the map or drag the marker to place this avatar. The circle is how
-        close someone must be to count as standing here.
+      <p className="text-xs leading-relaxed text-white/50">
+        Click or drag to place. Stand in the circle and the avatar opens on the
+        phone. 1 m is a doorway.
       </p>
 
       <div className="flex flex-wrap items-center gap-2">
@@ -540,68 +535,20 @@ const AvatarLocationPicker = ({ value, onChange, heightClassName = 'h-56' }) => 
           placeholder="Stone Arch Bridge"
           className="mt-1 w-full rounded-md border border-white/10 bg-black/40 px-2 py-1.5 text-sm text-neutral-200 placeholder-white/30 focus:outline-none focus:ring-2 focus:ring-amber-400/50"
         />
-        <span className="mt-1 block text-white/40">
-          The avatar calls the place by this name and never reads out coordinates.
+        <span className="mt-1 block text-[11px] leading-relaxed text-white/40">
+          Spoken name. Never coordinates.
         </span>
       </label>
 
-      <label className="block text-xs text-white/60">
-        Visitors count as here within {describeGeofenceRadius(radiusMeters)}
-        <span className="mt-1 block text-white/40">
-          Type metres or miles. One metre is a doorway; one mile is kept as
-          {` ${Math.round(METERS_PER_MILE)} m`}, never shown as 0 m.
-        </span>
-        <div className="mt-1 flex gap-1">
-          <button
-            type="button"
-            onClick={() => setRadiusUnit('m')}
-            className={`rounded-md border px-2 py-1 text-xs ${
-              radiusUnit === 'm'
-                ? 'border-white/20 bg-white/10 text-neutral-100'
-                : 'border-white/10 text-white/50'
-            }`}
-          >
-            meters
-          </button>
-          <button
-            type="button"
-            onClick={() => setRadiusUnit('mi')}
-            className={`rounded-md border px-2 py-1 text-xs ${
-              radiusUnit === 'mi'
-                ? 'border-white/20 bg-white/10 text-neutral-100'
-                : 'border-white/10 text-white/50'
-            }`}
-          >
-            miles
-          </button>
-        </div>
-        <input
-          type="number"
-          min={radiusUnit === 'mi' ? 0.001 : MINIMUM_GEOFENCE_RADIUS_METERS}
-          max={
-            radiusUnit === 'mi'
-              ? MAXIMUM_GEOFENCE_RADIUS_METERS / METERS_PER_MILE
-              : MAXIMUM_GEOFENCE_RADIUS_METERS
-          }
-          step={radiusUnit === 'mi' ? 0.01 : 1}
-          value={
-            radiusUnit === 'mi'
-              ? milesFromMeters(
-                  value?.geofenceRadiusMeters ?? DEFAULT_GEOFENCE_RADIUS_METERS
-                ).toFixed(2)
-              : (value?.geofenceRadiusMeters ?? DEFAULT_GEOFENCE_RADIUS_METERS)
-          }
-          onChange={(changeEvent) => {
-            const typed = Number(changeEvent.target.value);
-            onChange({
-              ...value,
-              geofenceRadiusMeters:
-                radiusUnit === 'mi' ? typed * METERS_PER_MILE : typed,
-            });
-          }}
-          className="mt-1 w-full rounded-md border border-white/10 bg-black/40 px-2 py-1.5 text-sm text-neutral-200 focus:outline-none focus:ring-2 focus:ring-amber-400/50"
-        />
-      </label>
+      <GeofenceRadiusField
+        radiusMeters={radiusMeters}
+        onChange={(nextRadiusMeters) =>
+          onChange({
+            ...value,
+            geofenceRadiusMeters: nextRadiusMeters,
+          })
+        }
+      />
     </div>
   );
 };

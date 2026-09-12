@@ -3,6 +3,7 @@ import React, { useState } from 'react';
 import { Mic, Sparkles } from 'lucide-react';
 import { toast } from 'react-hot-toast';
 import { setVoiceCaptureConsent } from '../../services/avatarService';
+import { avatarHasClonedVoice } from '../../services/avatarHasClonedVoice';
 
 /**
  * The one line voice mode shows about the avatar learning its own voice.
@@ -21,7 +22,9 @@ import { setVoiceCaptureConsent } from '../../services/avatarService';
  * 3. **Building.** Once it is learning, the progress is worth seeing, because
  *    the voice arrives partway through a conversation.
  *
- * A voice already built shows nothing: the avatar simply speaks.
+ * A cloned voice already built shows nothing: the avatar simply speaks.
+ * A chosen standard voice does not count as a clone, so learning progress
+ * still appears.
  *
  * @param {Object} parameters
  * @param {string} parameters.assistantId The personal avatar.
@@ -49,7 +52,8 @@ export default function VoiceCaptureNotice({
   const minimum = Number(
     readiness?.instant_minimum_seconds ?? status.instant_minimum_seconds ?? 60
   );
-  const hasVoice = Boolean(readiness?.has_voice ?? status.instant_voice_id);
+  const hasVoice =
+    avatarHasClonedVoice(status) || avatarHasClonedVoice(readiness);
   const reason = status.accrual_blocked_reason;
 
   const answer = async (granted) => {

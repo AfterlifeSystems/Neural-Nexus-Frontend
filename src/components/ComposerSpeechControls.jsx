@@ -53,7 +53,7 @@ export default function ComposerSpeechControls({
             !canDictate
               ? unavailableMessage
               : isDictating
-                ? 'Stop recording — the words appear in the box and play in your voice'
+                ? 'Stop recording — the words appear in the box'
                 : 'Speech to text — record without sending'
           }
           aria-label={

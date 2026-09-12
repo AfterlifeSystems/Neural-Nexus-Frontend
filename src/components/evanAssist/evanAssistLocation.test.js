@@ -12,6 +12,8 @@ test('gallery, settings, and a named chat are described in ordinary words', () =
     describeAssistLocation('/chat/abc', '', 'Maya'),
     'a conversation with Maya'
   );
+  assert.equal(describeAssistLocation('/account'), 'account settings');
+  assert.equal(describeAssistLocation('/accessibility'), 'account settings');
   assert.equal(describeAssistLocation('/billing'), 'billing');
   assert.equal(
     describeAssistLocation('/share/xyz', '', 'Evan'),

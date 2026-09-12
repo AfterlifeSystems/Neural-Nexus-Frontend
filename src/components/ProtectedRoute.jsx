@@ -111,7 +111,7 @@ export default function ProtectedRoute() {
         // Ordinary ambient looks go out only in the message view or voice mode.
         // Scene narration is the exception: somebody walking with the camera up
         // is relying on it, and it must not fall silent because they opened
-        // the avatar gallery or the Accessibility page itself.
+        // the avatar gallery or account settings.
         ambientCaptureAllowed={isConversationSurface || sceneNarrationOn}
       >
       <GeoAvatarProvider onTalkNow={openAvatarOverTheCamera}>

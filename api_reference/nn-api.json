@@ -4401,7 +4401,7 @@
             "schema": {
               "anyOf": [
                 {
-                  "type": "integer"
+                  "type": "number"
                 },
                 {
                   "type": "null"
@@ -4598,7 +4598,7 @@
             "schema": {
               "anyOf": [
                 {
-                  "type": "integer"
+                  "type": "number"
                 },
                 {
                   "type": "null"

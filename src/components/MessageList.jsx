@@ -9,6 +9,7 @@ import { useMedia } from '../context/MediaContext';
 import { useAuth } from '../context/AuthContext';
 import { isSharedAvatarChatPath } from './utils';
 import { canUseAvatarSpeechPlayback } from '../services/avatarSpeechPlayback';
+import { shouldPromptForMissingClonedVoice } from '../services/missingClonedVoicePrompt';
 import usePersonalAvatar from '../hooks/usePersonalAvatar';
 import {
   SPEAKING_BUBBLE_HIGHLIGHT,
@@ -22,6 +23,7 @@ import useEmotionMedia from '../hooks/useEmotionMedia';
 import useAvatarFaceSource from '../hooks/useAvatarFaceSource';
 import useMessageActions from '../hooks/useMessageActions';
 import MessageActionBar from './media/MessageActionBar';
+import MessageEditor from './messageEdit/MessageEditor';
 import { isConversationSuggestionList } from '../services/conversationSuggestions';
 import { messageKeyOf } from '../services/messageKey';
 import AmbientNotificationCard from './AmbientNotificationCard';
@@ -31,6 +33,7 @@ import { focusComposer } from '../services/composerFocus';
 import CreatedArtifacts from './CreatedArtifacts';
 import ChartCard from './ChartCard';
 import ConnectionCardStack from './connections/ConnectionCardStack';
+import LinkifiedText from './ui/LinkifiedText';
 import {
   connectionsOf,
   isConnectionCardOnly,
@@ -86,6 +89,7 @@ const MessageList = ({
   avatarName,
   assistantId,
   readOnly = false,
+  onAvatarPortraitClick,
 }) => {
   const {
     assistantActivity,
@@ -159,6 +163,10 @@ const MessageList = ({
     speechPlaybackEnabled: canSpeak,
     userSpeechPlaybackEnabled: canSpeakUser,
     userSpeechAssistantId: personalAssistantId,
+    promptForMissingClonedVoice: shouldPromptForMissingClonedVoice({
+      avatar: activeAvatar,
+      user,
+    }),
   });
 
   // Who the reader is on THIS screen, which is not always who this browser has
@@ -219,9 +227,10 @@ const MessageList = ({
 
           // Something the avatar noticed through ambient vision and decided
           // the person should hear about. It is the avatar's own message, but
-          // it renders as a card with Reply and the same thumbs grouping a
-          // chat bubble uses — like and dislike become a preference — rather
-          // than as a bubble in the exchange.
+          // it renders as a card: Ignore teaches the next triage to stay
+          // quiet about this kind of scene, and an action button appears
+          // only when the avatar offered to do something on the person's
+          // behalf. Thumbs use the same grouping a chat bubble uses.
           if (isFromAvatar && isAmbientNotice(msg)) {
             if (isNoticeDismissed(msg, dismissedNoticeIds)) {
               return null;
@@ -384,6 +393,7 @@ const MessageList = ({
                             portrait={readerPortrait}
                             name="You"
                             isSpeaking={isUserSpeaking}
+                            assistantId={personalAssistantId}
                           />
                         )}
                         <div
@@ -400,7 +410,9 @@ const MessageList = ({
                                 : undefined
                           }
                         >
-                          <div className="whitespace-pre-wrap">{row.text}</div>
+                          <div className="whitespace-pre-wrap">
+                            <LinkifiedText text={row.text} />
+                          </div>
                           {isLast ? (
                             <>
                               <MessageMedia media={msg.media} />
@@ -425,6 +437,14 @@ const MessageList = ({
                     emotionMedia={isFromAvatar ? emotionMedia : null}
                     showGenerated={showGenerated}
                     isSpeaking={isFromUser ? isUserSpeaking : isSpeakingThis}
+                    assistantId={
+                      isFromUser ? personalAssistantId : resolvedAssistantId
+                    }
+                    onClick={
+                      isFromAvatar && typeof onAvatarPortraitClick === 'function'
+                        ? onAvatarPortraitClick
+                        : undefined
+                    }
                   />
                 )}
                 <div
@@ -472,44 +492,23 @@ const MessageList = ({
                         </div>
                       )}
                       {isFromUser && editingKey === messageKey ? (
-                        <div className="space-y-2">
-                          <textarea
-                            value={editDraft}
-                            onChange={(event) =>
-                              setEditDraft(event.target.value)
-                            }
-                            rows={3}
-                            className="w-full px-2 py-1.5 bg-black/50 border border-white/10 rounded-md text-neutral-200 text-sm focus:outline-none focus:ring-2 focus:ring-amber-400/50"
-                          />
-                          <div className="flex items-center gap-2">
-                            <button
-                              type="button"
-                              disabled={
-                                pendingSendCount > 0 ||
-                                !String(editDraft ?? '').trim()
-                              }
-                              onClick={() => {
-                                const words = String(editDraft ?? '').trim();
-                                if (!words) return;
-                                resendFromUserMessage?.(messageKey, words);
-                                setEditingKey(null);
-                              }}
-                              className="px-2 py-1 rounded-md bg-amber-400/15 text-amber-300 text-xs border border-amber-400/30 disabled:opacity-40"
-                            >
-                              Accept
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => setEditingKey(null)}
-                              className="px-2 py-1 rounded-md bg-white/5 text-white/70 text-xs border border-white/10"
-                            >
-                              Cancel
-                            </button>
-                          </div>
-                        </div>
+                        <MessageEditor
+                          value={editDraft}
+                          onChange={setEditDraft}
+                          pendingSendCount={pendingSendCount}
+                          onAccept={() => {
+                            const words = String(editDraft ?? '').trim();
+                            if (!words) return;
+                            resendFromUserMessage?.(messageKey, words);
+                            setEditingKey(null);
+                          }}
+                          onCancel={() => setEditingKey(null)}
+                        />
                       ) : (
                         bubbleText && (
-                          <div className="whitespace-pre-wrap">{bubbleText}</div>
+                          <div className="whitespace-pre-wrap">
+                            <LinkifiedText text={bubbleText} />
+                          </div>
                         )
                       )}
 

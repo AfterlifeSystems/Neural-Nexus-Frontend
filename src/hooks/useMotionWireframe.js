@@ -16,7 +16,7 @@ import {
   decodeBasis,
   faceFrameFromLandmarks,
   headPoseFromMatrix,
-  overlayPoints,
+  overlayFrame,
   windowByteLength,
 } from '../services/motionWireframe';
 
@@ -35,7 +35,9 @@ import {
  * @param {{enabled?: boolean, basis?: object|null}} [options]
  */
 export default function useMotionWireframe(stream, { enabled = true, basis = null } = {}) {
-  const [points, setPoints] = useState([]);
+  const [frame, setFrame] = useState({ face: null, body: null });
+  const [meshEdges, setMeshEdges] = useState(null);
+  const [frameSize, setFrameSize] = useState({ width: 0, height: 0 });
   const [status, setStatus] = useState('idle'); // idle | loading | running | unsupported | error
   const accumulatorRef = useRef(null);
   const latestRef = useRef({ body: null, face: null });
@@ -56,7 +58,7 @@ export default function useMotionWireframe(stream, { enabled = true, basis = nul
   useEffect(() => {
     if (!active) {
       setStatus('idle');
-      setPoints([]);
+      setFrame({ face: null, body: null });
       accumulatorRef.current?.reset();
       return undefined;
     }
@@ -111,7 +113,7 @@ export default function useMotionWireframe(stream, { enabled = true, basis = nul
         if (faceFrame) latestRef.current.face = faceFrame;
         if (now - lastOverlayAt > 66) {
           lastOverlayAt = now;
-          setPoints(overlayPoints(latestRef.current));
+          setFrame(overlayFrame(latestRef.current));
         }
       }
       frameHandle = video.requestVideoFrameCallback
@@ -126,6 +128,12 @@ export default function useMotionWireframe(stream, { enabled = true, basis = nul
         const { FilesetResolver, PoseLandmarker, FaceLandmarker } = await import(
           /* @vite-ignore */ MOTION_TASKS_VISION_MODULE_URL
         );
+        // The tessellation the library itself ships (2,556 edges): read at
+        // runtime rather than copied into this repository.
+        setMeshEdges({
+          tessellation: FaceLandmarker.FACE_LANDMARKS_TESSELATION ?? null,
+          contours: FaceLandmarker.FACE_LANDMARKS_CONTOURS ?? null,
+        });
         const fileset = await FilesetResolver.forVisionTasks(MOTION_TASKS_VISION_WASM_URL);
         [pose, face] = await Promise.all([
           PoseLandmarker.createFromOptions(fileset, {
@@ -150,6 +158,12 @@ export default function useMotionWireframe(stream, { enabled = true, basis = nul
         video.playsInline = true;
         video.srcObject = stream;
         await video.play();
+        // The intrinsic frame size: the preview fills its tile with
+        // object-cover, so the overlay needs this to land the mesh on the face.
+        setFrameSize({ width: video.videoWidth || 0, height: video.videoHeight || 0 });
+        video.addEventListener('resize', () =>
+          setFrameSize({ width: video.videoWidth || 0, height: video.videoHeight || 0 })
+        );
         setStatus('running');
         frameHandle = video.requestVideoFrameCallback
           ? video.requestVideoFrameCallback(onFrame)
@@ -186,7 +200,7 @@ export default function useMotionWireframe(stream, { enabled = true, basis = nul
     return payload;
   }, []);
 
-  return { points, status, takeWindow };
+  return { frame, meshEdges, frameSize, status, takeWindow };
 }
 
 function decimateFace(payload) {

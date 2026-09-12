@@ -11,6 +11,7 @@ import {
   listStandardVoices,
   setAvatarStandardVoice,
 } from '../../services/avatarService';
+import { inferAvatarGenderFromName } from '../../services/avatarGenderFromName';
 import { showRequestFailureToast } from '../requestFailureToast';
 
 const GENDER_OPTIONS = [
@@ -38,15 +39,19 @@ const describeVoice = (voice) => {
  *   save returned, so the panel re-renders without a second read.
  * @param {boolean} props.hasUsableCloneVoice Whether a cloned voice speaks
  *   today; the standard voice then waits in reserve.
+ * @param {string} [props.avatarName] Used to infer gender when none is saved.
  */
 const StandardVoicePicker = ({
   assistantId,
   status,
   onStatus,
   hasUsableCloneVoice,
+  avatarName,
 }) => {
   const chosen = status?.standard_voice ?? null;
-  const [gender, setGender] = useState(chosen?.gender ?? 'female');
+  const [gender, setGender] = useState(
+    chosen?.gender ?? inferAvatarGenderFromName(avatarName) ?? 'female'
+  );
   const [voices, setVoices] = useState([]);
   const [isLoadingVoices, setIsLoadingVoices] = useState(false);
   const [loadError, setLoadError] = useState('');

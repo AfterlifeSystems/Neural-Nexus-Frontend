@@ -688,6 +688,7 @@ const VoicePanel = ({
         status={status}
         onStatus={setStatus}
         hasUsableCloneVoice={hasVoiceModel}
+        avatarName={avatarName}
       />
 
       {/* What the voice is built from: the reference clip the diarizer uses

@@ -24,11 +24,13 @@ import {
 
 import {
   cancelResearchJob,
+  getAvatarConversationStarters,
   listResearchProposals,
   resolveResearchProposals,
   startAvatarDeepResearch,
   streamResearchProgress,
 } from '../../services/avatarService';
+import { rememberStandardConversationStarters } from '../../services/standardConversationStarters';
 import {
   describeResearchOutcome,
   ACQUISITION_STAGES,
@@ -48,6 +50,29 @@ import {
   rememberResearchJob,
   subscribeResearchJobs,
 } from './researchJobMemory';
+
+/**
+ * Hold the standard set of starters the research just wrote.
+ *
+ * The finished job carries the record; when the job did not (an older
+ * server, or the set was left as it was), the record is read back from the
+ * avatar so this browser is not left with the placeholder set.
+ *
+ * @param {string} assistantId The researched avatar.
+ * @param {Object|null|undefined} recordFromJob `result.conversation_starters`.
+ */
+async function adoptStandardStarters(assistantId, recordFromJob) {
+  if (recordFromJob) {
+    rememberStandardConversationStarters(assistantId, recordFromJob);
+    return;
+  }
+  try {
+    const record = await getAvatarConversationStarters(assistantId);
+    rememberStandardConversationStarters(assistantId, record);
+  } catch (readError) {
+    console.debug('Standard conversation starters unavailable:', readError);
+  }
+}
 
 /**
  * Deep research and the review of what the sources contradicted.
@@ -154,6 +179,11 @@ const ResearchPanel = ({
           setProgressMessage(describeResearchOutcome(event));
           if (event.result?.applied) factsAppliedRef.current?.();
           loadProposals();
+          // Research is the moment the avatar comes to know who the avatar
+          // is, so the messaging service rewrote the standard set of
+          // starters. Hold the new set in this browser now, so the next new
+          // conversation opens with it instead of the placeholder set.
+          adoptStandardStarters(assistantId, event.result?.conversation_starters);
           return;
         }
         if (ACQUISITION_STAGES.has(event?.stage)) {

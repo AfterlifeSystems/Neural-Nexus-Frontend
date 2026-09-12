@@ -1,23 +1,32 @@
 // src/components/ConversationSuggestions.jsx
 //
-// Prompts for the current thread, offered as a sheet above the composer.
+// Prompts for the current thread, always painted above the composer.
 // An empty new conversation gets starters; after a reply, follow-ups.
-// The handle raises and lowers the list; pressing a prompt sends it as the
-// next user turn. Voice mode and message mode share the open/closed flag,
-// so switching medium does not put the list away.
+// Only the first opening list is harvested from the avatar on its own
+// (and cached per avatar); every later harvest costs an avatar turn and
+// happens only when the person presses Re-roll.
+// The list stays in flow so it cannot cover the message box. It raises
+// itself only on an empty new chat and folds on the first send; after
+// that the handle (tap or swipe) or Re-roll raises it. A pick, Escape,
+// or a click elsewhere never hides the chips. Voice mode and message mode
+// share the open/closed flag.
 
-import React, { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { ChevronDown, ChevronUp, RefreshCw } from 'lucide-react';
+import { useAuth } from '../context/AuthContext';
 import { useMedia, NEW_CONVERSATION_ID } from '../context/MediaContext';
 import { isConversationSuggestionList } from '../services/conversationSuggestions';
+import { subscribeStandardConversationStarters } from '../services/standardConversationStarters';
+import { resolveAssistantId } from './utils';
 import {
   getSuggestionSheetOpen,
   setSuggestionSheetOpen,
   shouldAutoOpenSuggestionSheet,
-  shouldCloseSuggestionSheetOnOutsideClick,
   shouldCollapseSuggestionSheetAfterSend,
+  shouldGenerateConversationSuggestions,
   shouldLoadConversationSuggestions,
   shouldShowConversationSuggestions,
+  suggestionSheetMenuClassName,
   subscribeSuggestionSheetOpen,
 } from './conversationSuggestionSheet';
 
@@ -28,8 +37,8 @@ import {
  * @param {Function} [parameters.onSend] Send a prompt. Voice mode supplies this
  *   so a suggestion is spoken as a turn rather than typed into the chat
  *   composer.
- * @param {boolean} [parameters.overlay] Open the list upward over the parent
- *   instead of pushing layout (voice mode: the portrait must not jump).
+ * @param {boolean} [parameters.overlay] Voice mode: distinct menu id only.
+ *   The list stays in flow above the composer so it cannot cover the field.
  */
 const ConversationSuggestions = ({ enabled = true, onSend, overlay = false }) => {
   const {
@@ -39,11 +48,15 @@ const ConversationSuggestions = ({ enabled = true, onSend, overlay = false }) =>
     fetchConversationSuggestions,
     activeConversation,
   } = useMedia();
+  const { activeAvatar } = useAuth();
   const [suggestions, setSuggestions] = useState([]);
   const [isLoading, setIsLoading] = useState(false);
   const [isOpen, setIsOpenState] = useState(getSuggestionSheetOpen);
+  // Bumped when the open avatar's standard set of starters changes (deep
+  // research finished, the owner regenerated), so an empty conversation
+  // repaints with the new set without a reload.
+  const [standardStartersVersion, setStandardStartersVersion] = useState(0);
   const requestGeneration = useRef(0);
-  const sheetRef = useRef(null);
   const dragStartY = useRef(null);
 
   useEffect(() => {
@@ -73,13 +86,54 @@ const ConversationSuggestions = ({ enabled = true, onSend, overlay = false }) =>
     isNewConversation,
     hasHumanTurn,
   });
-  const suggestionKey = `${activeConversation ?? 'none'}:${
+  const assistantId = resolveAssistantId(activeAvatar) ?? 'none';
+
+  useEffect(() => {
+    return subscribeStandardConversationStarters((changedAssistantId) => {
+      if (String(changedAssistantId) !== String(assistantId)) return;
+      setStandardStartersVersion((version) => version + 1);
+    });
+  }, [assistantId]);
+
+  // Raise the starters only at the start of a conversation; fold them on
+  // the first send. Runs when the thread changes or the first human turn
+  // lands, never on later replies, so a list the person raised by hand
+  // stays up.
+  useEffect(() => {
+    if (!enabled) return;
+    if (shouldAutoOpenSuggestionSheet({ isNewConversation, hasHumanTurn })) {
+      setSuggestionSheetOpen(true);
+    } else if (shouldCollapseSuggestionSheetAfterSend()) {
+      setSuggestionSheetOpen(false);
+    }
+  }, [enabled, activeConversation, isNewConversation, hasHumanTurn]);
+
+  // The standard-set version only matters while the chips are starters;
+  // a conversation that has begun keeps its follow-ups.
+  const openingVersion =
+    lastAvatarMessage || hasHumanTurn ? '' : `:v${standardStartersVersion}`;
+  const suggestionKey = `${assistantId}:${activeConversation ?? 'none'}:${
     lastAvatarMessage?.id ?? (shouldLoad ? 'opening' : 'empty')
-  }`;
+  }${openingVersion}`;
 
   const loadSuggestions = useCallback(
     async ({ exclude = [], generate = false } = {}) => {
       const thisGeneration = ++requestGeneration.current;
+      if (generate) {
+        // Paint identity-leaned local chips at once. A harvest is a full
+        // avatar turn and can take a minute; a re-roll must change the
+        // chips immediately and let the harvest upgrade them when it lands.
+        const immediate = await fetchConversationSuggestions?.({
+          exclude,
+          generate: false,
+        });
+        if (
+          requestGeneration.current === thisGeneration &&
+          Array.isArray(immediate)
+        ) {
+          setSuggestions(immediate);
+        }
+      }
       setIsLoading(true);
       try {
         const next = await fetchConversationSuggestions?.({
@@ -99,21 +153,26 @@ const ConversationSuggestions = ({ enabled = true, onSend, overlay = false }) =>
 
   useEffect(() => {
     if (!enabled) return undefined;
+    const thisGeneration = requestGeneration.current;
     if (!shouldLoad) {
-      setSuggestions([]);
-      setIsLoading(false);
+      // An existing thread whose messages have not arrived yet. Keep the
+      // chips already on screen; paint local ones only if there are none.
+      if (suggestions.length === 0) {
+        loadSuggestions({ generate: false });
+      }
       return undefined;
     }
-    if (
-      shouldAutoOpenSuggestionSheet({
+    // Only the first opening list asks the avatar on its own (custom
+    // starters drawn from the identity, cached per avatar). Every harvest
+    // is a paid avatar turn, so after a reply the chips paint from the
+    // identity-leaned local pool; the Re-roll button is the only way to
+    // pay for a fresh harvest.
+    loadSuggestions({
+      generate: shouldGenerateConversationSuggestions({
         hasSpokenAvatarReply: Boolean(lastAvatarMessage),
         hasHumanTurn,
-      })
-    ) {
-      setSuggestionSheetOpen(true);
-    }
-    const thisGeneration = requestGeneration.current;
-    loadSuggestions();
+      }),
+    });
     return () => {
       if (requestGeneration.current === thisGeneration) {
         requestGeneration.current += 1;
@@ -122,50 +181,13 @@ const ConversationSuggestions = ({ enabled = true, onSend, overlay = false }) =>
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [enabled, suggestionKey]);
 
-  useLayoutEffect(() => {
-    if (
-      shouldCollapseSuggestionSheetAfterSend({
-        hasSpokenAvatarReply: Boolean(lastAvatarMessage),
-        hasHumanTurn,
-      })
-    ) {
-      setSuggestionSheetOpen(false);
-    }
-  }, [hasHumanTurn, lastAvatarMessage]);
-
-  useEffect(() => {
-    if (!isOpen) return undefined;
-    const handleEscape = (keyEvent) => {
-      if (keyEvent.key === 'Escape') setSuggestionSheetOpen(false);
-    };
-    const handlePointerDown = (pointerEvent) => {
-      if (shouldCloseSuggestionSheetOnOutsideClick(pointerEvent.target)) {
-        setSuggestionSheetOpen(false);
-      }
-    };
-    document.addEventListener('keydown', handleEscape);
-    document.addEventListener('pointerdown', handlePointerDown);
-    return () => {
-      document.removeEventListener('keydown', handleEscape);
-      document.removeEventListener('pointerdown', handlePointerDown);
-    };
-  }, [isOpen]);
-
   const turnInFlight = pendingSendCount > 0;
-  if (
-    !shouldShowConversationSuggestions({
-      enabled,
-      isLoading,
-      suggestionCount: suggestions.length,
-      pendingSendCount,
-    })
-  ) {
+  if (!shouldShowConversationSuggestions({ enabled })) {
     return null;
   }
 
   const sendSuggestion = (suggestion) => {
     if (turnInFlight) return;
-    setSuggestionSheetOpen(false);
     if (onSend) {
       onSend(suggestion);
       return;
@@ -179,7 +201,17 @@ const ConversationSuggestions = ({ enabled = true, onSend, overlay = false }) =>
     event.preventDefault();
     event.stopPropagation();
     setSuggestionSheetOpen(true);
-    loadSuggestions({ exclude: suggestions, generate: true });
+    // The one place a follow-up harvest is paid for: an explicit press.
+    // Never blocked by a harvest in flight: the new request supersedes the
+    // old one (its result is dropped by the generation counter).
+    loadSuggestions({
+      exclude: suggestions,
+      generate: shouldGenerateConversationSuggestions({
+        hasSpokenAvatarReply: Boolean(lastAvatarMessage),
+        hasHumanTurn,
+        requestedByUser: true,
+      }),
+    });
   };
 
   const sheetNoun = lastAvatarMessage
@@ -190,21 +222,15 @@ const ConversationSuggestions = ({ enabled = true, onSend, overlay = false }) =>
     : 'conversation-suggestions-menu';
 
   return (
-    <div
-      ref={sheetRef}
-      className={`conversation-suggestions w-full overflow-visible ${overlay ? 'relative mb-1' : 'mb-1'}`}
-    >
+    <div className="conversation-suggestions w-full overflow-visible mb-1">
       <div
         id={menuId}
         role="menu"
+        aria-label={sheetNoun}
         hidden={!isOpen}
-        className={`overflow-hidden rounded-xl border border-white/10 bg-black/70 backdrop-blur-lg p-1.5 ${
-          overlay
-            ? 'absolute bottom-full left-0 right-0 mb-1 z-30'
-            : 'mb-1'
-        }`}
+        className={suggestionSheetMenuClassName()}
       >
-        {isLoading && suggestions.length === 0 ? (
+        {suggestions.length === 0 ? (
           <p className="px-3 py-2 text-sm text-white/40 italic">Suggestions…</p>
         ) : (
           suggestions.map((suggestion) => (
@@ -265,10 +291,10 @@ const ConversationSuggestions = ({ enabled = true, onSend, overlay = false }) =>
           type="button"
           onClick={rerollSuggestions}
           onPointerDown={(event) => event.stopPropagation()}
-          disabled={isLoading}
+          aria-busy={isLoading}
           title={`Re-roll ${sheetNoun}`}
           aria-label={`Re-roll ${sheetNoun}`}
-          className="voice-text-btn shrink-0 inline-flex items-center justify-center gap-1 px-2 py-1.5 rounded-lg text-white/50 hover:text-neutral-200 hover:bg-white/5 transition-colors focus:outline-none focus:ring-2 focus:ring-amber-400/50 disabled:opacity-40"
+          className="voice-text-btn shrink-0 inline-flex items-center justify-center gap-1 px-2 py-1.5 rounded-lg text-white/50 hover:text-neutral-200 hover:bg-white/5 transition-colors focus:outline-none focus:ring-2 focus:ring-amber-400/50"
         >
           <RefreshCw
             className={`w-4 h-4 ${isLoading ? 'animate-spin' : ''}`}

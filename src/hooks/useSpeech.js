@@ -6,6 +6,13 @@ import { showVoiceNotReadyToast } from '../components/showVoiceNotReadyToast';
 import { speakText } from '../services/avatarService';
 import { rememberAvatarSpokenLine } from '../services/selfEchoGuard';
 import {
+  isSpeechPlayBlocked,
+  isUnlockedSpeechElement,
+  playOnUnlockedSpeechElement,
+  primeAvatarSpeechPlayback,
+} from '../services/avatarSpeechUnlock';
+import { avatarHasClonedVoice } from '../services/avatarHasClonedVoice';
+import {
   speakFailureKind,
   speakFailureReason,
 } from '../services/voiceSpeakFailure';
@@ -16,8 +23,10 @@ import {
  * Wraps `POST /speak`: the response bytes become an object URL played by a
  * single `Audio` element, so starting a new utterance stops the previous one
  * and there is never more than one voice speaking. `voice_not_ready` (no clone
- * yet) surfaces as `notReady` with the server's progress so the caller can open
- * the Voice panel rather than showing a generic failure. That is not the same
+ * and no standard voice) surfaces as `notReady` with the server's progress so
+ * the caller can open the Voice panel rather than showing a generic failure.
+ * A successful speak that used a standard voice still shows the missing-clone
+ * toast: a stock voice is not a voice added to this model. That is not the same
  * as `voice_blocked` (a clone ElevenLabs has banned): a banned voice was
  * uploaded and then refused, and more recording will not clear it. Blocked is
  * reported through `blocked` and NOT toasted — a notice on every reply would
@@ -37,6 +46,11 @@ import {
  * @param {boolean} [options.asAnonymousIdentity] Public chat: withhold the credential.
  * @param {string} [options.avatarName] Named on the create-voice toast.
  * @param {string} [options.conversationId] Limits the create-voice toast to once per thread.
+ * @param {boolean} [options.missingClonedVoice] True when a clone has not been
+ *   added to this model. A successful standard-voice speak still shows the
+ *   missing-clone toast; this flag covers browsers that hide `X-Voice-Kind`.
+ * @param {boolean} [options.promptForMissingClonedVoice] False for
+ *   administrator-created characters that are not meant to receive a clone.
  * @returns {{
  *   speak: (assistantId: string, text: string, handlers?: {onStart?: Function, onEnd?: Function}) => Promise<boolean>,
  *   stop: () => void,
@@ -51,6 +65,8 @@ export default function useSpeech({
   asAnonymousIdentity = false,
   avatarName,
   conversationId,
+  missingClonedVoice = false,
+  promptForMissingClonedVoice = true,
 } = {}) {
   const audioRef = useRef(null);
   const objectUrlRef = useRef(null);
@@ -79,7 +95,9 @@ export default function useSpeech({
       setBlocked(true);
       return;
     }
-    if (voice.has_voice) setNotReady(null);
+    // A standard voice sets has_voice so the next reply can be heard.
+    // That is not a clone: keep notReady and the missing-clone toast.
+    if (avatarHasClonedVoice(voice)) setNotReady(null);
   }, []);
 
   const release = useCallback(() => {
@@ -94,8 +112,13 @@ export default function useSpeech({
       detachRef.current?.();
       detachRef.current = null;
       audioRef.current.pause();
-      audioRef.current.src = '';
-      audioRef.current = null;
+      // The primed element must stay alive: destroying it and constructing a
+      // new Audio() after the next /speak fetch is exactly the mobile
+      // autoplay miss. Leave its src; the next utterance replaces it.
+      if (!isUnlockedSpeechElement(audioRef.current)) {
+        audioRef.current.src = '';
+        audioRef.current = null;
+      }
     }
     if (objectUrlRef.current) {
       URL.revokeObjectURL(objectUrlRef.current);
@@ -121,6 +144,10 @@ export default function useSpeech({
 
   const speak = useCallback(
     async (assistantId, text, { onStart, onEnd, key } = {}) => {
+      // Still inside the tap when this is a Speak press. Live replies prime
+      // earlier (enter voice / send / unmute); a second prime here is a no-op
+      // once the element is already playing a real utterance.
+      primeAvatarSpeechPlayback();
       stop();
       if (!text?.trim() || !assistantId) return false;
       if (blocked) return false;
@@ -133,9 +160,25 @@ export default function useSpeech({
           signal: controller.signal,
         });
         if (controller.signal.aborted) return false;
+        // A stock voice speaks, but a clone has not been added to this model.
+        // The 409 path never runs in that case, so the toast lives here too.
+        const spokeWithClone =
+          audioBlob.voiceKind === 'instant' ||
+          audioBlob.voiceKind === 'professional';
+        if (
+          !spokeWithClone &&
+          (audioBlob.voiceKind === 'standard' || missingClonedVoice)
+        ) {
+          showVoiceNotReadyToast({
+            assistantId,
+            avatarName,
+            conversationId,
+            prompt: promptForMissingClonedVoice,
+          });
+        }
         const objectUrl = URL.createObjectURL(audioBlob);
         objectUrlRef.current = objectUrl;
-        const audio = new Audio(objectUrl);
+        const audio = playOnUnlockedSpeechElement(objectUrl);
         audioRef.current = audio;
         // Everything the avatar says out loud is said here, so this is where
         // it is remembered: a microphone that catches this line — a live voice
@@ -145,11 +188,13 @@ export default function useSpeech({
         // recognise the avatar's own words instead of answering them.
         rememberAvatarSpokenLine(text);
         setSpeakingKey(key ?? text);
+        let playBlocked = false;
         await new Promise((resolve) => {
           let ended = false;
-          const finish = () => {
+          const finish = (autoplayBlocked = false) => {
             if (ended) return;
             ended = true;
+            if (autoplayBlocked) playBlocked = true;
             if (settleRef.current === finish) settleRef.current = null;
             setIsSpeaking(false);
             setSpeakingKey(null);
@@ -162,8 +207,8 @@ export default function useSpeech({
             audio.removeEventListener('ended', finish);
             audio.removeEventListener('error', finish);
           };
-          audio.addEventListener('ended', finish, { once: true });
-          audio.addEventListener('error', finish, { once: true });
+          audio.addEventListener('ended', () => finish(false), { once: true });
+          audio.addEventListener('error', () => finish(false), { once: true });
           audio.addEventListener(
             'play',
             () => {
@@ -172,9 +217,12 @@ export default function useSpeech({
             },
             { once: true }
           );
-          audio.play().catch(finish);
+          audio.play().then(
+            () => {},
+            (playError) => finish(isSpeechPlayBlocked(playError))
+          );
         });
-        return true;
+        return !playBlocked;
       } catch (speakError) {
         if (controller.signal.aborted) return false;
         const kind = speakFailureKind(speakError);
@@ -208,6 +256,7 @@ export default function useSpeech({
             avatarName,
             collectedSeconds,
             conversationId,
+            prompt: promptForMissingClonedVoice,
           });
         } else if (kind === 'unavailable') {
           // Not "create a voice" — the clone may already exist. The API process
@@ -240,6 +289,8 @@ export default function useSpeech({
       avatarName,
       blocked,
       conversationId,
+      missingClonedVoice,
+      promptForMissingClonedVoice,
       release,
       stop,
     ]

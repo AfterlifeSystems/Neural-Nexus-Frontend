@@ -151,6 +151,15 @@ const UploadProcessPanel = ({ job, onCancel, onCancelItem, onDismiss }) => {
             <span className="shrink-0 rounded-full border border-white/15 px-1.5 py-px text-[10px] uppercase tracking-wide text-white/60">
               {chip.label}
             </span>
+            {job.isReferenceMedia && (
+              <span
+                className="shrink-0 rounded-full border border-amber-400/40 bg-amber-400/15 px-1.5 py-px text-[10px] uppercase tracking-wide text-amber-200"
+                title="Consulted as knowledge (a menu or similar). Not used to reconstruct identity."
+                data-testid="upload-reference-material"
+              >
+                Reference material
+              </span>
+            )}
             <span className="truncate">
               {job.status === 'cancelled'
                 ? 'Cancelled'

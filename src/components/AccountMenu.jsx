@@ -10,7 +10,6 @@
 
 import React from 'react';
 import {
-  Accessibility,
   CreditCard,
   Globe,
   Inbox,
@@ -19,12 +18,11 @@ import {
   UserCog,
   Users,
 } from 'lucide-react';
+
 import { useNavigate, useSearchParams } from 'react-router-dom';
 
 import { useAuth } from '../context/AuthContext';
-import {
-  resolvePersonalAvatarId,
-} from '../services/personalAvatar';
+import { resolvePersonalAvatarId } from '../services/personalAvatar';
 import { personalAvatarWorkspacePath } from './personalAvatarWorkspace';
 import useInboxCount from '../hooks/useInboxCount';
 
@@ -223,14 +221,6 @@ const AccountMenu = ({
         ariaLabel="World map of geo-located avatars"
         onClick={() => goTo('/map')}
         isCurrent={currentPath === '/map'}
-      />
-      <AccountMenuItem
-        iconOnly={iconOnly}
-        icon={<Accessibility className={iconClass} />}
-        label="Accessibility"
-        ariaLabel="Accessibility settings"
-        onClick={() => goTo('/accessibility')}
-        isCurrent={currentPath === '/accessibility'}
       />
       <AccountMenuItem
         iconOnly={iconOnly}

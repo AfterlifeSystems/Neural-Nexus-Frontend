@@ -70,6 +70,7 @@ import {
   buildSpokenTurnRequest,
   deleteConversationThread,
   fetchAvatarPreferences,
+  getAvatarConversationStarters,
   listConnections,
   nameConversationThread,
   recordAmbientPreference,
@@ -134,13 +135,28 @@ import {
 import {
   SUGGESTION_PROMPT_MARKER,
   buildSuggestionHarvestPrompt,
+  cachedOpeningSuggestions,
   conversationExcerptForSuggestions,
   isConversationSuggestionList,
   localFollowUpSuggestions,
   looksLikeLeakedModelJson,
   parseConversationSuggestionList,
   parseHarvestedSuggestions,
+  preferAvatarSpecificSuggestions,
+  rememberOpeningSuggestions,
 } from '../services/conversationSuggestions';
+import {
+  rememberStandardConversationStarters,
+  resolveStandardConversationStarters,
+  standardStartersAssistantIdOf,
+} from '../services/standardConversationStarters';
+import {
+  buildConversationExport,
+  conversationExportFilename,
+  saveJsonFileInBrowser,
+  serializeConversationExport,
+  shouldOfferConversationJsonDownload,
+} from '../services/conversationExport';
 import {
   findMessageByKey,
   findMessageIndexByKey,
@@ -535,6 +551,10 @@ export const MediaProvider = ({ children }) => {
   // Voice mode and message mode each mount the suggestion sheet. The same
   // re-roll must not mint two throwaway harvests.
   const suggestionHarvestRef = useRef({ key: '', promise: null });
+  // One read of the standard set per avatar per session when the avatar
+  // record did not carry the set (the listing was fetched before research
+  // finished). Holds the promise so both mounted sheets share the request.
+  const standardStartersFetchRef = useRef(new Map());
 
   useEffect(() => {
     onScreenAssistantIdRef.current = resolveAssistantId(activeAvatar);
@@ -2647,29 +2667,89 @@ export const MediaProvider = ({ children }) => {
   }
 
   /**
-   * Follow-up chips for the composer.
+   * The standard set of starters for the open avatar, read once per session
+   * from the messaging service when the avatar record did not carry the set.
    *
-   * The first draw is local so the handle appears at once. Re-roll asks the
-   * avatar for a new list from the transcript. That harvest is a hidden turn
-   * on a throwaway thread — never the open conversation — because a second
-   * /message on the same thread is what replaced a spoken reply with JSON.
+   * The set is written onto the avatar record when the avatar is created and
+   * again when deep research finishes; a listing fetched before that moment
+   * has no set on it. Signed-in callers only — the endpoint needs a session,
+   * and a public avatar's set already rides its listing.
+   *
+   * @returns {Promise<string[]|null>}
+   */
+  async function readStandardConversationStarters() {
+    const assistantId = standardStartersAssistantIdOf(activeAvatar);
+    if (!assistantId || !user || isSharedAvatarChatPath()) return null;
+    const pending = standardStartersFetchRef.current;
+    if (!pending.has(assistantId)) {
+      pending.set(
+        assistantId,
+        (async () => {
+          try {
+            const record = await getAvatarConversationStarters(assistantId);
+            const held = rememberStandardConversationStarters(assistantId, record);
+            // Nothing stored yet (the set is still being written for a
+            // just-created avatar): let a later new conversation ask again.
+            if (!held) pending.delete(assistantId);
+            return held?.starters ?? null;
+          } catch (readError) {
+            console.debug('Standard conversation starters unavailable:', readError);
+            pending.delete(assistantId);
+            return null;
+          }
+        })()
+      );
+    }
+    return pending.get(assistantId);
+  }
+
+  /**
+   * Chips for the composer.
+   *
+   * An empty conversation gets the avatar's **standard set**: three starters
+   * the messaging service wrote once from the avatar's identity (and again
+   * when deep research finished), carried on the avatar record and held in
+   * this browser's storage. No avatar turn is paid for an opening; the set is
+   * the same for every new conversation with that avatar. When no set exists
+   * yet, the local identity-leaned pool paints instead.
+   *
+   * After a reply, the first paint is the local pool. A harvest — a hidden
+   * turn on a throwaway thread, never the open conversation, because a
+   * second /message on the same thread is what replaced a spoken reply with
+   * JSON — is paid for only when the person presses Re-roll (`generate` is
+   * the caller's decision, see `shouldGenerateConversationSuggestions`), and
+   * on an empty conversation only when there is already a list to replace.
    *
    * @param {Object} [options]
    * @param {string[]} [options.exclude] Prompts already on screen; skip on a re-roll.
-   * @param {boolean} [options.generate] Ask the avatar, using the transcript.
+   * @param {boolean} [options.generate] Ask the avatar, using identity and transcript.
    * @returns {Promise<string[]>} Up to three suggestion strings.
    */
   async function fetchConversationSuggestions({
     exclude = [],
     generate = false,
   } = {}) {
-    const fallback = () => localFollowUpSuggestions(messages, { exclude });
+    const fallback = () =>
+      localFollowUpSuggestions(messages, { exclude, avatar: activeAvatar });
+    const excerpt = conversationExcerptForSuggestions(messages);
+    if (!excerpt && activeAvatar && exclude.length === 0) {
+      // The standard set, from the record or this browser's storage.
+      const standard = resolveStandardConversationStarters(activeAvatar);
+      if (standard) return standard;
+      // Not on the record yet: one read per avatar per session.
+      if (generate) {
+        const fetched = await readStandardConversationStarters();
+        if (fetched) return fetched;
+      }
+      // A list an earlier explicit re-roll harvested for this avatar.
+      const cached = cachedOpeningSuggestions(activeAvatar);
+      if (cached) return cached;
+      // Openings never pay an avatar turn on their own.
+      return fallback();
+    }
     if (!generate || !activeAvatar) return fallback();
 
-    const excerpt = conversationExcerptForSuggestions(messages);
-    if (!excerpt) return fallback();
-
-    const harvestKey = `${activeConversation ?? 'none'}:${excerpt}::${exclude.join('\n')}`;
+    const harvestKey = `${resolveAssistantId(activeAvatar) ?? 'none'}:${activeConversation ?? 'none'}:${excerpt}::${exclude.join('\n')}`;
     if (
       suggestionHarvestRef.current.key === harvestKey &&
       suggestionHarvestRef.current.promise
@@ -2682,7 +2762,10 @@ export const MediaProvider = ({ children }) => {
         const formData = new FormData();
         formData.append(
           'message',
-          buildSuggestionHarvestPrompt(messages, { exclude })
+          buildSuggestionHarvestPrompt(messages, {
+            exclude,
+            avatar: activeAvatar,
+          })
         );
         formData.append('stream', 'true');
         const userTimezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
@@ -2703,8 +2786,12 @@ export const MediaProvider = ({ children }) => {
         const harvested = Array.isArray(turnResult?.leakedSuggestions)
           ? turnResult.leakedSuggestions
           : parseHarvestedSuggestions(turnResult?.reply);
-        if (Array.isArray(harvested) && harvested.length >= 2) {
-          return harvested.slice(0, 3);
+        const chips = preferAvatarSpecificSuggestions(harvested, fallback());
+        if (chips.length >= 2) {
+          if (!excerpt) {
+            rememberOpeningSuggestions(activeAvatar, chips);
+          }
+          return chips;
         }
       } catch (suggestionError) {
         console.debug('Conversation suggestions unavailable:', suggestionError);
@@ -3193,6 +3280,52 @@ export const MediaProvider = ({ children }) => {
   }
 
   /**
+   * Save one conversation to disk as JSON, for development.
+   *
+   * Offered only while Vite is in development (the sidebar hides the entry
+   * otherwise). The file holds the raw GET /conversations/{thread_id}/messages
+   * body, the thread record from the listing, and — when this is the open
+   * thread — the transcript exactly as the browser rendered it.
+   *
+   * @param {string} threadId The conversation.
+   * @returns {Promise<string>} The file name that was saved.
+   */
+  async function downloadConversationJson(threadId) {
+    if (
+      !shouldOfferConversationJsonDownload({
+        isDev: import.meta.env.DEV,
+        threadId,
+      })
+    ) {
+      throw new Error('Conversation JSON download is a development-only tool.');
+    }
+    const assistantId = resolveAssistantId(activeAvatar);
+    const serverResponse = await requestJson(
+      `/conversations/${encodeURIComponent(threadId)}/messages`,
+      {
+        query: { assistant_id: assistantId },
+        asAnonymousIdentity: isSharedAvatarChatPath(),
+      }
+    );
+    const conversation =
+      (conversationList ?? []).find(
+        (entry) => entry?.thread_id === threadId
+      ) ?? null;
+    const exportedAt = new Date();
+    const exportDocument = buildConversationExport({
+      threadId,
+      assistantId,
+      conversation,
+      serverResponse,
+      clientMessages: activeConversation === threadId ? messages : null,
+      exportedAt,
+    });
+    const filename = conversationExportFilename({ threadId, exportedAt });
+    saveJsonFileInBrowser(filename, serializeConversationExport(exportDocument));
+    return filename;
+  }
+
+  /**
    * Accept the files small enough to send, and say which ones were not.
    *
    * Both attachment entry points funnel through here. Silence was the bug: an
@@ -3319,6 +3452,7 @@ export const MediaProvider = ({ children }) => {
         renameConversation,
         deleteConversation,
         shareConversation,
+        downloadConversationJson,
       }}
     >
       {children}

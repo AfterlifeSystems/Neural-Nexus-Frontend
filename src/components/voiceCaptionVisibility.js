@@ -51,12 +51,15 @@ export function voiceExchangeHasGeneratingText(messages) {
  * captions are off, there is nothing to read. Mute is one exception — the
  * words have to appear or the reply is lost. No voice model is the other:
  * there is never audio, so the line stays up regardless of fold or mute.
+ * A play() the browser blocked is the third: the avatar was not heard, so
+ * the line has to stay, the same as mute.
  *
  * @param {Object} [state]
  * @param {boolean} [state.messageBarCollapsed]
  * @param {boolean} [state.captionsShown]
  * @param {boolean} [state.avatarMuted]
  * @param {boolean} [state.hasVoiceModel] Whether this avatar can speak here.
+ * @param {boolean} [state.playbackBlocked] play() was refused (mobile autoplay).
  * @returns {boolean}
  */
 export function shouldShowVoiceStageText({
@@ -64,9 +67,11 @@ export function shouldShowVoiceStageText({
   captionsShown = false,
   avatarMuted = false,
   hasVoiceModel = true,
+  playbackBlocked = false,
 } = {}) {
   if (captionsShown) return false;
   if (!hasVoiceModel) return true;
+  if (playbackBlocked) return true;
   if (!messageBarCollapsed) return true;
   return Boolean(avatarMuted);
 }
