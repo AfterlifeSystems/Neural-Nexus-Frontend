@@ -1609,10 +1609,17 @@ export const requestLipSyncClip = async (
  * @param {Object} [options]
  * @param {string} [options.state] `open` (default), `all`, or one state.
  * @param {number} [options.limit] Maximum items.
+ * @param {string} [options.q] Search subject, reason, body, and sender.
+ * @param {string} [options.source_kind] Narrow to one source (for example `moderation`).
  * @returns {Promise<Object>} `{personal_avatar_id, pending_count, items}`.
  */
-export const listInboxItems = async ({ state = 'open', limit = 50 } = {}) => {
-  return requestJson('/inbox/items', { query: { state, limit } });
+export const listInboxItems = async ({
+  state = 'open',
+  limit = 50,
+  q,
+  source_kind,
+} = {}) => {
+  return requestJson('/inbox/items', { query: { state, limit, q, source_kind } });
 };
 
 /**

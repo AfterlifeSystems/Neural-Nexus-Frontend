@@ -2,6 +2,18 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { streamErrorFromFrame } from './streamErrorFrame.js';
 
+test('a 503 vendor-credit frame keeps the classified code', () => {
+  const error = streamErrorFromFrame({
+    type: 'error',
+    status: 503,
+    code: 'model_provider_credit_exhausted',
+    message:
+      "The avatar's model provider refused this reply because the service's credit with it is used up.",
+  });
+  assert.equal(error.status, 503);
+  assert.equal(error.code, 'model_provider_credit_exhausted');
+});
+
 test('a 402 error frame becomes a billing refusal with the server sentence', () => {
   const error = streamErrorFromFrame({
     type: 'error',

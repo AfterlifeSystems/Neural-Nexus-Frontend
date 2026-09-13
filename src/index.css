@@ -69,6 +69,13 @@ html,
   pointer-events: none;
 }
 
+/* One hairline on the live-mode portrait. Inset so it sits on the
+   clipped face, not around empty letterbox. Same amber as the speak glow. */
+.voice-portrait-frame {
+  box-shadow: inset 0 0 0 1px rgba(var(--voice-speak-rgb), 0.8);
+  pointer-events: none;
+}
+
 /* Latest voice-mode line when captions are off: rise and stay.
    It recedes only when the next send or reply takes the slot. */
 @keyframes voice-stage-flash-in {

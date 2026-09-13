@@ -19,6 +19,9 @@ import {
 import BillingRefusalNotice, {
   BILLING_REFUSAL_MESSAGE_TYPE,
 } from './BillingRefusalNotice';
+import ProviderCreditNotice, {
+  PROVIDER_CREDIT_NOTICE_MESSAGE_TYPE,
+} from './ProviderCreditNotice';
 import useEmotionMedia from '../hooks/useEmotionMedia';
 import useAvatarFaceSource from '../hooks/useAvatarFaceSource';
 import useMessageActions from '../hooks/useMessageActions';
@@ -38,6 +41,7 @@ import {
   connectionsOf,
   isConnectionCardOnly,
 } from '../services/connectionCards';
+import LearnedFactsBadge from './LearnedFactsBadge';
 import {
   artifactNamesRenderedByCharts,
   chartHasRenderableData,
@@ -216,6 +220,13 @@ const MessageList = ({
           // across the column rather than a bubble on one side.
           if (type === BILLING_REFUSAL_MESSAGE_TYPE) {
             return <BillingRefusalNotice key={messageKey} message={msg} />;
+          }
+
+          // The service that writes replies is paused on our side. Same
+          // column-wide card as the billing refusal, without a Billing
+          // control — the reader's allotment is not the reason.
+          if (type === PROVIDER_CREDIT_NOTICE_MESSAGE_TYPE) {
+            return <ProviderCreditNotice key={messageKey} message={msg} />;
           }
 
           const isFromUser = type === 'user' || type === 'human';
@@ -461,6 +472,7 @@ const MessageList = ({
                   }`}
                   style={isFromUser ? userSpeakingBubble.style : undefined}
                 >
+                  {isFromAvatar && <LearnedFactsBadge message={msg} />}
                   {isLoading ? (
                     <div className="flex items-center justify-between gap-3">
                       <div className="flex space-x-1">

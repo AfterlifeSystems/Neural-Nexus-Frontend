@@ -16,20 +16,33 @@
 // that screen is where an anonymous visitor signs up and where an account adds
 // a payment method.
 //
-// That refusal also does not time out. Every other toast here reports something
-// the reader only has to read, so a timer is right for it; this one asks for a
-// decision, and a refusal that erases itself mid-thought leaves someone stuck
-// with no idea why their message would not send. It stays until the reader
+// A second standing failure is the operator's model account being out of
+// credit. That is not the reader's allotment, so it must never open Billing.
+// It is shown as the same two-pane card with a quieter sentence, and it also
+// stays until the reader presses Close.
+//
+// Those refusals also do not time out. Every other toast here reports something
+// the reader only has to read, so a timer is right for it; these ask to be
+// understood, and a notice that erases itself mid-thought leaves someone stuck
+// with no idea why their message would not send. They stay until the reader
 // presses Close.
 
 import React from 'react';
 import { toast } from 'react-hot-toast';
 import { CreditCard } from 'lucide-react';
 
+import {
+  PROVIDER_CREDIT_NOTICE_BODY,
+  PROVIDER_CREDIT_NOTICE_TITLE,
+  isProviderCreditExhausted,
+} from '../services/providerCreditExhausted';
 import { readerIsAnonymousVisitor, resolveBillingPath } from './utils';
 
 /** The status the API refuses a spent allotment with. */
 const PAYMENT_REQUIRED_STATUS = 402;
+
+/** Reused so a second failed reply replaces the first notice instead of stacking. */
+const PROVIDER_CREDIT_TOAST_ID = 'provider-credit-exhausted';
 
 /**
  * Whether this failure is the API refusing a request for want of allotment.
@@ -39,6 +52,53 @@ const PAYMENT_REQUIRED_STATUS = 402;
  */
 export const isBillingRefusal = (requestError) =>
   requestError?.status === PAYMENT_REQUIRED_STATUS;
+
+export { isProviderCreditExhausted };
+
+/**
+ * The two-pane toast for a vendor-credit pause: the same chrome as the
+ * billing refusal, without a Billing control. There is nowhere useful to
+ * send the reader. Close dismisses it; a timer would erase the only
+ * explanation while every later request is still refused.
+ *
+ * @param {Object} [toastOptions] Passed through to react-hot-toast.
+ */
+function showProviderCreditToast(toastOptions = {}) {
+  toast.custom(
+    (creditToast) => (
+      <div
+        className={`${
+          creditToast.visible
+            ? 'opacity-100 translate-y-0'
+            : 'opacity-0 -translate-y-2'
+        } transition-all duration-200 max-w-md w-full flex pointer-events-auto rounded-lg shadow-lg backdrop-blur-lg bg-[rgba(0,0,0,0.92)] ring-1 ring-white/15`}
+      >
+        <div className="flex-1 w-0 p-4">
+          <p className="text-sm font-medium text-neutral-100">
+            {PROVIDER_CREDIT_NOTICE_TITLE}
+          </p>
+          <p className="mt-1 text-sm text-white/60">
+            {PROVIDER_CREDIT_NOTICE_BODY}
+          </p>
+        </div>
+        <div className="flex border-l border-white/10">
+          <button
+            type="button"
+            onClick={() => toast.dismiss(creditToast.id)}
+            className="w-full border border-transparent rounded-none rounded-r-lg p-4 flex items-center justify-center text-sm font-medium text-white/70 hover:text-neutral-100 focus:outline-none focus:ring-2 focus:ring-amber-400/50 transition-colors"
+          >
+            Close
+          </button>
+        </div>
+      </div>
+    ),
+    {
+      ...toastOptions,
+      id: PROVIDER_CREDIT_TOAST_ID,
+      duration: Infinity,
+    }
+  );
+}
 
 /**
  * Report a failed API request to the user.
@@ -59,11 +119,27 @@ export function showRequestFailureToast(requestError, options = {}) {
       ? 'The avatar is still catching up. Say that again in a moment.'
       : rawDescription;
 
-  if (!isBillingRefusal(requestError)) {
-    toast.error(description, toastOptions);
+  if (isBillingRefusal(requestError)) {
+    showBillingRefusalToast(description, toastOptions);
     return;
   }
 
+  if (isProviderCreditExhausted(requestError)) {
+    showProviderCreditToast(toastOptions);
+    return;
+  }
+
+  toast.error(description, toastOptions);
+}
+
+/**
+ * The two-pane billing refusal: the sentence, which opens billing when
+ * pressed, and a Close button divided off from it.
+ *
+ * @param {string} description The sentence the API sent.
+ * @param {Object} [toastOptions] Passed through to react-hot-toast.
+ */
+function showBillingRefusalToast(description, toastOptions = {}) {
   const billingPath = resolveBillingPath();
   // Someone with no session is being invited to sign up; someone with one is
   // being sent to the subscription and payment method they already have. Both

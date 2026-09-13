@@ -54,9 +54,14 @@ import {
 } from '../components/utils';
 import {
   isBillingRefusal,
+  isProviderCreditExhausted,
   showRequestFailureToast,
 } from '../components/requestFailureToast';
 import { buildBillingRefusalMessage } from '../components/BillingRefusalNotice';
+import {
+  PROVIDER_CREDIT_NOTICE_MESSAGE_TYPE,
+  buildProviderCreditNoticeMessage,
+} from '../components/ProviderCreditNotice';
 import { followMediaJobWithToast } from '../services/mediaJobProgress.jsx';
 import { mediaEntriesFromFiles } from '../components/composerAttachments';
 import {
@@ -165,6 +170,7 @@ import {
 import { withRateLimitRetry } from '../services/retryRateLimited';
 import { isStandingAtPlace } from '../services/standingAtPlaces';
 import { streamErrorFromFrame } from '../services/streamErrorFrame';
+import { mergeLearnedFacts } from '../services/learnedFacts';
 import { attachFactReviewDraft } from '../components/factReview/factReviewDraft';
 
 const MediaContext = createContext();
@@ -427,6 +433,9 @@ function normalizeThreadMessages(storedMessages, threadId = null) {
         // still beside the bubble. Absent on human turns and on replies made
         // before sentiment was recorded.
         sentiment: storedMessage.response_metadata?.sentiment ?? null,
+        learnedFacts: Array.isArray(responseMetadata.learned_facts)
+          ? responseMetadata.learned_facts
+          : null,
         usage,
         request_id:
           storedMessage.request_id ??
@@ -1390,6 +1399,24 @@ export const MediaProvider = ({ children }) => {
                 streamEvent.thread_id
               );
             }
+          } else if (streamEvent.type === 'fact_learned') {
+            // A learn tool stored a fact before the reply finished. Paint the
+            // bubble so the Learned badge can land, even with no tokens yet.
+            paintBubble();
+            updateMessagesIfStillOnScreen((previousMessages) =>
+              previousMessages.map((message) =>
+                message.id === streamingMessageId
+                  ? {
+                      ...message,
+                      learnedFacts: mergeLearnedFacts(message.learnedFacts, {
+                        fact: streamEvent.fact,
+                        kind: streamEvent.kind,
+                        source: streamEvent.source,
+                      }),
+                    }
+                  : message
+              )
+            );
           } else if (streamEvent.type === 'assistant_token') {
             appendTokenToStreamingMessage(streamEvent.text ?? '');
             setActivityIfStillOnScreen(ASSISTANT_ACTIVITY.responding);
@@ -1797,6 +1824,11 @@ export const MediaProvider = ({ children }) => {
               // avatar's icon to the matching emotion still, and voice mode
               // picks the emotion's idle loop and lip-sync still from it.
               sentiment: terminalFrame.response_metadata?.sentiment ?? null,
+              learnedFacts: Array.isArray(
+                terminalFrame.response_metadata?.learned_facts
+              )
+                ? terminalFrame.response_metadata.learned_facts
+                : (message.learnedFacts ?? null),
               // The connect cards this turn settled and the charts the turn
               // drew: the transcript's record of both, as a reload shows.
               connections: Array.isArray(
@@ -1907,8 +1939,8 @@ export const MediaProvider = ({ children }) => {
       );
       if (errorFrame) {
         // The server said why. A spent allotment goes into the transcript
-        // with the way to billing, as a refused request would; anything else
-        // is a one-off and is toasted with the server's own sentence.
+        // with the way to billing; a vendor-credit pause goes in as the
+        // quieter card. Anything else is a one-off and is toasted.
         reportTurnFailure(
           streamErrorFromFrame(errorFrame),
           'The avatar could not finish that reply.'
@@ -2341,6 +2373,11 @@ export const MediaProvider = ({ children }) => {
    * as well said the same thing twice, and said it over the conversation the
    * reader was trying to read.
    *
+   * The operator's model account being out of credit is written into the
+   * transcript (see ProviderCreditNotice) and toasted, so the pause is
+   * visible even when the card is off-screen. It must never open Billing.
+   * A second card is not added while one is already the last line.
+   *
    * Every other failure is reported by TOAST alone. Those are one-off — a
    * dropped connection, a rejected attachment — with nothing to come back to,
    * and a transcript entry for each would be a log the reader cannot clear.
@@ -2355,6 +2392,17 @@ export const MediaProvider = ({ children }) => {
         ...previousMessages,
         buildBillingRefusalMessage(turnError),
       ]);
+      return;
+    }
+    if (isProviderCreditExhausted(turnError)) {
+      setMessages((previousMessages) => {
+        const lastMessage = previousMessages[previousMessages.length - 1];
+        if (lastMessage?.type === PROVIDER_CREDIT_NOTICE_MESSAGE_TYPE) {
+          return previousMessages;
+        }
+        return [...previousMessages, buildProviderCreditNoticeMessage()];
+      });
+      showRequestFailureToast(turnError, { fallbackMessage });
       return;
     }
     showRequestFailureToast(turnError, { fallbackMessage });

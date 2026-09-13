@@ -55,10 +55,10 @@ createRoot(document.getElementById('root')).render(
             the only sign that an upload is under way.
           * A notice that never times out (`duration: Infinity`) is one the
             reader has to answer rather than read — the billing refusal, the
-            voice-not-ready notice, and the voice-ready notice. Each offers a
-            place to go and is closed by its own Close button. Dismissing it
-            with a stray press would take away a decision the reader has not
-            made yet.
+            vendor-credit pause, the voice-not-ready notice, and the
+            voice-ready notice. Each is closed by its own Close button.
+            Dismissing it with a stray press would take away a notice the
+            reader has not finished with.
 
           The billing card is doubly protected: it is a `toast.custom`, and
           react-hot-toast never routes those through this function at all. The
