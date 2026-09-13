@@ -6,8 +6,15 @@
 
 import { useEffect, useState } from 'react';
 
-import { getAvatarReferenceImage } from '../services/avatarService';
+import { readCachedAvatarIcons } from '../components/avatarIconCache';
 import { isValidImageUrl } from '../components/utils';
+import { getAvatarReferenceImage } from '../services/avatarService';
+
+function cachedPortraitOf(assistantId) {
+  if (!assistantId) return null;
+  const cached = readCachedAvatarIcons()[assistantId];
+  return isValidImageUrl(cached) ? cached : null;
+}
 
 /**
  * @param {string|null|undefined} assistantId
@@ -18,18 +25,20 @@ export default function useAvatarReferenceImage(
   assistantId,
   { asAnonymousIdentity = false } = {}
 ) {
-  const [portrait, setPortrait] = useState(null);
+  const [portrait, setPortrait] = useState(() => cachedPortraitOf(assistantId));
   useEffect(() => {
-    setPortrait(null);
+    const cached = cachedPortraitOf(assistantId);
+    setPortrait(cached);
     if (!assistantId) return undefined;
     let cancelled = false;
     getAvatarReferenceImage(assistantId, { asAnonymousIdentity })
       .then((image) => {
-        if (!cancelled) setPortrait(isValidImageUrl(image) ? image : null);
+        if (!cancelled) setPortrait(isValidImageUrl(image) ? image : cached);
       })
       .catch((portraitError) => {
         // No portrait is the normal case for many avatars; whatever stands in
-        // for it (initials on a pin) stays.
+        // for it (initials on a pin) stays. The gallery cache, when present,
+        // is the original reference photo already shown on the carousel.
         console.debug('No portrait for this avatar:', portraitError);
       });
     return () => {

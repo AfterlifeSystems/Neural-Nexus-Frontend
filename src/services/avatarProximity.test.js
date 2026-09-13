@@ -30,6 +30,7 @@ import {
   isValidCoordinate,
   avatarsAtSamePlace,
   avatarsInFocusGroup,
+  focusAssistantIdOf,
   groupIdsForFocus,
   mergePinnedAvatars,
   metersFromRadiusUnit,
@@ -410,8 +411,21 @@ test('stacked globe pins stay one numbered group and keep every avatar', () => {
     sameDoor[0].avatars.map((avatar) => avatar.name).sort(),
     ['Thomas Woods', 'Uncle Jeff']
   );
-  assert.ok(globeClusterDegreesForAltitude(0.08) >= 0.008);
+  assert.ok(globeClusterDegreesForAltitude(0.08) >= 0.002);
   assert.equal(mapKeyOf({ name: 'Shop', geo_location: CATHEDRAL }), 'Shop:44.9469:-93.1089');
+});
+
+test('a close globe camera keeps two nearby doorways on their own pins', () => {
+  const nearby = [
+    { assistant_id: 'bridge', name: 'Bridge', geo_location: BRIDGE },
+    { assistant_id: 'east', name: 'East', geo_location: NEAR_BRIDGE },
+  ];
+  const close = globeMarkerGroups(nearby, STREET_LEVEL_GROUPING_DEGREES);
+  assert.equal(close.length, 2);
+  const bridgeGroup = close.find((group) => group.avatars[0].assistant_id === 'bridge');
+  assert.equal(bridgeGroup.latitude, BRIDGE.latitude);
+  assert.equal(bridgeGroup.longitude, BRIDGE.longitude);
+  assert.equal(globeClusterDegreesForAltitude(0.008), STREET_LEVEL_GROUPING_DEGREES);
 });
 
 test('a globe cluster stays a clickable group when one avatar is chosen', () => {
@@ -429,4 +443,20 @@ test('a globe cluster stays a clickable group when one avatar is chosen', () => 
     'b',
     'a',
   ]);
+});
+
+test('a cluster pick does not name the first avatar as the focused one', () => {
+  const cluster = [
+    { assistant_id: 'evan', name: 'Evan', geo_location: BRIDGE },
+    { assistant_id: 'boa', name: 'Bank of America', geo_location: BRIDGE },
+  ];
+  assert.equal(focusAssistantIdOf({ avatars: cluster }), null);
+  assert.equal(
+    focusAssistantIdOf({ assistantId: 'boa', avatars: cluster }),
+    'boa'
+  );
+  assert.equal(
+    focusAssistantIdOf({ avatars: [cluster[1]] }),
+    'boa'
+  );
 });

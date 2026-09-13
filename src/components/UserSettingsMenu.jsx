@@ -11,7 +11,7 @@
 // The actions themselves come from AccountMenu, the single definition shared
 // with the sidebar, so the two can never drift into offering different things.
 
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { ChevronUp, Settings } from 'lucide-react';
 import { useLocation } from 'react-router-dom';
 
@@ -26,35 +26,46 @@ import AccountMenu from './AccountMenu';
  *   leads the menu. A screen that already shows the avatar gallery leads with
  *   the personal avatar's settings instead, since the gallery is right there.
  * @param {string} [parameters.className] Layout classes for the outer wrapper.
+ * @param {(open: boolean) => void} [parameters.onOpenChange] The avatar
+ *   carousel uses this to freeze hide / inbox / settings while the menu is
+ *   open, so a press on a menu row cannot land on those controls.
  */
 const UserSettingsMenu = ({
   leadingAction = 'personalAvatar',
   className = '',
+  onOpenChange,
 }) => {
   const location = useLocation();
   const { profile } = useAuth();
   const [isOpen, setIsOpen] = useState(false);
   const menuRef = useRef(null);
+  const onOpenChangeRef = useRef(onOpenChange);
+  onOpenChangeRef.current = onOpenChange;
+
+  const setMenuOpen = useCallback((open) => {
+    setIsOpen(open);
+    onOpenChangeRef.current?.(open);
+  }, []);
 
   // Dismissing on a press outside is what makes this behave like a menu rather
   // than a panel that can only be closed by the control that opened it.
   useEffect(() => {
     const handlePressOutside = (pressEvent) => {
       if (menuRef.current && !menuRef.current.contains(pressEvent.target)) {
-        setIsOpen(false);
+        setMenuOpen(false);
       }
     };
     document.addEventListener('mousedown', handlePressOutside);
     return () => document.removeEventListener('mousedown', handlePressOutside);
-  }, []);
+  }, [setMenuOpen]);
 
   return (
     <div
       className={`min-h-[40px] w-full flex justify-center items-center gap-2 ${className}`}
     >
-      <div className="relative w-48" ref={menuRef}>
+      <div className="relative z-50 w-48" ref={menuRef} data-user-settings-menu>
         <button
-          onClick={() => setIsOpen((open) => !open)}
+          onClick={() => setMenuOpen(!isOpen)}
           className="bg-black/50 rounded-lg border border-white/10 py-2 px-4 text-neutral-200 hover:bg-white/10 transition-all duration-300 flex items-center gap-2 w-full"
           aria-haspopup="true"
           aria-expanded={isOpen}
@@ -86,7 +97,9 @@ const UserSettingsMenu = ({
         {isOpen && (
           <div
             id="user-menu"
-            className="absolute bottom-full mb-2 w-full right-0 backdrop-blur-lg bg-black/50 rounded-md shadow-lg ring-1 ring-black ring-opacity-5 focus:outline-none z-50"
+            className="absolute bottom-full right-0 z-50 mb-2 w-full rounded-md bg-black/50 shadow-lg ring-1 ring-black ring-opacity-5 backdrop-blur-lg pointer-events-auto focus:outline-none"
+            onMouseDown={(pressEvent) => pressEvent.stopPropagation()}
+            onTouchStart={(pressEvent) => pressEvent.stopPropagation()}
           >
             {/* The name heads the menu only when there is one to show. An
                 empty heading is a bar of blank space that reads as something
@@ -95,7 +108,10 @@ const UserSettingsMenu = ({
                 button of its own. */}
             {(profile?.username || profile?.email) && (
               <div className="flex items-center px-4 py-2 border-b border-white/10">
-                <span className="text-neutral-200 text-sm font-semibold truncate">
+                <span
+                  className="text-neutral-200 text-sm font-semibold truncate"
+                  title={profile.username || profile.email}
+                >
                   {profile.username || profile.email}
                 </span>
               </div>
@@ -103,7 +119,7 @@ const UserSettingsMenu = ({
             <div className="p-2 space-y-1">
               <AccountMenu
                 leadingAction={leadingAction}
-                onNavigate={() => setIsOpen(false)}
+                onNavigate={() => setMenuOpen(false)}
                 currentPath={location.pathname}
               />
             </div>

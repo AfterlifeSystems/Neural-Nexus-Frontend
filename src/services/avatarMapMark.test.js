@@ -4,6 +4,7 @@ import assert from 'node:assert/strict';
 import {
   avatarDescriptionOf,
   avatarMatchesSearch,
+  avatarSearchRank,
   initialsOf,
   mapMarkOf,
 } from './avatarMapMark.js';
@@ -34,4 +35,15 @@ test('a real-world avatar can be found by name, initials, or place', () => {
   assert.equal(avatarMatchesSearch(avatar, 'SA', pin), true);
   assert.equal(avatarMatchesSearch(avatar, 'minneapolis', pin), true);
   assert.equal(avatarMatchesSearch(avatar, 'paris', pin), false);
+});
+
+test('searching a place name prefers the avatar named that over someone standing there', () => {
+  const bank = { name: 'Bank of America' };
+  const evan = { name: 'Evan' };
+  const doorway = { location_name: 'Bank of America' };
+  assert.ok(
+    avatarSearchRank(bank, 'Bank of America', doorway) <
+      avatarSearchRank(evan, 'Bank of America', doorway)
+  );
+  assert.equal(avatarMatchesSearch(evan, 'Bank of America', doorway), true);
 });

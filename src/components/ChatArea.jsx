@@ -384,10 +384,8 @@ const ChatArea = ({ onActivateLiveChat, onEndLiveChat, className }) => {
       >
         {/* Main Chat Section */}
         <div className="flex flex-col flex-grow min-w-0 p-2 sm:p-4 relative z-10">
-          {/* Tabs */}
-          {/* On a phone the three tabs plus the avatar's name do not fit in one
-            row, so the row scrolls sideways and the labels drop their
-            prefixes rather than wrapping the name over four lines. */}
+          {/* Tabs. Every label stays on screen; the selected tab is marked
+            with the amber underline rather than sliding the row. */}
           <AvatarWorkspaceHeader
             className="mb-2"
             avatarName={activeAvatar?.name}

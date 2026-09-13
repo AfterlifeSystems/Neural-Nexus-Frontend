@@ -2,8 +2,10 @@
 //
 // The world globe stays on screen. Clicking a pin does not replace it: it
 // names the place so the street map beside it can zoom there, and the globe
-// itself flies to that spot. Pins that would overlap at the current distance
-// are grouped until the camera comes close enough for the places to separate.
+// itself flies to that spot. The surface is slippy map tiles so zoom stays
+// sharp; HTML pins sit on the surface at the true lat/lng. Pins that would
+// overlap at the current distance are grouped until the camera comes close
+// enough for the places to separate.
 //
 // globe.gl carries its own copy of three.js, which is why it is imported here
 // and this screen is loaded only when someone asks for it: the animated page
@@ -12,12 +14,22 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Globe as GlobeIcon, Loader2, MapPin } from 'lucide-react';
 
+import { GLOBE_TILE_ATTRIBUTION, GLOBE_TILE_URL } from '../../config/maps';
 import { initialsOf } from '../../services/avatarMapMark';
+import {
+  GLOBE_HTML_MARKER_ALTITUDE,
+  GLOBE_HTML_TRANSITION_MS,
+  GLOBE_PLACE_FLY_ALTITUDE,
+  GLOBE_TILE_MAX_ZOOM,
+  globeMinDistance,
+  slippyTileUrl,
+} from '../../services/globeMap';
 import {
   avatarIdOf,
   globeClusterDegreesForAltitude,
   globeMarkerGroups,
   isValidCoordinate,
+  mapKeyOf,
   pinOf,
 } from '../../services/avatarProximity';
 import earthNightTexture from '../../assets/globe/earth-night.jpg';
@@ -26,6 +38,10 @@ import AvatarRosterDropdown from './AvatarRosterDropdown';
 // Camera altitude (in globe radii) at which the whole planet is on screen.
 // Double-clicking the globe flies back out to it.
 const WHOLE_WORLD_ALTITUDE = 2.4;
+
+function globeFocusKeyOf(latitude, longitude, assistantId) {
+  return `${Number(latitude)}:${Number(longitude)}:${assistantId ?? ''}`;
+}
 
 function escapeHtml(text) {
   return String(text)
@@ -43,20 +59,28 @@ function globeMarkerElement(group, onInspect, onHover, selectedAssistantId) {
       (avatar) => avatarIdOf(avatar) === selectedAssistantId
     ) ?? false;
   const ring = isSelected ? '#fbbf24' : 'rgba(251,191,36,0.55)';
+  // CSS2DRenderer centers this node and overwrites its transform. A zero-size
+  // root keeps that centering on the lat/lng; the inner stack's bottom tip is
+  // the coordinate. Putting translate(-50%,-100%) on the same node as CSS2D
+  // used to pull every pin off the street it names.
   el.style.cssText =
-    'border:0;background:transparent;padding:0;cursor:pointer;transform:translate(-50%,-100%);pointer-events:auto;';
+    'border:0;background:transparent;padding:0;margin:0;width:0;height:0;overflow:visible;cursor:pointer;pointer-events:auto;';
   const count = group.avatars?.length || group.count || 1;
   const labelAvatar = group.labelAvatar ?? group.avatars?.[0];
+  const stack = document.createElement('div');
+  stack.style.cssText =
+    'position:absolute;left:0;top:0;transform:translate(-50%,-100%);display:flex;flex-direction:column;align-items:center;gap:2px;pointer-events:auto;';
+  const caret = `<div style="width:0;height:0;border-left:5px solid transparent;border-right:5px solid transparent;border-top:6px solid ${ring}"></div>`;
   if (count <= 1 && labelAvatar) {
     const name = labelAvatar.name ?? 'Avatar';
-    el.innerHTML = `
-      <div style="display:flex;flex-direction:column;align-items:center;gap:2px">
-        <div style="width:28px;height:28px;border-radius:999px;background:rgba(0,0,0,0.75);border:2px solid ${ring};box-shadow:${isSelected ? '0 0 0 3px rgba(251,191,36,0.35)' : 'none'};color:#f5f5f5;font:700 10px system-ui,sans-serif;display:flex;align-items:center;justify-content:center">${escapeHtml(initialsOf(name))}</div>
-        <div style="max-width:7rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font:11px system-ui,sans-serif;color:#e5e5e5;background:rgba(0,0,0,0.7);padding:1px 6px;border-radius:999px;border:1px solid ${isSelected ? 'rgba(251,191,36,0.5)' : 'rgba(255,255,255,0.1)'}">${escapeHtml(name)}</div>
-      </div>`;
+    stack.innerHTML = `
+      <div style="max-width:7rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font:11px system-ui,sans-serif;color:#e5e5e5;background:rgba(0,0,0,0.7);padding:1px 6px;border-radius:999px;border:1px solid ${isSelected ? 'rgba(251,191,36,0.5)' : 'rgba(255,255,255,0.1)'}">${escapeHtml(name)}</div>
+      <div style="width:28px;height:28px;border-radius:999px;background:rgba(0,0,0,0.75);border:2px solid ${ring};box-shadow:${isSelected ? '0 0 0 3px rgba(251,191,36,0.35)' : 'none'};color:#f5f5f5;font:700 10px system-ui,sans-serif;display:flex;align-items:center;justify-content:center">${escapeHtml(initialsOf(name))}</div>
+      ${caret}`;
   } else {
-    el.innerHTML = `<div style="min-width:32px;height:32px;padding:0 8px;border-radius:999px;background:rgba(0,0,0,0.8);border:2px solid ${ring};color:#fbbf24;font:700 13px system-ui,sans-serif;display:flex;align-items:center;justify-content:center">${count}</div>`;
+    stack.innerHTML = `<div style="min-width:32px;height:32px;padding:0 8px;border-radius:999px;background:rgba(0,0,0,0.8);border:2px solid ${ring};color:#fbbf24;font:700 13px system-ui,sans-serif;display:flex;align-items:center;justify-content:center">${count}</div>${caret}`;
   }
+  el.appendChild(stack);
   el.addEventListener('click', (event) => {
     event.stopPropagation();
     onInspect(group);
@@ -76,6 +100,8 @@ function globeMarkerElement(group, onInspect, onHover, selectedAssistantId) {
  * @param {Set<string>} [props.ownedAssistantIds]
  * @param {number} [props.worldViewRevision] bump to fly out to the whole world
  * @param {(place: {latitude: number, longitude: number, avatars: Array})} props.onInspectPlace
+ * @param {() => void} [props.onViewWholeWorld] The toolbar Reset world view
+ *   companion: collapse the street inset when the roster flies out.
  */
 const WorldAvatarGlobe = ({
   avatars = [],
@@ -86,6 +112,7 @@ const WorldAvatarGlobe = ({
   focus = null,
   worldViewRevision = 0,
   onInspectPlace,
+  onViewWholeWorld,
 }) => {
   const selectedAssistantId = focus?.assistantId ?? null;
   const containerRef = useRef(null);
@@ -102,6 +129,8 @@ const WorldAvatarGlobe = ({
   const holdStillRef = useRef(false);
   const onInspectPlaceRef = useRef(onInspectPlace);
   onInspectPlaceRef.current = onInspectPlace;
+  const onViewWholeWorldRef = useRef(onViewWholeWorld);
+  onViewWholeWorldRef.current = onViewWholeWorld;
 
   const holdStill = useCallback(() => {
     holdStillRef.current = true;
@@ -111,15 +140,40 @@ const WorldAvatarGlobe = ({
     }
   }, []);
 
+  const flyToAvatar = useCallback(
+    (latitude, longitude, assistantId) => {
+      const globeInstance = globeRef.current;
+      if (!globeInstance || !isValidCoordinate(latitude, longitude)) return;
+      lastFocusKeyRef.current = globeFocusKeyOf(
+        latitude,
+        longitude,
+        assistantId
+      );
+      holdStill();
+      globeInstance.controls().autoRotate = false;
+      globeInstance.pointOfView(
+        {
+          lat: Number(latitude),
+          lng: Number(longitude),
+          altitude: GLOBE_PLACE_FLY_ALTITUDE,
+        },
+        900
+      );
+    },
+    [holdStill]
+  );
+
   // Pull the camera back until the whole planet fits, forget any place that
-  // was opened, and let the globe drift again.
-  const viewWholeWorld = useCallback(() => {
+  // was opened, and let the globe drift again. The roster's "N avatars in
+  // the world" row keeps the list open so a name can be chosen next.
+  const viewWholeWorld = useCallback((options = {}) => {
     const globeInstance = globeRef.current;
     if (!globeInstance) return;
     const current = globeInstance.pointOfView?.() ?? {};
     holdStillRef.current = false;
+    lastFocusKeyRef.current = 'world';
     setSelectedGroup(null);
-    setIsListOpen(false);
+    setIsListOpen(Boolean(options.keepListOpen));
     globeInstance.pointOfView(
       {
         lat: current.lat ?? 20,
@@ -152,26 +206,27 @@ const WorldAvatarGlobe = ({
       if (!group) return;
       lastPinInspectAtRef.current = Date.now();
       holdStill();
-      const chosen = group.labelAvatar ?? group.avatars?.[0];
-      const pin = chosen ? pinOf(chosen) : null;
       const groupSize = group.avatars?.length || group.count || 1;
+      const chosen =
+        groupSize === 1 ? (group.labelAvatar ?? group.avatars?.[0]) : null;
+      const pin = chosen ? pinOf(chosen) : null;
+      const latitude = pin ? Number(pin.latitude) : group.latitude;
+      const longitude = pin ? Number(pin.longitude) : group.longitude;
+      const assistantId = chosen
+        ? avatarIdOf(chosen) ?? mapKeyOf(chosen)
+        : null;
+      flyToAvatar(latitude, longitude, assistantId);
       onInspectPlaceRef.current?.({
-        latitude: pin ? Number(pin.latitude) : group.latitude,
-        longitude: pin ? Number(pin.longitude) : group.longitude,
-        assistantId: avatarIdOf(chosen),
+        latitude,
+        longitude,
+        assistantId,
         avatars: group.avatars,
         source: 'globe',
       });
       setSelectedGroup(group);
       setIsListOpen(true);
-      if (groupSize > 1) {
-        globeRef.current?.pointOfView(
-          { lat: group.latitude, lng: group.longitude, altitude: 0.08 },
-          900
-        );
-      }
     },
-    [holdStill]
+    [flyToAvatar]
   );
 
   const rosterGroup = useMemo(() => {
@@ -220,13 +275,18 @@ const WorldAvatarGlobe = ({
         group.avatars.some(
           (avatar) =>
             avatarIdOf(avatar) === place.assistantId ||
-            avatar.name === place.assistantId
+            mapKeyOf(avatar) === place.assistantId
         )
       );
       if (containing) setSelectedGroup(containing);
-      onInspectPlaceRef.current?.(place);
+      flyToAvatar(place.latitude, place.longitude, place.assistantId);
+      onInspectPlaceRef.current?.({
+        ...place,
+        avatars: containing?.avatars,
+        preserveGroup: Boolean(containing),
+      });
     },
-    [groups]
+    [flyToAvatar, groups]
   );
 
   useEffect(() => {
@@ -244,13 +304,29 @@ const WorldAvatarGlobe = ({
         .backgroundColor('rgba(0,0,0,0)')
         .globeImageUrl(earthNightTexture)
         .showAtmosphere(true)
-        .atmosphereColor('#fbbf24')
-        .atmosphereAltitude(0.14);
+        .atmosphereColor('#427abc')
+        .atmosphereAltitude(0.07);
+      if (typeof globeInstance.globeTileEngineUrl === 'function') {
+        globeInstance.globeTileEngineUrl((tileX, tileY, zoomLevel) =>
+          slippyTileUrl(GLOBE_TILE_URL, tileX, tileY, zoomLevel)
+        );
+      }
+      if (typeof globeInstance.globeTileEngineMaxLevel === 'function') {
+        globeInstance.globeTileEngineMaxLevel(GLOBE_TILE_MAX_ZOOM);
+      } else if (typeof globeInstance.globeTileEngineMaxZoom === 'function') {
+        globeInstance.globeTileEngineMaxZoom(GLOBE_TILE_MAX_ZOOM);
+      }
       const controls = globeInstance.controls();
       controls.autoRotate = true;
       controls.autoRotateSpeed = 0.35;
+      const globeRadius = globeInstance.getGlobeRadius?.() ?? 100;
       if (typeof controls.minDistance === 'number') {
-        controls.minDistance = 100.4;
+        controls.minDistance = globeMinDistance(globeRadius);
+      }
+      const camera = globeInstance.camera?.();
+      if (camera && typeof camera.near === 'number') {
+        camera.near = Math.min(camera.near, globeRadius * 0.0002);
+        camera.updateProjectionMatrix?.();
       }
       const stopDrift = () => {
         holdStillRef.current = true;
@@ -322,7 +398,8 @@ const WorldAvatarGlobe = ({
       .htmlElementsData(groups)
       .htmlLat('latitude')
       .htmlLng('longitude')
-      .htmlAltitude(0.012)
+      .htmlAltitude(GLOBE_HTML_MARKER_ALTITUDE)
+      .htmlTransitionDuration(GLOBE_HTML_TRANSITION_MS)
       .htmlElement((group) =>
         globeMarkerElement(
           group,
@@ -377,7 +454,7 @@ const WorldAvatarGlobe = ({
       {
         lat: devicePosition.latitude,
         lng: devicePosition.longitude,
-        altitude: 0.08,
+        altitude: GLOBE_PLACE_FLY_ALTITUDE,
       },
       1200
     );
@@ -392,7 +469,11 @@ const WorldAvatarGlobe = ({
     ) {
       return;
     }
-    const focusKey = `${focus.latitude}:${focus.longitude}`;
+    const focusKey = globeFocusKeyOf(
+      focus.latitude,
+      focus.longitude,
+      focus.assistantId
+    );
     if (lastFocusKeyRef.current === focusKey) return;
     lastFocusKeyRef.current = focusKey;
     if (focus.source && focus.source !== 'seed') {
@@ -400,7 +481,11 @@ const WorldAvatarGlobe = ({
     }
     globeInstance.controls().autoRotate = false;
     globeInstance.pointOfView(
-      { lat: focus.latitude, lng: focus.longitude, altitude: 0.08 },
+      {
+        lat: focus.latitude,
+        lng: focus.longitude,
+        altitude: GLOBE_PLACE_FLY_ALTITUDE,
+      },
       900
     );
   }, [focus, globeReady, holdStill]);
@@ -455,7 +540,8 @@ const WorldAvatarGlobe = ({
               onShowWorld={
                 rosterGroup
                   ? () => {
-                      setSelectedGroup(null);
+                      viewWholeWorld({ keepListOpen: true });
+                      onViewWholeWorldRef.current?.();
                     }
                   : undefined
               }
@@ -515,6 +601,11 @@ const WorldAvatarGlobe = ({
           {loadError}
         </p>
       )}
+      {GLOBE_TILE_ATTRIBUTION ? (
+        <p className="pointer-events-none absolute bottom-2 left-2 z-10 max-w-[min(24rem,calc(100%-6rem))] truncate text-[10px] text-white/40">
+          {GLOBE_TILE_ATTRIBUTION}
+        </p>
+      ) : null}
     </div>
   );
 };

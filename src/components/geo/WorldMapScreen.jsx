@@ -6,6 +6,7 @@
 // map without putting the globe away.
 
 import {
+  Component,
   Suspense,
   lazy,
   useCallback,
@@ -29,13 +30,18 @@ import {
 
 import { useAuth } from '../../context/AuthContext';
 import { useGeoAvatars } from '../../context/GeoAvatarContext';
-import { avatarMatchesSearch, mapMarkOf } from '../../services/avatarMapMark';
+import {
+  avatarMatchesSearch,
+  avatarSearchRank,
+  mapMarkOf,
+} from '../../services/avatarMapMark';
 import {
   DEFAULT_GEOFENCE_RADIUS_METERS,
   avatarIdOf,
   avatarsAtSamePlace,
   avatarsInFocusGroup,
   avatarsWithinMeters,
+  focusAssistantIdOf,
   groupIdsForFocus,
   mapKeyOf,
   describeDistance,
@@ -58,8 +64,36 @@ import AvatarMapCard from './AvatarMapCard';
 import AvatarRosterDropdown from './AvatarRosterDropdown';
 import ClearMyLocationButton from './ClearMyLocationButton';
 import WorldStreetMap from './WorldStreetMap';
+import { loadDeployedModule } from '../../services/loadDeployedModule';
 
-const WorldAvatarGlobe = lazy(() => import('./WorldAvatarGlobe'));
+const WorldAvatarGlobe = lazy(() =>
+  loadDeployedModule(() => import('./WorldAvatarGlobe'))
+);
+
+class GlobeLoadErrorBoundary extends Component {
+  constructor(properties) {
+    super(properties);
+    this.state = { failed: false };
+  }
+
+  static getDerivedStateFromError() {
+    return { failed: true };
+  }
+
+  render() {
+    if (this.state.failed) {
+      return (
+        <div className="flex h-full w-full items-center justify-center bg-black/60 px-4 text-center backdrop-blur-lg">
+          <p className="text-sm text-neutral-200">
+            The globe could not load. Refresh the page to get the latest
+            version.
+          </p>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
 
 const STREET_NEIGHBORHOOD_METERS = 800;
 const GEO_HYDRATE_BATCH = 6;
@@ -230,14 +264,8 @@ const WorldMapScreen = () => {
 
   const focusPlace = useCallback((place) => {
     if (!isValidCoordinate(place?.latitude, place?.longitude)) return;
-    const fromGroup = place.avatars?.length
-      ? avatarIdOf(place.avatars[0])
-      : null;
     setMapFocus((previous) => {
-      const assistantId =
-        place.assistantId ??
-        fromGroup ??
-        (place.preserveAssistant ? previous?.assistantId ?? null : null);
+      const assistantId = focusAssistantIdOf(place, previous);
       const keepGroup =
         place.preserveGroup === true ||
         place.preserveAssistant === true ||
@@ -391,11 +419,17 @@ const WorldMapScreen = () => {
     if (!query) return [];
     return avatars
       .filter((avatar) => avatarMatchesSearch(avatar, query, pinOf(avatar)))
-      .sort((left, right) =>
-        String(left?.name ?? '').localeCompare(String(right?.name ?? ''), undefined, {
-          sensitivity: 'base',
-        })
-      );
+      .sort((left, right) => {
+        const rankDelta =
+          avatarSearchRank(left, query, pinOf(left)) -
+          avatarSearchRank(right, query, pinOf(right));
+        if (rankDelta !== 0) return rankDelta;
+        return String(left?.name ?? '').localeCompare(
+          String(right?.name ?? ''),
+          undefined,
+          { sensitivity: 'base' }
+        );
+      });
   }, [avatarSearch, avatars]);
 
   useEffect(() => {
@@ -482,15 +516,16 @@ const WorldMapScreen = () => {
     return fromIds;
   }, [avatars, mapFocus]);
 
-  const selectedAvatar = useMemo(
-    () =>
+  const selectedAvatar = useMemo(() => {
+    const selectedId = mapFocus?.assistantId;
+    if (!selectedId) return null;
+    return (
       avatars.find(
         (avatar) =>
-          avatarIdOf(avatar) === mapFocus?.assistantId ||
-          mapKeyOf(avatar) === mapFocus?.assistantId
-      ) ?? null,
-    [avatars, mapFocus]
-  );
+          avatarIdOf(avatar) === selectedId || mapKeyOf(avatar) === selectedId
+      ) ?? null
+    );
+  }, [avatars, mapFocus]);
   const selectedPin = pinOf(selectedAvatar);
   const showSearchList =
     isSearchOpen && avatarSearch.trim().length > 0;
@@ -589,7 +624,7 @@ const WorldMapScreen = () => {
         <div className="flex flex-col gap-3 md:flex-row md:items-start">
           <div
             ref={searchBoxRef}
-            className="relative z-30 w-full md:max-w-md"
+            className="relative z-30 min-w-0 w-full flex-1"
             onBlur={(event) => {
               if (!searchBoxRef.current?.contains(event.relatedTarget)) {
                 setIsSearchOpen(false);
@@ -697,27 +732,30 @@ const WorldMapScreen = () => {
 
       <div className="relative min-h-[28rem] flex-1 overflow-hidden rounded-xl border border-white/10">
         <div className="absolute inset-0">
-          <Suspense
-            fallback={
-              <div className="flex h-full w-full items-center justify-center bg-black/60 backdrop-blur-lg">
-                <span className="inline-flex items-center gap-2 text-sm text-white/50">
-                  <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
-                  Building the globe…
-                </span>
-              </div>
-            }
-          >
-            <WorldAvatarGlobe
-              avatars={avatars}
-              ownedAssistantIds={ownedAssistantIds}
-              isLoading={isLoadingPins}
-              loadError={pinsError}
-              devicePosition={position}
-              focus={mapFocus}
-              worldViewRevision={worldViewRevision}
-              onInspectPlace={focusPlace}
-            />
-          </Suspense>
+          <GlobeLoadErrorBoundary>
+            <Suspense
+              fallback={
+                <div className="flex h-full w-full items-center justify-center bg-black/60 backdrop-blur-lg">
+                  <span className="inline-flex items-center gap-2 text-sm text-white/50">
+                    <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
+                    Building the globe…
+                  </span>
+                </div>
+              }
+            >
+              <WorldAvatarGlobe
+                avatars={avatars}
+                ownedAssistantIds={ownedAssistantIds}
+                isLoading={isLoadingPins}
+                onViewWholeWorld={() => setIsMinimapOpen(false)}
+                loadError={pinsError}
+                devicePosition={position}
+                focus={mapFocus}
+                worldViewRevision={worldViewRevision}
+                onInspectPlace={focusPlace}
+              />
+            </Suspense>
+          </GlobeLoadErrorBoundary>
         </div>
         <div
           className={`neural-nexus-minimap-frame pointer-events-auto absolute bottom-3 right-3 z-20 flex w-[min(26rem,calc(100%-1.5rem))] flex-col overflow-hidden rounded-2xl border border-amber-300/20 bg-black/80 shadow-[0_18px_50px_rgba(0,0,0,0.55)] backdrop-blur-xl ${
@@ -801,7 +839,10 @@ const WorldMapScreen = () => {
       <div className="flex justify-center">
         <button
           type="button"
-          onClick={() => setWorldViewRevision((revision) => revision + 1)}
+          onClick={() => {
+            setIsMinimapOpen(false);
+            setWorldViewRevision((revision) => revision + 1);
+          }}
           className="inline-flex items-center gap-2 rounded-md border border-white/10 bg-black/60 px-3 py-1.5 text-sm text-neutral-200 backdrop-blur-lg transition-colors hover:bg-white/5 focus:outline-none focus:ring-2 focus:ring-amber-400/50"
         >
           <Globe className="h-4 w-4 text-amber-300" aria-hidden="true" />

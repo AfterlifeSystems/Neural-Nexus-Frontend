@@ -33,14 +33,16 @@ import ProfileBubbleImage from './ProfileBubbleImage';
 import CreateAvatarModal from './CreateAvatarModal';
 import AvatarCardComponent from './AvatarCardComponent';
 import LoadingSpinner from './LoadingSpinner';
-import UserSettingsMenu from './UserSettingsMenu';
 import {
   readCachedAvatarIcons,
   writeCachedAvatarIcon,
   forgetCachedAvatarIcon,
   forgetCachedAvatarIconsExcept,
   resolveAssistantId,
+  isAvatarOwnedByUser,
+  canShareAvatar,
 } from './utils';
+import AvatarWorkspaceHeader from './AvatarWorkspaceHeader';
 import { useMedia } from '../context/MediaContext';
 import {
   getAvatarReferenceImage,
@@ -50,6 +52,7 @@ import {
   avatarsWithPersonalFirst,
   startingCarouselIndex,
 } from '../services/avatarListOrder';
+import { rememberImageViewportsFromAvatars } from '../services/avatarImageViewport';
 import {
   avatarsOnCarousel,
   canHideAvatarOnCarousel,
@@ -63,8 +66,25 @@ import {
 } from '../services/avatarCarouselMembership';
 import { buildAvatarSearchSuggestions } from './avatarSearchSuggestions';
 import { avatarSettingsPath } from './createdAvatarSettings';
-import { personalAvatarWorkspacePath } from './personalAvatarWorkspace';
+import {
+  avatarWorkspacePath,
+  personalAvatarWorkspacePath,
+} from './personalAvatarWorkspace';
 import useInboxCount from '../hooks/useInboxCount';
+import {
+  galleryCardLayout,
+  galleryFrameHeight,
+} from './galleryScrollIndex';
+
+function elementOuterHeight(element) {
+  if (!element) return 0;
+  const style = window.getComputedStyle(element);
+  return (
+    element.offsetHeight +
+    (Number.parseFloat(style.marginTop) || 0) +
+    (Number.parseFloat(style.marginBottom) || 0)
+  );
+}
 
 /**
  * Whether two avatar lists say the same thing.
@@ -91,8 +111,14 @@ function describesTheSameAvatars(freshAvatars, displayedAvatars) {
 }
 
 const AvatarSelectionComponent = ({}) => {
-  const { user, userAvatars, setUserAvatars, setActiveAvatar, setContext } =
-    useAuth();
+  const {
+    user,
+    userAvatars,
+    setUserAvatars,
+    setActiveAvatar,
+    setContext,
+    activeAvatar,
+  } = useAuth();
 
   const { setActiveConversation } = useMedia();
   const faceSourceRevision = useAvatarFaceSourceRevision();
@@ -103,6 +129,7 @@ const AvatarSelectionComponent = ({}) => {
   const [suggestions, setSuggestions] = useState([]);
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
   const [highlightedIndex, setHighlightedIndex] = useState(-1);
+  const [userSettingsMenuOpen, setUserSettingsMenuOpen] = useState(false);
   const galleryRef = useRef(null);
   // The live Create Avatar card laid over the WebGL gallery. The gallery
   // reports the slot's position every frame; writing the transform straight
@@ -110,15 +137,94 @@ const AvatarSelectionComponent = ({}) => {
   // per frame.
   const createCardOverlayRef = useRef(null);
   const cardActionsRef = useRef(null);
+  const galleryColumnRef = useRef(null);
+  const galleryRegionRef = useRef(null);
+  const galleryStageRef = useRef(null);
+  const galleryFrameRef = useRef(null);
+  const galleryFooterRef = useRef(null);
+  const searchRef = useRef(null);
   const createCardIsFrontRef = useRef(false);
   const [createCardIsFront, setCreateCardIsFront] = useState(false);
+  const applyGalleryCardChrome = useCallback((cardPixelSize) => {
+    if (!(Number.isFinite(cardPixelSize) && cardPixelSize > 0)) return;
+    const overlay = createCardOverlayRef.current;
+    if (overlay) {
+      overlay.style.width = `${cardPixelSize}px`;
+      overlay.style.height = `${cardPixelSize}px`;
+    }
+    const actions = cardActionsRef.current;
+    if (actions) {
+      actions.style.top = `calc(50% + ${cardPixelSize / 2}px + 0.35rem)`;
+    }
+  }, []);
+  useEffect(() => {
+    const column = galleryColumnRef.current;
+    const region = galleryRegionRef.current;
+    const stage = galleryStageRef.current;
+    const frame = galleryFrameRef.current;
+    const search = searchRef.current;
+    const footer = galleryFooterRef.current;
+    if (
+      !column ||
+      !region ||
+      !stage ||
+      !frame ||
+      typeof ResizeObserver !== 'function'
+    ) {
+      return undefined;
+    }
+    const applyFromColumn = () => {
+      const stageStyle = window.getComputedStyle(stage);
+      const stageGap =
+        Number.parseFloat(stageStyle.rowGap || stageStyle.gap || '0') || 0;
+      const stagePad =
+        (Number.parseFloat(stageStyle.paddingTop) || 0) +
+        (Number.parseFloat(stageStyle.paddingBottom) || 0);
+      const available = Math.max(
+        region.clientHeight -
+          elementOuterHeight(footer) -
+          stageGap -
+          stagePad,
+        0
+      );
+      const width = frame.clientWidth || stage.clientWidth || column.clientWidth;
+      // Wait for a real layout. Locking flex-grow off at 0×N px leaves
+      // the Create overlay as the only card that still paints.
+      if (width < 2 || available < 2) return;
+      const height = galleryFrameHeight(width, available);
+      const nextHeight = `${height}px`;
+      // flex-1 is `flex-basis: 0%`. Turning off grow/shrink without a
+      // basis leaves a 0-tall frame: the Create overlay still paints
+      // from its pixel size, the WebGL discs do not.
+      if (
+        frame.style.height !== nextHeight ||
+        frame.style.flexBasis !== nextHeight
+      ) {
+        frame.style.flexGrow = '0';
+        frame.style.flexShrink = '0';
+        frame.style.flexBasis = nextHeight;
+        frame.style.height = nextHeight;
+      }
+      applyGalleryCardChrome(galleryCardLayout(width, height).pixelSize);
+    };
+    applyFromColumn();
+    const observer = new ResizeObserver(applyFromColumn);
+    observer.observe(column);
+    observer.observe(region);
+    observer.observe(stage);
+    observer.observe(frame);
+    if (search) observer.observe(search);
+    if (footer) observer.observe(footer);
+    return () => observer.disconnect();
+  }, [applyGalleryCardChrome]);
   const handleCreateCardMove = useCallback(
-    ({ x, frontX, visible, isFront }) => {
+    ({ x, frontX, visible, isFront, cardPixelSize }) => {
       const overlay = createCardOverlayRef.current;
       if (overlay) {
         overlay.style.transform = `translate(calc(-50% + ${x}px), -50%)`;
         overlay.style.visibility = visible ? 'visible' : 'hidden';
       }
+      applyGalleryCardChrome(cardPixelSize);
       const createIsFront = Boolean(isFront);
       const actions = cardActionsRef.current;
       if (actions) {
@@ -132,7 +238,7 @@ const AvatarSelectionComponent = ({}) => {
         setCreateCardIsFront(createIsFront);
       }
     },
-    []
+    [applyGalleryCardChrome]
   );
   const handleGalleryIndexChange = useCallback((index) => {
     setCurrentCardIndex(index);
@@ -142,7 +248,6 @@ const AvatarSelectionComponent = ({}) => {
       // quota or private mode — the strip still follows the live index
     }
   }, []);
-  const searchRef = useRef(null);
   const hasInitialized = useRef(false);
   const [showCreateModal, setShowCreateModal] = useState(false);
   // Avatar portraits fetched from GET /avatar_reference_image, keyed by
@@ -170,6 +275,7 @@ const AvatarSelectionComponent = ({}) => {
     if (!Array.isArray(userAvatars) || userAvatars.length === 0) {
       return undefined;
     }
+    rememberImageViewportsFromAvatars(userAvatars);
     // Production profiles keep portraits for avatars that no longer exist.
     // Those leftovers are what fill the origin quota on neuralnexus.site.
     forgetCachedAvatarIconsExcept(
@@ -844,8 +950,47 @@ const AvatarSelectionComponent = ({}) => {
     (suggestion) => suggestion.type === 'create'
   );
 
+  const workspaceAvatar = useMemo(() => {
+    const activeId = carouselAvatarId(activeAvatar);
+    if (activeId) {
+      const fromList = orderedAvatars.find(
+        (avatar) => carouselAvatarId(avatar) === activeId
+      );
+      if (fromList) return fromList;
+    }
+    const frontCard = authenticatedCards[currentCardIndex];
+    if (frontCard?.type === 'avatar' && frontCard.avatar_data) {
+      return frontCard.avatar_data;
+    }
+    return orderedAvatars[0] ?? null;
+  }, [activeAvatar, orderedAvatars, authenticatedCards, currentCardIndex]);
+  const workspaceAvatarId = carouselAvatarId(workspaceAvatar);
+  const workspaceIsPersonalAvatar =
+    workspaceAvatar?.metadata?.is_personal_avatar_of_creator === true;
+  const workspaceCanOpenAvatarSettings =
+    isAvatarOwnedByUser(workspaceAvatar, user) ||
+    canShareAvatar(workspaceAvatar, user);
+  const handleWorkspaceTabChange = (tab) => {
+    if (tab === 'avatar-selection') return;
+    const path = avatarWorkspacePath(workspaceAvatarId, tab);
+    if (!path) {
+      toast.error(
+        tab === 'inbox'
+          ? 'Inbox is not available.'
+          : tab === 'avatar-settings'
+            ? 'Avatar settings are not available.'
+            : 'Pick an avatar first.'
+      );
+      return;
+    }
+    if (workspaceAvatar?.metadata?.user_id) {
+      setActiveAvatar(workspaceAvatar);
+    }
+    navigate(path);
+  };
+
   return (
-    <div className="flex flex-col items-center justify-start p-4 relative mx-auto min-h-screen w-full">
+    <div className="flex flex-col items-center justify-start p-2 sm:p-4 relative mx-auto h-full w-full">
       {isLoadingAvatars && (
         <div className="fixed inset-0 z-[60] bg-black/60 backdrop-blur-sm flex items-center justify-center">
           <div className="bg-black/60 backdrop-blur-lg rounded-2xl border border-white/10 px-8 py-6 flex flex-col items-center gap-4">
@@ -854,18 +999,38 @@ const AvatarSelectionComponent = ({}) => {
           </div>
         </div>
       )}
-      <div className="w-full h-screen overflow-hidden flex flex-col items-center gap-2">
-        <div className="relative w-full max-w-md mt-8 mb-2" ref={searchRef}>
-          <input
-            type="text"
-            value={searchQuery}
-            onChange={handleSearch}
-            onFocus={handleSearchFocus}
-            onKeyDown={handleKeyDown}
-            placeholder="Search avatars…"
-            className="w-full bg-black/60 rounded-lg border border-white/10 py-2 pl-10 pr-4 text-neutral-200 placeholder-white/50 focus:outline-none focus:ring-2 focus:ring-white/30"
+      <div
+        ref={galleryColumnRef}
+        className="w-full h-full overflow-hidden flex flex-col items-center gap-2"
+      >
+        <div
+          className="w-full flex flex-col items-center gap-2 shrink-0"
+          ref={searchRef}
+        >
+          <AvatarWorkspaceHeader
+            className="w-full"
+            avatarName={workspaceAvatar?.name}
+            headerFace={
+              workspaceAvatarId ? avatarIconsById[workspaceAvatarId] : null
+            }
+            assistantId={workspaceAvatarId || null}
+            activeTab="avatar-selection"
+            isPersonalAvatar={workspaceIsPersonalAvatar}
+            canOpenAvatarSettings={workspaceCanOpenAvatarSettings}
+            inboxCount={inboxCount}
+            onTabChange={handleWorkspaceTabChange}
           />
-          <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-white/80" />
+          <div className="relative w-full max-w-md">
+            <input
+              type="text"
+              value={searchQuery}
+              onChange={handleSearch}
+              onFocus={handleSearchFocus}
+              onKeyDown={handleKeyDown}
+              placeholder="Search avatars…"
+              className="w-full bg-black/60 rounded-lg border border-white/10 py-2 pl-10 pr-4 text-neutral-200 placeholder-white/50 focus:outline-none focus:ring-2 focus:ring-white/30"
+            />
+            <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-white/80" />
           {isDropdownOpen && suggestions.length > 0 && (
             <div className="absolute z-30 w-full mt-1 max-h-60 flex flex-col overflow-hidden rounded-lg border border-white/10 bg-black/50">
               <ul className="min-h-0 overflow-auto">
@@ -901,7 +1066,6 @@ const AvatarSelectionComponent = ({}) => {
                     </li>
                   )
                 )}
-                {/* asdf */}
               </ul>
               {createSearchSuggestion && (
                 <div
@@ -917,22 +1081,46 @@ const AvatarSelectionComponent = ({}) => {
                   <span className="flex-grow min-w-0 truncate">
                     {createSearchSuggestion.text}
                   </span>
-                  <UserPlus class="w-4 h-4" />
+                  <span
+                    data-search-create-avatar-icon
+                    className="shrink-0 p-1 rounded-md"
+                    aria-hidden="true"
+                  >
+                    <UserPlus className="w-4 h-4" />
+                  </span>
                 </div>
               )}
             </div>
           )}
+          </div>
         </div>
-        <div className="h-full flex flex-col min-h-0 w-full mb-2 relative">
+        {/* The leftover column centers a glass card that hugs the discs
+            and the strip, so the faces read larger and the empty bands
+            above and below the cluster stay outside the panel. */}
+        <div
+          ref={galleryRegionRef}
+          data-gallery-region
+          className="relative z-0 flex min-h-0 w-full flex-1 flex-col justify-center"
+        >
+        <div
+          ref={galleryStageRef}
+          data-gallery-stage
+          className="relative flex w-full shrink-0 flex-col overflow-hidden rounded-2xl border border-white/10 bg-black/60 backdrop-blur-lg py-3"
+        >
+        <div
+          ref={galleryFrameRef}
+          className="relative min-h-0 w-full overflow-hidden"
+        >
           {/* The gallery is WebGL, so the Create Avatar entry it draws is a
               flat texture. When that entry is the one in front, a real card
-              is laid over it at the same size — the gallery draws each card
-              60% of its height tall and square — so the pixel shimmer and
-              the click land on a live element. */}
+              is laid over it at the same size — 66% of this box, which on a
+              phone is shrunk so the width-capped discs fill it instead of
+              floating in leftover viewport — and the live PixelCard tracks
+              that size from the gallery. */}
           {authenticatedCards.some((card) => card.type === 'create') && (
             <div
               ref={createCardOverlayRef}
-              className="absolute left-1/2 top-1/2 h-[60%] aspect-square z-10"
+              className="absolute left-1/2 top-1/2 h-[66%] aspect-square z-10 overflow-hidden"
               style={{
                 transform: 'translate(-50%, -50%)',
                 visibility: 'hidden',
@@ -949,7 +1137,7 @@ const AvatarSelectionComponent = ({}) => {
             items={authenticatedCards}
             bend={0}
             textColor="#ffffff"
-            borderRadius={0.05}
+            borderRadius={0.5}
             font="bold 48px system-ui"
             scrollSpeed={2}
             scrollEase={0.3}
@@ -976,11 +1164,11 @@ const AvatarSelectionComponent = ({}) => {
                     onMouseDown={(event) => event.stopPropagation()}
                     onTouchStart={(event) => event.stopPropagation()}
                     onClick={handleHideFrontAvatar}
-                    className="pointer-events-auto p-1.5 rounded-md text-white/40 hover:text-neutral-100 hover:bg-white/10 transition-colors"
+                    className={`${userSettingsMenuOpen ? 'pointer-events-none' : 'pointer-events-auto'} p-1.5 rounded-md text-white/40 hover:text-neutral-100 hover:bg-white/10 transition-colors`}
                     aria-label="Hide avatar from the carousel"
                     title="Hide avatar from the carousel"
                   >
-                    <EyeOff className="w-5 h-5" />
+                    <EyeOff className="w-6 h-6" />
                   </button>
                 ) : frontCompanionAction === 'inbox' ? (
                   <button
@@ -989,11 +1177,11 @@ const AvatarSelectionComponent = ({}) => {
                     onMouseDown={(event) => event.stopPropagation()}
                     onTouchStart={(event) => event.stopPropagation()}
                     onClick={handleOpenFrontAvatarInbox}
-                    className="pointer-events-auto relative p-1.5 rounded-md text-white/40 hover:text-neutral-100 hover:bg-white/10 transition-colors"
+                    className={`${userSettingsMenuOpen ? 'pointer-events-none' : 'pointer-events-auto'} relative p-1.5 rounded-md text-white/40 hover:text-neutral-100 hover:bg-white/10 transition-colors`}
                     aria-label="Open avatar inbox"
                     title="Open avatar inbox"
                   >
-                    <Inbox className="w-5 h-5" />
+                    <Inbox className="w-6 h-6" />
                     {inboxCount > 0 && (
                       <span
                         aria-label={`${inboxCount} items waiting`}
@@ -1010,16 +1198,23 @@ const AvatarSelectionComponent = ({}) => {
                   onMouseDown={(event) => event.stopPropagation()}
                   onTouchStart={(event) => event.stopPropagation()}
                   onClick={handleOpenFrontAvatarSettings}
-                  className="pointer-events-auto p-1.5 rounded-md text-white/40 hover:text-neutral-100 hover:bg-white/10 transition-colors"
+                  className={`${userSettingsMenuOpen ? 'pointer-events-none' : 'pointer-events-auto'} p-1.5 rounded-md text-white/40 hover:text-neutral-100 hover:bg-white/10 transition-colors`}
                   aria-label="Open avatar settings"
                   title="Open avatar settings"
                 >
-                  <Settings className="w-5 h-5" />
+                  <Settings className="w-6 h-6" />
                 </button>
               </div>
             )}
         </div>
-        <div className="flex flex-col items-center w-full gap-2 z-10">
+        {/* Above the hide / inbox / settings strip (`z-20`). User Settings
+            opens upward over that strip; its own `z-50` cannot escape this
+            flex item's stacking context, so this layer has to sit higher or
+            a press on the menu hits those controls instead. */}
+        <div
+          ref={galleryFooterRef}
+          className="relative z-30 flex flex-col items-center w-full gap-2.5 shrink-0 pt-1 pb-1"
+        >
           {/* <button
               onClick={handleCustomizeAvatar}
               className="bg-black/50 rounded-lg border border-white/10 py-2 px-4 text-neutral-200 hover:bg-white/10 transition-all duration-300 flex items-center gap-2"
@@ -1037,7 +1232,7 @@ const AvatarSelectionComponent = ({}) => {
               )}
             </button> */}
           <div
-            className="flex gap-2 justify-center items-center"
+            className="flex gap-2.5 justify-center items-center"
             data-avatar-picker
           >
             <button
@@ -1052,7 +1247,7 @@ const AvatarSelectionComponent = ({}) => {
               aria-label="Jump left 5 positions"
             >
               <svg
-                className="w-6 h-6"
+                className="w-7 h-7"
                 fill="none"
                 stroke="currentColor"
                 viewBox="0 0 24 24"
@@ -1067,8 +1262,8 @@ const AvatarSelectionComponent = ({}) => {
             </button>
 
             <div
-              className="flex gap-2 items-center justify-center"
-              style={{ minWidth: '200px', minHeight: '40px' }}
+              className="flex gap-2.5 items-center justify-center"
+              style={{ minWidth: '220px', minHeight: '44px' }}
             >
               {getVisibleDots().map((card) => {
                 const isCreateAvatar = card.type === 'create';
@@ -1091,15 +1286,15 @@ const AvatarSelectionComponent = ({}) => {
                     }`}
                     style={{
                       transform: `scale(${scale})`,
-                      width: '32px',
-                      height: '32px',
+                      width: '36px',
+                      height: '36px',
                     }}
                     aria-label={`Open ${card.text}`}
                     aria-current={isSelected ? 'true' : undefined}
                   >
                     {isCreateAvatar ? (
                       <span className="w-full h-full flex items-center justify-center bg-black/50 rounded-full">
-                        <CirclePlus className="w-5 h-5 text-neutral-200" />
+                        <CirclePlus className="w-6 h-6 text-neutral-200" />
                       </span>
                     ) : card.image && isValidImageUrl(card.image) ? (
                       <ProfileBubbleImage
@@ -1110,7 +1305,7 @@ const AvatarSelectionComponent = ({}) => {
                       />
                     ) : (
                       <span className="w-full h-full flex items-center justify-center bg-black/50 rounded-full">
-                        <User className="w-4 h-4 text-white/50" />
+                        <User className="w-5 h-5 text-white/50" />
                       </span>
                     )}
                   </button>
@@ -1130,7 +1325,7 @@ const AvatarSelectionComponent = ({}) => {
               aria-label="Jump right 5 positions"
             >
               <svg
-                className="w-6 h-6"
+                className="w-7 h-7"
                 fill="none"
                 stroke="currentColor"
                 viewBox="0 0 24 24"
@@ -1144,43 +1339,36 @@ const AvatarSelectionComponent = ({}) => {
               </svg>
             </button>
           </div>
-          <div className="mb-8 w-full flex flex-col items-center gap-2">
-            {/* The gallery is already on screen here, so the leading entry goes
-                to the settings of the avatar that depicts the user instead. */}
-            <UserSettingsMenu leadingAction="personalAvatar" />
+          {import.meta.env.VITE_TESTING === 'true' && (
             <div className="relative w-48">
-              {/* // Add this button temporarily to your AvatarSettings component */}
-              {import.meta.env.VITE_TESTING === 'true' && (
-                <button
-                  onClick={() => {
-                    console.log('test toast button clicked');
-                    toast.dismiss();
+              <button
+                onClick={() => {
+                  console.log('test toast button clicked');
+                  toast.dismiss();
 
-                    toast.promise(
-                      new Promise((resolve, reject) => {
-                        setTimeout(() => {
-                          // Change to reject() to test error path
-                          // resolve('fake upload result');
-                          reject();
-                          // reject(new Error("fake upload error"));
-                        }, 2400);
-                      }),
-                      {
-                        loading: 'Uploading document...',
-                        success: 'Document uploaded',
-                        error: 'Upload failed',
-                      }
-                    );
-                    toast.success('success works');
-                    toast.error('error works');
-                  }}
-                  className="px-4 py-2 bg-neutral-200 text-neutral-900 rounded"
-                >
-                  Test Promise Toast
-                </button>
-              )}
+                  toast.promise(
+                    new Promise((resolve, reject) => {
+                      setTimeout(() => {
+                        reject();
+                      }, 2400);
+                    }),
+                    {
+                      loading: 'Uploading document...',
+                      success: 'Document uploaded',
+                      error: 'Upload failed',
+                    }
+                  );
+                  toast.success('success works');
+                  toast.error('error works');
+                }}
+                className="px-4 py-2 bg-neutral-200 text-neutral-900 rounded"
+              >
+                Test Promise Toast
+              </button>
             </div>
-          </div>
+          )}
+        </div>
+        </div>
         </div>
       </div>
       {showCreateModal && (

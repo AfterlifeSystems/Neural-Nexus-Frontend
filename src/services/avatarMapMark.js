@@ -72,3 +72,28 @@ export function avatarMatchesSearch(avatar, query, pin = null) {
     .toLowerCase();
   return haystack.includes(needle);
 }
+
+/**
+ * How closely a pinned avatar matches a search string. Lower is a better
+ * match: the avatar named "Bank of America" outranks Evan, who merely stands
+ * at a place with that name.
+ *
+ * @param {Object|null|undefined} avatar
+ * @param {string} query
+ * @param {Object|null} [pin]
+ * @returns {number}
+ */
+export function avatarSearchRank(avatar, query, pin = null) {
+  const needle = String(query ?? '').trim().toLowerCase();
+  if (!needle) return 0;
+  const mark = mapMarkOf(avatar);
+  const name = String(mark.label ?? '').toLowerCase();
+  const initials = String(mark.initials ?? '').toLowerCase();
+  const place = String(pin?.location_name ?? '').toLowerCase();
+  if (name === needle) return 0;
+  if (name.startsWith(needle)) return 1;
+  if (name.includes(needle)) return 2;
+  if (initials === needle || initials.includes(needle)) return 3;
+  if (place.includes(needle)) return 4;
+  return 5;
+}
