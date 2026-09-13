@@ -126,6 +126,7 @@ import {
   connectionsOf,
   isConnectionCardOnly,
 } from '../services/connectionCards';
+import LearnedFactsBadge from './LearnedFactsBadge';
 import {
   artifactNamesRenderedByCharts,
   chartHasRenderableData,
@@ -1866,7 +1867,7 @@ const LiveVoiceMode = ({
                   }
                 }}
                 onPresented={handleStagePresented}
-                mediaClassName="w-full h-full object-contain"
+                mediaClassName="w-full h-full object-cover"
                 className="w-full h-full bg-transparent"
               />
             ) : (
@@ -1874,6 +1875,10 @@ const LiveVoiceMode = ({
                 <User className="w-[40%] h-[40%] max-w-64 max-h-64 text-white/20" />
               </div>
             )}
+            <div
+              className="voice-portrait-frame absolute inset-0 z-[9] rounded-2xl pointer-events-none"
+              aria-hidden
+            />
           </div>
         </div>
       </div>
@@ -2264,6 +2269,7 @@ const LiveVoiceMode = ({
                   }`}
                   style={isHuman ? userSpeakingBubble.style : undefined}
                 >
+                  {isFromAvatar && <LearnedFactsBadge message={message} />}
                   {isLoading ? (
                     <div className="flex items-center justify-between gap-3">
                       <TypingDots />

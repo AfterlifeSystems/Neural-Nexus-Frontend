@@ -1,6 +1,7 @@
 /**
- * Where the voice-stage portrait actually paints, and the speak glow that
- * frames that video — the same aspect ratio as the still or clip, not a circle.
+ * Where the voice-stage portrait actually paints, and the speak glow and
+ * standing frame that sit on that video — the same aspect ratio as the still
+ * or clip, not a circle.
  */
 
 /**

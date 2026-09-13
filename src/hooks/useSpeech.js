@@ -1,7 +1,10 @@
 // src/hooks/useSpeech.js
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { toast } from 'react-hot-toast';
-import { showRequestFailureToast } from '../components/requestFailureToast';
+import {
+  isProviderCreditExhausted,
+  showRequestFailureToast,
+} from '../components/requestFailureToast';
 import { showVoiceNotReadyToast } from '../components/showVoiceNotReadyToast';
 import { speakText } from '../services/avatarService';
 import { rememberAvatarSpokenLine } from '../services/selfEchoGuard';
@@ -265,6 +268,8 @@ export default function useSpeech({
             'Voice speaking is unavailable on this server right now.',
             { id: 'avatar-speak-unavailable' }
           );
+        } else if (isProviderCreditExhausted(speakError)) {
+          showRequestFailureToast(speakError);
         } else {
           console.error('Speech failed:', speakError);
           // Say why when the server said why. "Could not speak" on its own

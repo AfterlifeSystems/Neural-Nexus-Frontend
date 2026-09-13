@@ -17,7 +17,9 @@ import {
   Mail,
   Pencil,
   RefreshCw,
+  Search,
   Send,
+  ShieldAlert,
   X,
 } from 'lucide-react';
 import {
@@ -28,6 +30,13 @@ import {
 } from '../../services/avatarService';
 import { refreshInboxCount, requestInboxNotifications } from '../../hooks/useInboxCount';
 import { showRequestFailureToast } from '../requestFailureToast';
+import {
+  INBOX_SOURCE_FILTERS,
+  inboxListRequestOptions,
+  isBanDecisionItem,
+  moderationDecision,
+  moderationEvidenceLines,
+} from './inboxQuery';
 
 const DECISION_LABELS = {
   respond: 'Proposed reply',
@@ -45,6 +54,8 @@ const ACTION_LABELS = {
   notify_owner: 'Just tell me',
   create_calendar_event: 'Put it on my calendar',
   moderate: 'Moderate the sender',
+  revoke_ban: 'Revoke',
+  accept_ban: 'Accept',
 };
 
 const STATE_LABELS = {
@@ -79,6 +90,15 @@ const InboxItemCard = ({ item, onDecide, onOpenReport, isBusy }) => {
   // A report the avatar wrote (a scheduled analysis, an audit) and brought
   // here: the item opens the report, and "Got it" is the whole decision.
   const isReport = item.source_kind === 'report';
+  const isModeration = item.source_kind === 'moderation';
+  const isAppeal = item.source_kind === 'appeal';
+  const isBanCard = isBanDecisionItem(item);
+  const evidenceLines = isBanCard ? moderationEvidenceLines(item) : [];
+  const bannedAccount =
+    item.confidence_detail?.banned_email ||
+    item.sender ||
+    item.confidence_detail?.banned_user_id ||
+    '';
   const confidence = item.confidence != null ? Math.round(item.confidence * 100) : null;
 
   return (
@@ -101,7 +121,13 @@ const InboxItemCard = ({ item, onDecide, onOpenReport, isBusy }) => {
                 : 'bg-amber-400/15 border-amber-400/30 text-amber-200'
             }`}
           >
-            {DECISION_LABELS[item.decision] ?? item.decision ?? 'Triaged'}
+            {isAppeal
+              ? 'Appeal'
+              : isModeration
+                ? item.confidence_detail?.enforced === false
+                  ? 'Not enforced'
+                  : 'Ban verdict'
+                : DECISION_LABELS[item.decision] ?? item.decision ?? 'Triaged'}
           </span>
           {!isOpen && (
             <span className="px-2.5 py-1 rounded-full text-xs bg-white/10 border border-white/10 text-white/60">
@@ -111,14 +137,35 @@ const InboxItemCard = ({ item, onDecide, onOpenReport, isBusy }) => {
         </div>
       </header>
 
+      {isBanCard && bannedAccount && (
+        <p className="text-neutral-200 text-sm inline-flex items-center gap-1.5">
+          <ShieldAlert className="w-4 h-4 text-amber-300" aria-hidden="true" />
+          {bannedAccount}
+        </p>
+      )}
       {item.reason && <p className="text-white/70 text-sm">{item.reason}</p>}
-      {item.needs_owner_action && (
+      {item.needs_owner_action && !isBanCard && (
         <p className="text-amber-200 text-xs inline-flex items-center gap-1">
           <BellRing className="w-3.5 h-3.5" aria-hidden="true" />
           Something here needs you in the real world.
         </p>
       )}
-      {item.snippet && (
+      {isBanCard && evidenceLines.length > 0 && (
+        <div className="space-y-1">
+          <p className="text-white/50 text-xs">
+            {isAppeal ? 'Original ban quotes' : 'Quoted lines'}
+          </p>
+          {evidenceLines.map((line) => (
+            <blockquote
+              key={line}
+              className="text-neutral-300 text-sm whitespace-pre-wrap border-l-2 border-amber-400/40 pl-3"
+            >
+              {line}
+            </blockquote>
+          ))}
+        </div>
+      )}
+      {(!isModeration || isAppeal) && item.snippet && (
         <blockquote className="text-neutral-300 text-sm whitespace-pre-wrap border-l-2 border-white/10 pl-3 max-h-40 overflow-y-auto">
           {item.snippet}
         </blockquote>
@@ -161,7 +208,30 @@ const InboxItemCard = ({ item, onDecide, onOpenReport, isBusy }) => {
         </div>
       )}
 
-      {isOpen && (
+      {isOpen && isBanCard && (
+        <div className="flex flex-wrap items-center gap-2 pt-1">
+          <button
+            type="button"
+            disabled={isBusy}
+            onClick={() => onDecide(item, moderationDecision('revoke_ban'))}
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-neutral-200 hover:bg-neutral-100 text-neutral-900 text-sm font-medium disabled:opacity-50"
+          >
+            <Check className="w-4 h-4" aria-hidden="true" />
+            Revoke
+          </button>
+          <button
+            type="button"
+            disabled={isBusy}
+            onClick={() => onDecide(item, moderationDecision('accept_ban'))}
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white/5 hover:bg-white/10 border border-white/10 text-neutral-200 text-sm disabled:opacity-50"
+          >
+            Accept
+          </button>
+          {isBusy && <Loader2 className="w-4 h-4 animate-spin text-amber-300" aria-hidden="true" />}
+        </div>
+      )}
+
+      {isOpen && !isBanCard && (
         <div className="flex flex-wrap items-center gap-2 pt-1">
           {!isReport && availableActions.length > 1 && (
             <label className="inline-flex items-center gap-1.5 text-white/60 text-xs">
@@ -351,6 +421,9 @@ const InboxPanel = ({ embedded = false }) => {
   };
   const [pendingCount, setPendingCount] = useState(0);
   const [view, setView] = useState('open');
+  const [searchDraft, setSearchDraft] = useState('');
+  const [searchQuery, setSearchQuery] = useState('');
+  const [sourceKind, setSourceKind] = useState('');
   const [isLoading, setIsLoading] = useState(true);
   const [isPolling, setIsPolling] = useState(false);
   const [busyItemId, setBusyItemId] = useState(null);
@@ -381,9 +454,21 @@ const InboxPanel = ({ embedded = false }) => {
     };
   }, [embedded, navigate, userAvatars]);
 
+  useEffect(() => {
+    const handle = setTimeout(() => setSearchQuery(searchDraft.trim()), 300);
+    return () => clearTimeout(handle);
+  }, [searchDraft]);
+
   const refresh = useCallback(async () => {
     try {
-      const response = await listInboxItems({ state: view, limit: 100 });
+      const response = await listInboxItems(
+        inboxListRequestOptions({
+          state: view,
+          query: searchQuery,
+          sourceKind,
+          limit: 100,
+        })
+      );
       setItems(response?.items ?? []);
       setPendingCount(response?.pending_count ?? 0);
     } catch (loadError) {
@@ -391,7 +476,7 @@ const InboxPanel = ({ embedded = false }) => {
     } finally {
       setIsLoading(false);
     }
-  }, [view]);
+  }, [view, searchQuery, sourceKind]);
 
   useEffect(() => {
     if (!embedded) return;
@@ -501,6 +586,39 @@ const InboxPanel = ({ embedded = false }) => {
             </button>
           </div>
         )}
+
+        <div className="flex flex-col gap-2">
+          <label className="relative block">
+            <span className="sr-only">Search the inbox</span>
+            <Search
+              className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-white/40"
+              aria-hidden="true"
+            />
+            <input
+              type="search"
+              value={searchDraft}
+              onChange={(event) => setSearchDraft(event.target.value)}
+              placeholder="Search subject, sender, or reason…"
+              className="w-full pl-9 pr-3 py-2 bg-black/50 border border-white/10 rounded-xl text-neutral-200 text-sm placeholder-white/40 focus:outline-none focus:ring-2 focus:ring-amber-400/50"
+            />
+          </label>
+          <div className="flex flex-wrap gap-1.5">
+            {INBOX_SOURCE_FILTERS.map((filter) => (
+              <button
+                key={filter.id}
+                type="button"
+                onClick={() => setSourceKind(filter.sourceKind)}
+                className={`px-3 py-1 rounded-full text-xs border transition-colors ${
+                  sourceKind === filter.sourceKind
+                    ? 'bg-white/15 border-white/20 text-neutral-100'
+                    : 'bg-white/5 border-white/10 text-white/60 hover:text-neutral-100'
+                }`}
+              >
+                {filter.label}
+              </button>
+            ))}
+          </div>
+        </div>
 
         <p className="text-white/50 text-sm inline-flex items-center gap-2">
           <Mail className="w-4 h-4" aria-hidden="true" />
