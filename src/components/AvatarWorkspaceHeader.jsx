@@ -1,21 +1,45 @@
 // src/components/AvatarWorkspaceHeader.jsx
 //
-// The tab strip on an avatar's screen: Chat, Inbox (personal avatar), Settings,
-// and Avatar Selection. Chat, settings and inbox already share this row;
-// voice mode uses the same strip so those places stay one click away while
-// talking, instead of a name-and-close bar that hid them.
+// The tab strip on an avatar's screen: Chat, Inbox (personal avatar),
+// Avatar Settings, and Avatar Selection. Every tab stays on screen: the
+// labels share the row and wrap rather than sliding sideways.
 
 import React from 'react';
 import { User } from 'lucide-react';
 import { isValidImageUrl } from './utils';
 import ProfileBubbleImage from './ProfileBubbleImage';
+import { workspaceHeaderPortraitTab } from './personalAvatarWorkspace';
 
 const tabButtonClass = (isActive) =>
-  `voice-workspace-tab px-3 sm:px-4 py-2 whitespace-nowrap text-sm sm:text-base text-neutral-200 ${
+  `voice-workspace-tab relative flex min-w-0 flex-1 flex-col items-center justify-center gap-0.5 px-1 py-1.5 text-center text-[11px] leading-tight sm:flex-row sm:gap-1.5 sm:px-2 sm:py-2 sm:text-sm ${
     isActive
-      ? 'voice-workspace-tab-active border-b-2 border-amber-400 font-semibold'
-      : ''
+      ? 'voice-workspace-tab-active border-b-2 border-amber-400 font-semibold text-neutral-200'
+      : 'border-b-2 border-transparent text-white/60 hover:text-neutral-200'
   }`;
+
+/**
+ * @param {Object} parameters
+ * @param {string} parameters.tab
+ * @param {string} parameters.activeTab
+ * @param {Function} parameters.onTabChange
+ * @param {string} [parameters.ariaLabel]
+ * @param {React.ReactNode} parameters.children
+ */
+const WorkspaceTab = ({ tab, activeTab, onTabChange, ariaLabel, children }) => {
+  const isActive = activeTab === tab;
+  return (
+    <button
+      type="button"
+      data-workspace-tab={tab}
+      aria-current={isActive ? 'page' : undefined}
+      aria-label={ariaLabel}
+      className={tabButtonClass(isActive)}
+      onClick={() => onTabChange(tab)}
+    >
+      {children}
+    </button>
+  );
+};
 
 /**
  * @param {Object} parameters
@@ -46,72 +70,87 @@ const AvatarWorkspaceHeader = ({
 }) => {
   return (
     <div
-      className={`flex items-center shrink-0 border-b border-white/10 gap-1 sm:gap-4 ${className}`}
+      className={`flex items-center shrink-0 border-b border-white/10 gap-1 sm:gap-2 ${className}`}
     >
-      <div className="flex items-center min-w-0 flex-1 gap-1 sm:gap-4 justify-safe-center overflow-x-auto overflow-y-hidden scrollbar-none">
-        <button
-          type="button"
-          className={`${tabButtonClass(activeTab === 'chat')} inline-flex items-center gap-2`}
-          onClick={() => onTabChange('chat')}
+      <button
+        type="button"
+        data-workspace-portrait
+        title={avatarName ? `Open chat with ${avatarName}` : 'Open chat'}
+        aria-label={avatarName ? `Open chat with ${avatarName}` : 'Open chat'}
+        className="profile-bubble-disc relative w-8 h-8 sm:w-9 sm:h-9 shrink-0 rounded-full bg-black/50 border border-white/10 overflow-hidden hover:bg-white/10 focus:outline-none focus:ring-2 focus:ring-white/20"
+        onClick={() => onTabChange(workspaceHeaderPortraitTab())}
+      >
+        {headerFace && isValidImageUrl(headerFace) ? (
+          <ProfileBubbleImage
+            src={headerFace}
+            alt=""
+            assistantId={assistantId}
+            className="h-full w-full"
+            onError={onPortraitError}
+          />
+        ) : (
+          <User className="absolute inset-0 m-auto w-4 h-4 sm:w-5 sm:h-5 text-white/40" />
+        )}
+      </button>
+      <nav
+        aria-label="Avatar workspace"
+        className="flex min-w-0 flex-1 items-stretch"
+      >
+        <WorkspaceTab
+          tab="chat"
+          activeTab={activeTab}
+          onTabChange={onTabChange}
+          ariaLabel={avatarName ? `Chat with ${avatarName}` : 'Chat'}
         >
-          <span
-            aria-hidden
-            className="relative w-9 h-9 shrink-0 rounded-full bg-black/50 border border-white/10 overflow-hidden"
-          >
-            {headerFace && isValidImageUrl(headerFace) ? (
-              <ProfileBubbleImage
-                src={headerFace}
-                alt=""
-                assistantId={assistantId}
-                className="h-full w-full"
-                onError={onPortraitError}
-              />
-            ) : (
-              <User className="absolute inset-0 m-auto w-5 h-5 text-white/40" />
-            )}
-          </span>
-          <span>
-            <span className="hidden sm:inline">
-              {avatarName ? `A.I. ${avatarName} ` : 'A.I. '}
-            </span>
-            Chat
-          </span>
-        </button>
+          Chat
+        </WorkspaceTab>
         {isPersonalAvatar && (
-          <button
-            type="button"
-            className={`${tabButtonClass(activeTab === 'inbox')} inline-flex items-center gap-2`}
-            onClick={() => onTabChange('inbox')}
+          <WorkspaceTab
+            tab="inbox"
+            activeTab={activeTab}
+            onTabChange={onTabChange}
+            ariaLabel={
+              inboxCount > 0 ? `Inbox, ${inboxCount} items waiting` : 'Inbox'
+            }
           >
             Inbox
             {inboxCount > 0 && (
               <span
-                aria-label={`${inboxCount} items waiting`}
-                className="min-w-[1.25rem] h-5 px-1.5 rounded-full bg-amber-400 text-neutral-900 text-xs font-semibold flex items-center justify-center"
+                aria-hidden
+                className="min-w-4 h-4 px-1 rounded-full bg-amber-400 text-neutral-900 text-[10px] font-semibold flex items-center justify-center sm:min-w-[1.25rem] sm:h-5 sm:px-1.5 sm:text-xs"
               >
                 {inboxCount > 99 ? '99+' : inboxCount}
               </span>
             )}
-          </button>
+          </WorkspaceTab>
         )}
         {canOpenAvatarSettings && (
-          <button
-            type="button"
-            className={tabButtonClass(activeTab === 'avatar-settings')}
-            onClick={() => onTabChange('avatar-settings')}
+          <WorkspaceTab
+            tab="avatar-settings"
+            activeTab={activeTab}
+            onTabChange={onTabChange}
           >
-            <span className="hidden sm:inline">Avatar </span>Settings
-          </button>
+            <span>
+              Avatar
+              <br className="sm:hidden" />
+              <span className="hidden sm:inline"> </span>
+              Settings
+            </span>
+          </WorkspaceTab>
         )}
-        <button
-          type="button"
-          className={tabButtonClass(activeTab === 'avatar-selection')}
-          onClick={() => onTabChange('avatar-selection')}
+        <WorkspaceTab
+          tab="avatar-selection"
+          activeTab={activeTab}
+          onTabChange={onTabChange}
         >
-          <span className="hidden sm:inline">Avatar Selection</span>
-          <span className="sm:hidden">Avatars</span>
-        </button>
-      </div>
+          <span>
+            Avatar
+            <br className="sm:hidden" />
+            <span className="hidden sm:inline"> </span>
+            Selection
+          </span>
+        </WorkspaceTab>
+      </nav>
       {trailing}
     </div>
   );

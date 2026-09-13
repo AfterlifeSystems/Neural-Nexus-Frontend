@@ -22,6 +22,33 @@ export function personalAvatarWorkspacePath(assistantId, tab = 'chat') {
 }
 
 /**
+ * Tab the workspace header portrait opens. Always Chat, from Inbox,
+ * Avatar Settings, or Avatar Selection.
+ *
+ * @returns {'chat'}
+ */
+export function workspaceHeaderPortraitTab() {
+  return 'chat';
+}
+
+/**
+ * The URL for a workspace tab. Chat, settings and inbox stay on `/chat/:id`.
+ * Avatar Selection is its own screen.
+ *
+ * @param {string|null|undefined} assistantId
+ * @param {'chat'|'settings'|'inbox'|'avatar-settings'|'avatar-selection'} [tab]
+ * @returns {string|null}
+ */
+export function avatarWorkspacePath(assistantId, tab = 'chat') {
+  if (tab === 'avatar-selection') return '/avatars';
+  if (tab === 'avatar-settings' || tab === 'settings') {
+    return personalAvatarWorkspacePath(assistantId, 'settings');
+  }
+  if (tab === 'inbox') return personalAvatarWorkspacePath(assistantId, 'inbox');
+  return personalAvatarWorkspacePath(assistantId, 'chat');
+}
+
+/**
  * Which workspace tab the URL is asking for.
  *
  * A missing `tab` is Chat. That is what the sidebar portrait navigates to,

@@ -291,6 +291,50 @@ function ConversationRow({
   );
 }
 
+/**
+ * Draw a label on one line at a size that still fits the row. Long emails
+ * wrap on the mobile sidebar when the type stays at one size, and truncating
+ * them puts an ellipsis through the address; shrinking the type keeps the
+ * full address beside the portrait.
+ */
+const SingleLineFitText = ({ children, className = '' }) => {
+  const containerRef = React.useRef(null);
+  const textRef = React.useRef(null);
+
+  React.useLayoutEffect(() => {
+    const container = containerRef.current;
+    const text = textRef.current;
+    if (!container || !text) {
+      return undefined;
+    }
+
+    const fitTextToContainer = () => {
+      text.style.transform = 'scale(1)';
+      const containerWidth = container.clientWidth;
+      const textWidth = text.scrollWidth;
+      const scale =
+        textWidth > 0 ? Math.min(1, containerWidth / textWidth) : 1;
+      text.style.transform = `scale(${scale})`;
+    };
+
+    fitTextToContainer();
+    const resizeObserver = new ResizeObserver(fitTextToContainer);
+    resizeObserver.observe(container);
+    return () => resizeObserver.disconnect();
+  }, [children]);
+
+  return (
+    <span ref={containerRef} className={`block min-w-0 overflow-hidden ${className}`}>
+      <span
+        ref={textRef}
+        className="block w-max origin-left whitespace-nowrap text-xs font-semibold leading-none text-neutral-200"
+      >
+        {children}
+      </span>
+    </span>
+  );
+};
+
 const ConversationSidebar = ({
   isOpen,
   onOpen,
@@ -451,14 +495,20 @@ const ConversationSidebar = ({
       >
         <div className="flex flex-col h-full min-h-0 p-4 gap-3">
           {/* Who is signed in. The portrait is the personal avatar's, the same
-              face that appears beside this person's messages. */}
+              face that appears beside this person's messages. The email sits
+              beside it so the expanded panel names the session; it stays on
+              one line and shrinks to keep the full address in view. */}
           <div className="shrink-0 flex justify-between items-center gap-2">
             <button
               type="button"
               onClick={() => openPersonalAvatarChat('chat')}
-              title="Open your avatar's chat"
+              title={
+                user?.email
+                  ? `Open your avatar's chat (${user.email})`
+                  : "Open your avatar's chat"
+              }
               aria-label="Open your avatar's chat"
-              className="flex items-center gap-2 min-w-0 -ml-1 pl-1 pr-2 py-1 rounded-lg text-left hover:bg-white/10 transition-colors focus:outline-none focus:ring-2 focus:ring-white/20"
+              className="flex items-center gap-2 min-w-0 flex-1 -ml-1 pl-1 pr-2 py-1 rounded-lg text-left hover:bg-white/10 transition-colors focus:outline-none focus:ring-2 focus:ring-white/20"
             >
               <div className="relative w-9 h-9 shrink-0 rounded-full bg-black/50 border border-white/10 overflow-hidden">
                 {userPortrait && isValidImageUrl(userPortrait) ? (
@@ -472,9 +522,9 @@ const ConversationSidebar = ({
                   <User className="absolute inset-0 m-auto w-4 h-4 text-white/40" />
                 )}
               </div>
-              <span className="text-neutral-200 font-semibold truncate">
+              <SingleLineFitText className="flex-1">
                 {user?.email ?? 'Signed in'}
-              </span>
+              </SingleLineFitText>
             </button>
             <button
               onClick={onClose}

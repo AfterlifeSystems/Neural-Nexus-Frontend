@@ -32,7 +32,7 @@ const CreateAvatarComponent = ({ onCardClick, active = false }) => {
     <PixelCard
       variant="gold"
       active={active}
-      className="w-full h-full cursor-pointer"
+      className="@container w-full h-full cursor-pointer"
       role="button"
       aria-label="Create Avatar"
       onPointerDown={(event) => {
@@ -46,16 +46,20 @@ const CreateAvatarComponent = ({ onCardClick, active = false }) => {
         }
       }}
     >
-      {/* The circle sits at the exact centre of the card — where the pixel
-          shimmer radiates from — and the words hang beneath it, so the two are
-          placed independently rather than centred together as one block. */}
+      {/* The plus sits slightly above centre so the title still fits when
+          the gallery width-caps the card on a phone. Sizes are fractions
+          of the card, not fixed rem, for the same reason. */}
       <div className="relative w-full h-full">
-        <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 w-28 h-28 rounded-full flex items-center justify-center border border-white/10 bg-black/60">
-          <CirclePlus className="w-14 h-14 text-neutral-200" strokeWidth={1.25} />
+        <div className="absolute left-1/2 top-[46%] -translate-x-1/2 -translate-y-1/2 w-[34%] aspect-square rounded-full flex items-center justify-center border border-white/10 bg-black/60">
+          <CirclePlus className="w-1/2 h-1/2 text-neutral-200" strokeWidth={1.25} />
         </div>
-        <div className="absolute inset-x-0 top-[calc(50%+4.5rem)] px-6 text-center">
-          <h3 className="text-2xl font-bold text-neutral-200 mb-1">Create Avatar</h3>
-          <p className="text-white/60 text-sm">Click to create a new avatar</p>
+        <div className="absolute inset-x-0 top-[68%] px-[6%] text-center">
+          <h3 className="text-[length:clamp(0.9rem,8cqi,1.5rem)] font-bold text-neutral-200 mb-0.5 leading-tight">
+            Create Avatar
+          </h3>
+          <p className="text-white/60 text-[length:clamp(0.65rem,4.6cqi,0.875rem)] leading-snug">
+            Click to create a new avatar
+          </p>
         </div>
       </div>
     </PixelCard>

@@ -637,8 +637,9 @@ export function globeClusterDegreesForAltitude(altitude) {
   }
   if (altitude > 0.4) return Math.max(grouping, 0.25);
   if (altitude > 0.15) return Math.max(grouping, 0.08);
-  if (altitude > 0.05) return Math.max(grouping, 0.02);
-  return Math.max(grouping, 0.008);
+  if (altitude > 0.05) return Math.max(grouping, 0.015);
+  if (altitude > 0.02) return Math.max(grouping, GLOBE_VISUAL_GROUPING_DEGREES);
+  return Math.max(grouping, STREET_LEVEL_GROUPING_DEGREES);
 }
 
 /**
@@ -776,6 +777,31 @@ export function groupIdsForFocus(place, previous = null) {
 }
 
 /**
+ * Who the map card should name after a pick.
+ *
+ * A cluster has many avatars; naming the first one (Evan when Bank of America
+ * stands in the same doorway) is a lie. Only a single-avatar pick, or an id
+ * the person actually chose, becomes the focused assistant.
+ *
+ * @param {Object} place
+ * @param {string|null} [place.assistantId]
+ * @param {Array<Object>} [place.avatars]
+ * @param {boolean} [place.preserveAssistant]
+ * @param {Object|null} [previous]
+ * @param {string|null} [previous.assistantId]
+ * @returns {string|null}
+ */
+export function focusAssistantIdOf(place, previous = null) {
+  const chosen = place?.assistantId;
+  if (chosen) return chosen;
+  if (place?.avatars?.length === 1) {
+    return avatarIdOf(place.avatars[0]) ?? mapKeyOf(place.avatars[0]);
+  }
+  if (place?.preserveAssistant) return previous?.assistantId ?? null;
+  return null;
+}
+
+/**
  * Resolve stored group ids back to avatar records, in the same order.
  *
  * @param {Array<Object>|null|undefined} avatars
@@ -891,8 +917,7 @@ function mergeGroupsWithinDegrees(groups, degrees) {
 export function globeMarkerGroups(avatars, groupingDegrees) {
   const requested = Number(groupingDegrees);
   const cell = Number.isFinite(requested) && requested > 0 ? requested : 0.8;
-  const visualCell = Math.max(cell, GLOBE_VISUAL_GROUPING_DEGREES);
-  return mergeGroupsWithinDegrees(clusterPins(avatars, visualCell), visualCell);
+  return mergeGroupsWithinDegrees(clusterPins(avatars, cell), cell);
 }
 
 /**

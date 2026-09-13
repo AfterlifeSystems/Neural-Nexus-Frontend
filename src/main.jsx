@@ -1,5 +1,5 @@
 // main.jsx
-import { StrictMode } from 'react';
+import { StrictMode, Suspense, lazy } from 'react';
 import { createRoot } from 'react-dom/client';
 import './index.css';
 import { AuthProvider } from './context/AuthContext';
@@ -24,7 +24,8 @@ import ChatArea from './components/ChatArea';
 import AccountSettings from './components/AccountSettings';
 import InboxPanel from './components/inbox/InboxPanel';
 import BillingManagement from './components/BillingManagement';
-import WorldMapScreen from './components/geo/WorldMapScreen';
+import LoadingSpinner from './components/LoadingSpinner';
+import { loadDeployedModule } from './services/loadDeployedModule';
 import SharedAvatarLayout from './components/SharedAvatarLayout';
 import SharedAvatarChat from './components/SharedAvatarChat';
 import SharedThreadChat from './components/SharedThreadChat';
@@ -32,6 +33,10 @@ import VantaBackground from './components/VantaBackground.jsx';
 import QrBadge from './components/QrBadge';
 
 import { toast, Toaster, ToastBar } from 'react-hot-toast';
+
+const WorldMapScreen = lazy(() =>
+  loadDeployedModule(() => import('./components/geo/WorldMapScreen'))
+);
 
 createRoot(document.getElementById('root')).render(
   <>
@@ -157,7 +162,18 @@ createRoot(document.getElementById('root')).render(
               />
               <Route path="/inbox" element={<InboxPanel />} />
               <Route path="/billing" element={<BillingManagement />} />
-              <Route path="/map" element={<WorldMapScreen />} />
+              <Route
+                path="/map"
+                element={
+                  <Suspense
+                    fallback={
+                      <LoadingSpinner fullscreen label="Loading the world…" />
+                    }
+                  >
+                    <WorldMapScreen />
+                  </Suspense>
+                }
+              />
             </Route>
             </Routes>
           </EvanAssistProvider>

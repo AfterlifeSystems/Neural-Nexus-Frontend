@@ -1495,7 +1495,7 @@ const AvatarSettings = ({ avatarId, onPortraitChanged }) => {
         <h3 className="text-lg font-semibold text-neutral-200 mb-4">
           Profile Information
         </h3>
-        <div className="flex flex-col sm:flex-row gap-4 sm:gap-6 items-center sm:items-start">
+        <div className="flex flex-col md:flex-row gap-4 md:gap-6 items-center md:items-start">
           {/* Icon Upload */}
           <div className="flex flex-col gap-3">
             <Dropzone
@@ -1626,9 +1626,43 @@ const AvatarSettings = ({ avatarId, onPortraitChanged }) => {
             </div>
             {/* Description Field */}
             <div>
-              <label className="block text-sm font-medium text-white/70 mb-2">
-                Description
-              </label>
+              <div className="mb-2 flex flex-wrap items-center justify-between gap-x-3 gap-y-1">
+                <label className="text-sm font-medium text-white/70">
+                  Description
+                </label>
+                {!editingDesc && (
+                  <div className="flex items-center gap-3 shrink-0">
+                    <button
+                      type="button"
+                      onClick={
+                        isGeneratingDescription
+                          ? cancelDescriptionGeneration
+                          : generateDescription
+                      }
+                      className="text-amber-300 hover:text-amber-200 transition-colors duration-300 inline-flex items-center gap-1 text-sm"
+                    >
+                      {isGeneratingDescription ? (
+                        <>
+                          <Loader2 className="w-4 h-4 animate-spin" />
+                          Cancel generation
+                        </>
+                      ) : (
+                        <>
+                          <Sparkles className="w-4 h-4" />
+                          Generate Description
+                        </>
+                      )}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setEditingDesc(true)}
+                      className="text-amber-300 hover:text-amber-200 transition-colors duration-300"
+                    >
+                      Edit
+                    </button>
+                  </div>
+                )}
+              </div>
               {editingDesc ? (
                 <div className="space-y-2">
                   <textarea
@@ -1707,39 +1741,10 @@ const AvatarSettings = ({ avatarId, onPortraitChanged }) => {
                   </div>
                 </div>
               ) : (
-                <div className="flex flex-col sm:flex-row sm:justify-between sm:items-start gap-2 px-3 py-2 bg-black/60 border border-white/10 rounded-lg min-h-[80px] min-w-0">
-                  <p className="text-white/80 min-w-0 flex-1 break-words">
+                <div className="px-3 py-2 bg-black/60 border border-white/10 rounded-lg min-h-[80px] min-w-0">
+                  <p className="text-white/80 w-full break-words">
                     {activeAvatar?.description}
                   </p>
-                  <div className="flex items-center gap-3 shrink-0">
-                    <button
-                      type="button"
-                      onClick={
-                        isGeneratingDescription
-                          ? cancelDescriptionGeneration
-                          : generateDescription
-                      }
-                      className="text-amber-300 hover:text-amber-200 transition-colors duration-300 inline-flex items-center gap-1 text-sm"
-                    >
-                      {isGeneratingDescription ? (
-                        <>
-                          <Loader2 className="w-4 h-4 animate-spin" />
-                          Cancel generation
-                        </>
-                      ) : (
-                        <>
-                          <Sparkles className="w-4 h-4" />
-                          Generate Description
-                        </>
-                      )}
-                    </button>
-                    <button
-                      onClick={() => setEditingDesc(true)}
-                      className="text-amber-300 hover:text-amber-200 transition-colors duration-300"
-                    >
-                      Edit
-                    </button>
-                  </div>
                 </div>
               )}
             </div>

@@ -141,6 +141,37 @@ html.voice-stage-open #root {
   touch-action: manipulation;
 }
 
+/* Beat the unlayered `button { padding }` rule so the search-row Plus
+   matches Create Avatar's UserPlus. Tailwind `p-1` loses to `button`. */
+[data-search-add-avatar],
+[data-search-create-avatar-icon] {
+  box-sizing: border-box;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0.25rem;
+  width: 1.5rem;
+  height: 1.5rem;
+  min-width: 1.5rem;
+  min-height: 1.5rem;
+  border-radius: 0.375rem;
+  border: 1px solid transparent;
+  font-size: inherit;
+  font-weight: inherit;
+  line-height: 0;
+}
+[data-search-add-avatar]:hover,
+[data-search-add-avatar]:focus,
+[data-search-add-avatar]:focus-visible {
+  border-color: transparent;
+  outline: none;
+}
+[data-search-add-avatar] svg,
+[data-search-create-avatar-icon] svg {
+  width: 1rem;
+  height: 1rem;
+}
+
 /* Beat the unlayered `button { padding }` rule so picker icons stay 32px. */
 [data-avatar-picker] > button {
   padding: 0.25rem;
@@ -285,24 +316,28 @@ html.voice-stage-open [data-rail-badge] {
   border-radius: 0.75rem;
 }
 .voice-stage button.voice-workspace-tab {
-  padding: 0.5rem 0.75rem;
+  padding: 0.35rem 0.25rem;
   min-width: 0;
   min-height: 0;
   border-radius: 0;
-  font-size: 0.875rem;
+  font-size: 0.6875rem;
   font-weight: 400;
-  line-height: 1.25;
+  line-height: 1.15;
   border-color: transparent;
 }
 .voice-stage button.voice-workspace-tab.voice-workspace-tab-active {
   font-weight: 600;
   border-bottom: 2px solid rgb(251 191 36);
   border-radius: 0;
+  border-left-color: transparent;
+  border-right-color: transparent;
+  border-top-color: transparent;
 }
 @media (min-width: 640px) {
   .voice-stage button.voice-workspace-tab {
-    padding: 0.5rem 1rem;
-    font-size: 1rem;
+    padding: 0.5rem 0.5rem;
+    font-size: 0.875rem;
+    line-height: 1.25;
   }
 }
 .voice-stage .caption-actions button {
@@ -345,6 +380,15 @@ html.voice-stage-open [data-rail-badge] {
   border-color: transparent;
   outline: none;
 }
+.voice-stage button.voice-workspace-tab.voice-workspace-tab-active:hover,
+.voice-stage button.voice-workspace-tab.voice-workspace-tab-active:focus,
+.voice-stage button.voice-workspace-tab.voice-workspace-tab-active:focus-visible,
+.voice-stage button.voice-workspace-tab.voice-workspace-tab-active:active {
+  border-bottom-color: rgb(251 191 36);
+  border-left-color: transparent;
+  border-right-color: transparent;
+  border-top-color: transparent;
+}
 .voice-stage .composer-attachment-strip button.composer-attachment-remove {
   padding: 0;
   min-width: 0;
@@ -366,7 +410,7 @@ html.voice-stage-open [data-rail-badge] {
     min-width: 1.75rem;
   }
   .voice-stage button.voice-workspace-tab {
-    padding: 0.5rem 0.75rem;
+    padding: 0.35rem 0.25rem;
     min-height: 0;
     min-width: 0;
   }

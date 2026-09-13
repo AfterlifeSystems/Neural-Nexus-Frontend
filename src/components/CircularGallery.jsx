@@ -20,7 +20,11 @@ import {
   stepIdleLoopMedia,
 } from './ui/idleLoopSeam';
 import {
+  GALLERY_AVATAR_BORDER_RADIUS,
+  GALLERY_CREATE_BORDER_RADIUS,
+  galleryCardWorldLayout,
   galleryIndexFromScroll,
+  galleryPortraitUvRect,
   isCreateCardAtCenter,
   nearestCardOffset,
   nearestGalleryScroll,
@@ -28,6 +32,14 @@ import {
   shouldIgnoreGalleryWindowPointer,
   visualCardIndexAtPointer,
 } from './galleryScrollIndex';
+import {
+  denormalizeProfileBubbleViewport,
+  readProfileBubbleViewport,
+  subscribeProfileBubbleViewport,
+} from '../services/profileBubbleViewport';
+import {
+  rememberedAvatarImageViewport,
+} from '../services/avatarImageViewport';
 function debounce(func, wait) {
   let timeout;
   return function (...args) {
@@ -208,11 +220,13 @@ class Media {
     onCardClick,
     cardType = 'avatar', // New prop to identify card type
     video = null,
+    assistantId = null,
   }) {
     this.extra = 0;
     this.geometry = geometry;
     this.gl = gl;
     this.image = image;
+    this.assistantId = assistantId;
     // The avatar's neutral idle loop, when one has been generated. The still
     // is shown until the first frame decodes, then the texture is refreshed
     // from the video every frame so the card breathes and blinks in place.
@@ -236,6 +250,11 @@ class Media {
     this.createMesh();
     this.createTitle();
     this.onResize();
+    this.unsubscribePortraitViewport = this.assistantId
+      ? subscribeProfileBubbleViewport(this.assistantId, () => {
+          this.applyPortraitFrame();
+        })
+      : () => {};
   }
   createShader() {
     const texture = new Texture(this.gl, {
@@ -261,8 +280,8 @@ class Media {
       `,
       fragment: `
         precision highp float;
-        uniform vec2 uImageSizes;
-        uniform vec2 uPlaneSizes;
+        uniform vec2 uPortraitOrigin;
+        uniform vec2 uPortraitSize;
         uniform sampler2D tMap;
         uniform float uBorderRadius;
         varying vec2 vUv;
@@ -273,13 +292,11 @@ class Media {
         }
         
         void main() {
-          float planeAspect = max(uPlaneSizes.x, 0.0001) / max(uPlaneSizes.y, 0.0001);
-          float imageAspect = max(uImageSizes.x, 0.0001) / max(uImageSizes.y, 0.0001);
-          // Contain on the same transparent-black glass as the Create Avatar card.
-          vec2 scale = imageAspect > planeAspect
-            ? vec2(1.0, planeAspect / imageAspect)
-            : vec2(imageAspect / planeAspect, 1.0);
-          vec2 uv = (vUv - 0.5) / scale + 0.5;
+          // Settings crop is CSS (y=0 at the top of the photo). The plane's
+          // v=0 is the bottom, and the texture is flipY, so reverse both.
+          vec2 cssUv = vec2(vUv.x, 1.0 - vUv.y);
+          vec2 photoFromTop = (cssUv - uPortraitOrigin) / max(uPortraitSize, vec2(0.0001));
+          vec2 uv = clamp(vec2(photoFromTop.x, 1.0 - photoFromTop.y), 0.0, 1.0);
 
           float d = roundedBoxSDF(vUv - 0.5, vec2(0.5 - uBorderRadius), uBorderRadius);
           float edgeSmooth = 0.002;
@@ -294,10 +311,6 @@ class Media {
             (1.0 - smoothstep(-0.0015, 0.0015, d));
           vec3 frame = vec3(1.0);
 
-          if (uv.x < 0.0 || uv.x > 1.0 || uv.y < 0.0 || uv.y > 1.0) {
-            gl_FragColor = vec4(mix(vec3(0.0), frame, stroke * 0.25), alpha * 0.6);
-            return;
-          }
           vec4 color = texture2D(tMap, uv);
           gl_FragColor = vec4(mix(color.rgb, frame, stroke * 0.25), color.a * alpha);
         }
@@ -306,6 +319,8 @@ class Media {
         tMap: { value: texture },
         uPlaneSizes: { value: [0, 0] },
         uImageSizes: { value: [0, 0] },
+        uPortraitOrigin: { value: [0, 0] },
+        uPortraitSize: { value: [1, 1] },
         uSpeed: { value: 0 },
         uTime: { value: 100 * Math.random() },
         uBorderRadius: { value: this.borderRadius },
@@ -344,7 +359,44 @@ class Media {
       height,
     } = createPlaceholderTexture(this.gl, this.cardType, 512, 512);
     this.program.uniforms.tMap.value = placeholderTexture;
+    this.setImageSizes(width, height);
+  }
+  setImageSizes(width, height) {
     this.program.uniforms.uImageSizes.value = [width, height];
+    this.applyPortraitFrame();
+  }
+  applyPortraitFrame() {
+    const stillWidth = this.stillImage?.naturalWidth;
+    const stillHeight = this.stillImage?.naturalHeight;
+    const sizes = this.program.uniforms.uImageSizes.value;
+    const width = stillWidth > 0 ? stillWidth : Number(sizes?.[0]);
+    const height = stillHeight > 0 ? stillHeight : Number(sizes?.[1]);
+    const frame = {
+      width: 1,
+      height: 1,
+      mediaWidth: width,
+      mediaHeight: height,
+      fit: 'cover',
+    };
+    const local = this.assistantId
+      ? readProfileBubbleViewport(this.assistantId, frame)
+      : null;
+    const remembered = this.assistantId
+      ? rememberedAvatarImageViewport(this.assistantId)
+      : null;
+    const viewport =
+      local &&
+      (Number(local.offsetX) !== 0 ||
+        Number(local.offsetY) !== 0 ||
+        Number(local.scale) !== 1 ||
+        Number(local.mediaWidth) > 0)
+        ? local
+        : remembered
+          ? denormalizeProfileBubbleViewport(remembered, frame)
+          : local;
+    const rect = galleryPortraitUvRect(width, height, viewport);
+    this.program.uniforms.uPortraitOrigin.value = [rect.originX, rect.originY];
+    this.program.uniforms.uPortraitSize.value = [rect.sizeX, rect.sizeY];
   }
   tryRevealMedia() {
     if (this.mediaRevealed) return;
@@ -357,12 +409,12 @@ class Media {
       const width = video.videoWidth;
       const height = video.videoHeight;
       if (width > 0 && height > 0) {
-        this.program.uniforms.uImageSizes.value = [width, height];
+        this.setImageSizes(width, height);
       } else if (this.stillImage) {
-        this.program.uniforms.uImageSizes.value = [
+        this.setImageSizes(
           this.stillImage.naturalWidth,
-          this.stillImage.naturalHeight,
-        ];
+          this.stillImage.naturalHeight
+        );
       }
       this.texture.needsUpdate = true;
       return;
@@ -370,10 +422,10 @@ class Media {
     if (this.stillImage) {
       this.program.uniforms.tMap.value = this.texture;
       this.texture.image = this.stillImage;
-      this.program.uniforms.uImageSizes.value = [
+      this.setImageSizes(
         this.stillImage.naturalWidth,
-        this.stillImage.naturalHeight,
-      ];
+        this.stillImage.naturalHeight
+      );
       this.texture.needsUpdate = true;
     }
   }
@@ -438,7 +490,7 @@ class Media {
         const width = video.videoWidth;
         const height = video.videoHeight;
         if (width > 0 && height > 0) {
-          this.program.uniforms.uImageSizes.value = [width, height];
+          this.setImageSizes(width, height);
         }
       }
       this.texture.needsUpdate = true;
@@ -489,17 +541,22 @@ class Media {
         ];
       }
     }
-    this.scale = this.screen.height / 1500;
-    // Square: a 7:9 plane cropped the sides of square portraits and idle loops.
-    this.plane.scale.y =
-      (this.viewport.height * (900 * this.scale)) / this.screen.height;
-    this.plane.scale.x =
-      (this.viewport.width * (900 * this.scale)) / this.screen.width;
+    // Circles, same crop as the message portraits. Size follows the
+    // gallery box: height-fraction on a wide screen, width-capped on a
+    // phone so the next faces still peek.
+    const cardLayout = galleryCardWorldLayout(
+      this.screen.width,
+      this.screen.height,
+      this.viewport.width,
+      this.viewport.height
+    );
+    this.plane.scale.y = cardLayout.cardWorld;
+    this.plane.scale.x = cardLayout.cardWorld;
     this.plane.program.uniforms.uPlaneSizes.value = [
       this.plane.scale.x,
       this.plane.scale.y,
     ];
-    this.padding = 2;
+    this.padding = cardLayout.paddingWorld;
     this.width = this.plane.scale.x + this.padding;
     this.widthTotal = this.width * this.length;
     this.x = this.width * this.index;
@@ -583,6 +640,7 @@ class App {
         gl: this.gl,
         image: data.image,
         video: data.video ?? null,
+        assistantId: data.type === 'avatar' ? data.id ?? null : null,
         index,
         length: this.mediasImages.length,
         renderer: this.renderer,
@@ -592,7 +650,10 @@ class App {
         viewport: this.viewport,
         bend,
         textColor,
-        borderRadius,
+        borderRadius:
+          data.type === 'create'
+            ? GALLERY_CREATE_BORDER_RADIUS
+            : GALLERY_AVATAR_BORDER_RADIUS,
         font,
         onCardClick: this.onCardClick,
         cardType: data.type || 'avatar', // Pass card type
@@ -789,13 +850,20 @@ class App {
    * overlay moves with the drag rather than snapping when the index settles.
    */
   reportCreateCardPosition() {
-    if (!this.onCreateCardMove || !this.medias || !this.viewport || !this.screen) {
+    if (
+      !this.onCreateCardMove ||
+      !this.medias?.[0] ||
+      !this.viewport ||
+      !this.screen
+    ) {
       return;
     }
+    const cardPixelSize =
+      (this.medias[0].plane.scale.x / this.viewport.width) * this.screen.width;
     const createMedia = this.medias.find((media) => media.cardType === 'create');
-    if (!createMedia) return;
-    const xInPixels =
-      (createMedia.plane.position.x / this.viewport.width) * this.screen.width;
+    const xInPixels = createMedia
+      ? (createMedia.plane.position.x / this.viewport.width) * this.screen.width
+      : 0;
     const frontXInPixels =
       (nearestCardOffset(
         this.medias
@@ -807,11 +875,16 @@ class App {
     this.onCreateCardMove({
       x: xInPixels,
       frontX: frontXInPixels,
-      visible: !(createMedia.isBefore || createMedia.isAfter),
-      isFront: isCreateCardAtCenter(
-        createMedia.plane.position.x,
-        createMedia.width || createMedia.plane.scale.x
-      ),
+      cardPixelSize,
+      visible: createMedia
+        ? !(createMedia.isBefore || createMedia.isAfter)
+        : false,
+      isFront: createMedia
+        ? isCreateCardAtCenter(
+            createMedia.plane.position.x,
+            createMedia.width || createMedia.plane.scale.x
+          )
+        : false,
     });
   }
   update() {
@@ -862,6 +935,7 @@ class App {
     window.cancelAnimationFrame(this.raf);
     if (this.medias) {
       this.medias.forEach((media) => {
+        media.unsubscribePortraitViewport?.();
         if (media.videoElement) {
           disposeIdleLoopVideo(media.videoElement);
           media.videoElement = null;
@@ -962,7 +1036,7 @@ const CircularGallery = forwardRef(
     }, [currentIndex]);
     return (
       <div
-        className="w-full h-full overflow-hidden cursor-grab active:cursor-grabbing bg-black/60 backdrop-blur-lg"
+        className="absolute inset-0 overflow-hidden cursor-grab active:cursor-grabbing bg-black/60 backdrop-blur-lg"
         ref={containerRef}
       />
     );

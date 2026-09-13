@@ -33,7 +33,6 @@ const buildBillingPortalUrl = () => {
   return portalUrl.toString();
 };
 
-import UserSettingsMenu from './UserSettingsMenu';
 import { signInToBillingPortalFrame } from '../services/billingPortalSingleSignOn';
 
 /**
@@ -135,10 +134,6 @@ const BillingManagement = ({ showAccountMenu = true }) => {
         Subscriptions, payment methods, invoices, and usage are managed in the
         Neural Nexus customer portal above.
       </p>
-
-      {/* The control this page is usually reached from. Without it the menu
-          vanished on arrival, leaving no way back except the sidebar. */}
-      {showAccountMenu && <UserSettingsMenu className="shrink-0" />}
     </div>
   );
 };

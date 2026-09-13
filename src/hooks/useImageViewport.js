@@ -22,6 +22,7 @@ import {
   writeImageViewport,
   zoomImageViewport,
 } from '../services/imageViewport';
+import { scheduleAvatarImageViewportSave } from '../services/avatarImageViewport';
 import {
   assistantIdFromProfileBubbleKey,
   readProfileBubbleViewport,
@@ -122,6 +123,9 @@ export default function useImageViewport({
       const profileAssistantId = assistantIdFromProfileBubbleKey(persistKey);
       if (profileAssistantId) {
         writeProfileBubbleViewport(profileAssistantId, framed, bounds);
+        if (bounds.width > 0 && bounds.height > 0) {
+          scheduleAvatarImageViewportSave(profileAssistantId, framed, bounds);
+        }
       } else {
         writeImageViewport(persistKey, framed);
       }

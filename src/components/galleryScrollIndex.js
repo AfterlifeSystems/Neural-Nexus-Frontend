@@ -1,3 +1,117 @@
+import { profileBubbleCoverLayout } from '../services/profileBubbleViewport.js';
+
+/** Circle disc, the same silhouette as the message portraits. */
+export const GALLERY_AVATAR_BORDER_RADIUS = 0.5;
+
+/** Create Avatar stays a rounded square so the live PixelCard overlay matches. */
+export const GALLERY_CREATE_BORDER_RADIUS = 0.05;
+
+/** Desktop discs fill this fraction of the gallery's height. */
+export const GALLERY_CARD_HEIGHT_FRACTION = 0.66;
+
+/**
+ * A tall phone gallery makes a height-based disc wider than the screen.
+ * Cap at this fraction of gallery width so the centre portrait stays the
+ * hero and the next faces still peek.
+ */
+export const GALLERY_CARD_MAX_WIDTH_FRACTION = 0.76;
+
+/**
+ * Gap between discs as a fraction of card size. Matches the old world
+ * padding of 2 on a 0.6-height card (~0.20 of the painted disc).
+ */
+export const GALLERY_CARD_PADDING_FRACTION = 0.2;
+
+/** Visible sliver of each neighboring disc, in CSS pixels. */
+export const GALLERY_CARD_NEIGHBOR_PEEK_PIXELS = 36;
+
+/**
+ * Height of the gallery box so discs still fill the desktop fraction.
+ *
+ * On a tall phone the discs are width-capped so neighbors peek. If the
+ * box still stretches through the leftover viewport, that cap leaves
+ * empty bands above and below the faces. Shrink the box to the height
+ * the width-capped disc would occupy at the desktop fill fraction.
+ * Wide screens keep the leftover height because the height-based disc
+ * already fits.
+ *
+ * @param {number} containerWidth Gallery CSS width.
+ * @param {number} availableHeight Height left after search and the
+ *   thumbnail strip.
+ * @returns {number}
+ */
+export function galleryFrameHeight(containerWidth, availableHeight) {
+  const available = Math.max(Number(availableHeight) || 0, 0);
+  const width = Number(containerWidth) || 0;
+  // A 0-width pass used to be treated as 1px, which shrinks a full
+  // leftover column to a sliver. The Create overlay still paints in
+  // that sliver; the WebGL discs do not.
+  if (width < 2) return available;
+  const preferred =
+    (GALLERY_CARD_MAX_WIDTH_FRACTION * width) / GALLERY_CARD_HEIGHT_FRACTION;
+  return Math.min(available, preferred);
+}
+
+/**
+ * Painted disc size and gap for a gallery container.
+ *
+ * Wide screens keep the height-fraction discs. Narrow/tall screens cap the
+ * disc to the width fraction and pull the gap in until neighbors peek.
+ *
+ * @param {number} containerWidth Gallery CSS width.
+ * @param {number} containerHeight Gallery CSS height.
+ * @returns {{pixelSize: number, paddingPixels: number, heightFraction: number}}
+ */
+export function galleryCardLayout(containerWidth, containerHeight) {
+  const width = Math.max(Number(containerWidth) || 0, 1);
+  const height = Math.max(Number(containerHeight) || 0, 1);
+  const pixelSize = Math.min(
+    GALLERY_CARD_HEIGHT_FRACTION * height,
+    GALLERY_CARD_MAX_WIDTH_FRACTION * width
+  );
+  const leftoverEachSide = Math.max((width - pixelSize) / 2, 0);
+  const fullPadding = pixelSize * GALLERY_CARD_PADDING_FRACTION;
+  let paddingPixels;
+  if (leftoverEachSide <= GALLERY_CARD_NEIGHBOR_PEEK_PIXELS) {
+    paddingPixels = Math.max(leftoverEachSide * 0.2, 4);
+  } else {
+    const peekBudget = leftoverEachSide - GALLERY_CARD_NEIGHBOR_PEEK_PIXELS;
+    paddingPixels = Math.min(fullPadding, Math.max(peekBudget, 4));
+  }
+  return {
+    pixelSize,
+    paddingPixels,
+    heightFraction: pixelSize / height,
+  };
+}
+
+/**
+ * The same layout in the gallery camera's world units.
+ *
+ * @param {number} containerWidth
+ * @param {number} containerHeight
+ * @param {number} viewportWidth
+ * @param {number} viewportHeight
+ * @returns {{pixelSize: number, paddingPixels: number, heightFraction: number, cardWorld: number, paddingWorld: number}}
+ */
+export function galleryCardWorldLayout(
+  containerWidth,
+  containerHeight,
+  viewportWidth,
+  viewportHeight
+) {
+  const layout = galleryCardLayout(containerWidth, containerHeight);
+  const safeHeight = Math.max(Number(containerHeight) || 0, 1);
+  const safeWidth = Math.max(Number(containerWidth) || 0, 1);
+  return {
+    ...layout,
+    cardWorld:
+      (layout.pixelSize / safeHeight) * Math.max(Number(viewportHeight) || 0, 0),
+    paddingWorld:
+      (layout.paddingPixels / safeWidth) * Math.max(Number(viewportWidth) || 0, 0),
+  };
+}
+
 /** Map a gallery scroll position to the item currently at center. */
 export function galleryIndexFromScroll(scroll, itemWidth, length) {
   if (!itemWidth || !length) return 0;
@@ -101,17 +215,15 @@ export function nearestCardOffset(offsets) {
 }
 
 /**
- * Index of the painted card under the pointer, or -1 when it is in a gap.
- *
- * @param {number} pointerX
- * @param {Array<{x: number, visualWidth: number, index: number}>} cards
- * @returns {number}
- */
-/**
  * Window-level gallery drag and wheel must ignore chrome that sits over
- * the canvas. The help pill is a portal on `document.body`; without this
- * check, dragging it also turns the carousel.
- *
+ * the canvas. The help pill is a portal on `document.body`; User Settings
+ * opens upward over the hide / inbox / settings strip. Without this check,
+ * a press on either also turns the carousel.
+ */
+export const GALLERY_WINDOW_POINTER_IGNORE_SELECTOR =
+  '[data-evan-assist-overlay], [data-user-settings-menu]';
+
+/**
  * @param {EventTarget|null|undefined} target
  * @returns {boolean}
  */
@@ -121,9 +233,122 @@ export function shouldIgnoreGalleryWindowPointer(target) {
       ? target
       : target?.parentElement;
   if (!element || typeof element.closest !== 'function') return false;
-  return Boolean(element.closest('[data-evan-assist-overlay]'));
+  return Boolean(element.closest(GALLERY_WINDOW_POINTER_IGNORE_SELECTOR));
 }
 
+/**
+ * UV scale for covering a gallery plane (CSS object-cover).
+ *
+ * @param {number} planeWidth
+ * @param {number} planeHeight
+ * @param {number} imageWidth
+ * @param {number} imageHeight
+ * @returns {{x: number, y: number}}
+ */
+export function galleryCoverUvRatio(
+  planeWidth,
+  planeHeight,
+  imageWidth,
+  imageHeight
+) {
+  const planeAspect =
+    Math.max(Number(planeWidth) || 0, 0.0001) /
+    Math.max(Number(planeHeight) || 0, 0.0001);
+  const imageAspect =
+    Math.max(Number(imageWidth) || 0, 0.0001) /
+    Math.max(Number(imageHeight) || 0, 0.0001);
+  return {
+    x: Math.min(planeAspect / imageAspect, 1),
+    y: Math.min(imageAspect / planeAspect, 1),
+  };
+}
+
+/**
+ * Texture coordinate at a plane UV for a cover crop.
+ *
+ * @param {number} planeU
+ * @param {number} planeV
+ * @param {{x: number, y: number}} ratio
+ * @returns {{x: number, y: number}}
+ */
+export function galleryCoverUv(planeU, planeV, ratio) {
+  const scaleX = Number(ratio?.x);
+  const scaleY = Number(ratio?.y);
+  return {
+    x: planeU * scaleX + (1 - scaleX) * 0.5,
+    y: planeV * scaleY + (1 - scaleY) * 0.5,
+  };
+}
+
+/**
+ * The same crop the message portrait uses, in plane UV space.
+ *
+ * @param {number} imageWidth
+ * @param {number} imageHeight
+ * @param {{scale?: number, offsetX?: number, offsetY?: number, mediaWidth?: number, mediaHeight?: number}|null|undefined} viewport
+ * @returns {{originX: number, originY: number, sizeX: number, sizeY: number}}
+ */
+export function galleryPortraitUvRect(
+  imageWidth,
+  imageHeight,
+  viewport = null
+) {
+  const mediaWidth = Number(imageWidth);
+  const mediaHeight = Number(imageHeight);
+  if (!(mediaWidth > 0) || !(mediaHeight > 0)) {
+    return { originX: 0, originY: 0, sizeX: 1, sizeY: 1 };
+  }
+  const layout = profileBubbleCoverLayout(viewport, {
+    width: 1,
+    height: 1,
+    mediaWidth,
+    mediaHeight,
+    fit: 'cover',
+  });
+  if (!(layout.width > 0) || !(layout.height > 0)) {
+    return { originX: 0, originY: 0, sizeX: 1, sizeY: 1 };
+  }
+  return {
+    originX: layout.left,
+    originY: layout.top,
+    sizeX: layout.width,
+    sizeY: layout.height,
+  };
+}
+
+/**
+ * Texture coordinate at a gallery plane UV for the Settings crop.
+ *
+ * Settings and message portraits use CSS space: y=0 is the top of the
+ * photograph. The WebGL plane has v=0 at the bottom, and the texture is
+ * uploaded with flipY, so both axes have to be reversed or pan/zoom land
+ * on the opposite side of the face.
+ *
+ * @param {number} planeU WebGL u, 0 at the left.
+ * @param {number} planeV WebGL v, 0 at the bottom.
+ * @param {{originX: number, originY: number, sizeX: number, sizeY: number}} rect
+ * @returns {{x: number, y: number}}
+ */
+export function galleryPortraitUv(planeU, planeV, rect) {
+  const sizeX = Number(rect?.sizeX) || 1;
+  const sizeY = Number(rect?.sizeY) || 1;
+  const cssU = planeU;
+  const cssV = 1 - planeV;
+  const photoFromTopX = (cssU - Number(rect?.originX)) / sizeX;
+  const photoFromTopY = (cssV - Number(rect?.originY)) / sizeY;
+  return {
+    x: photoFromTopX,
+    y: 1 - photoFromTopY,
+  };
+}
+
+/**
+ * Index of the painted card under the pointer, or -1 when it is in a gap.
+ *
+ * @param {number} pointerX
+ * @param {Array<{x: number, visualWidth: number, index: number}>} cards
+ * @returns {number}
+ */
 export function visualCardIndexAtPointer(pointerX, cards) {
   if (!Array.isArray(cards) || !Number.isFinite(pointerX)) return -1;
   let bestIndex = -1;

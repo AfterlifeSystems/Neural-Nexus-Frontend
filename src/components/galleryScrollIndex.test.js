@@ -1,7 +1,23 @@
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { test } from 'node:test';
 import {
+  GALLERY_AVATAR_BORDER_RADIUS,
+  GALLERY_CARD_HEIGHT_FRACTION,
+  GALLERY_CARD_MAX_WIDTH_FRACTION,
+  GALLERY_CARD_NEIGHBOR_PEEK_PIXELS,
+  GALLERY_CREATE_BORDER_RADIUS,
+  galleryCardLayout,
+  galleryCardWorldLayout,
+  galleryFrameHeight,
+  galleryCoverUv,
+  galleryCoverUvRatio,
   galleryIndexFromScroll,
+  galleryPortraitUv,
+  galleryPortraitUvRect,
+  GALLERY_WINDOW_POINTER_IGNORE_SELECTOR,
   isCreateCardAtCenter,
   isPointerOnVisualCard,
   nearestCardOffset,
@@ -10,6 +26,18 @@ import {
   shouldIgnoreGalleryWindowPointer,
   visualCardIndexAtPointer,
 } from './galleryScrollIndex.js';
+
+const componentsDirectory = dirname(fileURLToPath(import.meta.url));
+
+const elementMatching = (selectors) => {
+  const element = {
+    closest: (selector) => {
+      const parts = selector.split(',').map((part) => part.trim());
+      return parts.some((part) => selectors.includes(part)) ? element : null;
+    },
+  };
+  return element;
+};
 
 test('positive and wrap-left scroll name the same card', () => {
   assert.equal(galleryIndexFromScroll(400, 100, 5), 4);
@@ -74,13 +102,152 @@ test('hide/settings follow the nearer card, not the gap', () => {
 });
 
 test('a pointer on the help pill is not a gallery drag', () => {
-  const pill = {
-    closest: (selector) =>
-      selector === '[data-evan-assist-overlay]' ? pill : null,
-  };
+  const pill = elementMatching(['[data-evan-assist-overlay]']);
   const canvas = { closest: () => null };
   assert.equal(shouldIgnoreGalleryWindowPointer(pill), true);
   assert.equal(shouldIgnoreGalleryWindowPointer({ parentElement: pill }), true);
   assert.equal(shouldIgnoreGalleryWindowPointer(canvas), false);
   assert.equal(shouldIgnoreGalleryWindowPointer(null), false);
+});
+
+test('a pointer on User Settings is not a gallery drag', () => {
+  const menu = elementMatching(['[data-user-settings-menu]']);
+  assert.equal(shouldIgnoreGalleryWindowPointer(menu), true);
+  assert.equal(shouldIgnoreGalleryWindowPointer({ parentElement: menu }), true);
+  assert.match(
+    GALLERY_WINDOW_POINTER_IGNORE_SELECTOR,
+    /data-user-settings-menu/
+  );
+});
+
+test('a square photo fills a square card without letterbox', () => {
+  const ratio = galleryCoverUvRatio(1, 1, 512, 512);
+  assert.deepEqual(ratio, { x: 1, y: 1 });
+  assert.deepEqual(galleryCoverUv(0, 0, ratio), { x: 0, y: 0 });
+  assert.deepEqual(galleryCoverUv(1, 1, ratio), { x: 1, y: 1 });
+});
+
+test('an unframed portrait disc uses the same cover crop as a message portrait', () => {
+  const rect = galleryPortraitUvRect(9, 16);
+  const cssTopFromTop = (0 - rect.originY) / rect.sizeY;
+  const topOfCard = galleryPortraitUv(0.5, 1, rect);
+  assert.ok(Math.abs(topOfCard.y - (1 - cssTopFromTop)) < 1e-9);
+  assert.ok(cssTopFromTop > 0);
+});
+
+test('a settings pan that shows the head samples the top of the photo', () => {
+  const rect = galleryPortraitUvRect(9, 16, {
+    scale: 1,
+    offsetX: 0,
+    offsetY: (16 / 9 - 1) / 2,
+    mediaWidth: 9,
+    mediaHeight: 16,
+  });
+  const topOfCard = galleryPortraitUv(0.5, 1, rect);
+  assert.ok(Math.abs(topOfCard.y - 1) < 1e-9);
+});
+
+test('carousel avatars are circular like the message portraits', () => {
+  assert.equal(GALLERY_AVATAR_BORDER_RADIUS, 0.5);
+  assert.equal(GALLERY_CREATE_BORDER_RADIUS, 0.05);
+  const gallerySource = readFileSync(
+    join(componentsDirectory, 'CircularGallery.jsx'),
+    'utf8'
+  );
+  assert.match(gallerySource, /GALLERY_AVATAR_BORDER_RADIUS/);
+  assert.match(gallerySource, /galleryCardWorldLayout/);
+  assert.match(gallerySource, /uPortraitOrigin/);
+  assert.match(gallerySource, /uPortraitSize/);
+  assert.match(gallerySource, /1\.0 - vUv\.y/);
+  assert.doesNotMatch(
+    gallerySource,
+    /if \(uv\.x < 0\.0 \|\| uv\.x > 1\.0 \|\| uv\.y < 0\.0 \|\| uv\.y > 1\.0\)/
+  );
+});
+
+test('a wide gallery keeps discs at 60% of height', () => {
+  const layout = galleryCardLayout(1600, 800);
+  assert.equal(layout.pixelSize, 800 * GALLERY_CARD_HEIGHT_FRACTION);
+  assert.equal(layout.paddingPixels, layout.pixelSize * 0.2);
+});
+
+test('a tall phone gallery caps the disc so neighbors peek', () => {
+  const layout = galleryCardLayout(358, 650);
+  const heightBased = 650 * GALLERY_CARD_HEIGHT_FRACTION;
+  assert.ok(layout.pixelSize < heightBased);
+  assert.ok(
+    layout.pixelSize <= 358 * GALLERY_CARD_MAX_WIDTH_FRACTION + 1e-9
+  );
+  const leftoverEachSide = (358 - layout.pixelSize) / 2;
+  const peek = leftoverEachSide - layout.paddingPixels;
+  assert.ok(peek + 1e-9 >= GALLERY_CARD_NEIGHBOR_PEEK_PIXELS);
+});
+
+test('a wide gallery box keeps the leftover height', () => {
+  assert.equal(galleryFrameHeight(1600, 800), 800);
+});
+
+test('an unmeasured width does not shrink the gallery to a sliver', () => {
+  assert.equal(galleryFrameHeight(0, 650), 650);
+  assert.equal(galleryFrameHeight(1, 650), 650);
+});
+
+test('a tall phone gallery box shrinks until discs fill 60%', () => {
+  const width = 358;
+  const available = 650;
+  const height = galleryFrameHeight(width, available);
+  assert.ok(height < available);
+  const layout = galleryCardLayout(width, height);
+  assert.equal(
+    layout.pixelSize,
+    width * GALLERY_CARD_MAX_WIDTH_FRACTION
+  );
+  assert.ok(
+    Math.abs(layout.heightFraction - GALLERY_CARD_HEIGHT_FRACTION) < 1e-9
+  );
+  const leftoverEachSide = (width - layout.pixelSize) / 2;
+  const peek = leftoverEachSide - layout.paddingPixels;
+  assert.ok(peek + 1e-9 >= GALLERY_CARD_NEIGHBOR_PEEK_PIXELS);
+});
+
+test('world units follow the pixel layout through the camera viewport', () => {
+  const world = galleryCardWorldLayout(1600, 800, 33.14, 16.57);
+  assert.equal(world.cardWorld, (world.pixelSize / 800) * 16.57);
+  assert.equal(world.paddingWorld, (world.paddingPixels / 1600) * 33.14);
+});
+
+test('Create overlay and hide controls follow the painted disc size', () => {
+  const carouselSource = readFileSync(
+    join(componentsDirectory, 'AvatarSelectionComponent.jsx'),
+    'utf8'
+  );
+  assert.match(carouselSource, /relative z-30 flex flex-col items-center/);
+  assert.match(carouselSource, /data-carousel-card-actions/);
+  assert.match(carouselSource, /cardPixelSize/);
+  assert.match(carouselSource, /galleryCardLayout/);
+  assert.match(carouselSource, /galleryFrameHeight/);
+  assert.match(carouselSource, /galleryColumnRef/);
+  assert.match(carouselSource, /galleryRegionRef/);
+  assert.match(carouselSource, /galleryStageRef/);
+  assert.match(carouselSource, /galleryFrameRef/);
+  assert.match(carouselSource, /data-gallery-region/);
+  assert.match(carouselSource, /data-gallery-stage/);
+  assert.match(carouselSource, /flex-1 flex-col justify-center/);
+  assert.match(carouselSource, /relative min-h-0 w-full overflow-hidden/);
+  assert.match(carouselSource, /width: '36px'/);
+  assert.match(carouselSource, /width < 2 \|\| available < 2/);
+  assert.match(carouselSource, /frame.style.flexBasis = nextHeight/);
+  const gallerySource = readFileSync(
+    join(componentsDirectory, 'CircularGallery.jsx'),
+    'utf8'
+  );
+  assert.match(
+    gallerySource,
+    /className="absolute inset-0 overflow-hidden cursor-grab/
+  );
+  assert.match(carouselSource, /absolute left-1\/2 z-20 flex items-center/);
+  assert.match(
+    carouselSource,
+    /userSettingsMenuOpen \? 'pointer-events-none' : 'pointer-events-auto'/
+  );
 });
