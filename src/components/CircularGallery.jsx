@@ -22,6 +22,7 @@ import {
 import {
   GALLERY_AVATAR_BORDER_RADIUS,
   GALLERY_CREATE_BORDER_RADIUS,
+  galleryBoxIsPainted,
   galleryCardWorldLayout,
   galleryIndexFromScroll,
   galleryPortraitUvRect,
@@ -776,6 +777,11 @@ class App {
       width: this.container.clientWidth,
       height: this.container.clientHeight,
     };
+    // A 0×0 first paint writes Infinity/NaN into the camera aspect and
+    // the planes never recover. Wait for a painted box.
+    if (!galleryBoxIsPainted(nextScreen.width, nextScreen.height)) {
+      return;
+    }
     if (
       this.screen &&
       this.medias &&
@@ -998,22 +1004,53 @@ const CircularGallery = forwardRef(
       },
     }));
     useEffect(() => {
-      const app = new App(containerRef.current, {
-        items,
-        bend,
-        textColor,
-        borderRadius,
-        font,
-        scrollSpeed,
-        scrollEase,
-        onCardClick,
-        currentIndex,
-        onIndexChange,
-        onCreateCardMove,
-      });
-      appRef.current = app;
+      const container = containerRef.current;
+      if (!container) return undefined;
+
+      let app = null;
+      let cancelled = false;
+      let startFrame = 0;
+
+      const startWhenPainted = () => {
+        if (cancelled || app) return;
+        if (
+          !galleryBoxIsPainted(container.clientWidth, container.clientHeight)
+        ) {
+          return;
+        }
+        app = new App(container, {
+          items,
+          bend,
+          textColor,
+          borderRadius,
+          font,
+          scrollSpeed,
+          scrollEase,
+          onCardClick,
+          currentIndex,
+          onIndexChange,
+          onCreateCardMove,
+        });
+        appRef.current = app;
+      };
+
+      startWhenPainted();
+      const observer = new ResizeObserver(startWhenPainted);
+      observer.observe(container);
+      const retryUntilPainted = (attemptsLeft) => {
+        startWhenPainted();
+        if (app || attemptsLeft <= 0) return;
+        startFrame = window.requestAnimationFrame(() =>
+          retryUntilPainted(attemptsLeft - 1)
+        );
+      };
+      retryUntilPainted(12);
+
       return () => {
-        app.destroy();
+        cancelled = true;
+        window.cancelAnimationFrame(startFrame);
+        observer.disconnect();
+        app?.destroy();
         appRef.current = null;
       };
     }, [items, bend, textColor, borderRadius, font, scrollSpeed, scrollEase]);

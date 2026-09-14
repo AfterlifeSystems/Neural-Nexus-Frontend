@@ -46,14 +46,25 @@ const CreateAvatarComponent = ({ onCardClick, active = false }) => {
         }
       }}
     >
-      {/* The plus sits slightly above centre so the title still fits when
-          the gallery width-caps the card on a phone. Sizes are fractions
-          of the card, not fixed rem, for the same reason. */}
+      {/* The plus is locked to PixelCard's explosion origin. The title
+          sits on the bottom edge so it cannot pull the plus off that
+          origin. Sizes are fractions of the card, not fixed rem. */}
       <div className="relative w-full h-full">
-        <div className="absolute left-1/2 top-[46%] -translate-x-1/2 -translate-y-1/2 w-[34%] aspect-square rounded-full flex items-center justify-center border border-white/10 bg-black/60">
-          <CirclePlus className="w-1/2 h-1/2 text-neutral-200" strokeWidth={1.25} />
+        <div
+          data-create-avatar-plus
+          className="absolute flex w-[34%] aspect-square items-center justify-center rounded-full border border-white/10 bg-black/60"
+          style={{
+            left: 'var(--pixel-card-origin-x)',
+            top: 'var(--pixel-card-origin-y)',
+            transform: 'translate(-50%, -50%)',
+          }}
+        >
+          <CirclePlus
+            className="block h-1/2 w-1/2 text-neutral-200"
+            strokeWidth={1.25}
+          />
         </div>
-        <div className="absolute inset-x-0 top-[68%] px-[6%] text-center">
+        <div className="absolute inset-x-0 bottom-[7%] px-[6%] text-center">
           <h3 className="text-[length:clamp(0.9rem,8cqi,1.5rem)] font-bold text-neutral-200 mb-0.5 leading-tight">
             Create Avatar
           </h3>

@@ -6,6 +6,8 @@
 import React, { useState } from 'react';
 import { Github, Linkedin, Mail, User } from 'lucide-react';
 
+import { GitHubSponsorsButton } from '../GitHubSponsorsEmbed';
+
 // GitHub serves every account's picture at this address, so the portrait stays
 // current if it is ever changed there — no copy of it lives in this repository.
 const FOUNDER = {
@@ -51,7 +53,10 @@ export default function Founder() {
               and understand yourself, and to improve the quality of your life.
             </p>
 
-            <div className="flex gap-3 justify-center sm:justify-start pt-1">
+            <div className="flex flex-wrap items-center gap-3 justify-center sm:justify-start pt-1">
+              <span className="inline-flex items-center h-10">
+                <GitHubSponsorsButton />
+              </span>
               <a
                 href={FOUNDER.githubUrl}
                 target="_blank"

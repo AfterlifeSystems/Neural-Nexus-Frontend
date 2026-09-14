@@ -1,12 +1,14 @@
 // src/components/connections/ConnectionCardStack.jsx
 import React from 'react';
 import ConnectAccountCard from '../ConnectAccountCard';
+import ComputerHandoffCard from '../ComputerHandoffCard';
 import { useMedia } from '../../context/MediaContext';
 import {
   connectionKeyOfCard,
   connectionsOf,
   isPendingCard,
 } from '../../services/connectionCards';
+import { isComputerHandoffCard } from '../../services/computerHandoff';
 
 /**
  * The connect cards one transcript message carries, in place.
@@ -82,6 +84,19 @@ const ConnectionCardStack = ({
           isPendingCard(card) &&
           (isCurrentPause || Boolean(message.clientCard));
         const key = `${card?.provider ?? 'card'}-${index}`;
+        if (isComputerHandoffCard(card)) {
+          return (
+            <ComputerHandoffCard
+              key={key}
+              interrupt={interactive ? card : null}
+              card={interactive ? null : card}
+              compact={compact}
+              className="w-full"
+              onDecision={handleDecision}
+              readOnly={!interactive}
+            />
+          );
+        }
         return interactive ? (
           <ConnectAccountCard
             key={key}

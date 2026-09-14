@@ -53,6 +53,23 @@ export function galleryFrameHeight(containerWidth, availableHeight) {
 }
 
 /**
+ * Whether the gallery box is large enough to start WebGL.
+ *
+ * A 0×0 (or 1px) first paint is common on the SPA click into /avatars: the
+ * frame has no height until this file's measure runs, and constructing the
+ * OGL renderer there writes a NaN camera aspect. The discs then stay
+ * invisible even after the box later gets a size. A refresh works because
+ * the avatar list arrives after layout and the scene is built a second time.
+ *
+ * @param {number} width CSS width.
+ * @param {number} height CSS height.
+ * @returns {boolean}
+ */
+export function galleryBoxIsPainted(width, height) {
+  return Number(width) >= 2 && Number(height) >= 2;
+}
+
+/**
  * Painted disc size and gap for a gallery container.
  *
  * Wide screens keep the height-fraction discs. Narrow/tall screens cap the

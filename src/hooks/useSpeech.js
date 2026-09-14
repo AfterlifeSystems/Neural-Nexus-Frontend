@@ -41,9 +41,11 @@ import {
  * sentence for that case. A server that has no voice stack at all
  * (`unavailable`) is different: the avatar may already have a clone, so the
  * create-voice toast is wrong — that case gets a plain unavailable notice.
- * Every other failure is toasted as a failed utterance — a speak button that
- * spins and then does nothing at all leaves the reader with no way to tell a
- * broken voice from a silent one.
+ * A refused ElevenLabs, OpenAI, or xAI key, or a spent vendor account, uses
+ * the same Support toast as a chat credit pause. Every other failure is
+ * toasted as a failed utterance — a speak button that spins and then does
+ * nothing at all leaves the reader with no way to tell a broken voice from a
+ * silent one.
  *
  * @param {Object} [options]
  * @param {boolean} [options.asAnonymousIdentity] Public chat: withhold the credential.

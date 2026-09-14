@@ -11,6 +11,32 @@
 
 export const GEO_WATCH_PREFERENCE_KEY = 'neural_nexus_geo_watch_enabled';
 
+let lastKnownLatitude = null;
+let lastKnownLongitude = null;
+
+/**
+ * Remember the last browser-reported coordinates for a chat turn's origin.
+ *
+ * @param {number} latitude
+ * @param {number} longitude
+ * @returns {void}
+ */
+export function rememberLastDevicePosition(latitude, longitude) {
+  if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) return;
+  lastKnownLatitude = latitude;
+  lastKnownLongitude = longitude;
+}
+
+/**
+ * The last remembered coordinates as "lat,lon", or an empty string.
+ *
+ * @returns {string}
+ */
+export function readLastDevicePositionText() {
+  if (lastKnownLatitude == null || lastKnownLongitude == null) return '';
+  return `${lastKnownLatitude},${lastKnownLongitude}`;
+}
+
 const POSITION_OPTIONS = {
   enableHighAccuracy: true,
   maximumAge: 30000,

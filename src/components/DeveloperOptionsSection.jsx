@@ -10,6 +10,7 @@ import Switch from './ui/Switch';
 import useMotionMeshDeveloperOverlay from '../hooks/useMotionMeshDeveloperOverlay';
 import useMotionCapture from '../hooks/useMotionCapture';
 import { MOTION_WIREFRAME_OVERLAY } from '../config/motionWireframe';
+import NeuralinkDemoPanel from './NeuralinkDemoPanel';
 
 const DeveloperOptionsSection = () => {
   const { offered, shown, setShown } = useMotionMeshDeveloperOverlay();
@@ -75,6 +76,7 @@ const DeveloperOptionsSection = () => {
           and there is no mesh to draw. Switch it on above.
         </p>
       )}
+      <NeuralinkDemoPanel />
     </section>
   );
 };

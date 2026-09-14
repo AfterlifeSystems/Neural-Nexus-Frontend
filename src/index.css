@@ -454,18 +454,22 @@ html.voice-stage-open [data-rail-badge] {
 
 /* Unlayered `button { padding; border-radius: 8px }` would squash a
    portrait disc into a rounded square. Same specificity, later in the file. */
-button.profile-bubble-disc {
+button.profile-bubble-disc,
+.voice-stage button.profile-bubble-disc {
   padding: 0;
   min-width: 0;
   min-height: 0;
   border-radius: 9999px;
   border-color: transparent;
 }
-button.profile-bubble-disc:hover {
+button.profile-bubble-disc:hover,
+.voice-stage button.profile-bubble-disc:hover {
   border-color: transparent;
 }
 button.profile-bubble-disc:focus,
-button.profile-bubble-disc:focus-visible {
+button.profile-bubble-disc:focus-visible,
+.voice-stage button.profile-bubble-disc:focus,
+.voice-stage button.profile-bubble-disc:focus-visible {
   outline: none;
 }
 

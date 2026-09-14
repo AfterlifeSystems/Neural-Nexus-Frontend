@@ -31,6 +31,7 @@ import {
 import {
   CONNECTOR_CATEGORY_LABELS,
   connectorFilterOptions,
+  livePlatformAppHelp,
   matchesConnectorCategory,
   matchesConnectorSearch,
 } from './connectorSearch';
@@ -648,6 +649,11 @@ const ConnectionsSection = ({ onConnectionsChanged }) => {
                                   : provider.summary ||
                                     provider.card_description}
                               </p>
+                              {livePlatformAppHelp(provider.provider) && (
+                                <p className="text-white/40 text-xs mt-1">
+                                  {livePlatformAppHelp(provider.provider)}
+                                </p>
+                              )}
                             </div>
                           </div>
                           {isComingSoon ? (

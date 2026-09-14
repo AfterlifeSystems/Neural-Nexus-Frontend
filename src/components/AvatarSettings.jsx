@@ -19,11 +19,6 @@ import {
   Music,
   FileText,
   Globe,
-  Youtube,
-  Facebook,
-  Instagram,
-  Twitter,
-  Twitch,
   X,
   Camera,
   Mic,
@@ -114,21 +109,6 @@ import {
   voiceEmptyStateNotice,
 } from './research/researchBootstrapNotices';
 
-// Social Media Platform Configuration
-const SOCIAL_PLATFORMS = [
-  { id: 'youtube', name: 'YouTube', icon: Youtube, color: '#FF0000' },
-  { id: 'google', name: 'Google', icon: Globe, color: '#4285F4' },
-  { id: 'apple', name: 'Apple', icon: Globe, color: '#000000' },
-  { id: 'facebook', name: 'Facebook', icon: Facebook, color: '#1877F2' },
-  { id: 'instagram', name: 'Instagram', icon: Instagram, color: '#E4405F' },
-  { id: 'twitch', name: 'Twitch', icon: Twitch, color: '#9146FF' },
-  { id: 'twitter', name: 'X.com', icon: Twitter, color: '#000000' },
-  { id: 'grok', name: 'Grok', icon: Globe, color: '#1DA1F2' },
-  { id: 'claude', name: 'Claude', icon: Globe, color: '#8B4513' },
-  { id: 'chatgpt', name: 'ChatGPT', icon: Globe, color: '#10A37F' },
-  { id: 'microsoft', name: 'Microsoft', icon: Globe, color: '#00A4EF' },
-  { id: 'reddit', name: 'Reddit', icon: Globe, color: '#FF4500' },
-];
 /**
  * @param {Object} props
  * @param {string} props.avatarId The avatar being administered.
@@ -178,15 +158,6 @@ const AvatarSettings = ({ avatarId, onPortraitChanged }) => {
   const [isUpdatingSharing, setIsUpdatingSharing] = useState(false);
   // New state for document management
   const [isDragging, setIsDragging] = useState(false);
-  // Social account linking has no API endpoint yet; the modal below is kept
-  // wired but reports the feature as unavailable.
-  const [, setSocialLogins] = useState([]);
-  const [showLoginModal, setShowLoginModal] = useState(false);
-  const [selectedPlatform, setSelectedPlatform] = useState(null);
-  const [loginCredentials, setLoginCredentials] = useState({
-    username: '',
-    password: '',
-  });
   const [manualUrl, setManualUrl] = useState('');
   // Upload section checkbox: store what is added next as consultable
   // reference material (a menu PDF, a price list) rather than identity.
@@ -723,37 +694,6 @@ const AvatarSettings = ({ avatarId, onPortraitChanged }) => {
     startSectionUpload({ urls });
   };
 
-  const handleSocialLogin = (platform) => {
-    setSelectedPlatform(platform);
-    setShowLoginModal(true);
-  };
-  const submitSocialLogin = async () => {
-    // Social account linking is a planned feature with no API endpoint yet.
-    toast.error('Connecting social accounts is not available yet.');
-    setShowLoginModal(false);
-    setLoginCredentials({ username: '', password: '' });
-    setSelectedPlatform(null);
-  };
-  const removeSocialLogin = async (id) => {
-    setSocialLogins((prev) => prev.filter((login) => login.id !== id));
-  };
-  const getSocialUrl = (platform, username) => {
-    const urls = {
-      youtube: `https://youtube.com/@${username}`,
-      google: `https://myaccount.google.com/`,
-      apple: `https://appleid.apple.com/`,
-      facebook: `https://facebook.com/${username}`,
-      instagram: `https://instagram.com/${username}`,
-      twitch: `https://twitch.tv/${username}`,
-      twitter: `https://x.com/${username}`,
-      grok: `https://x.com/i/grok`,
-      claude: `https://claude.ai/`,
-      chatgpt: `https://chat.openai.com/`,
-      microsoft: `https://account.microsoft.com/`,
-      reddit: `https://reddit.com/user/${username}`,
-    };
-    return urls[platform] || '#';
-  };
   /**
    * Delete one uploaded source from the avatar.
    *
@@ -1425,57 +1365,6 @@ const AvatarSettings = ({ avatarId, onPortraitChanged }) => {
           </div>
         </div>
       )}
-      {/* Social Login Modal */}
-      {showLoginModal && (
-        <div className="fixed inset-0 z-40 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="bg-black/60 backdrop-blur-lg rounded-2xl p-6 max-w-md w-full border border-white/10">
-            <div className="flex justify-between items-center mb-6">
-              <h3 className="text-xl font-bold text-neutral-200">
-                Connect{' '}
-                {SOCIAL_PLATFORMS.find((p) => p.id === selectedPlatform)?.name}
-              </h3>
-              <button
-                onClick={() => setShowLoginModal(false)}
-                className="text-white/60 hover:text-neutral-100"
-              >
-                <X size={24} />
-              </button>
-            </div>
-            <div className="space-y-4">
-              <input
-                type="text"
-                placeholder="Username"
-                value={loginCredentials.username}
-                onChange={(e) =>
-                  setLoginCredentials((prev) => ({
-                    ...prev,
-                    username: e.target.value,
-                  }))
-                }
-                className="w-full px-4 py-3 bg-black/50 border border-white/10 rounded-lg text-neutral-200 placeholder-white/40 focus:outline-none focus:ring-2 focus:ring-amber-400/50"
-              />
-              <input
-                type="password"
-                placeholder="Password"
-                value={loginCredentials.password}
-                onChange={(e) =>
-                  setLoginCredentials((prev) => ({
-                    ...prev,
-                    password: e.target.value,
-                  }))
-                }
-                className="w-full px-4 py-3 bg-black/50 border border-white/10 rounded-lg text-neutral-200 placeholder-white/40 focus:outline-none focus:ring-2 focus:ring-amber-400/50"
-              />
-              <button
-                onClick={submitSocialLogin}
-                className="w-full px-6 py-3 bg-amber-400/15 hover:bg-amber-400/25 text-amber-300 font-semibold rounded-lg transition-all duration-300 border border-amber-400/30"
-              >
-                Connect Account
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
       {/* Header with Delete Button */}
       <div className="flex flex-wrap justify-between items-center gap-2">
         <h2 className="text-xl sm:text-2xl font-bold text-neutral-200">
@@ -1875,86 +1764,6 @@ const AvatarSettings = ({ avatarId, onPortraitChanged }) => {
           />
         )}
       </div>
-      {/* Social Media Section */}
-      {/* <div className="bg-black/60 backdrop-blur-lg rounded-2xl border border-white/10 p-6">
-        <h2 className="text-2xl font-semibold text-neutral-200 mb-4 flex items-center gap-2">
-          <Link size={24} />
-          Social Media Accounts
-        </h2>
-        {socialLogins.length > 0 && (
-          <div className="space-y-3 mb-4">
-            {socialLogins.map((login) => {
-              const platform = SOCIAL_PLATFORMS.find(
-                (p) => p.id === login.platform
-              );
-              const Icon = platform?.icon;
-              return (
-                <div
-                  key={login.id}
-                  className="bg-black/50 border border-white/10 rounded-lg p-4 flex items-center justify-between hover:bg-white/10 transition-all duration-300"
-                >
-                  <a
-                    href={getSocialUrl(login.platform, login.username)}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="flex items-center gap-3 flex-1"
-                  >
-                    {Icon && (
-                      <Icon size={32} style={{ color: platform.color }} />
-                    )}
-                    <div>
-                      <p className="text-neutral-200 font-semibold">
-                        {platform?.name}
-                      </p>
-                      <p className="text-white/60 text-sm">@{login.username}</p>
-                      <p className="text-white/40 text-xs">
-                        Connected{' '}
-                        {new Date(login.connectedAt).toLocaleDateString()}
-                      </p>
-                    </div>
-                    <ExternalLink size={16} className="text-white/40 ml-auto" />
-                  </a>
-                  <button
-                    onClick={(e) => {
-                      e.preventDefault();
-                      removeSocialLogin(login.id);
-                    }}
-                    className="text-red-400 hover:text-red-300 ml-4 p-2 hover:bg-red-500/20 rounded-lg transition-all duration-300"
-                  >
-                    <Trash2 size={20} />
-                  </button>
-                </div>
-              );
-            })}
-          </div>
-        )}
-        <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-3">
-          {SOCIAL_PLATFORMS.map((platform) => {
-            const Icon = platform.icon;
-            const isConnected = socialLogins.some(
-              (login) => login.platform === platform.id
-            );
-            return (
-              <button
-                key={platform.id}
-                onClick={() => !isConnected && handleSocialLogin(platform.id)}
-                disabled={isConnected}
-                className={`p-3 rounded-lg border transition-all duration-300 flex flex-col items-center gap-2 ${
-                  isConnected
-                    ? 'bg-green-500/20 border-green-500/50 cursor-not-allowed'
-                    : 'bg-black/60 border-white/10 hover:bg-white/10 hover:border-white/40'
-                }`}
-              >
-                <Icon size={24} style={{ color: platform.color }} />
-                <span className="text-neutral-200 text-xs">{platform.name}</span>
-                {isConnected && (
-                  <span className="text-xs text-green-400">Connected</span>
-                )}
-              </button>
-            );
-          })}
-        </div>
-      </div> */}
       {/* Upload Section */}
       <div
         ref={uploadSectionRef}

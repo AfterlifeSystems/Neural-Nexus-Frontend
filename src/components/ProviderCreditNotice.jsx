@@ -10,16 +10,27 @@
 // never happening. So the pause is written into the transcript, where it
 // stays as long as the conversation is on screen.
 //
-// This is not the reader's allotment. There is no Billing control. The card
-// sits across the column the way the billing refusal does, so it is not
-// mistaken for something the avatar or the reader said.
+// This is not the reader's allotment. Support is GitHub Sponsors. A press
+// on the card that is not a link, button, or frame opens billing so the
+// reader can subscribe. The card sits across the column the way the
+// billing refusal does, so it is not mistaken for something the avatar or
+// the reader said.
 
 import React from 'react';
+import { HeartHandshake } from 'lucide-react';
+import { Link, useLocation, useNavigate } from 'react-router-dom';
 
+import GitHubSponsorsEmbed from './GitHubSponsorsEmbed';
+import { clickLandedOnInteractiveControl } from '../services/clickLandedOnInteractiveControl';
 import {
   PROVIDER_CREDIT_NOTICE_BODY,
   PROVIDER_CREDIT_NOTICE_TITLE,
+  PROVIDER_CREDIT_SUBSCRIBE_LABEL,
+  PROVIDER_CREDIT_SUPPORT_LABEL,
+  PROVIDER_CREDIT_SUPPORT_REASON,
 } from '../services/providerCreditExhausted';
+import { GITHUB_SPONSORS_PAGE_URL } from '../services/githubSponsors';
+import { resolveBillingPath } from './utils';
 
 /**
  * The `type` a transcript entry carries when it is this notice rather than
@@ -48,19 +59,57 @@ export const buildProviderCreditNoticeMessage = () => ({
  * @param {Object} parameters.message The transcript entry to render.
  */
 const ProviderCreditNotice = ({ message }) => {
+  const navigate = useNavigate();
+  const location = useLocation();
+  const billingPath = resolveBillingPath(location.pathname);
   const title = message.title || PROVIDER_CREDIT_NOTICE_TITLE;
   const body = message.content || PROVIDER_CREDIT_NOTICE_BODY;
+
+  const openBilling = (clickEvent) => {
+    if (clickLandedOnInteractiveControl(clickEvent)) return;
+    navigate(billingPath);
+  };
 
   return (
     // Full width and centred rather than stuck to either edge: this is not
     // something the user said or something the avatar said, and a bubble on one
-    // side or the other would read as one of them saying it.
+    // side or the other would read as one of them saying it. A press on the
+    // card opens billing. Support, Billing, and the GitHub frame keep their
+    // own clicks.
     <div
       role="status"
-      className="self-stretch w-full my-2 p-3 rounded-xl bg-black/60 border border-neutral-400/30"
+      onClick={openBilling}
+      className="self-stretch w-full my-2 p-3 rounded-xl cursor-pointer bg-black/60 border border-neutral-400/30 hover:bg-white/10 transition-colors"
     >
-      <p className="text-sm font-medium text-white/90">{title}</p>
-      <p className="mt-1 text-sm text-white/60 whitespace-pre-wrap">{body}</p>
+      <div className="flex items-start gap-3">
+        <HeartHandshake className="w-5 h-5 shrink-0 mt-0.5 text-neutral-300" />
+        <div className="min-w-0">
+          <p className="text-sm font-medium text-white/90">{title}</p>
+          <p className="mt-1 text-sm text-white/60 whitespace-pre-wrap">
+            {body}
+          </p>
+          <p className="mt-1 text-sm text-white/60">
+            Open{' '}
+            <a
+              href={GITHUB_SPONSORS_PAGE_URL}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="font-semibold text-neutral-300 underline underline-offset-2 hover:text-neutral-100"
+            >
+              {PROVIDER_CREDIT_SUPPORT_LABEL}
+            </a>{' '}
+            {PROVIDER_CREDIT_SUPPORT_REASON}, or open{' '}
+            <Link
+              to={billingPath}
+              className="font-semibold text-neutral-300 underline underline-offset-2 hover:text-neutral-100"
+            >
+              {PROVIDER_CREDIT_SUBSCRIBE_LABEL}
+            </Link>{' '}
+            to subscribe.
+          </p>
+          <GitHubSponsorsEmbed className="mt-3" />
+        </div>
+      </div>
     </div>
   );
 };

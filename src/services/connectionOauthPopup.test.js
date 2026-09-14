@@ -6,6 +6,8 @@ import {
   accountKeyOfRow,
   apiOriginOf,
   navigatePopup,
+  authorizePaneFeatures,
+  openAuthorizePane,
   openPopupSynchronously,
   parseLoginResultMessage,
   pollUntilConnected,
@@ -148,6 +150,19 @@ test('a row matches the login by account key when known, else by being new', () 
   );
   assert.equal(accountKeyOfRow({ connection_key: 'account:gmail:a' }), 'gmail:a');
   assert.equal(accountKeyOfRow({ account_key: 'gmail:b', connection_key: 'account:gmail:b' }), 'gmail:b');
+});
+
+test('the authorize pane sits beside the chat, not a tiny centered popup', () => {
+  const pane = authorizePaneFeatures({
+    outerWidth: 1600,
+    outerHeight: 900,
+    screenX: 0,
+    screenY: 0,
+  });
+  assert.equal(pane.width, Math.round(1600 * 0.48));
+  assert.ok(pane.width >= 720);
+  assert.equal(pane.left, Math.round(1600 * 0.5));
+  assert.equal(openAuthorizePane('neural-nexus-login'), null);
 });
 
 test('opening a popup without a window yields null and navigating null is false', () => {

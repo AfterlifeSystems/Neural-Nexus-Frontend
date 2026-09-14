@@ -1,8 +1,10 @@
 // src/components/AvatarWorkspaceHeader.jsx
 //
-// The tab strip on an avatar's screen: Chat, Inbox (personal avatar),
-// Avatar Settings, and Avatar Selection. Every tab stays on screen: the
-// labels share the row and wrap rather than sliding sideways.
+// The identity block on an avatar's screen. The portrait and name sit
+// centered above Chat, Inbox (personal avatar), Avatar Settings, and Avatar
+// Selection so the face is the header, not a leftover beside the labels.
+// Clicking the portrait opens Chat. Tab labels share the row and wrap
+// rather than sliding sideways.
 
 import React from 'react';
 import { User } from 'lucide-react';
@@ -70,31 +72,44 @@ const AvatarWorkspaceHeader = ({
 }) => {
   return (
     <div
-      className={`flex items-center shrink-0 border-b border-white/10 gap-1 sm:gap-2 ${className}`}
+      data-workspace-header
+      className={`flex flex-col shrink-0 border-b border-white/10 ${className}`}
     >
-      <button
-        type="button"
-        data-workspace-portrait
-        title={avatarName ? `Open chat with ${avatarName}` : 'Open chat'}
-        aria-label={avatarName ? `Open chat with ${avatarName}` : 'Open chat'}
-        className="profile-bubble-disc relative w-8 h-8 sm:w-9 sm:h-9 shrink-0 rounded-full bg-black/50 border border-white/10 overflow-hidden hover:bg-white/10 focus:outline-none focus:ring-2 focus:ring-white/20"
-        onClick={() => onTabChange(workspaceHeaderPortraitTab())}
-      >
-        {headerFace && isValidImageUrl(headerFace) ? (
-          <ProfileBubbleImage
-            src={headerFace}
-            alt=""
-            assistantId={assistantId}
-            className="h-full w-full"
-            onError={onPortraitError}
-          />
-        ) : (
-          <User className="absolute inset-0 m-auto w-4 h-4 sm:w-5 sm:h-5 text-white/40" />
-        )}
-      </button>
+      <div className="relative flex items-center justify-center gap-2.5 px-3 pt-2 pb-1.5 sm:gap-3 sm:pt-2.5 sm:pb-2">
+        <button
+          type="button"
+          data-workspace-portrait
+          title={avatarName ? `Open chat with ${avatarName}` : 'Open chat'}
+          aria-label={avatarName ? `Open chat with ${avatarName}` : 'Open chat'}
+          className="profile-bubble-disc relative w-11 h-11 sm:w-14 sm:h-14 shrink-0 rounded-full bg-black/50 border border-white/10 overflow-hidden hover:bg-white/10 focus:outline-none focus:ring-2 focus:ring-white/20"
+          onClick={() => onTabChange(workspaceHeaderPortraitTab())}
+        >
+          {headerFace && isValidImageUrl(headerFace) ? (
+            <ProfileBubbleImage
+              src={headerFace}
+              alt=""
+              assistantId={assistantId}
+              className="h-full w-full"
+              onError={onPortraitError}
+            />
+          ) : (
+            <User className="absolute inset-0 m-auto w-5 h-5 sm:w-6 sm:h-6 text-white/40" />
+          )}
+        </button>
+        {avatarName ? (
+          <p className="max-w-[12rem] sm:max-w-xs text-sm sm:text-base font-semibold text-neutral-200 truncate">
+            {avatarName}
+          </p>
+        ) : null}
+        {trailing ? (
+          <div className="absolute right-0 top-1/2 -translate-y-1/2">
+            {trailing}
+          </div>
+        ) : null}
+      </div>
       <nav
         aria-label="Avatar workspace"
-        className="flex min-w-0 flex-1 items-stretch"
+        className="flex min-w-0 w-full items-stretch"
       >
         <WorkspaceTab
           tab="chat"
@@ -151,7 +166,6 @@ const AvatarWorkspaceHeader = ({
           </span>
         </WorkspaceTab>
       </nav>
-      {trailing}
     </div>
   );
 };

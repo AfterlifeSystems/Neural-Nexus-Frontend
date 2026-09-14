@@ -19,10 +19,14 @@ test('the workspace header portrait opens chat from inbox, settings, and selecti
     'utf8'
   );
   assert.match(headerSource, /data-workspace-portrait/);
+  assert.match(headerSource, /flex flex-col/);
   assert.match(
     headerSource,
     /onTabChange\(workspaceHeaderPortraitTab\(\)\)/
   );
+  const portraitIndex = headerSource.indexOf('data-workspace-portrait');
+  const navIndex = headerSource.indexOf('aria-label="Avatar workspace"');
+  assert.ok(portraitIndex > 0 && portraitIndex < navIndex);
 });
 
 test('the sidebar portrait path is the personal avatar chat, not settings', () => {

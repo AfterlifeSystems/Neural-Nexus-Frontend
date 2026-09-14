@@ -72,6 +72,7 @@ import {
 } from './personalAvatarWorkspace';
 import useInboxCount from '../hooks/useInboxCount';
 import {
+  galleryBoxIsPainted,
   galleryCardLayout,
   galleryFrameHeight,
 } from './galleryScrollIndex';
@@ -188,9 +189,10 @@ const AvatarSelectionComponent = ({}) => {
         0
       );
       const width = frame.clientWidth || stage.clientWidth || column.clientWidth;
-      // Wait for a real layout. Locking flex-grow off at 0×N px leaves
-      // the Create overlay as the only card that still paints.
-      if (width < 2 || available < 2) return;
+      // Wait for a real layout. The stage must stay shrink-0 and hug the
+      // frame. Locking flex-grow off on a flex-1 stage (basis 0% + min-h-0)
+      // collapses the glass card to a horizontal line.
+      if (!galleryBoxIsPainted(width, available)) return false;
       const height = galleryFrameHeight(width, available);
       const nextHeight = `${height}px`;
       // flex-1 is `flex-basis: 0%`. Turning off grow/shrink without a
@@ -206,8 +208,16 @@ const AvatarSelectionComponent = ({}) => {
         frame.style.height = nextHeight;
       }
       applyGalleryCardChrome(galleryCardLayout(width, height).pixelSize);
+      return true;
     };
-    applyFromColumn();
+    let measureFrame = 0;
+    const measureUntilPainted = (attemptsLeft) => {
+      if (applyFromColumn() || attemptsLeft <= 0) return;
+      measureFrame = window.requestAnimationFrame(() =>
+        measureUntilPainted(attemptsLeft - 1)
+      );
+    };
+    measureUntilPainted(12);
     const observer = new ResizeObserver(applyFromColumn);
     observer.observe(column);
     observer.observe(region);
@@ -215,7 +225,10 @@ const AvatarSelectionComponent = ({}) => {
     observer.observe(frame);
     if (search) observer.observe(search);
     if (footer) observer.observe(footer);
-    return () => observer.disconnect();
+    return () => {
+      window.cancelAnimationFrame(measureFrame);
+      observer.disconnect();
+    };
   }, [applyGalleryCardChrome]);
   const handleCreateCardMove = useCallback(
     ({ x, frontX, visible, isFront, cardPixelSize }) => {
@@ -1109,6 +1122,7 @@ const AvatarSelectionComponent = ({}) => {
         >
         <div
           ref={galleryFrameRef}
+          data-gallery-frame
           className="relative min-h-0 w-full overflow-hidden"
         >
           {/* The gallery is WebGL, so the Create Avatar entry it draws is a

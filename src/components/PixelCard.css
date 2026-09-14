@@ -9,6 +9,10 @@
 }
 
 .pixel-card {
+  /* Plus, glow, and pixel bloom all read these so the explosion cannot
+     drift off the icon. 50% / 50% is the card centre. */
+  --pixel-card-origin-x: 50%;
+  --pixel-card-origin-y: 50%;
   position: relative;
   overflow: hidden;
   display: grid;
@@ -31,9 +35,11 @@
   content: '';
   position: absolute;
   inset: 0;
-  margin: auto;
-  aspect-ratio: 1;
-  background: radial-gradient(circle, var(--pixel-card-active-color, #000000), transparent 85%);
+  background: radial-gradient(
+    circle at var(--pixel-card-origin-x) var(--pixel-card-origin-y),
+    var(--pixel-card-active-color, #000000),
+    transparent 85%
+  );
   opacity: 0;
   transition: opacity 800ms cubic-bezier(0.5, 1, 0.89, 1);
 }

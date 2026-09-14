@@ -16,10 +16,12 @@
 // that screen is where an anonymous visitor signs up and where an account adds
 // a payment method.
 //
-// A second standing failure is the operator's model account being out of
-// credit. That is not the reader's allotment, so it must never open Billing.
-// It is shown as the same two-pane card with a quieter sentence, and it also
-// stays until the reader presses Close.
+// A second standing failure is the operator's vendor account being out of
+// credit, or ElevenLabs / OpenAI / xAI refusing the key that account uses.
+// That is not the reader's allotment, so the sentence is about funding the
+// service rather than a spent month. Support is GitHub Sponsors. Billing
+// stays available so the reader can also subscribe. The card stays until
+// the reader presses Close.
 //
 // Those refusals also do not time out. Every other toast here reports something
 // the reader only has to read, so a timer is right for it; these ask to be
@@ -29,13 +31,19 @@
 
 import React from 'react';
 import { toast } from 'react-hot-toast';
-import { CreditCard } from 'lucide-react';
+import { CreditCard, HeartHandshake } from 'lucide-react';
 
+import GitHubSponsorsEmbed from './GitHubSponsorsEmbed';
+import { clickLandedOnInteractiveControl } from '../services/clickLandedOnInteractiveControl';
 import {
   PROVIDER_CREDIT_NOTICE_BODY,
   PROVIDER_CREDIT_NOTICE_TITLE,
+  PROVIDER_CREDIT_SUBSCRIBE_LABEL,
+  PROVIDER_CREDIT_SUPPORT_LABEL,
+  PROVIDER_CREDIT_SUPPORT_REASON,
   isProviderCreditExhausted,
 } from '../services/providerCreditExhausted';
+import { GITHUB_SPONSORS_PAGE_URL } from '../services/githubSponsors';
 import { readerIsAnonymousVisitor, resolveBillingPath } from './utils';
 
 /** The status the API refuses a spent allotment with. */
@@ -57,29 +65,64 @@ export { isProviderCreditExhausted };
 
 /**
  * The two-pane toast for a vendor-credit pause: the same chrome as the
- * billing refusal, without a Billing control. There is nowhere useful to
- * send the reader. Close dismisses it; a timer would erase the only
- * explanation while every later request is still refused.
+ * billing refusal. A press on the card that is not a link, button, or
+ * frame opens billing. Support is GitHub Sponsors. Close dismisses the
+ * card; a timer would erase the only explanation while every later
+ * request is still refused.
  *
  * @param {Object} [toastOptions] Passed through to react-hot-toast.
  */
 function showProviderCreditToast(toastOptions = {}) {
+  const billingPath = resolveBillingPath();
+  const openBilling = (clickEvent, creditToastId) => {
+    if (clickLandedOnInteractiveControl(clickEvent)) return;
+    toast.dismiss(creditToastId);
+    window.location.assign(billingPath);
+  };
+
   toast.custom(
     (creditToast) => (
       <div
+        onClick={(clickEvent) => openBilling(clickEvent, creditToast.id)}
         className={`${
           creditToast.visible
             ? 'opacity-100 translate-y-0'
             : 'opacity-0 -translate-y-2'
-        } transition-all duration-200 max-w-md w-full flex pointer-events-auto rounded-lg shadow-lg backdrop-blur-lg bg-[rgba(0,0,0,0.92)] ring-1 ring-white/15`}
+        } transition-all duration-200 max-w-md w-full flex pointer-events-auto cursor-pointer rounded-lg shadow-lg backdrop-blur-lg bg-[rgba(0,0,0,0.92)] ring-1 ring-white/15`}
       >
-        <div className="flex-1 w-0 p-4">
-          <p className="text-sm font-medium text-neutral-100">
-            {PROVIDER_CREDIT_NOTICE_TITLE}
-          </p>
-          <p className="mt-1 text-sm text-white/60">
-            {PROVIDER_CREDIT_NOTICE_BODY}
-          </p>
+        <div className="flex-1 w-0 p-4 rounded-l-lg">
+          <div className="flex items-start gap-3">
+            <HeartHandshake className="w-5 h-5 shrink-0 mt-0.5 text-neutral-300" />
+            <div className="min-w-0">
+              <p className="text-sm font-medium text-neutral-100">
+                {PROVIDER_CREDIT_NOTICE_TITLE}
+              </p>
+              <p className="mt-1 text-sm text-white/60">
+                {PROVIDER_CREDIT_NOTICE_BODY}
+              </p>
+              <p className="mt-1 text-sm text-white/60">
+                Open{' '}
+                <a
+                  href={GITHUB_SPONSORS_PAGE_URL}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="font-semibold text-neutral-300 underline underline-offset-2 hover:text-neutral-100"
+                >
+                  {PROVIDER_CREDIT_SUPPORT_LABEL}
+                </a>{' '}
+                {PROVIDER_CREDIT_SUPPORT_REASON}, or open{' '}
+                <a
+                  href={billingPath}
+                  onClick={() => toast.dismiss(creditToast.id)}
+                  className="font-semibold text-neutral-300 underline underline-offset-2 hover:text-neutral-100"
+                >
+                  {PROVIDER_CREDIT_SUBSCRIBE_LABEL}
+                </a>{' '}
+                to subscribe.
+              </p>
+              <GitHubSponsorsEmbed className="mt-3" />
+            </div>
+          </div>
         </div>
         <div className="flex border-l border-white/10">
           <button

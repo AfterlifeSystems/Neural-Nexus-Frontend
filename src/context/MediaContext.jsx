@@ -63,6 +63,8 @@ import {
   buildProviderCreditNoticeMessage,
 } from '../components/ProviderCreditNotice';
 import { followMediaJobWithToast } from '../services/mediaJobProgress.jsx';
+import { readLastDevicePositionText } from '../services/deviceLocation.js';
+import { setActivePhoneCall } from '../services/phoneCallListen';
 import { mediaEntriesFromFiles } from '../components/composerAttachments';
 import {
   loadThreadAttachments,
@@ -92,6 +94,7 @@ import {
   CONNECT_ACCOUNT_INTERRUPT_KIND,
   cardFromConnectionRow,
   connectionCardMessage,
+  isInChatCardInterrupt,
   pendingCardFromInterrupt,
   resolvePendingCards,
   settlePendingCards,
@@ -150,6 +153,7 @@ import {
   preferAvatarSpecificSuggestions,
   rememberOpeningSuggestions,
 } from '../services/conversationSuggestions';
+import { stripMinecraftBodyLeak } from '../services/stripMinecraftBodyLeak';
 import {
   rememberStandardConversationStarters,
   resolveStandardConversationStarters,
@@ -246,6 +250,13 @@ function describeInterrupt(interrupt) {
   if (interrupt?.kind === 'connect_account') {
     const displayName = interrupt?.display_name || 'an account';
     return `Waiting for you to connect ${displayName}`;
+  }
+  if (interrupt?.kind === 'computer_handoff') {
+    return 'Waiting for you to take over the computer';
+  }
+  if (interrupt?.kind === 'phone_call_confirm') {
+    const destination = interrupt?.destination_name || 'the restaurant';
+    return `Waiting for you to confirm a call to ${destination}`;
   }
   return 'Waiting for your confirmation on a correction';
 }
@@ -418,7 +429,7 @@ function normalizeThreadMessages(storedMessages, threadId = null) {
         content:
           storedMessage.type === 'human'
             ? withoutModelFacingAttachmentText(messageText)
-            : messageText,
+            : stripMinecraftBodyLeak(messageText),
         response_metadata: responseMetadata,
         // The connect cards this reply carries ("Gmail · Added · 6 tools")
         // and the chart specs an analytics turn drew, both kept on the row
@@ -1005,7 +1016,7 @@ export const MediaProvider = ({ children }) => {
     // the poll below notices the account and resumes the turn on its own.
     const pendingFromTranscript = messagesResponse?.pending_interrupt;
     const restoredInterrupt = pendingFromTranscript?.interrupt;
-    if (restoredInterrupt?.kind === CONNECT_ACCOUNT_INTERRUPT_KIND) {
+    if (isInChatCardInterrupt(restoredInterrupt)) {
       const pauseMessageId = `pending-interrupt-${threadId}`;
       storedMessages.push({
         id: pauseMessageId,
@@ -1091,6 +1102,10 @@ export const MediaProvider = ({ children }) => {
     const userTimezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
     if (userTimezone) {
       formData.append('user_timezone', userTimezone);
+    }
+    const ownerLocation = readLastDevicePositionText();
+    if (ownerLocation) {
+      formData.append('owner_location', ownerLocation);
     }
 
     return runAssistantTurnStream({
@@ -1310,7 +1325,7 @@ export const MediaProvider = ({ children }) => {
             ? {
                 ...message,
                 isLoading: false,
-                content: message.content + tokenText,
+                content: stripMinecraftBodyLeak(message.content + tokenText),
               }
             : message
         )
@@ -1463,6 +1478,9 @@ export const MediaProvider = ({ children }) => {
               streamEvent.thread_id,
               streamEvent.conversation_title
             );
+          } else if (streamEvent.type === 'minecraft_act') {
+            // The avatar moved the Mineflayer body. Commands are not speech
+            // and must not paint, speak, or fall through to extra handlers.
           } else if (streamEvent.type === 'share_stop') {
             // The avatar switched a share off. Nothing is asked of the person
             // and nothing is waited for; the stream carries straight on.
@@ -1488,6 +1506,8 @@ export const MediaProvider = ({ children }) => {
               }
               writeSceneNarration(narrationSwitch.enabled);
             }
+          } else if (streamEvent.type === 'phone_call') {
+            setActivePhoneCall(streamEvent);
           } else if (streamEvent.type === 'share_request') {
             // The avatar wanted the screen and no browser lets a page start a
             // capture, so the person is offered one press instead. Deliberately
@@ -1686,8 +1706,9 @@ export const MediaProvider = ({ children }) => {
       // would otherwise be dropped for holding no words is kept and given the
       // card. A deferred turn (spoken, ambient) may not have painted the
       // bubble yet; the card needs a message to live on.
-      const isConnectAccountPause =
-        terminalFrame.interrupt?.kind === CONNECT_ACCOUNT_INTERRUPT_KIND;
+      const isConnectAccountPause = isInChatCardInterrupt(
+        terminalFrame.interrupt
+      );
       if (isConnectAccountPause) {
         paintBubble();
       }
@@ -1780,7 +1801,7 @@ export const MediaProvider = ({ children }) => {
       } else {
         // A deferred turn that produced a reply without streaming tokens still
         // gets its bubble now; one that produced nothing leaves no trace.
-        if (String(terminalFrame.content ?? '').trim()) {
+        if (stripMinecraftBodyLeak(terminalFrame.content ?? '')) {
           paintBubble();
         }
         // Adopt the authoritative content and metadata from the terminal frame;
@@ -1802,7 +1823,9 @@ export const MediaProvider = ({ children }) => {
               ...message,
               isLoading: false,
               streamingText: false,
-              content: terminalFrame.content ?? message.content,
+              content: stripMinecraftBodyLeak(
+                terminalFrame.content ?? message.content
+              ),
               // Cut short by the person; the transcript says so under the
               // bubble, and the follow-up harvest leaves the turn alone.
               stopped: terminalFrameWasStopped(terminalFrame),
@@ -1940,7 +1963,8 @@ export const MediaProvider = ({ children }) => {
       if (errorFrame) {
         // The server said why. A spent allotment goes into the transcript
         // with the way to billing; a vendor-credit pause goes in as the
-        // quieter card. Anything else is a one-off and is toasted.
+        // Support card (GitHub Sponsors). Anything else is a one-off and
+        // is toasted.
         reportTurnFailure(
           streamErrorFromFrame(errorFrame),
           'The avatar could not finish that reply.'
@@ -2231,7 +2255,9 @@ export const MediaProvider = ({ children }) => {
       setMessages((previousMessages) =>
         settlePendingCards(previousMessages, {
           pauseMessageId: interruptToResume.pauseMessageId,
-          resultCard: decision === 'apply' ? resultCard : null,
+          resultCard:
+            resultCard ??
+            (decision === 'apply' || decision === 'done' ? resultCard : null),
         })
       );
     }
@@ -2375,7 +2401,7 @@ export const MediaProvider = ({ children }) => {
    *
    * The operator's model account being out of credit is written into the
    * transcript (see ProviderCreditNotice) and toasted, so the pause is
-   * visible even when the card is off-screen. It must never open Billing.
+   * visible even when the card is off-screen. Support is GitHub Sponsors.
    * A second card is not added while one is already the last line.
    *
    * Every other failure is reported by TOAST alone. Those are one-off — a

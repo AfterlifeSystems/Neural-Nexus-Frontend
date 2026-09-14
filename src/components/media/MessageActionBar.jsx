@@ -19,8 +19,13 @@ import {
   shortenThreadId,
 } from '../../config/langsmithDebug';
 import SpeakButton from './SpeakButton';
+import MessageStamp from './MessageStamp';
 import { editableScriptText } from '../speakerScript';
 import { formatMessageMetrics } from '../../services/messageResponseMetrics';
+import {
+  formatMessageStamp,
+  messageStampValueOf,
+} from '../../services/messageStamp';
 
 export { formatMessageMetrics };
 
@@ -133,7 +138,8 @@ const MessageActionBar = ({
     humanTurn: isFromUser,
     avatarName,
   });
-  if (!actionText) return null;
+  const stampLabel = formatMessageStamp(messageStampValueOf(message));
+  if (!actionText && !stampLabel) return null;
 
   const metrics = isFromAvatar ? formatMessageMetrics(message) : null;
   // The reactions the person chose on this reply, kept on the row by the
@@ -142,14 +148,10 @@ const MessageActionBar = ({
   const disliked = message.feedback?.type === 'dislike';
   const feltReal = message.feedback?.feels === 'feels_real';
   const feltOff = message.feedback?.feels === 'feels_fake';
-  const showAvatarActions = isFromAvatar;
-  const showUserActions = isFromUser && editingKey !== messageKey && !readOnly;
-  const timestamp = message.timestamp
-    ? new Date(message.timestamp).toLocaleTimeString(undefined, {
-        hour: '2-digit',
-        minute: '2-digit',
-      })
-    : null;
+  const showAvatarActions = Boolean(isFromAvatar && actionText);
+  const showUserActions = Boolean(
+    actionText && isFromUser && editingKey !== messageKey && !readOnly
+  );
 
   return (
     <>
@@ -340,15 +342,7 @@ const MessageActionBar = ({
               <span>LangSmith · {shortenThreadId(activeConversation)}</span>
             </a>
           )}
-          {timestamp && (
-            <div
-              className={`text-xs text-right select-none ${
-                overlay ? 'text-white/60' : 'text-neutral-400'
-              }`}
-            >
-              {timestamp}
-            </div>
-          )}
+          <MessageStamp message={message} overlay={overlay} />
         </div>
       </div>
       {isFromAvatar && !readOnly && feedbackKey === messageKey && (
