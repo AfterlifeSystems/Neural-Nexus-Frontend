@@ -7,6 +7,13 @@
 // it, so the gallery can size it to match the WebGL cards beside it.
 
 import { useEffect, useRef } from 'react';
+import {
+  PIXEL_CARD_ORIGIN_X,
+  PIXEL_CARD_ORIGIN_Y,
+  pixelAppearDelay,
+  pixelCardOriginCssPercent,
+  pixelCardOriginFraction,
+} from './pixelCardOrigin';
 import './PixelCard.css';
 
 class Pixel {
@@ -148,8 +155,9 @@ export default function PixelCard({
   children,
   onClick,
   // Phones have no hover. The gallery sets this while the card is in front
-  // so the pixels still expand from the centre the way a hover does.
+  // so the pixels still expand from --pixel-card-origin-* the way a hover does.
   active = false,
+  style,
   ...rest
 }) {
   const containerRef = useRef(null);
@@ -184,15 +192,20 @@ export default function PixelCard({
     canvasRef.current.style.height = `${height}px`;
 
     const colorsArray = finalColors.split(',');
+    const computedStyle = getComputedStyle(containerRef.current);
+    const originX = pixelCardOriginFraction(
+      computedStyle.getPropertyValue('--pixel-card-origin-x')
+    );
+    const originY = pixelCardOriginFraction(
+      computedStyle.getPropertyValue('--pixel-card-origin-y')
+    );
     const pxs = [];
     for (let x = 0; x < width; x += parseInt(finalGap, 10)) {
       for (let y = 0; y < height; y += parseInt(finalGap, 10)) {
         const color = colorsArray[Math.floor(Math.random() * colorsArray.length)];
-
-        const dx = x - width / 2;
-        const dy = y - height / 2;
-        const distance = Math.sqrt(dx * dx + dy * dy);
-        const delay = reducedMotion ? 0 : distance;
+        const delay = reducedMotion
+          ? 0
+          : pixelAppearDelay(x, y, width, height, originX, originY);
 
         pxs.push(new Pixel(canvasRef.current, ctx, x, y, color, getEffectiveSpeed(finalSpeed, reducedMotion), delay));
       }
@@ -282,6 +295,11 @@ export default function PixelCard({
     <div
       ref={containerRef}
       className={`pixel-card ${active ? 'is-active' : ''} ${className}`}
+      style={{
+        '--pixel-card-origin-x': pixelCardOriginCssPercent(PIXEL_CARD_ORIGIN_X),
+        '--pixel-card-origin-y': pixelCardOriginCssPercent(PIXEL_CARD_ORIGIN_Y),
+        ...style,
+      }}
       onMouseEnter={onMouseEnter}
       onMouseLeave={onMouseLeave}
       onFocus={finalNoFocus ? undefined : onFocus}

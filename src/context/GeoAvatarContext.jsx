@@ -24,6 +24,7 @@ import {
   canLocateDevice,
   describeLocationError,
   readGeoWatchPreference,
+  rememberLastDevicePosition,
   writeGeoWatchPreference,
 } from '../services/deviceLocation';
 import {
@@ -93,6 +94,12 @@ export function GeoAvatarProvider({ asAnonymousIdentity = false, onTalkNow, chil
 
   // Published for the conversation store, which builds every message request
   // from above the router and cannot read this context.
+  useEffect(() => {
+    if (position?.coords) {
+      rememberLastDevicePosition(position.coords.latitude, position.coords.longitude);
+    }
+  }, [position]);
+
   useEffect(() => {
     setStandingAtPlaces(
       nearbyAvatars

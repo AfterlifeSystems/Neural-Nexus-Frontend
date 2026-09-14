@@ -26,9 +26,11 @@ import useEmotionMedia from '../hooks/useEmotionMedia';
 import useAvatarFaceSource from '../hooks/useAvatarFaceSource';
 import useMessageActions from '../hooks/useMessageActions';
 import MessageActionBar from './media/MessageActionBar';
+import MessageStamp from './media/MessageStamp';
 import MessageEditor from './messageEdit/MessageEditor';
 import { isConversationSuggestionList } from '../services/conversationSuggestions';
 import { messageKeyOf } from '../services/messageKey';
+import { transcriptScrollSignature } from '../services/transcriptScroll';
 import AmbientNotificationCard from './AmbientNotificationCard';
 import { isAmbientNotice, isNoticeDismissed } from '../services/ambientNotice';
 import { noticeDecisionFor } from '../services/avatarPreferences';
@@ -183,6 +185,8 @@ const MessageList = ({
   const readerPortrait = readerIsTheAnonymousVisitor ? null : userPortrait;
   const speakerOptions = { humanTurn: true, avatarName };
 
+  const transcriptGrowthKey = transcriptScrollSignature(messages);
+
   useEffect(() => {
     const transcriptEndMarker = messagesEndRef?.current;
     if (!transcriptEndMarker) return;
@@ -192,6 +196,10 @@ const MessageList = ({
     // document of a parent frame, so on the landing page — which embeds this
     // chat as the live demo — it dragged the whole page down to the demo the
     // moment the frame mounted, past the headline nobody had read yet.
+    //
+    // A thumb or a metrics attach rewrites `messages` without adding a turn.
+    // The signature is the spoken/shown body only, so a rating cannot yank
+    // the reader off the bubble they just pressed.
     const transcriptScrollBox =
       findNearestScrollingAncestor(transcriptEndMarker);
     if (!transcriptScrollBox) return;
@@ -199,7 +207,7 @@ const MessageList = ({
       top: transcriptScrollBox.scrollHeight,
       behavior: 'smooth',
     });
-  }, [messages, messagesEndRef]);
+  }, [transcriptGrowthKey, messagesEndRef]);
 
   return (
     <div className="flex-grow mb-4 space-y-2 px-2 flex flex-col min-w-0 w-full">
@@ -223,8 +231,9 @@ const MessageList = ({
           }
 
           // The service that writes replies is paused on our side. Same
-          // column-wide card as the billing refusal, without a Billing
-          // control — the reader's allotment is not the reason.
+          // column-wide card as the billing refusal. Support is GitHub
+          // Sponsors; Billing is still offered so the reader can subscribe.
+          // The reader's allotment is not the reason.
           if (type === PROVIDER_CREDIT_NOTICE_MESSAGE_TYPE) {
             return <ProviderCreditNotice key={messageKey} message={msg} />;
           }
@@ -474,22 +483,27 @@ const MessageList = ({
                 >
                   {isFromAvatar && <LearnedFactsBadge message={msg} />}
                   {isLoading ? (
-                    <div className="flex items-center justify-between gap-3">
-                      <div className="flex space-x-1">
-                        <div
-                          className="w-2 h-2 bg-white rounded-full animate-bounce"
-                          style={{ animationDelay: '0ms' }}
-                        />
-                        <div
-                          className="w-2 h-2 bg-white rounded-full animate-bounce"
-                          style={{ animationDelay: '150ms' }}
-                        />
-                        <div
-                          className="w-2 h-2 bg-white rounded-full animate-bounce"
-                          style={{ animationDelay: '300ms' }}
-                        />
+                    <div className="space-y-1">
+                      <div className="flex items-center justify-between gap-3">
+                        <div className="flex space-x-1">
+                          <div
+                            className="w-2 h-2 bg-white rounded-full animate-bounce"
+                            style={{ animationDelay: '0ms' }}
+                          />
+                          <div
+                            className="w-2 h-2 bg-white rounded-full animate-bounce"
+                            style={{ animationDelay: '150ms' }}
+                          />
+                          <div
+                            className="w-2 h-2 bg-white rounded-full animate-bounce"
+                            style={{ animationDelay: '300ms' }}
+                          />
+                        </div>
+                        {isGeneratingThisReply && renderStopReplyButton()}
                       </div>
-                      {isGeneratingThisReply && renderStopReplyButton()}
+                      <div className="flex justify-end">
+                        <MessageStamp message={msg} />
+                      </div>
                     </div>
                   ) : (
                     <>

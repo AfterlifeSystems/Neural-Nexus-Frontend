@@ -12,6 +12,7 @@ import {
   pendingCardFromInterrupt,
   resolvePendingCards,
   settlePendingCards,
+  isInChatCardInterrupt,
 } from './connectionCards.js';
 
 const gmailInterrupt = {
@@ -48,6 +49,14 @@ test('an interrupt becomes a pending card and other interrupt kinds do not', () 
   assert.equal(card.login_endpoint, '/connect_account/oauth/start');
   assert.equal(pendingCardFromInterrupt({ kind: 'fact_correction' }), null);
   assert.equal(pendingCardFromInterrupt(null), null);
+  const computer = pendingCardFromInterrupt({
+    kind: 'computer_handoff',
+    task: 'Sign in to Cursor',
+    preview_frame: 'abc',
+  });
+  assert.equal(computer.status, 'action_needed');
+  assert.equal(computer.pending, true);
+  assert.equal(isInChatCardInterrupt({ kind: 'computer_handoff' }), true);
 });
 
 test('the status line reads like the API prints for the caption strip', () => {
@@ -77,6 +86,14 @@ test('the status line reads like the API prints for the caption strip', () => {
     'Gmail · Sign-in failed'
   );
   assert.equal(cardStatusLine({ provider: 'slack' }), 'slack · Not connected');
+  assert.equal(
+    cardStatusLine({ display_name: 'Computer', status: 'action_needed' }),
+    'Computer · Action needed'
+  );
+  assert.equal(
+    cardStatusLine({ display_name: 'Computer', status: 'done' }),
+    'Computer · Done'
+  );
 });
 
 test('a message with only cards is card-only; words, files, or charts make a bubble', () => {

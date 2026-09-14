@@ -10,6 +10,7 @@ import WebsiteConnectorForm from './WebsiteConnectorForm';
 import {
   CONNECTOR_CATEGORY_LABELS,
   connectorFilterOptions,
+  livePlatformAppHelp,
   matchesConnectorCategory,
   matchesConnectorSearch,
 } from './connectorSearch';
@@ -268,6 +269,11 @@ const NewConnectorPicker = ({
                             ? `${connectedCount} connected · Connect another`
                             : provider.summary || provider.card_description}
                       </p>
+                      {livePlatformAppHelp(provider.provider) && (
+                        <p className="text-white/40 text-xs truncate">
+                          {livePlatformAppHelp(provider.provider)}
+                        </p>
+                      )}
                     </div>
                     {isComingSoon ? (
                       <span className="shrink-0 px-3 py-1 rounded-full bg-white/10 border border-white/10 text-white/60 text-xs">

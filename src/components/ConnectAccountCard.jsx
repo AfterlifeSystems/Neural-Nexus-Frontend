@@ -1,6 +1,6 @@
 // src/components/ConnectAccountCard.jsx
 import React, { useEffect, useRef, useState } from 'react';
-import { Check, ExternalLink, Loader2, RotateCcw } from 'lucide-react';
+import { Check, ExternalLink, Loader2, RotateCcw, X } from 'lucide-react';
 import ConnectorIcon from './icons/ConnectorIcon';
 import {
   cancelConnectionLogin,
@@ -17,7 +17,7 @@ import {
   apiOriginOf,
   closePopup,
   navigatePopup,
-  openPopupSynchronously,
+  openAuthorizePane,
   parseLoginResultMessage,
   pollUntilConnected,
   rowMatchesLogin,
@@ -41,6 +41,8 @@ import {
   startedInOwnBrowser,
 } from '../services/ownBrowserSignIn';
 import AddDevicePanel from './connections/AddDevicePanel';
+import { oauthOfferLabels } from '../services/oauthAuthorizeCard';
+import { livePlatformAppHelp } from './connections/connectorSearch';
 
 // How long a closed popup is given to still deliver a result (a result posts
 // in the popup's last moments, and the connections list lags by a poll).
@@ -50,8 +52,12 @@ const GOOGLE_PROVIDERS = new Set([
   'gmail',
   'google_calendar',
   'google_analytics',
+  'google_sheets',
+  'google_drive',
   'youtube',
 ]);
+
+const OAUTH_LOGIN_MODES = new Set(['oauth_popup', 'oauth']);
 
 /**
  * The path a card takes to a connected account, from the provider's
@@ -93,8 +99,8 @@ function siteHostOf(payload) {
  */
 function popupButtonLabel(payload, loginMode) {
   const provider = String(payload?.provider ?? '');
-  if (GOOGLE_PROVIDERS.has(provider) || provider.startsWith('google')) {
-    return 'Sign in with Google';
+  if (OAUTH_LOGIN_MODES.has(loginMode) || GOOGLE_PROVIDERS.has(provider) || provider.startsWith('google')) {
+    return 'Authorize';
   }
   if (loginMode === 'plaid_link') return 'Connect bank';
   if (loginMode === 'browser_session') {
@@ -281,6 +287,7 @@ const ConnectAccountCard = ({
     ...(prefilledFields ?? {}),
   }));
   const [errorMessage, setErrorMessage] = useState(null);
+  const [infoMessage, setInfoMessage] = useState(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isWaitingForPopup, setIsWaitingForPopup] = useState(false);
   const [fallbackLink, setFallbackLink] = useState(null);
@@ -364,6 +371,18 @@ const ConnectAccountCard = ({
         fields: fieldValues,
         endpoint: connectEndpoint || '/connect_account',
       });
+      if (response?.action === 'enter_verification_code') {
+        setErrorMessage(null);
+        setFieldValues((current) => ({
+          ...current,
+          phone_number: current.phone_number || response.owner_mobile_e164 || '',
+        }));
+        setInfoMessage(
+          response.message ||
+            'A confirmation code was sent to that mobile. Enter the code to finish. No new number is assigned.'
+        );
+        return;
+      }
       if (response?.action === 'open_login_popup') {
         // The API cannot connect this one from a form: the server demands a
         // sign-in, or the site signs in on its own page. The next press opens
@@ -416,7 +435,7 @@ const ConnectAccountCard = ({
     if (isSubmitting) return;
     const login =
       loginOverride && loginOverride.login_endpoint ? loginOverride : effectiveLogin;
-    const popup = openPopupSynchronously(`neural-nexus-login-${provider}`);
+    const popup = openAuthorizePane(`neural-nexus-login-${provider}`);
     popupRef.current = popup;
     loginControllerRef.current?.abort();
     const controller = new AbortController();
@@ -535,7 +554,6 @@ const ConnectAccountCard = ({
 
       if (outcome.kind === 'message') {
         if (outcome.result.ok) {
-          closePopup(popup);
           finishConnected(cardFromLoginResult(outcome.result, payload));
           return;
         }
@@ -546,7 +564,6 @@ const ConnectAccountCard = ({
         return;
       }
       if (outcome.kind === 'row') {
-        closePopup(popup);
         finishConnected(cardFromConnectionRow(outcome.row, payload));
         return;
       }
@@ -632,6 +649,7 @@ const ConnectAccountCard = ({
   }
 
   const padding = compact ? 'p-3' : 'p-4';
+  const oauthLabels = oauthOfferLabels(displayName ?? provider);
   const popupLabel = popupButtonLabel(
     { ...payload, login_request: effectiveLogin.login_request },
     effectiveLogin.login_mode
@@ -651,6 +669,11 @@ const ConnectAccountCard = ({
           {cardDescription && !isDevice && !compact && (
             <p className="text-white/60 text-sm whitespace-normal break-words">
               {cardDescription}
+            </p>
+          )}
+          {livePlatformAppHelp(provider) && !isDevice && !compact && (
+            <p className="text-white/40 text-xs whitespace-normal break-words mt-1">
+              {livePlatformAppHelp(provider)}
             </p>
           )}
           {stage === 'connected' ? (
@@ -674,14 +697,14 @@ const ConnectAccountCard = ({
             Coming soon
           </span>
         ) : (
-          stage === 'offer' &&
-          loginPath !== 'device' && (
+          stage === 'offer' && (
             <button
               type="button"
-              onClick={() => setStage('signing_in')}
-              className="shrink-0 px-4 py-2 rounded-lg bg-neutral-100/10 hover:bg-neutral-100/15 border border-neutral-700 text-neutral-300 text-sm font-medium transition-colors"
+              onClick={handleDismiss}
+              aria-label="Dismiss"
+              className="shrink-0 p-1.5 rounded-lg text-white/40 hover:text-white/80"
             >
-              Add {displayName ?? provider}
+              <X className="w-4 h-4" aria-hidden="true" />
             </button>
           )
         )}
@@ -709,14 +732,37 @@ const ConnectAccountCard = ({
         </p>
       )}
 
-      {stage === 'offer' && (
+      {stage === 'offer' && loginPath !== 'device' && !isComingSoon && (
+        <div className="mt-3 flex flex-wrap items-center gap-2">
+          <button
+            type="button"
+            onClick={() => setStage('signing_in')}
+            className="px-4 py-2 rounded-lg bg-amber-400 hover:bg-amber-300 text-black text-sm font-medium"
+          >
+            {oauthLabels.add}
+          </button>
+          <button
+            type="button"
+            onClick={handleDismiss}
+            className="px-4 py-2 rounded-lg bg-neutral-100/10 hover:bg-neutral-100/15 border border-neutral-700 text-neutral-300 text-sm font-medium"
+          >
+            {oauthLabels.skip}
+          </button>
+        </div>
+      )}
+      {stage === 'offer' && (isComingSoon || loginPath === 'device') && (
         <button
           type="button"
           onClick={handleDismiss}
           className="mt-3 text-white/40 hover:text-white/70 text-xs underline transition-colors"
         >
-          {isComingSoon || loginPath === 'device' ? 'Close' : 'Not now'}
+          Close
         </button>
+      )}
+      {stage === 'signing_in' && loginPath === 'popup' && !isWaitingForPopup && !ownBrowserLogin && (
+        <p className="mt-3 text-white/60 text-sm">
+          {oauthLabels.installing}
+        </p>
       )}
 
       {stage === 'signing_in' && loginPath === 'form' && (
@@ -761,6 +807,11 @@ const ConnectAccountCard = ({
             </a>
           )}
 
+          {infoMessage && (
+            <p className="text-emerald-200 text-sm bg-emerald-500/10 border border-emerald-500/30 rounded-lg px-3 py-2">
+              {infoMessage}
+            </p>
+          )}
           {errorMessage && (
             <p
               role="alert"
@@ -785,7 +836,9 @@ const ConnectAccountCard = ({
                   : 'Connecting…'
                 : isMailbox
                   ? 'Sign in'
-                  : 'Add connector'}
+                  : provider === 'phone'
+                    ? 'Use this phone'
+                    : 'Add connector'}
             </button>
             <button
               type="button"
@@ -853,8 +906,7 @@ const ConnectAccountCard = ({
           {isWaitingForPopup && !errorMessage && !ownBrowserLogin && (
             <p className="text-amber-200/90 text-sm inline-flex items-center gap-2">
               <Loader2 className="w-4 h-4 animate-spin" aria-hidden="true" />
-              Finish signing in in the window that opened. This card updates on
-              its own.
+              {oauthLabels.waiting}
             </p>
           )}
 
@@ -944,7 +996,8 @@ const ConnectAccountCard = ({
                     : handlePopupLogin()
                 }
                 disabled={
-                  isSubmitting || (Boolean(siteRequest) && !siteUrlValue.trim())
+                  (isSubmitting && !isWaitingForPopup) ||
+                  (Boolean(siteRequest) && !siteUrlValue.trim())
                 }
                 className="px-4 py-2 rounded-lg bg-neutral-100/10 hover:bg-neutral-100/15 disabled:opacity-40 disabled:hover:bg-neutral-100/10 border border-neutral-700 text-neutral-300 text-sm font-medium transition-colors inline-flex items-center gap-2"
               >
@@ -953,13 +1006,13 @@ const ConnectAccountCard = ({
                 ) : errorMessage ? (
                   <RotateCcw className="w-4 h-4" aria-hidden="true" />
                 ) : null}
-                {isSubmitting
-                  ? isWaitingForPopup
-                    ? 'Waiting for sign-in…'
-                    : 'Opening…'
-                  : errorMessage
-                    ? 'Try again'
-                    : popupLabel}
+                {isWaitingForPopup
+                  ? oauthLabels.reopen
+                  : isSubmitting
+                    ? 'Opening…'
+                    : errorMessage
+                      ? 'Try again'
+                      : popupLabel}
               </button>
               <button
                 type="button"

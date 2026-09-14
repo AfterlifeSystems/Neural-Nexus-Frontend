@@ -307,6 +307,47 @@ const DataServerConsentPanel = ({ interrupt, onResume, isResuming }) => {
  * Mounted in the message list so the panel appears exactly where the assistant's
  * next message would have been.
  */
+const PhoneCallConfirmPanel = ({ interrupt, onResume, isResuming }) => {
+  const destination = interrupt.destination_name || 'the restaurant';
+  const item = interrupt.item || 'the order';
+  const travel = interrupt.travel?.duration_text;
+  return (
+    <div className={PANEL_CLASSES} data-phone-call-confirm="">
+      <p className="text-neutral-200 text-sm mb-2">
+        Call {destination} to order {item}? The avatar will ring your mobile
+        first so you can listen. Pickup and pay at the counter only — no card
+        on the line.
+      </p>
+      {travel && travel !== 'unknown' && (
+        <p className="text-white/60 text-xs mb-3">Travel: {travel}</p>
+      )}
+      {!interrupt.destination_phone_e164 && (
+        <p className="text-amber-200 text-xs mb-3">
+          No dialable number was found. Do not place this call.
+        </p>
+      )}
+      <div className="flex flex-wrap gap-2">
+        <button
+          type="button"
+          className={PRIMARY_BUTTON_CLASSES}
+          disabled={isResuming || !interrupt.destination_phone_e164}
+          onClick={() => onResume('apply')}
+        >
+          Place the call
+        </button>
+        <button
+          type="button"
+          className={SECONDARY_BUTTON_CLASSES}
+          disabled={isResuming}
+          onClick={() => onResume('cancel')}
+        >
+          Not now
+        </button>
+      </div>
+    </div>
+  );
+};
+
 const InterruptPanel = () => {
   const { pendingInterrupt, resumePendingInterrupt, updateFactReviewDraft } =
     useMedia();
@@ -349,14 +390,16 @@ const InterruptPanel = () => {
   // only then is the turn resumed, carrying a decision and a record of the
   // outcome; see the note in ConnectAccountCard on why a credential must
   // never travel as an interrupt's resume value.
-  if (interrupt.kind === 'connect_account') {
+  if (interrupt.kind === 'connect_account' || interrupt.kind === 'computer_handoff') {
     return null;
   }
 
   const PanelForKind =
-    interrupt.kind === 'mcp_connect_consent'
-      ? DataServerConsentPanel
-      : FactCorrectionPanel;
+    interrupt.kind === 'phone_call_confirm'
+      ? PhoneCallConfirmPanel
+      : interrupt.kind === 'mcp_connect_consent'
+        ? DataServerConsentPanel
+        : FactCorrectionPanel;
 
   return (
     <PanelForKind

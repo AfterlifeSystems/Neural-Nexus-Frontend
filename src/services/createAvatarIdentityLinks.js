@@ -110,33 +110,50 @@ export function researchHintFromIdentityLinks(urls = []) {
 }
 
 /**
- * Append identity-link sentences to the photograph research hint.
+ * Append identity-link and voice-reference sentences to the photograph
+ * research hint.
  *
  * @param {string} [photoHint]
  * @param {string[]} [identityUrls]
+ * @param {string} [voiceHint]
  * @returns {string}
  */
-export function composeCreateAvatarResearchHint(photoHint = '', identityUrls = []) {
+export function composeCreateAvatarResearchHint(
+  photoHint = '',
+  identityUrls = [],
+  voiceHint = ''
+) {
   const linksHint = researchHintFromIdentityLinks(identityUrls);
-  return [String(photoHint ?? '').trim(), linksHint].filter(Boolean).join(' ');
+  return [String(photoHint ?? '').trim(), linksHint, String(voiceHint ?? '').trim()]
+    .filter(Boolean)
+    .join(' ');
 }
 
 /**
- * Extra identity URLs for the post-create ingest. The photograph address is
- * already sent as identity media, so the same (or YouTube-equivalent) link is
- * dropped here.
+ * Extra identity URLs for the post-create ingest. The photograph address and
+ * any voice-reference address are already sent on their own jobs, so the
+ * same (or YouTube-equivalent) link is dropped here.
  *
  * @param {string[]} [identityUrls]
  * @param {string} [photoUrl]
+ * @param {string[]} [voiceUrls]
  * @returns {string[]}
  */
-export function identityUrlsForUpload(identityUrls = [], photoUrl = '') {
+export function identityUrlsForUpload(
+  identityUrls = [],
+  photoUrl = '',
+  voiceUrls = []
+) {
   const extra = collectIdentityLinks([], (identityUrls ?? []).join('\n'));
-  const photoKeys = new Set(
-    parseHttpUrls(String(photoUrl ?? '').trim()).map((url) =>
-      mediaUrlIdentityKey(url)
-    )
+  const skipKeys = new Set(
+    [
+      ...parseHttpUrls(String(photoUrl ?? '').trim()),
+      ...(Array.isArray(voiceUrls) ? voiceUrls : []),
+    ]
+      .flatMap((url) => parseHttpUrls(String(url ?? '').trim()))
+      .map((url) => mediaUrlIdentityKey(url))
+      .filter(Boolean)
   );
-  if (photoKeys.size === 0) return extra;
-  return extra.filter((url) => !photoKeys.has(mediaUrlIdentityKey(url)));
+  if (skipKeys.size === 0) return extra;
+  return extra.filter((url) => !skipKeys.has(mediaUrlIdentityKey(url)));
 }

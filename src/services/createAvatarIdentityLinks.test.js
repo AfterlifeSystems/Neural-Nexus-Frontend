@@ -105,6 +105,14 @@ test('composeCreateAvatarResearchHint appends identity links to the photo hint',
     composeCreateAvatarResearchHint('Photo hint.', ['https://example.com/a']),
     'Photo hint. An identity source link was given: https://example.com/a.'
   );
+  assert.equal(
+    composeCreateAvatarResearchHint(
+      'Photo hint.',
+      ['https://example.com/a'],
+      'Reference audio was given for the voice: mom.m4a.'
+    ),
+    'Photo hint. An identity source link was given: https://example.com/a. Reference audio was given for the voice: mom.m4a.'
+  );
 });
 
 test('identityUrlsForUpload drops the photograph address and YouTube equivalents', () => {
@@ -128,5 +136,16 @@ test('identityUrlsForUpload drops the photograph address and YouTube equivalents
       'https://youtu.be/dQw4w9WgXcQ'
     ),
     []
+  );
+  assert.deepEqual(
+    identityUrlsForUpload(
+      [
+        'https://example.com/bio',
+        'https://cdn.example.com/talk.mp3',
+      ],
+      '',
+      ['https://cdn.example.com/talk.mp3']
+    ),
+    ['https://example.com/bio']
   );
 });

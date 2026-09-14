@@ -4,11 +4,15 @@
 // which owns subscriptions, payment methods, invoices, and usage meters. This
 // page embeds that portal rather than reimplementing any of it: no billing
 // state is held in this application, and nothing here talks to Stripe.
+//
+// Sponsorships are separate: GitHub Sponsors for efwoods sits on this page
+// above the portal so a reader who came to subscribe can also donate.
 
 import React, { useEffect, useRef, useState } from 'react';
 import { ArrowLeft, ExternalLink, CreditCard } from 'lucide-react';
 import { useNavigate, useParams } from 'react-router-dom';
 
+import GitHubSponsorsEmbed from './GitHubSponsorsEmbed';
 import { SHARED_AVATAR_ROUTE_PREFIX } from './utils';
 
 const BILLING_PORTAL_URL =
@@ -109,7 +113,20 @@ const BillingManagement = ({ showAccountMenu = true }) => {
         </a>
       </div>
 
-      <div className="relative flex-grow min-h-[600px] rounded-2xl overflow-hidden border border-white/10 bg-black/30">
+      <section
+        aria-label="Support Neural Nexus"
+        className="shrink-0 rounded-2xl border border-white/10 bg-black/30 p-4"
+      >
+        <h2 className="text-sm font-medium text-neutral-200">
+          Support Neural Nexus
+        </h2>
+        <p className="mt-1 text-sm text-white/60">
+          Sponsor Evan Woods on GitHub, or subscribe in the portal below.
+        </p>
+        <GitHubSponsorsEmbed className="mt-3" />
+      </section>
+
+      <div className="relative flex-grow min-h-[360px] rounded-2xl overflow-hidden border border-white/10 bg-black/30">
         {!hasLoaded && (
           <div className="absolute inset-0 flex items-center justify-center text-white/60">
             Loading the customer portal…
@@ -132,7 +149,8 @@ const BillingManagement = ({ showAccountMenu = true }) => {
 
       <p className="text-white/40 text-xs">
         Subscriptions, payment methods, invoices, and usage are managed in the
-        Neural Nexus customer portal above.
+        Neural Nexus customer portal above. Sponsorships go through GitHub
+        Sponsors.
       </p>
     </div>
   );

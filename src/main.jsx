@@ -26,6 +26,7 @@ import InboxPanel from './components/inbox/InboxPanel';
 import BillingManagement from './components/BillingManagement';
 import LoadingSpinner from './components/LoadingSpinner';
 import { loadDeployedModule } from './services/loadDeployedModule';
+import { replaceLoopbackPageWithLocalhost } from './services/loopbackPageUrl';
 import SharedAvatarLayout from './components/SharedAvatarLayout';
 import SharedAvatarChat from './components/SharedAvatarChat';
 import SharedThreadChat from './components/SharedThreadChat';
@@ -38,6 +39,9 @@ const WorldMapScreen = lazy(() =>
   loadDeployedModule(() => import('./components/geo/WorldMapScreen'))
 );
 
+// 127.0.0.1 and localhost are different origins. Stay on localhost so
+// the signed-in session and the avatar gallery are the ones already here.
+if (!replaceLoopbackPageWithLocalhost(window.location)) {
 createRoot(document.getElementById('root')).render(
   <>
     <Toaster
@@ -183,3 +187,4 @@ createRoot(document.getElementById('root')).render(
     </AuthProvider>
   </>
 );
+}

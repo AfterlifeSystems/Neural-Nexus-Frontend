@@ -6,7 +6,7 @@
 // desktop the live camera is a canvas snapshot and the pin comes from this
 // device instead. A URL is fetched by the server and pins nothing.
 
-import { useEffect, useRef, useState } from 'react';
+import { forwardRef, useEffect, useImperativeHandle, useRef, useState } from 'react';
 import { Camera, ImageUp, Link, Loader2, X } from 'lucide-react';
 
 import ImageViewport from './ImageViewport';
@@ -33,20 +33,27 @@ function prefersNativeCamera() {
  * @param {'exif'|'device'|null} [props.placeSource] How the pin was resolved.
  * @param {string} [props.placeError] Why the place could not be read.
  * @param {boolean} [props.disabled]
+ * @param {boolean} [props.showChooser] When false, the parent owns the empty
+ *   state (drop zone, file picker, URL field). This field still shows the
+ *   live camera and the chosen photograph.
  * @param {(isBusy: boolean) => void} [props.onBusyChange]
  * @param {(payload: {file: File|null, url: string|null, place: Object|null, placeError: string}) => void} props.onChosen
  * @param {() => void} props.onClear
  */
-const CreateAvatarPhotoField = ({
-  file,
-  url = null,
-  placeSource = null,
-  placeError = '',
-  disabled = false,
-  onBusyChange,
-  onChosen,
-  onClear,
-}) => {
+const CreateAvatarPhotoField = forwardRef(function CreateAvatarPhotoField(
+  {
+    file,
+    url = null,
+    placeSource = null,
+    placeError = '',
+    disabled = false,
+    showChooser = true,
+    onBusyChange,
+    onChosen,
+    onClear,
+  },
+  ref
+) {
   const captureInputRef = useRef(null);
   const libraryInputRef = useRef(null);
   const urlInputRef = useRef(null);
@@ -235,15 +242,23 @@ const CreateAvatarPhotoField = ({
     startLiveCamera();
   };
 
+  useImperativeHandle(ref, () => ({
+    openTakePicture,
+  }));
+
   return (
-    <div className="mb-4">
-      <p className="text-sm text-neutral-300">
-        Photograph a name or place, or paste an image link
-      </p>
-      <p className="mt-1 text-xs text-white/40">
-        The picture becomes the reference image and is used for deep research.
-        A photograph pins the avatar where it was taken.
-      </p>
+    <div className={showChooser ? 'mb-4' : undefined}>
+      {showChooser ? (
+        <>
+          <p className="text-sm text-neutral-300">
+            Photograph a name or place, or paste an image link
+          </p>
+          <p className="mt-1 text-xs text-white/40">
+            The picture becomes the reference image and is used for deep research.
+            A photograph pins the avatar where it was taken.
+          </p>
+        </>
+      ) : null}
 
       <input
         ref={captureInputRef}
@@ -296,21 +311,33 @@ const CreateAvatarPhotoField = ({
         <div className="mt-3">
           <div className="relative">
             {previewUrl || !urlPreviewFailed ? (
-              <ImageViewport
-                className="h-52 w-full rounded-lg border border-white/10 bg-black"
-                label="Photograph for this avatar"
-                resetKey={previewUrl ?? url}
-              >
+              showChooser ? (
+                <ImageViewport
+                  className="h-52 w-full rounded-lg border border-white/10 bg-black"
+                  label="Photograph for this avatar"
+                  resetKey={previewUrl ?? url}
+                >
+                  <img
+                    src={previewUrl ?? url}
+                    alt="Photograph for this avatar"
+                    draggable={false}
+                    className="h-full w-full object-contain"
+                    onError={() => {
+                      if (!previewUrl) setUrlPreviewFailed(true);
+                    }}
+                  />
+                </ImageViewport>
+              ) : (
                 <img
                   src={previewUrl ?? url}
                   alt="Photograph for this avatar"
                   draggable={false}
-                  className="h-full w-full object-contain"
+                  className="h-40 w-full rounded-lg border border-white/10 bg-black object-contain"
                   onError={() => {
                     if (!previewUrl) setUrlPreviewFailed(true);
                   }}
                 />
-              </ImageViewport>
+              )
             ) : (
               <div className="flex h-40 w-full flex-col items-center justify-center gap-1 rounded-lg border border-white/10 bg-black/60 px-4 text-center">
                 <Link className="h-5 w-5 text-white/40" aria-hidden="true" />
@@ -339,14 +366,14 @@ const CreateAvatarPhotoField = ({
               </div>
             )}
           </div>
-          {previewUrl || !urlPreviewFailed ? (
+          {showChooser && (previewUrl || !urlPreviewFailed) ? (
             <p className="mt-1 text-[11px] text-white/40">
               Drag to move the part that is showing. Scroll, pinch, or use + / −
               to zoom.
             </p>
           ) : null}
         </div>
-      ) : isUrlFormOpen ? (
+      ) : isUrlFormOpen && showChooser ? (
         <div className="mt-3 space-y-2">
           <label className="block text-xs text-white/60">
             Image link
@@ -388,7 +415,7 @@ const CreateAvatarPhotoField = ({
             </button>
           </div>
         </div>
-      ) : (
+      ) : showChooser ? (
         <div className="mt-3 flex flex-wrap gap-2">
           <button
             type="button"
@@ -418,18 +445,18 @@ const CreateAvatarPhotoField = ({
             Paste a link
           </button>
         </div>
-      )}
+      ) : null}
 
       {urlError && <p className="mt-2 text-xs text-red-300">{urlError}</p>}
       {cameraError && (
         <p className="mt-2 text-xs text-red-300">{cameraError}</p>
       )}
-      {url && (
+      {url && showChooser ? (
         <p className="mt-2 break-all text-xs text-white/50">
           Reference image from {url}. A link is not pinned to a place; add one
           below if you know it.
         </p>
-      )}
+      ) : null}
       {placeSource && (
         <p className="mt-2 text-xs text-white/50">
           {placeSource === 'exif'
@@ -442,6 +469,8 @@ const CreateAvatarPhotoField = ({
       )}
     </div>
   );
-};
+});
+
+CreateAvatarPhotoField.displayName = 'CreateAvatarPhotoField';
 
 export default CreateAvatarPhotoField;

@@ -46,6 +46,7 @@ test('welcome page copy does not keep the leftover grammar errors', () => {
     false
   );
   assert.equal(founderText.includes('I am a data scientist and engineer'), true);
+  assert.equal(founderText.includes('GitHubSponsorsButton'), true);
   assert.equal(founderText.includes('alt={FOUNDER.name}'), false);
   assert.equal(founderText.includes('alt=""'), true);
 

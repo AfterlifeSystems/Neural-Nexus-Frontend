@@ -10,6 +10,7 @@
 
 import { isValidCoordinate } from './avatarProximity.js';
 import { identityUrlsForUpload } from './createAvatarIdentityLinks.js';
+import { splitCreateAvatarVoiceUploads } from './createAvatarMedia.js';
 import { readDevicePositionOnce } from './deviceLocation.js';
 import { readImageFileGps, roundCoordinate } from './jpegExifGps.js';
 
@@ -158,11 +159,22 @@ export function describePhotoPlaceError(error) {
  * @param {string} [parameters.photoUrl] An image address instead of a file.
  *   The server fetches it; the same media endpoint takes `url`.
  * @param {string[]} [parameters.identityUrls] Extra http(s) pages about the
- *   subject (YouTube, articles). Posted as identity media, not as the
- *   portrait. The photograph address is omitted when it is already in this
- *   list so the same URL is not ingested twice.
+ *   subject (articles, sites). Posted as identity media, not as the
+ *   portrait. The photograph address and voice-reference addresses are
+ *   omitted when they are already in this list so the same URL is not
+ *   ingested twice.
+ * @param {File[]} [parameters.identityFiles] Documents dropped on create
+ *   that are neither a portrait nor voice media.
+ * @param {File[]} [parameters.voiceFiles] Audio or video of the subject
+ *   speaking.
+ * @param {string[]} [parameters.voiceUrls] YouTube or direct audio/video
+ *   addresses for the voice. Each address is its own job so the server
+ *   fetches it as media.
+ * @param {string|null} [parameters.referenceAudioKey] Which voice item is
+ *   the reference clip. `null` uses the first item; `''` sends no
+ *   reference flag.
  * @param {Function} [parameters.uploadIdentityMedia]
- * @returns {Promise<{portraitOk: boolean, identityOk: boolean}>}
+ * @returns {Promise<{portraitOk: boolean, identityOk: boolean, voiceOk: boolean}>}
  *
  * Research is deliberately NOT started here. POST /create_avatar starts it
  * server-side for every avatar, whether or not a photo was chosen, and returns
@@ -174,14 +186,24 @@ export async function startCreateAvatarPhotoFollowUp({
   photoFile,
   photoUrl,
   identityUrls = [],
+  identityFiles = [],
+  voiceFiles = [],
+  voiceUrls = [],
+  referenceAudioKey = null,
   uploadIdentityMedia,
 }) {
   const trimmedUrl = String(photoUrl ?? '').trim();
-  const extraUrls = identityUrlsForUpload(identityUrls, trimmedUrl);
+  const extraUrls = identityUrlsForUpload(identityUrls, trimmedUrl, voiceUrls);
+  const documentFiles = Array.isArray(identityFiles) ? identityFiles : [];
+  const speechFiles = Array.isArray(voiceFiles) ? voiceFiles : [];
+  const speechUrls = (Array.isArray(voiceUrls) ? voiceUrls : [])
+    .map((url) => String(url ?? '').trim())
+    .filter(Boolean);
   const hasPhoto = Boolean(photoFile || trimmedUrl);
-  const hasLinks = extraUrls.length > 0;
-  if (!assistantId || (!hasPhoto && !hasLinks)) {
-    return { portraitOk: false, identityOk: false };
+  const hasIdentity = extraUrls.length > 0 || documentFiles.length > 0;
+  const hasVoice = speechFiles.length > 0 || speechUrls.length > 0;
+  if (!assistantId || (!hasPhoto && !hasIdentity && !hasVoice)) {
+    return { portraitOk: false, identityOk: false, voiceOk: false };
   }
 
   const photoMedia = photoFile
@@ -191,7 +213,7 @@ export async function startCreateAvatarPhotoFollowUp({
       : { files: [], urls: [] };
 
   const identityMedia = {
-    files: photoMedia.files,
+    files: [...photoMedia.files, ...documentFiles],
     urls: [...photoMedia.urls, ...extraUrls],
   };
 
@@ -212,19 +234,118 @@ export async function startCreateAvatarPhotoFollowUp({
       })
     : Promise.resolve(false);
 
-  let identityOk = false;
-  try {
-    identityOk = Boolean(
-      await upload({
+  const voicePromise = hasVoice
+    ? uploadCreateAvatarVoiceFollowUp({
         assistantId,
-        ...identityMedia,
-        isReferenceImage: false,
+        speechFiles,
+        speechUrls,
+        referenceAudioKey,
+        upload,
       })
-    );
-  } catch (error) {
-    console.error('Identity upload after create-from-photo failed:', error);
+    : Promise.resolve(false);
+
+  let identityOk = false;
+  if (hasPhoto || hasIdentity) {
+    try {
+      identityOk = Boolean(
+        await upload({
+          assistantId,
+          ...identityMedia,
+          isReferenceImage: false,
+        })
+      );
+    } catch (error) {
+      console.error('Identity upload after create-from-photo failed:', error);
+    }
   }
 
   const portraitOk = hasPhoto ? Boolean(await portraitPromise) : false;
-  return { portraitOk, identityOk };
+  const voiceOk = hasVoice ? Boolean(await voicePromise) : false;
+  return { portraitOk, identityOk, voiceOk };
+}
+
+/**
+ * Voice media after create. Files travel together; each speech URL is its
+ * own job so a direct media address is fetched as media, matching Settings.
+ *
+ * @param {Object} parameters
+ * @param {string} parameters.assistantId
+ * @param {File[]} parameters.speechFiles
+ * @param {string[]} parameters.speechUrls
+ * @param {Function} parameters.upload
+ * @returns {Promise<boolean>}
+ */
+async function uploadCreateAvatarVoiceFollowUp({
+  assistantId,
+  speechFiles,
+  speechUrls,
+  referenceAudioKey = null,
+  upload,
+}) {
+  const split = splitCreateAvatarVoiceUploads({
+    voiceFiles: speechFiles,
+    voiceUrls: speechUrls,
+    referenceAudioKey,
+  });
+  const jobs = [];
+  if (split.referenceFile) {
+    jobs.push(
+      Promise.resolve(
+        upload({
+          assistantId,
+          files: [split.referenceFile],
+          urls: [],
+          isReferenceAudio: true,
+          kind: 'voice',
+        })
+      )
+    );
+  } else if (split.referenceUrl) {
+    jobs.push(
+      Promise.resolve(
+        upload({
+          assistantId,
+          files: [],
+          urls: [split.referenceUrl],
+          isReferenceAudio: true,
+          kind: 'voice',
+        })
+      )
+    );
+  }
+  if (split.otherFiles.length > 0) {
+    jobs.push(
+      Promise.resolve(
+        upload({
+          assistantId,
+          files: split.otherFiles,
+          urls: [],
+          isReferenceAudio: false,
+          kind: 'voice',
+        })
+      )
+    );
+  }
+  for (const speechUrl of split.otherUrls) {
+    jobs.push(
+      Promise.resolve(
+        upload({
+          assistantId,
+          files: [],
+          urls: [speechUrl],
+          isReferenceAudio: false,
+          kind: 'voice',
+        })
+      )
+    );
+  }
+  const results = await Promise.all(
+    jobs.map((job) =>
+      job.catch((error) => {
+        console.error('Voice upload after create failed:', error);
+        return false;
+      })
+    )
+  );
+  return results.length > 0 && results.every(Boolean);
 }

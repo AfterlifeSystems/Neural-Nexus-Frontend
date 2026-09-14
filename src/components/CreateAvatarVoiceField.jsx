@@ -82,15 +82,14 @@ const CreateAvatarVoiceField = ({
 
   return (
     <div className="mb-4">
-      <p className="text-xl sm:text-2xl text-neutral-300">
+      <p className="text-sm text-neutral-300">
         Voice
-        <span className="ml-2 text-sm font-normal text-white/40">Optional</span>
+        <span className="ml-2 text-xs font-normal text-white/40">Optional</span>
       </p>
       <p className="mt-1 mb-2 text-xs leading-relaxed text-white/40">
-        Spoken in voice mode until a cloned voice is uploaded.
         {inferredLabel && !gender
-          ? ` “${avatarName.trim()}” reads as ${inferredLabel}; the first matching stock voice is used if you leave this blank.`
-          : ' Leave blank and the first stock voice for the inferred gender is used.'}
+          ? `Stock voice until a clone is ready. “${avatarName.trim()}” reads as ${inferredLabel}.`
+          : 'Stock voice until a clone is ready from the audio above.'}
       </p>
       <div
         className="mb-2 inline-flex rounded-lg border border-neutral-700 bg-black/60 p-0.5"

@@ -12,6 +12,7 @@ import {
   galleryCardLayout,
   galleryCardWorldLayout,
   galleryFrameHeight,
+  galleryBoxIsPainted,
   galleryCoverUv,
   galleryCoverUvRatio,
   galleryIndexFromScroll,
@@ -192,6 +193,14 @@ test('an unmeasured width does not shrink the gallery to a sliver', () => {
   assert.equal(galleryFrameHeight(1, 650), 650);
 });
 
+test('WebGL must not start on a 0×0 first paint', () => {
+  assert.equal(galleryBoxIsPainted(0, 0), false);
+  assert.equal(galleryBoxIsPainted(800, 0), false);
+  assert.equal(galleryBoxIsPainted(0, 400), false);
+  assert.equal(galleryBoxIsPainted(1, 1), false);
+  assert.equal(galleryBoxIsPainted(800, 400), true);
+});
+
 test('a tall phone gallery box shrinks until discs fill 60%', () => {
   const width = 358;
   const available = 650;
@@ -233,14 +242,20 @@ test('Create overlay and hide controls follow the painted disc size', () => {
   assert.match(carouselSource, /data-gallery-region/);
   assert.match(carouselSource, /data-gallery-stage/);
   assert.match(carouselSource, /flex-1 flex-col justify-center/);
+  assert.match(carouselSource, /data-gallery-frame/);
   assert.match(carouselSource, /relative min-h-0 w-full overflow-hidden/);
+  assert.match(carouselSource, /shrink-0 flex-col overflow-hidden rounded-2xl/);
+  assert.equal(carouselSource.includes('stage.style.flexGrow'), false);
   assert.match(carouselSource, /width: '36px'/);
-  assert.match(carouselSource, /width < 2 \|\| available < 2/);
+  assert.match(carouselSource, /galleryBoxIsPainted/);
+  assert.match(carouselSource, /measureUntilPainted/);
   assert.match(carouselSource, /frame.style.flexBasis = nextHeight/);
   const gallerySource = readFileSync(
     join(componentsDirectory, 'CircularGallery.jsx'),
     'utf8'
   );
+  assert.match(gallerySource, /galleryBoxIsPainted/);
+  assert.match(gallerySource, /startWhenPainted/);
   assert.match(
     gallerySource,
     /className="absolute inset-0 overflow-hidden cursor-grab/

@@ -88,3 +88,18 @@ export function connectorFilterOptions(providers = []) {
   }
   return options;
 }
+
+const LIVE_PLATFORM_APP_PROVIDERS = new Set(['discord', 'slack', 'twitch']);
+
+/**
+ * Discord, Slack, and Twitch Connections read the account. Live chat or voice
+ * is the separate platform app plus the owner's API key.
+ *
+ * @param {string} providerName Catalog `provider` id.
+ * @returns {string}
+ */
+export function livePlatformAppHelp(providerName) {
+  return LIVE_PLATFORM_APP_PROVIDERS.has(String(providerName || '').toLowerCase())
+    ? 'Reading this account is Connections. Live chat/voice is the platform app + API key.'
+    : '';
+}

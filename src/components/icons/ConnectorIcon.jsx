@@ -3,12 +3,16 @@ import React from 'react';
 import {
   Bot,
   Calendar,
+  FileSpreadsheet,
   Facebook,
+  Folder,
   Globe,
   Instagram,
   Landmark,
   Linkedin,
   Mail,
+  Mic,
+  Phone,
   Plug,
   Rss,
   Twitch,
@@ -96,6 +100,17 @@ const CONNECTOR_ICONS = {
     ring: 'border-amber-300/30',
   },
   claude_code: { Icon: SiClaude, tint: 'text-orange-300', ring: 'border-orange-300/30' },
+  claude_app: { Icon: SiClaude, tint: 'text-orange-300', ring: 'border-orange-300/30' },
+  google_sheets: {
+    Icon: FileSpreadsheet,
+    tint: 'text-emerald-300',
+    ring: 'border-emerald-300/30',
+  },
+  google_drive: { Icon: Folder, tint: 'text-amber-300', ring: 'border-amber-300/30' },
+  elevenlabs: { Icon: Mic, tint: 'text-neutral-100', ring: 'border-white/20' },
+  phone: { Icon: Phone, tint: 'text-emerald-300', ring: 'border-emerald-300/30' },
+  xai: { Icon: Bot, tint: 'text-neutral-100', ring: 'border-white/20' },
+  cursor: { Icon: Bot, tint: 'text-neutral-100', ring: 'border-white/20' },
 };
 
 const ConnectorIcon = ({ iconKey, className = '', size = 'md' }) => {

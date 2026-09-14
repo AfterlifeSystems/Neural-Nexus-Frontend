@@ -33,20 +33,39 @@ const DEFAULT_POLL_TIMEOUT_MS = 5 * 60 * 1_000;
  * @param {number} [options.height]
  * @returns {Window|null} The window, or null when blocked or headless.
  */
+export function authorizePaneFeatures(windowLike = typeof window === 'undefined' ? null : window) {
+  const viewportWidth = windowLike?.outerWidth ?? windowLike?.innerWidth ?? 1280;
+  const viewportHeight = windowLike?.outerHeight ?? windowLike?.innerHeight ?? 800;
+  const width = Math.max(720, Math.round(viewportWidth * 0.48));
+  const height = Math.max(640, Math.round(viewportHeight * 0.92));
+  const screenLeft = windowLike?.screenX ?? windowLike?.screenLeft ?? 0;
+  const screenTop = windowLike?.screenY ?? windowLike?.screenTop ?? 0;
+  const left = Math.max(0, Math.round(screenLeft + viewportWidth * 0.5));
+  const top = Math.max(0, Math.round(screenTop + (viewportHeight - height) / 2));
+  return { width, height, left, top };
+}
+
 export function openPopupSynchronously(name, options = {}) {
   if (typeof window === 'undefined' || typeof window.open !== 'function') {
     return null;
   }
-  const width = options.width ?? DEFAULT_POPUP_WIDTH;
-  const height = options.height ?? DEFAULT_POPUP_HEIGHT;
+  const pane = options.authorizePane ? authorizePaneFeatures(window) : null;
+  const width = options.width ?? pane?.width ?? DEFAULT_POPUP_WIDTH;
+  const height = options.height ?? pane?.height ?? DEFAULT_POPUP_HEIGHT;
   const screenLeft = window.screenX ?? window.screenLeft ?? 0;
   const screenTop = window.screenY ?? window.screenTop ?? 0;
   const viewportWidth = window.outerWidth ?? window.innerWidth ?? width;
   const viewportHeight = window.outerHeight ?? window.innerHeight ?? height;
-  const left = Math.max(0, Math.round(screenLeft + (viewportWidth - width) / 2));
-  const top = Math.max(0, Math.round(screenTop + (viewportHeight - height) / 2));
+  const left =
+    options.left ??
+    pane?.left ??
+    Math.max(0, Math.round(screenLeft + (viewportWidth - width) / 2));
+  const top =
+    options.top ??
+    pane?.top ??
+    Math.max(0, Math.round(screenTop + (viewportHeight - height) / 2));
   const features = [
-    'popup=yes',
+    options.authorizePane ? 'popup=no' : 'popup=yes',
     `width=${width}`,
     `height=${height}`,
     `left=${left}`,
@@ -59,6 +78,16 @@ export function openPopupSynchronously(name, options = {}) {
   } catch {
     return null;
   }
+}
+
+/**
+ * Open the vendor authorize pane beside the chat, not a tiny centered popup.
+ *
+ * @param {string} name Window name reused so Reopen focuses the same pane.
+ * @returns {Window|null}
+ */
+export function openAuthorizePane(name) {
+  return openPopupSynchronously(name, { authorizePane: true });
 }
 
 /**

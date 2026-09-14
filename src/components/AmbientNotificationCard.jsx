@@ -30,6 +30,7 @@ import {
 } from '../services/ambientNotice';
 import LinkifiedText from './ui/LinkifiedText';
 import { ACTION_BUTTON_CLASSES } from './media/MessageActionBar';
+import MessageStamp from './media/MessageStamp';
 
 /**
  * The card the avatar posts when ambient vision saw something the person
@@ -264,6 +265,9 @@ const AmbientNotificationCard = ({
             <X className="w-4 h-4" aria-hidden="true" />
           </button>
         )}
+      </div>
+      <div className="mt-1 flex justify-end">
+        <MessageStamp message={message} />
       </div>
       {collapsed ? (
         preview ? (

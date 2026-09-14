@@ -15,8 +15,26 @@ export const CARD_STATUS_CANCELLED = 'cancelled';
 export const CARD_STATUS_FAILED = 'failed';
 export const CARD_STATUS_PENDING_LOGIN = 'pending_login';
 export const CARD_STATUS_NOT_CONNECTED = 'not_connected';
+export const CARD_STATUS_ACTION_NEEDED = 'action_needed';
+export const CARD_STATUS_DONE = 'done';
+export const CARD_STATUS_SKIPPED = 'skipped';
 
 export const CONNECT_ACCOUNT_INTERRUPT_KIND = 'connect_account';
+export const COMPUTER_HANDOFF_INTERRUPT_KIND = 'computer_handoff';
+
+/**
+ * Whether a paused turn should render an in-chat connect or computer card.
+ *
+ * @param {Object} interrupt
+ * @returns {boolean}
+ */
+export function isInChatCardInterrupt(interrupt) {
+  const kind = interrupt?.kind;
+  return (
+    kind === CONNECT_ACCOUNT_INTERRUPT_KIND ||
+    kind === COMPUTER_HANDOFF_INTERRUPT_KIND
+  );
+}
 
 /**
  * The connect cards a message carries, or an empty list.
@@ -47,13 +65,17 @@ export function connectionsOf(message) {
  */
 export function pendingCardFromInterrupt(interrupt) {
   if (!interrupt || typeof interrupt !== 'object') return null;
-  if (interrupt.kind && interrupt.kind !== CONNECT_ACCOUNT_INTERRUPT_KIND) {
+  if (interrupt.kind && !isInChatCardInterrupt(interrupt)) {
     return null;
   }
+  const kind = interrupt.kind || CONNECT_ACCOUNT_INTERRUPT_KIND;
   return {
     ...interrupt,
-    kind: CONNECT_ACCOUNT_INTERRUPT_KIND,
-    status: CARD_STATUS_PENDING_LOGIN,
+    kind,
+    status:
+      kind === COMPUTER_HANDOFF_INTERRUPT_KIND
+        ? CARD_STATUS_ACTION_NEEDED
+        : CARD_STATUS_PENDING_LOGIN,
     pending: true,
   };
 }
@@ -144,6 +166,9 @@ export function cardStatusLine(card) {
     const who = label ? ` · Connected as ${label}` : '';
     return `${name} · Added${suffix}${who}`;
   }
+  if (status === CARD_STATUS_DONE) return `${name} · Done`;
+  if (status === CARD_STATUS_ACTION_NEEDED) return `${name} · Action needed`;
+  if (status === CARD_STATUS_SKIPPED) return `${name} · Skipped`;
   if (status === CARD_STATUS_PENDING_LOGIN) return `${name} · Waiting for sign-in`;
   if (status === CARD_STATUS_CANCELLED) return `${name} · Not connected`;
   if (status === CARD_STATUS_FAILED) return `${name} · Sign-in failed`;
@@ -157,7 +182,11 @@ export function cardStatusLine(card) {
  * @returns {boolean}
  */
 export function isPendingCard(card) {
-  return Boolean(card?.pending) || card?.status === CARD_STATUS_PENDING_LOGIN;
+  return (
+    Boolean(card?.pending) ||
+    card?.status === CARD_STATUS_PENDING_LOGIN ||
+    card?.status === CARD_STATUS_ACTION_NEEDED
+  );
 }
 
 /**

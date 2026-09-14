@@ -8,6 +8,7 @@ import {
   resolvePhotoCapturePlace,
   startCreateAvatarPhotoFollowUp,
 } from './createAvatarPhoto.js';
+import { createAvatarVoiceUrlKey } from './createAvatarMedia.js';
 
 test('resolveCreateAvatarName prefers the typed name, then the place, then Untitled', () => {
   assert.equal(
@@ -139,7 +140,7 @@ test('startCreateAvatarPhotoFollowUp uploads the portrait and identity and start
   assert.equal(uploads[1].isReferenceImage, false);
   assert.deepEqual(uploads[0].files, [{ name: 'sign.jpg' }]);
   assert.deepEqual(uploads[0].urls, []);
-  assert.deepEqual(result, { portraitOk: true, identityOk: true });
+  assert.deepEqual(result, { portraitOk: true, identityOk: true, voiceOk: false });
 });
 
 test('startCreateAvatarPhotoFollowUp sends an image link as the url of both uploads', async () => {
@@ -175,7 +176,7 @@ test('startCreateAvatarPhotoFollowUp still stores the portrait when identity ing
 });
 
 test('startCreateAvatarPhotoFollowUp no-ops without an avatar, or without a file or link', async () => {
-  const nothing = { portraitOk: false, identityOk: false };
+  const nothing = { portraitOk: false, identityOk: false, voiceOk: false };
   assert.deepEqual(
     await startCreateAvatarPhotoFollowUp({
       assistantId: '',
@@ -217,7 +218,7 @@ test('startCreateAvatarPhotoFollowUp ingests identity links without a photograph
     'https://example.com/bio',
     'https://www.youtube.com/watch?v=dQw4w9WgXcQ',
   ]);
-  assert.deepEqual(result, { portraitOk: false, identityOk: true });
+  assert.deepEqual(result, { portraitOk: false, identityOk: true, voiceOk: false });
 });
 
 test('startCreateAvatarPhotoFollowUp adds identity links to the photograph identity ingest', async () => {
@@ -238,7 +239,7 @@ test('startCreateAvatarPhotoFollowUp adds identity links to the photograph ident
   assert.equal(uploads[1].isReferenceImage, false);
   assert.deepEqual(uploads[1].files, [{ name: 'sign.jpg' }]);
   assert.deepEqual(uploads[1].urls, ['https://example.com/bio']);
-  assert.deepEqual(result, { portraitOk: true, identityOk: true });
+  assert.deepEqual(result, { portraitOk: true, identityOk: true, voiceOk: false });
 });
 
 test('startCreateAvatarPhotoFollowUp does not send the photograph URL twice as identity media', async () => {
@@ -262,4 +263,93 @@ test('startCreateAvatarPhotoFollowUp does not send the photograph URL twice as i
     'https://example.com/bio',
   ]);
   assert.equal(uploads[1].isReferenceImage, false);
+});
+
+test('startCreateAvatarPhotoFollowUp posts voice files as the reference clip', async () => {
+  const uploads = [];
+  const result = await startCreateAvatarPhotoFollowUp({
+    assistantId: 'avatar-9',
+    voiceFiles: [{ name: 'mom.m4a' }],
+    voiceUrls: ['https://cdn.example.com/talk.mp3'],
+    uploadIdentityMedia: async (options) => {
+      uploads.push(options);
+      return true;
+    },
+  });
+  assert.equal(uploads.length, 2);
+  assert.equal(uploads[0].kind, 'voice');
+  assert.equal(uploads[0].isReferenceAudio, true);
+  assert.deepEqual(uploads[0].files, [{ name: 'mom.m4a' }]);
+  assert.deepEqual(uploads[0].urls, []);
+  assert.equal(uploads[1].kind, 'voice');
+  assert.equal(uploads[1].isReferenceAudio, false);
+  assert.deepEqual(uploads[1].urls, ['https://cdn.example.com/talk.mp3']);
+  assert.deepEqual(result, {
+    portraitOk: false,
+    identityOk: false,
+    voiceOk: true,
+  });
+});
+
+test('startCreateAvatarPhotoFollowUp keeps a YouTube voice URL off the identity job', async () => {
+  const uploads = [];
+  const result = await startCreateAvatarPhotoFollowUp({
+    assistantId: 'avatar-9',
+    identityUrls: [
+      'https://example.com/bio',
+      'https://youtu.be/abcdefghijk',
+    ],
+    identityFiles: [{ name: 'notes.pdf' }],
+    voiceUrls: ['https://www.youtube.com/watch?v=abcdefghijk'],
+    uploadIdentityMedia: async (options) => {
+      uploads.push(options);
+      return true;
+    },
+  });
+  const voiceUpload = uploads.find((upload) => upload.kind === 'voice');
+  const identityUpload = uploads.find((upload) => upload.kind !== 'voice');
+  assert.deepEqual(voiceUpload.urls, [
+    'https://www.youtube.com/watch?v=abcdefghijk',
+  ]);
+  assert.deepEqual(identityUpload.files, [{ name: 'notes.pdf' }]);
+  assert.deepEqual(identityUpload.urls, ['https://example.com/bio']);
+  assert.equal(result.voiceOk, true);
+  assert.equal(result.identityOk, true);
+  assert.equal(voiceUpload.isReferenceAudio, true);
+});
+
+test('startCreateAvatarPhotoFollowUp sends only the marked clip as reference audio', async () => {
+  const uploads = [];
+  await startCreateAvatarPhotoFollowUp({
+    assistantId: 'avatar-9',
+    voiceFiles: [{ name: 'mom.m4a' }],
+    voiceUrls: ['https://cdn.example.com/talk.mp3'],
+    referenceAudioKey: createAvatarVoiceUrlKey(
+      'https://cdn.example.com/talk.mp3'
+    ),
+    uploadIdentityMedia: async (options) => {
+      uploads.push(options);
+      return true;
+    },
+  });
+  const referenceUpload = uploads.find((upload) => upload.isReferenceAudio);
+  const otherUpload = uploads.find((upload) => !upload.isReferenceAudio);
+  assert.deepEqual(referenceUpload.urls, ['https://cdn.example.com/talk.mp3']);
+  assert.deepEqual(otherUpload.files, [{ name: 'mom.m4a' }]);
+});
+
+test('startCreateAvatarPhotoFollowUp can send voice without a reference flag', async () => {
+  const uploads = [];
+  await startCreateAvatarPhotoFollowUp({
+    assistantId: 'avatar-9',
+    voiceFiles: [{ name: 'room.m4a' }],
+    referenceAudioKey: '',
+    uploadIdentityMedia: async (options) => {
+      uploads.push(options);
+      return true;
+    },
+  });
+  assert.equal(uploads.length, 1);
+  assert.equal(uploads[0].isReferenceAudio, false);
+  assert.equal(uploads[0].kind, 'voice');
 });

@@ -10,6 +10,7 @@ import AvatarSettings from './AvatarSettings';
 import AvatarWorkspaceHeader from './AvatarWorkspaceHeader';
 import InboxPanel from './inbox/InboxPanel';
 import LiveVoiceMode from './LiveVoiceMode';
+import PhoneCallListenBar from './PhoneCallListenBar';
 import { isAvatarOwnedByUser, canShareAvatar } from './utils';
 import useInboxCount from '../hooks/useInboxCount';
 import {
@@ -401,6 +402,7 @@ const ChatArea = ({ onActivateLiveChat, onEndLiveChat, className }) => {
 
           {activeTab === 'chat' && (
             <div className="flex flex-col flex-grow min-w-0 overflow-hidden">
+              <PhoneCallListenBar isPersonalAvatar={isPersonalAvatar} />
               <div className="flex-grow overflow-y-auto overflow-x-hidden p-2 sm:p-4 relative min-w-0">
                 {/* Same width as the composer below (InputBar is max-w-3xl
                   mx-auto). Without it the transcript ran the full width of the

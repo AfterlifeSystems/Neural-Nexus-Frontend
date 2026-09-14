@@ -95,6 +95,7 @@ import {
 import useMessageActions from '../hooks/useMessageActions';
 import MessageEditor from './messageEdit/MessageEditor';
 import MessageActionBar from './media/MessageActionBar';
+import MessageStamp from './media/MessageStamp';
 import CreatedArtifacts from './CreatedArtifacts';
 import {
   createdArtifactsOf,
@@ -2271,9 +2272,14 @@ const LiveVoiceMode = ({
                 >
                   {isFromAvatar && <LearnedFactsBadge message={message} />}
                   {isLoading ? (
-                    <div className="flex items-center justify-between gap-3">
-                      <TypingDots />
-                      {isGeneratingThis && renderStopButton()}
+                    <div className="space-y-1">
+                      <div className="flex items-center justify-between gap-3">
+                        <TypingDots />
+                        {isGeneratingThis && renderStopButton()}
+                      </div>
+                      <div className="flex justify-end">
+                        <MessageStamp message={message} />
+                      </div>
                     </div>
                   ) : isEditingThis ? (
                     <div className="caption-actions pointer-events-auto">

@@ -10,8 +10,7 @@ import {
   avatarSettingsPath,
   resolveCreatedAvatar,
 } from './createdAvatarSettings';
-import CreateAvatarPhotoField from './CreateAvatarPhotoField';
-import CreateAvatarIdentityLinksField from './CreateAvatarIdentityLinksField';
+import CreateAvatarMediaField from './CreateAvatarMediaField';
 import CreateAvatarVoiceField from './CreateAvatarVoiceField';
 import {
   assignCreatedAvatarStandardVoice,
@@ -20,15 +19,25 @@ import {
 import AvatarLocationPicker from './geo/AvatarLocationPicker';
 import { rememberResearchJob } from './research/researchJobMemory';
 import { startIdentityMediaUpload } from '../services/identityMediaJobs';
+import { composeCreateAvatarResearchHint } from '../services/createAvatarIdentityLinks';
 import {
-  composeCreateAvatarResearchHint,
-  takeIdentityLinkDraft,
-} from '../services/createAvatarIdentityLinks';
+  applyCreateAvatarMedia,
+  assignDefaultReferenceAudio,
+  createAvatarMediaFromDataTransfer,
+  emptyCreateAvatarMedia,
+  hasCreateAvatarFollowUpMedia,
+  researchHintFromVoiceSources,
+  takeCreateAvatarMediaDraft,
+  toggleCreateAvatarReferenceAudio,
+} from '../services/createAvatarMedia';
 import {
+  describePhotoPlaceError,
   researchHintFromCreatePhoto,
   resolveCreateAvatarName,
+  resolvePhotoCapturePlace,
   startCreateAvatarPhotoFollowUp,
 } from '../services/createAvatarPhoto';
+import { isFileOrUrlDrag } from './documentDropOverlay';
 import {
   DEFAULT_GEOFENCE_RADIUS_METERS,
   avatarIdOf,
@@ -47,11 +56,16 @@ const CreateAvatarModal = ({ setShowCreateModal }) => {
   const [photoPlaceSource, setPhotoPlaceSource] = useState(null);
   const [photoPlaceError, setPhotoPlaceError] = useState('');
   const [isResolvingPhotoPlace, setIsResolvingPhotoPlace] = useState(false);
-  // Optional identity-source pages. Zero is fine. Ingested after create via
-  // /update_avatar_identity_with_media, the same path Settings uses for URLs.
+  // Optional identity-source pages and documents. Zero is fine. Ingested
+  // after create via /update_avatar_identity_with_media.
   const [identityLinks, setIdentityLinks] = useState([]);
-  const [identityLinkDraft, setIdentityLinkDraft] = useState('');
-  const [identityLinkError, setIdentityLinkError] = useState('');
+  const [identityFiles, setIdentityFiles] = useState([]);
+  const [mediaDraft, setMediaDraft] = useState('');
+  const [mediaError, setMediaError] = useState('');
+  const [voiceFiles, setVoiceFiles] = useState([]);
+  const [voiceUrls, setVoiceUrls] = useState([]);
+  const [referenceAudioKey, setReferenceAudioKey] = useState(null);
+  const [isDraggingMedia, setIsDraggingMedia] = useState(false);
   const [voiceGender, setVoiceGender] = useState('');
   const [standardVoiceId, setStandardVoiceId] = useState('');
   const [standardVoices, setStandardVoices] = useState([]);
@@ -66,13 +80,8 @@ const CreateAvatarModal = ({ setShowCreateModal }) => {
     geofenceRadiusMeters: DEFAULT_GEOFENCE_RADIUS_METERS,
   });
   const navigate = useNavigate();
-  const {
-    isLoading,
-    setIsLoading,
-    setUserAvatars,
-    userAvatars,
-    setActiveAvatar,
-  } = useAuth();
+  const { setUserAvatars, userAvatars, setActiveAvatar } = useAuth();
+  const [isCreating, setIsCreating] = useState(false);
 
   const hasPhoto = Boolean(photoFile || photoUrl);
   const resolvedName = resolveCreateAvatarName({
@@ -80,7 +89,9 @@ const CreateAvatarModal = ({ setShowCreateModal }) => {
     locationName: geoLocation.locationName,
     hasPhoto,
   });
-  const canCreate = Boolean(resolvedName) && !isResolvingPhotoPlace;
+  const closeCreateModal = () => {
+    setShowCreateModal(false);
+  };
 
   const handlePhotoChosen = ({ file, url, place, placeError }) => {
     setPhotoFile(file ?? null);
@@ -104,6 +115,83 @@ const CreateAvatarModal = ({ setShowCreateModal }) => {
     setPhotoPlaceError('');
   };
 
+  const currentCreateMedia = () =>
+    emptyCreateAvatarMedia({
+      photoFile,
+      photoUrl,
+      voiceFiles,
+      voiceUrls,
+      identityFiles,
+      identityLinks,
+      referenceAudioKey,
+    });
+
+  const applyVoiceList = (nextMedia) => {
+    const assigned = assignDefaultReferenceAudio(nextMedia);
+    setVoiceFiles(assigned.voiceFiles);
+    setVoiceUrls(assigned.voiceUrls);
+    setReferenceAudioKey(assigned.referenceAudioKey);
+  };
+
+  const choosePhotograph = async ({ file = null, url = null }) => {
+    if (file) {
+      setIsResolvingPhotoPlace(true);
+      try {
+        const place = await resolvePhotoCapturePlace(file);
+        handlePhotoChosen({
+          file,
+          url: null,
+          place,
+          placeError: place ? '' : describePhotoPlaceError(null),
+        });
+      } catch (placeError) {
+        handlePhotoChosen({
+          file,
+          url: null,
+          place: null,
+          placeError: describePhotoPlaceError(placeError),
+        });
+      } finally {
+        setIsResolvingPhotoPlace(false);
+      }
+      return;
+    }
+    handlePhotoChosen({
+      file: null,
+      url,
+      place: null,
+      placeError: '',
+    });
+  };
+
+  const handleIncomingMedia = (incoming) => {
+    const files = incoming?.files ?? [];
+    const urls = incoming?.urls ?? [];
+    if (files.length === 0 && urls.length === 0) return;
+    setIsDraggingMedia(false);
+    const applied = applyCreateAvatarMedia(currentCreateMedia(), {
+      files,
+      urls,
+    });
+    setVoiceFiles(applied.voiceFiles);
+    setVoiceUrls(applied.voiceUrls);
+    setReferenceAudioKey(applied.referenceAudioKey);
+    setIdentityFiles(applied.identityFiles);
+    setIdentityLinks(applied.identityLinks);
+    setMediaDraft('');
+    setMediaError('');
+    if (applied.photoReplaced) {
+      // Hold the photograph immediately so Create can post it even while
+      // the place is still being read from EXIF or this device.
+      setPhotoFile(applied.photoFile);
+      setPhotoUrl(applied.photoUrl);
+      void choosePhotograph({
+        file: applied.photoFile,
+        url: applied.photoUrl,
+      });
+    }
+  };
+
   const handleCreate = async () => {
     if (!resolvedName) {
       setError('Name the avatar, or take a picture of a name or place.');
@@ -116,16 +204,18 @@ const CreateAvatarModal = ({ setShowCreateModal }) => {
       setError('Place this avatar on the map, or turn the pin off.');
       return;
     }
-    const takenIdentityLinks = takeIdentityLinkDraft(
-      identityLinks,
-      identityLinkDraft
+    const takenMedia = takeCreateAvatarMediaDraft(
+      currentCreateMedia(),
+      mediaDraft
     );
-    if (takenIdentityLinks.error) {
-      setIdentityLinkError(takenIdentityLinks.error);
+    if (takenMedia.error) {
+      setMediaError(takenMedia.error);
+      setError(takenMedia.error);
       return;
     }
-    const resolvedIdentityLinks = takenIdentityLinks.links;
-    setIsLoading(true);
+    const resolvedMedia = takenMedia.media;
+    const resolvedIdentityLinks = resolvedMedia.identityLinks;
+    setIsCreating(true);
     setError(null);
     try {
       // The hint is sent whether or not a photo was chosen: it carries the
@@ -142,9 +232,14 @@ const CreateAvatarModal = ({ setShowCreateModal }) => {
             locationName: geoLocation.locationName,
             latitude: geoLocation.latitude,
             longitude: geoLocation.longitude,
-            imageUrl: photoUrl,
+            imageUrl: resolvedMedia.photoUrl,
           }),
-          resolvedIdentityLinks
+          resolvedIdentityLinks,
+          researchHintFromVoiceSources({
+            files: resolvedMedia.voiceFiles,
+            urls: resolvedMedia.voiceUrls,
+            referenceAudioKey: resolvedMedia.referenceAudioKey,
+          })
         ),
       });
 
@@ -215,35 +310,41 @@ const CreateAvatarModal = ({ setShowCreateModal }) => {
       if (createdId && created?.research_job?.job_id) {
         rememberResearchJob(createdId, created.research_job.job_id);
       }
-      if ((hasPhoto || resolvedIdentityLinks.length > 0) && createdId) {
-        // Photograph and optional identity links are ingested after the
-        // dialog closes. Settings shows the portrait and document jobs. A
+      if (hasCreateAvatarFollowUpMedia(resolvedMedia) && createdId) {
+        // Photograph, voice reference, and optional identity sources are
+        // ingested after the dialog closes. Settings shows the jobs. A
         // link is fetched by the server.
         void startCreateAvatarPhotoFollowUp({
           assistantId: createdId,
-          photoFile,
-          photoUrl,
+          photoFile: resolvedMedia.photoFile,
+          photoUrl: resolvedMedia.photoUrl,
           identityUrls: resolvedIdentityLinks,
+          identityFiles: resolvedMedia.identityFiles,
+          voiceFiles: resolvedMedia.voiceFiles,
+          voiceUrls: resolvedMedia.voiceUrls,
+          referenceAudioKey: resolvedMedia.referenceAudioKey,
           uploadIdentityMedia: startIdentityMediaUpload,
         }).catch((followUpError) => {
           console.error('Create-from-photo follow-up failed:', followUpError);
           toast.error(
             followUpError?.message ||
-              (hasPhoto
-                ? 'The photograph could not be processed. Add it again in Settings.'
-                : 'The links could not be processed. Add them again in Settings.')
+              'Media could not be processed. Add it again in Settings.'
           );
         });
       }
 
-      setShowCreateModal(false);
+      closeCreateModal();
       setNewAvatarName('');
       setNewAvatarDescription('');
       setPhotoFile(null);
       setPhotoUrl(null);
       setIdentityLinks([]);
-      setIdentityLinkDraft('');
-      setIdentityLinkError('');
+      setIdentityFiles([]);
+      setMediaDraft('');
+      setMediaError('');
+      setVoiceFiles([]);
+      setVoiceUrls([]);
+      setReferenceAudioKey(null);
       setVoiceGender('');
       setStandardVoiceId('');
       setStandardVoices([]);
@@ -271,20 +372,20 @@ const CreateAvatarModal = ({ setShowCreateModal }) => {
       toast.error(errorMessage);
       console.error('Create avatar error:', createError);
     } finally {
-      setIsLoading(false);
+      setIsCreating(false);
     }
   };
 
   useEffect(() => {
     const handleKeyDown = (e) => {
-      if (e.key === 'Escape') {
-        setShowCreateModal(false);
+      if (e.key === 'Escape' && !isCreating) {
+        closeCreateModal();
       }
     };
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [setShowCreateModal]);
+  }, [isCreating, setShowCreateModal]);
 
   if (typeof document === 'undefined') return null;
 
@@ -295,15 +396,54 @@ const CreateAvatarModal = ({ setShowCreateModal }) => {
   // and its left edge is hidden; from body the overlay covers the rail too.
   return createPortal(
     <div
-      className="fixed inset-0 bg-black/60 backdrop-blur-lg rounded-2xl border border-white/10 bg-opacity-75 flex items-center justify-center z-50"
-      type="dialog"
-      aria-modal="true"
-      aria-labelledby="create-avatar-title"
+      className="fixed inset-0 z-[80] bg-black/60 backdrop-blur-lg bg-opacity-75 flex items-center justify-center p-4"
+      role="presentation"
+      onMouseDown={(pressEvent) => {
+        if (isCreating) return;
+        if (pressEvent.target === pressEvent.currentTarget) {
+          closeCreateModal();
+        }
+      }}
+      onDragOver={(dragEvent) => {
+        if (isFileOrUrlDrag(dragEvent.dataTransfer)) {
+          dragEvent.preventDefault();
+        }
+      }}
+      onDrop={(dropEvent) => {
+        dropEvent.preventDefault();
+        setIsDraggingMedia(false);
+        handleIncomingMedia(
+          createAvatarMediaFromDataTransfer(dropEvent.dataTransfer)
+        );
+      }}
     >
-      <div className="bg-gray/20 p-4 sm:p-6 rounded-lg w-[90vw] sm:w-[28rem] max-w-full max-h-[90vh] overflow-y-auto">
+      <form
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="create-avatar-title"
+        className="bg-gray/20 p-4 sm:p-6 rounded-lg w-[90vw] sm:w-[28rem] max-w-full max-h-[90vh] flex flex-col"
+        onSubmit={(submitEvent) => {
+          submitEvent.preventDefault();
+          void handleCreate();
+        }}
+        onDragEnter={(dragEvent) => {
+          if (isFileOrUrlDrag(dragEvent.dataTransfer)) {
+            setIsDraggingMedia(true);
+          }
+        }}
+        onDragOver={(dragEvent) => {
+          if (!isFileOrUrlDrag(dragEvent.dataTransfer)) return;
+          dragEvent.preventDefault();
+        }}
+        onDragLeave={(dragEvent) => {
+          if (!dragEvent.currentTarget.contains(dragEvent.relatedTarget)) {
+            setIsDraggingMedia(false);
+          }
+        }}
+      >
         <h2
           id="create-avatar-title"
-          className="text-xl font-semibold mb-4 text-neutral-200"
+          className="text-xl font-semibold mb-4 shrink-0 text-neutral-200"
         >
           <div className="flex items-center gap-2">
             <UserPenIcon className="w-6 h-6" />
@@ -311,21 +451,12 @@ const CreateAvatarModal = ({ setShowCreateModal }) => {
           </div>
         </h2>
         {error && (
-          <div className="mb-4 text-red-500 text-sm" type="alert">
+          <div className="mb-4 shrink-0 text-red-500 text-sm" role="alert">
             {error}
           </div>
         )}
-        <CreateAvatarPhotoField
-          file={photoFile}
-          url={photoUrl}
-          placeSource={photoPlaceSource}
-          placeError={photoPlaceError}
-          disabled={isLoading}
-          onBusyChange={setIsResolvingPhotoPlace}
-          onChosen={handlePhotoChosen}
-          onClear={handleClearPhoto}
-        />
-        <label className="block mb-2 text-xl sm:text-2xl text-neutral-300">
+        <div className="min-h-0 shrink overflow-y-auto">
+        <label className="block mb-2 text-sm text-neutral-300">
           Name
           <input
             type="text"
@@ -341,35 +472,68 @@ const CreateAvatarModal = ({ setShowCreateModal }) => {
             className="w-full p-2 mt-1 rounded bg-black/60 text-neutral-200 border border-neutral-700 focus:outline-none focus:ring-2 focus:ring-amber-400/50 transition-all duration-300"
             autoFocus
             aria-required={!photoFile}
-            disabled={isLoading}
+            disabled={isCreating}
           />
         </label>
-        <label className="block mb-4 text-xl sm:text-2xl text-neutral-300">
+        <label className="block mb-4 text-sm text-neutral-300">
           Description
           <textarea
             value={newAvatarDescription}
             onChange={(e) => setNewAvatarDescription(e.target.value)}
-            placeholder="Describe your avatar in 50 characters or less (Optional)"
+            placeholder="Optional, a short description"
             className="w-full p-2 mt-1 rounded bg-black/60 text-neutral-200 border border-neutral-700 focus:outline-none focus:ring-2 focus:ring-amber-400/50 transition-all duration-300"
-            rows={3}
+            rows={2}
             aria-multiline="true"
-            disabled={isLoading}
+            disabled={isCreating}
           />
         </label>
-        <CreateAvatarIdentityLinksField
-          links={identityLinks}
-          draft={identityLinkDraft}
-          error={identityLinkError}
-          disabled={isLoading}
-          onLinksChange={setIdentityLinks}
-          onDraftChange={setIdentityLinkDraft}
-          onErrorChange={setIdentityLinkError}
+        <CreateAvatarMediaField
+          photoFile={photoFile}
+          photoUrl={photoUrl}
+          placeSource={photoPlaceSource}
+          placeError={photoPlaceError}
+          voiceFiles={voiceFiles}
+          voiceUrls={voiceUrls}
+          identityFiles={identityFiles}
+          identityLinks={identityLinks}
+          referenceAudioKey={referenceAudioKey}
+          draft={mediaDraft}
+          error={mediaError}
+          disabled={isCreating}
+          isDragging={isDraggingMedia}
+          onBusyChange={setIsResolvingPhotoPlace}
+          onPhotoChosen={handlePhotoChosen}
+          onClearPhoto={handleClearPhoto}
+          onVoiceFilesChange={(nextFiles) =>
+            applyVoiceList({
+              ...currentCreateMedia(),
+              voiceFiles: nextFiles,
+            })
+          }
+          onVoiceUrlsChange={(nextUrls) =>
+            applyVoiceList({
+              ...currentCreateMedia(),
+              voiceUrls: nextUrls,
+            })
+          }
+          onIdentityFilesChange={setIdentityFiles}
+          onIdentityLinksChange={setIdentityLinks}
+          onToggleReferenceAudio={(voiceKey) => {
+            const next = toggleCreateAvatarReferenceAudio(
+              currentCreateMedia(),
+              voiceKey
+            );
+            setReferenceAudioKey(next.referenceAudioKey);
+          }}
+          onDraftChange={setMediaDraft}
+          onErrorChange={setMediaError}
+          onIncoming={handleIncomingMedia}
         />
         <CreateAvatarVoiceField
           avatarName={resolvedName}
           gender={voiceGender}
           voiceId={standardVoiceId}
-          disabled={isLoading}
+          disabled={isCreating}
           onGenderChange={setVoiceGender}
           onVoiceChange={setStandardVoiceId}
           onVoicesChange={setStandardVoices}
@@ -382,7 +546,7 @@ const CreateAvatarModal = ({ setShowCreateModal }) => {
               onChange={(changeEvent) =>
                 setIsPinnedToAPlace(changeEvent.target.checked)
               }
-              disabled={isLoading}
+              disabled={isCreating}
               className="mt-1 h-4 w-4 accent-amber-400"
             />
             <span className="flex items-center gap-1.5">
@@ -392,8 +556,8 @@ const CreateAvatarModal = ({ setShowCreateModal }) => {
           </label>
           <p className="mt-1 ml-6 text-xs leading-relaxed text-white/40">
             {photoFile
-              ? 'A photograph pins the avatar where it was taken. 1 m is a doorway.'
-              : 'Walk up to the pin and the avatar opens on the phone. 1 m is a doorway.'}
+              ? 'A photograph pins the avatar where it was taken.'
+              : 'Walk up to the pin and the avatar opens on the phone.'}
           </p>
           {isPinnedToAPlace && (
             <div className="mt-3">
@@ -404,23 +568,25 @@ const CreateAvatarModal = ({ setShowCreateModal }) => {
             </div>
           )}
         </div>
-        <div className="flex justify-end gap-2">
+        </div>
+        <div className="mt-4 flex justify-end gap-2 shrink-0">
           <button
-            onClick={() => setShowCreateModal(false)}
+            type="button"
+            onClick={closeCreateModal}
             className="px-4 py-2 rounded bg-black/60 text-neutral-200 border border-neutral-700 hover:bg-neutral-900 focus:outline-none focus:ring-2 focus:ring-amber-400/50 transition-all duration-300 transform hover:scale-105"
-            disabled={isLoading}
+            disabled={isCreating}
           >
             Cancel
           </button>
           <button
-            onClick={handleCreate}
+            type="submit"
             className="px-4 py-2 rounded bg-black/60 text-neutral-200 border border-neutral-700 hover:bg-neutral-900 focus:outline-none focus:ring-2 focus:ring-amber-400/50 transition-all duration-300 transform hover:scale-105 disabled:opacity-50"
-            disabled={isLoading || !canCreate}
+            disabled={isCreating}
           >
-            {isLoading ? 'Creating...' : 'Create'}
+            {isCreating ? 'Creating...' : 'Create'}
           </button>
         </div>
-      </div>
+      </form>
     </div>,
     document.body
   );

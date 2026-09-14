@@ -47,6 +47,7 @@ import {
 } from './evanAssistDesktopWindow';
 import { isValidImageUrl } from '../utils';
 import LinkifiedText from '../ui/LinkifiedText';
+import MessageStamp from '../media/MessageStamp';
 
 const CONTROL_CLASSES =
   'rounded-full text-white/70 hover:text-neutral-100 hover:bg-white/10 transition-colors focus:outline-none focus:ring-2 focus:ring-amber-400/50 disabled:opacity-40 disabled:hover:bg-transparent shrink-0 p-1.5';
@@ -447,6 +448,9 @@ const EvanAssistOverlay = () => {
                 ) : (
                   <LinkifiedText text={message.content} />
                 )}
+                <div className="mt-1 flex justify-end">
+                  <MessageStamp message={message} />
+                </div>
               </div>
             </div>
           );
