@@ -1355,7 +1355,9 @@ const AvatarSettings = ({ avatarId, onPortraitChanged }) => {
       return (
         <div className="avatar-settings flex flex-col gap-4 sm:gap-6 w-full max-w-4xl mx-auto min-w-0">
           {renderSharingCard()}
+          {/* Inert for public demos — restore with ADULT_ONLY_FEATURES_ENABLED.
           {isAdministrator && renderAdultOnlyCard()}
+          */}
           {isAdministrator && (
             <AvatarIdentityFacts
               assistantId={assistantId}
@@ -1365,8 +1367,7 @@ const AvatarSettings = ({ avatarId, onPortraitChanged }) => {
           <p className="text-white/50 text-sm px-1">
             Another account created this avatar, so its name, portrait, source
             documents and deletion stay with that account. You can change
-            sharing and the adult-only setting, and you can review what the
-            avatar has learned.
+            sharing, and you can review what the avatar has learned.
           </p>
         </div>
       );
@@ -1999,7 +2000,9 @@ const AvatarSettings = ({ avatarId, onPortraitChanged }) => {
           avatar's control — except for the administrator, who may publish any
           avatar and therefore sees it on all of them. */}
       {canChangeSharing && renderSharingCard()}
+      {/* Inert for public demos — restore with ADULT_ONLY_FEATURES_ENABLED.
       {isAdministrator && renderAdultOnlyCard()}
+      */}
       <AvatarPlaceCard
         assistantId={assistantId}
         activeAvatar={activeAvatar}

@@ -19,10 +19,15 @@ export const WORKSPACE_ESCAPE_INTENT_AVATAR_SELECTION = 'avatar-selection';
 /**
  * Overlays that already own Escape. One query so the document listener does
  * not steal the key from a dialog that registered later on the same bubble.
+ *
+ * Conversation starter chips use role="menu" in document flow. They are not
+ * a dialog, and they do not handle Escape or arrows, so they must not block
+ * leaving chat for Avatar Selection. An unused avatar (empty new thread)
+ * raises that list; avatars with a first send already keep it folded.
  */
 export const WORKSPACE_ESCAPE_OVERLAY_SELECTOR = [
   '[aria-modal="true"]:not([hidden])',
-  '[role="menu"]:not([hidden])',
+  '[role="menu"]:not([hidden]):not([data-conversation-suggestion-sheet])',
   '[data-evan-assist-overlay]',
   '[data-agent-computer-takeover]',
   '[data-user-settings-menu] [aria-expanded="true"]',

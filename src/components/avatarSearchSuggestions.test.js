@@ -87,6 +87,8 @@ test('an adult-only avatar stays out of search until the viewer verifies age', (
     typedName.map((row) => row.id),
     ['create-avatar']
   );
+  // Inert for demos (ADULT_ONLY_FEATURES_ENABLED=false): administrator and
+  // age-verified viewers still do not see adult-only avatars in search.
   const adminSearch = buildAvatarSearchSuggestions({
     avatars: [personal, adult],
     query: 'Adult Avatar',
@@ -94,7 +96,7 @@ test('an adult-only avatar stays out of search until the viewer verifies age', (
   });
   assert.deepEqual(
     adminSearch.map((row) => row.id),
-    ['adult-1', 'create-avatar']
+    ['create-avatar']
   );
   const shown = buildAvatarSearchSuggestions({
     avatars: [personal, adult],
@@ -103,7 +105,7 @@ test('an adult-only avatar stays out of search until the viewer verifies age', (
   });
   assert.deepEqual(
     shown.map((row) => row.id),
-    ['me', 'adult-1', 'create-avatar']
+    ['me', 'create-avatar']
   );
 });
 

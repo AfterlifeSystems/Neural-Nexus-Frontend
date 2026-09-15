@@ -9,7 +9,18 @@
  * not put the name in search; the owner still reaches it from their carousel
  * or a share link. A public record may carry the flag at the top level
  * because public listings strip metadata.
+ *
+ * Demo / share mode: set ADULT_ONLY_FEATURES_ENABLED to true to restore
+ * age-verification unlock and the administrator search exception. While the
+ * flag is false, adult-only avatars stay hidden from every list for every
+ * viewer (including the administrator), so the product can be demoed to
+ * everyone without exposing adult avatars. Restore the commented admin
+ * toggle and age-verification UI call sites at the same time.
  */
+
+// TEMPORARILY INERT for public demos. Flip to true to restore adult-only
+// unlock paths (age verification + administrator exception).
+export const ADULT_ONLY_FEATURES_ENABLED = false;
 
 export function isAdultOnlyAvatar(avatar) {
   if (!avatar) return false;
@@ -28,6 +39,9 @@ function isOwnedByViewer(avatar, viewerUserId) {
  * Age verification unlocks search for ordinary accounts. The administrator
  * always sees adult-only names. The creator does not.
  *
+ * While ADULT_ONLY_FEATURES_ENABLED is false, adult-only avatars stay out of
+ * search for every viewer (including the administrator).
+ *
  * @param {Object|null|undefined} avatar
  * @param {Object} [viewer]
  * @param {boolean} [viewer.ageVerified]
@@ -39,6 +53,8 @@ export function maySeeAdultOnlyAvatarInSearch(
   { ageVerified = false, isAdmin = false } = {}
 ) {
   if (!isAdultOnlyAvatar(avatar)) return true;
+  // Inert for demos: hide adult-only avatars from every search list.
+  if (!ADULT_ONLY_FEATURES_ENABLED) return false;
   return Boolean(ageVerified) || Boolean(isAdmin);
 }
 
@@ -48,6 +64,10 @@ export function maySeeAdultOnlyAvatarInSearch(
  * The owner still needs a way to open settings. The administrator needs the
  * same path to mark and unmark avatars they did not create. Search does not
  * use this function.
+ *
+ * While ADULT_ONLY_FEATURES_ENABLED is false, only the owner keeps an
+ * adult-only avatar on the gallery (administrator exception and age
+ * verification stay inert so demos do not surface those avatars).
  *
  * @param {Object|null|undefined} avatar
  * @param {Object} [viewer]
@@ -61,6 +81,11 @@ export function mayKeepAdultOnlyAvatarOnGallery(
   { ageVerified = false, isAdmin = false, viewerUserId } = {}
 ) {
   if (!isAdultOnlyAvatar(avatar)) return true;
+  // Inert for demos: no administrator exception and no age-verification
+  // unlock on the gallery list. The owner still reaches their own avatar.
+  if (!ADULT_ONLY_FEATURES_ENABLED) {
+    return isOwnedByViewer(avatar, viewerUserId);
+  }
   if (ageVerified || isAdmin) return true;
   return isOwnedByViewer(avatar, viewerUserId);
 }

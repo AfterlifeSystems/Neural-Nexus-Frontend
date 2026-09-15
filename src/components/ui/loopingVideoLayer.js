@@ -1,20 +1,25 @@
 // src/components/ui/loopingVideoLayer.js
 //
-// When a generated still is ready, show it. Do not wait for the idle loop.
-// Waiting for both is why voice mode stayed empty while the loop's decoder
-// had not started. The gallery does the opposite for generated cards: it
-// keeps the 9:16 window empty until the clip has a frame, because binding
-// the square still first paints a circle that then pops into the portrait.
+// A generated still may show before the idle loop when no 9:16 frame is
+// ready yet, so the well is not empty. If the carousel already decoded
+// that loop, skip the still: object-cover on the square still zooms the
+// face, then the 9:16 clip unzooms it. The unpainted canvas stays opacity
+// 0 until a 9:16 frame exists, so a 300×150 default canvas does not flash.
 
 /**
  * Whether this still/loop pair may be shown.
  *
+ * A painted idle loop is enough. Waiting for the square still after that
+ * loop was on the canvas left the still to win the first paint, then the
+ * clip replaced it — the video resize.
+ *
  * @param {{poster?: string|null, src?: string|null}|null|undefined} layer
- * @param {{poster?: boolean, video?: boolean}|null|undefined} ready
+ * @param {{poster?: boolean, video?: boolean, loop?: boolean}|null|undefined} ready
  * @returns {boolean}
  */
 export function loopingVideoLayerMayReveal(layer, ready = {}) {
   if (!layer) return false;
+  if (layer.src && ready.loop) return true;
   if (layer.poster && !ready.poster) return false;
   if (!layer.poster && layer.src && !ready.video) return false;
   return Boolean(layer.poster || layer.src);
@@ -39,16 +44,26 @@ export function loopingVideoPosterIsVisible(layer, loopHasPainted = false) {
 }
 
 /**
- * Layers kept after the incoming face is shown. The outgoing face leaves
- * in the same paint. Holding the outgoing face for a dissolve left two
- * faces on screen.
+ * Whether the idle-loop canvas or lip-sync video may be opaque.
  *
- * A newer layer that is still decoding stays so the next swap is not lost.
+ * An unpainted canvas is 300×150. Showing that on top of the still, then
+ * sizing the canvas to the clip, is the video resize. Keep the still
+ * visible until a real frame is on the canvas.
  *
- * @param {Array<{id: number}>|null|undefined} layers
- * @param {number|null|undefined} visibleId
- * @returns {Array<{id: number}>}
+ * @param {boolean} layerIsShown
+ * @param {boolean} loopHasPainted
+ * @param {boolean} hasLoopSrc
+ * @returns {boolean}
  */
+export function loopingVideoIdleLayerIsShown(
+  layerIsShown,
+  loopHasPainted,
+  hasLoopSrc
+) {
+  if (hasLoopSrc && !loopHasPainted) return false;
+  return Boolean(layerIsShown);
+}
+
 /**
  * Whether this layer is the face on stage.
  *
@@ -66,6 +81,17 @@ export function loopingVideoLayerIsShown(layerId, visibleId, firstLayerId) {
   return layerId === visibleId;
 }
 
+/**
+ * Layers kept after the incoming face is shown. The outgoing face leaves
+ * in the same paint. Holding the outgoing face for a dissolve left two
+ * faces on screen.
+ *
+ * A newer layer that is still decoding stays so the next swap is not lost.
+ *
+ * @param {Array<{id: number}>|null|undefined} layers
+ * @param {number|null|undefined} visibleId
+ * @returns {Array<{id: number}>}
+ */
 export function loopingVideoLayersAfterReveal(layers, visibleId) {
   if (!Array.isArray(layers) || layers.length === 0) {
     return Array.isArray(layers) ? layers : [];

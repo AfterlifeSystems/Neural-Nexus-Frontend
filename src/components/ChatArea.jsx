@@ -529,17 +529,37 @@ const ChatArea = ({
             </div>
           )}
 
-          {!galleryIsCovering && activeTab === 'inbox' && isPersonalAvatar && (
-            <div className="flex flex-col flex-grow p-2 sm:p-4 relative overflow-hidden">
+          {activeTab === 'inbox' && isPersonalAvatar && (
+            <div
+              className={
+                galleryIsCovering
+                  ? 'hidden'
+                  : 'flex flex-col flex-grow p-2 sm:p-4 relative overflow-hidden'
+              }
+              aria-hidden={galleryIsCovering}
+              inert={galleryIsCovering || undefined}
+            >
               <InboxPanel embedded />
             </div>
           )}
 
-          {!galleryIsCovering &&
-            activeTab === 'avatar-settings' &&
+          {activeTab === 'avatar-settings' &&
             canOpenAvatarSettings &&
             routeAvatarIsResolved && (
-            <div className="flex flex-col flex-grow p-2 sm:p-4 relative overflow-y-auto">
+            <div
+              className={
+                galleryIsCovering
+                  ? 'hidden'
+                  : 'flex flex-col flex-grow p-2 sm:p-4 relative overflow-y-auto'
+              }
+              aria-hidden={galleryIsCovering}
+              inert={galleryIsCovering || undefined}
+            >
+              {/*
+                Stay mounted under the gallery the same way ChatArea does.
+                Unmounting on every gallery hop re-fetched documents and the
+                portrait, which made settings↔gallery feel stalled.
+              */}
               <AvatarSettings
                 avatarId={activeAvatar?.assistant_id ?? avatarId}
                 // The portrait above this tab, and the one beside every message,

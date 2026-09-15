@@ -5,7 +5,9 @@ import { useLocation, useNavigate } from 'react-router-dom';
 
 import { useAuth } from '../context/AuthContext';
 
-import AgeVerificationSection from './AgeVerificationSection';
+// Inert for public demos — restore with ADULT_ONLY_FEATURES_ENABLED in
+// services/adultOnlyAvatar.js.
+// import AgeVerificationSection from './AgeVerificationSection';
 import AccessibilitySection from './AccessibilitySection';
 import DeveloperOptionsSection from './DeveloperOptionsSection';
 import UserSettingsMenu from './UserSettingsMenu';
@@ -286,7 +288,9 @@ const AccountSettings = ({ activeTab }) => {
         </div>
       </div>
 
+      {/* Inert for public demos — restore with ADULT_ONLY_FEATURES_ENABLED.
       <AgeVerificationSection />
+      */}
 
       <AccessibilitySection />
 

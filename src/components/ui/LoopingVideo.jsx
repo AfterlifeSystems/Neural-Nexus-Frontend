@@ -1,10 +1,13 @@
 // src/components/ui/LoopingVideo.jsx
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import {
   corsDecodableMediaUrl,
   createIdleLoopVideo,
   disposeIdleLoopTape,
   disposeIdleLoopVideo,
+  findMountedIdleLoopVideo,
+  idleLoopPaintKeyState,
+  idleLoopVideoCanPaint,
   paintIdleLoopFrame,
   stepIdleLoopMedia,
 } from './idleLoopSeam';
@@ -13,6 +16,7 @@ import {
   loopingVideoLayerIsShown,
   loopingVideoLayersAfterReveal,
   loopingVideoPosterIsVisible,
+  loopingVideoIdleLayerIsShown,
 } from './loopingVideoLayer';
 
 const IDLE_LOOP_MAX_EDGE = 512;
@@ -21,8 +25,10 @@ const IDLE_LOOP_MAX_EDGE = 512;
  * A silent, looping, autoplaying video with a still as its poster.
  *
  * The still of a swap is shown as soon as it has decoded. The idle loop
- * paints over it once a frame exists. Waiting for both before showing
- * anything left voice mode empty while the loop's decoder had not started.
+ * paints over it once a frame exists. Waiting for the clip before showing
+ * anything left voice mode empty while the decoder started — switching
+ * felt slow and the well was a hollow frame. The unpainted canvas stays
+ * opacity 0 so a 300×150 default size does not flash on top of the still.
  * The still is then taken off: contain letterboxes a 9:16 canvas, and a
  * transparent letterbox would show the square still beside the clip.
  * The outgoing frame stays up until the incoming still is ready, then the
@@ -74,6 +80,7 @@ const LoopingVideo = ({
   const videoElementsRef = useRef(new Map());
   const hiddenVideosRef = useRef(new Map());
   const canvasElementsRef = useRef(new Map());
+  const lastPaintKeyRef = useRef(new Map());
   const loopRef = useRef(loop);
   const onEndedRef = useRef(onEnded);
   const onPresentedRef = useRef(onPresented);
@@ -112,6 +119,36 @@ const LoopingVideo = ({
     }
     readyRef.current[layerId] = { ...current, [kind]: true };
     revealIfReady(layerId);
+  };
+
+  const markLoopPainted = (layerId, size = null) => {
+    if (loopPaintedIdsRef.current.has(layerId)) return;
+    loopPaintedIdsRef.current.add(layerId);
+    setLoopPaintedIds((previous) => {
+      if (previous.has(layerId)) return previous;
+      const next = new Set(previous);
+      next.add(layerId);
+      return next;
+    });
+    markReady(layerId, 'loop');
+  };
+
+  const paintLoopIfReady = (layerId, src) => {
+    const canvas = canvasElementsRef.current.get(layerId);
+    const owned = hiddenVideosRef.current.get(layerId);
+    const video = idleLoopVideoCanPaint(owned)
+      ? owned
+      : findMountedIdleLoopVideo(src);
+    if (!canvas || !idleLoopVideoCanPaint(video)) return false;
+    if (!paintIdleLoopFrame(canvas, video)) return false;
+    markLoopPainted(layerId, {
+      reusedMounted: video !== owned,
+      canvasW: canvas.width,
+      canvasH: canvas.height,
+      videoW: video.videoWidth,
+      videoH: video.videoHeight,
+    });
+    return true;
   };
 
   useEffect(() => {
@@ -163,6 +200,17 @@ const LoopingVideo = ({
     }
   }, [layers]);
 
+  // Paint a 9:16 frame from the carousel's already-decoded loop before the
+  // browser paints, so the square still never fills the well and then unzooms.
+  useLayoutEffect(() => {
+    if (pingPong === false) return undefined;
+    for (const layer of layers) {
+      if (!layer.src) continue;
+      paintLoopIfReady(layer.id, layer.src);
+    }
+    return undefined;
+  }, [layers, pingPong]);
+
   // Idle loops: same hidden video as the carousel. React never owns `loop`.
   useEffect(() => {
     if (pingPong === false) {
@@ -183,11 +231,13 @@ const LoopingVideo = ({
         onError: () => markReady(layerId, 'video'),
       });
       hiddenVideosRef.current.set(layerId, video);
+      paintLoopIfReady(layerId, layer.src);
     }
     for (const [layerId, video] of hiddenVideosRef.current) {
       if (wanted.has(layerId)) continue;
       disposeIdleLoopVideo(video);
       hiddenVideosRef.current.delete(layerId);
+      lastPaintKeyRef.current.delete(layerId);
     }
     return undefined;
   }, [layers, pingPong]);
@@ -206,25 +256,33 @@ const LoopingVideo = ({
         );
         video._idleLoopDirection = stepped.direction;
         const canvas = canvasElementsRef.current.get(layerId);
-        if (canvas && paintIdleLoopFrame(canvas, video)) {
-          if (!loopPaintedIdsRef.current.has(layerId)) {
-            loopPaintedIdsRef.current.add(layerId);
-            setLoopPaintedIds((previous) => {
-              if (previous.has(layerId)) return previous;
-              const next = new Set(previous);
-              next.add(layerId);
-              return next;
+        const paintState = idleLoopPaintKeyState(
+          video,
+          lastPaintKeyRef.current.get(layerId)
+        );
+        const shouldPaint =
+          canvas &&
+          (!paintState.unchanged || !loopPaintedIdsRef.current.has(layerId));
+        if (shouldPaint && paintIdleLoopFrame(canvas, video)) {
+          lastPaintKeyRef.current.set(layerId, paintState.key);
+          const firstPaint = !loopPaintedIdsRef.current.has(layerId);
+          markLoopPainted(layerId, {
+            canvasW: canvas.width,
+            canvasH: canvas.height,
+            videoW: video.videoWidth,
+            videoH: video.videoHeight,
+          });
+          if (firstPaint && layerId === visibleIdRef.current) {
+            const layer = layersRef.current.find(
+              (item) => item.id === layerId
+            );
+            onPresentedRef.current?.({
+              src: layer?.src,
+              poster: layer?.poster,
             });
-            if (layerId === visibleIdRef.current) {
-              const layer = layersRef.current.find(
-                (item) => item.id === layerId
-              );
-              onPresentedRef.current?.({
-                src: layer?.src,
-                poster: layer?.poster,
-              });
-            }
           }
+        } else if (paintState.unchanged) {
+          lastPaintKeyRef.current.set(layerId, paintState.key);
         }
         if (layerId === visibleIdRef.current && stepped.cycleEnded) {
           onEndedRef.current?.();
@@ -268,26 +326,38 @@ const LoopingVideo = ({
   return (
     <div className={`relative overflow-hidden ${className}`}>
       {layers.map((layer) => {
-        const shown = loopingVideoLayerIsShown(
+        const loopHasPainted = loopPaintedIds.has(layer.id);
+        const layerShown = loopingVideoLayerIsShown(
           layer.id,
           visibleId,
           layers[0]?.id
         );
-        const layerClass = `absolute inset-0 ${mediaClassName} ${
-          shown ? 'opacity-100' : 'opacity-0'
+        const loopShown = loopingVideoIdleLayerIsShown(
+          layerShown,
+          loopHasPainted,
+          Boolean(layer.src)
+        );
+        const posterClass = `absolute inset-0 ${mediaClassName} ${
+          layerShown ? 'opacity-100' : 'opacity-0'
+        }`;
+        const loopClass = `absolute inset-0 ${mediaClassName} ${
+          loopShown ? 'opacity-100' : 'opacity-0'
         }`;
         if (layer.src && useHiddenIdle) {
+          const mountedLoopReady = Boolean(
+            findMountedIdleLoopVideo(layer.src)
+          );
           const showPoster = loopingVideoPosterIsVisible(
             layer,
-            loopPaintedIds.has(layer.id)
+            loopHasPainted || mountedLoopReady
           );
           return (
             <React.Fragment key={layer.id}>
               {showPoster ? (
                 <img
                   src={layer.poster}
-                  alt={shown ? alt : ''}
-                  className={layerClass}
+                  alt={layerShown ? alt : ''}
+                  className={posterClass}
                   draggable={false}
                 />
               ) : null}
@@ -300,7 +370,7 @@ const LoopingVideo = ({
                   }
                 }}
                 aria-label={alt}
-                className={layerClass}
+                className={loopClass}
               />
             </React.Fragment>
           );
@@ -314,6 +384,12 @@ const LoopingVideo = ({
                   videoElementsRef.current.set(layer.id, element);
                   if (element.readyState >= 2) {
                     markReady(layer.id, 'video');
+                    if (element.videoWidth > 0) {
+                      markLoopPainted(layer.id, {
+                        videoW: element.videoWidth,
+                        videoH: element.videoHeight,
+                      });
+                    }
                   }
                 } else {
                   const existing = videoElementsRef.current.get(layer.id);
@@ -345,6 +421,12 @@ const LoopingVideo = ({
                   }
                 }
                 markReady(layer.id, 'video');
+                if (event.currentTarget.videoWidth > 0) {
+                  markLoopPainted(layer.id, {
+                    videoW: event.currentTarget.videoWidth,
+                    videoH: event.currentTarget.videoHeight,
+                  });
+                }
                 if (layer.id === visibleIdRef.current) {
                   onPresentedRef.current?.({
                     src: layer.src,
@@ -358,7 +440,7 @@ const LoopingVideo = ({
                 if (layer.id !== visibleIdRef.current) return;
                 onEndedRef.current?.();
               }}
-              className={layerClass}
+              className={loopClass}
             />
           );
         }
@@ -367,8 +449,8 @@ const LoopingVideo = ({
             <img
               key={layer.id}
               src={layer.poster}
-              alt={shown ? alt : ''}
-              className={layerClass}
+              alt={layerShown ? alt : ''}
+              className={posterClass}
               draggable={false}
             />
           );

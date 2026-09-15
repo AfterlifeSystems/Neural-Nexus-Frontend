@@ -9,6 +9,7 @@ import {
   chatWorkspaceAvatarId,
   chatWorkspacePaintedTab,
   chatWorkspaceTabFromSearch,
+  conversationChatPath,
   isAvatarChatLocation,
   isAvatarSelectionLocation,
   isAvatarSettingsLocation,
@@ -118,6 +119,58 @@ test('ArrowDown only leaves from chat', () => {
   assert.equal(isAvatarChatLocation('/chat/maya-1', '?tab=inbox'), false);
   assert.equal(isAvatarChatLocation('/inbox'), false);
   assert.equal(isAvatarChatLocation('/avatars'), false);
+});
+
+test('a new conversation URL opens Chat, in voice mode when that was last used', () => {
+  assert.equal(
+    conversationChatPath('maya-1', { threadId: 'new' }),
+    '/chat/maya-1?thread=new'
+  );
+  assert.equal(
+    conversationChatPath('maya-1', { threadId: '__new__' }),
+    '/chat/maya-1?thread=new'
+  );
+  assert.equal(
+    conversationChatPath('maya-1', {
+      threadId: 'new',
+      voicePreferred: true,
+    }),
+    '/chat/maya-1?thread=new&voice=1'
+  );
+  assert.equal(
+    conversationChatPath('id/with space', {
+      threadId: 'thread-9',
+      voicePreferred: true,
+    }),
+    '/chat/id%2Fwith%20space?thread=thread-9&voice=1'
+  );
+  assert.equal(conversationChatPath(null, { threadId: 'new' }), null);
+  assert.equal(
+    isAvatarChatLocation('/chat/maya-1', '?tab=settings'),
+    false
+  );
+  assert.equal(
+    isAvatarChatLocation('/chat/maya-1', '?thread=new&voice=1'),
+    true
+  );
+  const protectedSource = readFileSync(
+    new URL('./ProtectedRoute.jsx', import.meta.url),
+    'utf8'
+  );
+  assert.match(protectedSource, /conversationChatPath/);
+  assert.match(protectedSource, /readVoiceModePreference/);
+  assert.match(
+    protectedSource,
+    /conversationSurfaceIsOpen = isAvatarChatLocation/
+  );
+  assert.match(
+    protectedSource,
+    /if \(!activeAvatarId \|\| conversationSurfaceIsOpen\) return/
+  );
+  assert.match(protectedSource, /setActiveConversation\(NEW_CONVERSATION_ID\)/);
+  assert.match(protectedSource, /openConversationSurface\('new'\)/);
+  assert.equal(/isOnChatScreen/.test(protectedSource), false);
+  assert.equal(/pathname === chatPath/.test(protectedSource), false);
 });
 
 test('a tab-less chat URL is Chat even after settings or inbox', () => {

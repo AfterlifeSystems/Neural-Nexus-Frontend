@@ -6,6 +6,7 @@ import { test } from 'node:test';
 import {
   WORKSPACE_ESCAPE_INTENT_AVATAR_SELECTION,
   WORKSPACE_ESCAPE_INTENT_CLOSE_SIDEBAR,
+  WORKSPACE_ESCAPE_OVERLAY_SELECTOR,
   fieldOwnsArrowKeys,
   overlayOwnsWorkspaceEscape,
   workspaceEscapeIntent,
@@ -121,6 +122,39 @@ test('ArrowUp on avatar settings goes to avatar selection', () => {
   );
   assert.equal(isAvatarSettingsLocation('/inbox', '?tab=settings'), false);
   assert.equal(isAvatarSettingsLocation('/avatars', '?tab=settings'), false);
+});
+
+test('an open conversation suggestion sheet does not keep Escape or gallery arrows', () => {
+  assert.match(
+    WORKSPACE_ESCAPE_OVERLAY_SELECTOR,
+    /data-conversation-suggestion-sheet/
+  );
+  const suggestionsSource = readFileSync(
+    join(componentsDirectory, 'ConversationSuggestions.jsx'),
+    'utf8'
+  );
+  assert.match(suggestionsSource, /data-conversation-suggestion-sheet/);
+  assert.equal(
+    overlayOwnsWorkspaceEscape({
+      querySelector: (selector) => {
+        if (selector.includes('[data-conversation-suggestion-sheet]')) {
+          return null;
+        }
+        if (selector.includes('[role="menu"]')) {
+          return { getAttribute: () => 'menu' };
+        }
+        return null;
+      },
+    }),
+    false
+  );
+  assert.equal(
+    workspaceGalleryArrowIntent(arrowDownKey, {
+      ...chatArrowContext,
+      overlayOwnsEscape: false,
+    }),
+    WORKSPACE_ESCAPE_INTENT_AVATAR_SELECTION
+  );
 });
 
 test('ArrowDown on chat goes to avatar selection', () => {
