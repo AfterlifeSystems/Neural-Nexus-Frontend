@@ -6,6 +6,7 @@ import { useAuth } from '../context/AuthContext';
 import { isSharedAvatarChatPath } from '../components/utils';
 import { canUseAvatarSpeechPlayback } from '../services/avatarSpeechPlayback';
 import { COMPOSER_DRAFT_SPEAK_KEY } from '../components/composerSpeech';
+import { useMedia } from '../context/MediaContext';
 import usePersonalAvatar from './usePersonalAvatar';
 import useSpeech from './useSpeech';
 
@@ -21,6 +22,7 @@ import useSpeech from './useSpeech';
 export default function useComposerSpeech({ text } = {}) {
   const { user } = useAuth();
   const location = useLocation();
+  const { activeConversation } = useMedia();
   const readerIsAnonymous = isSharedAvatarChatPath(location.pathname);
   const { personalAvatar, personalAssistantId } = usePersonalAvatar();
   const canPlayDraft = Boolean(
@@ -33,6 +35,7 @@ export default function useComposerSpeech({ text } = {}) {
   const speech = useSpeech({
     asAnonymousIdentity: readerIsAnonymous,
     avatarName: personalAvatar?.name,
+    conversationId: activeConversation,
   });
   const [isPlayLoading, setIsPlayLoading] = useState(false);
   const textRef = useRef(text);

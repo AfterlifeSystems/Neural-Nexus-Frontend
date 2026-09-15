@@ -3,6 +3,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { toast } from 'react-hot-toast';
 import {
   isProviderCreditExhausted,
+  isProviderKeyRefused,
   showRequestFailureToast,
 } from '../components/requestFailureToast';
 import { showVoiceNotReadyToast } from '../components/showVoiceNotReadyToast';
@@ -36,21 +37,22 @@ import {
  * repeat something the reader can do nothing about, and live voice mode
  * answers in text. The settings Voice panel is where the ban is explained.
  * A missing clone (or voice stack that is not configured yet) raises the
- * create-voice toast once per conversation: left side opens Voice settings,
+ * create-voice toast once per conversation per avatar: left side opens Voice settings,
  * Close dismisses. "The avatar could not speak that message" is the wrong
  * sentence for that case. A server that has no voice stack at all
  * (`unavailable`) is different: the avatar may already have a clone, so the
  * create-voice toast is wrong — that case gets a plain unavailable notice.
- * A refused ElevenLabs, OpenAI, or xAI key, or a spent vendor account, uses
- * the same Support toast as a chat credit pause. Every other failure is
- * toasted as a failed utterance — a speak button that spins and then does
- * nothing at all leaves the reader with no way to tell a broken voice from a
- * silent one.
+ * A refused ElevenLabs, OpenAI, or xAI key is not an empty vendor account:
+ * it is reported as a key refusal, not the Support toast. A spent vendor
+ * account still uses the same Support toast as a chat credit pause. Every
+ * other failure is toasted as a failed utterance — a speak button that
+ * spins and then does nothing at all leaves the reader with no way to tell
+ * a broken voice from a silent one.
  *
  * @param {Object} [options]
  * @param {boolean} [options.asAnonymousIdentity] Public chat: withhold the credential.
  * @param {string} [options.avatarName] Named on the create-voice toast.
- * @param {string} [options.conversationId] Limits the create-voice toast to once per thread.
+ * @param {string} [options.conversationId] Limits the create-voice toast to once per conversation per avatar. A new conversation may show it again.
  * @param {boolean} [options.missingClonedVoice] True when a clone has not been
  *   added to this model. A successful standard-voice speak still shows the
  *   missing-clone toast; this flag covers browsers that hide `X-Voice-Kind`.
@@ -270,7 +272,10 @@ export default function useSpeech({
             'Voice speaking is unavailable on this server right now.',
             { id: 'avatar-speak-unavailable' }
           );
-        } else if (isProviderCreditExhausted(speakError)) {
+        } else if (
+          isProviderCreditExhausted(speakError) ||
+          isProviderKeyRefused(speakError)
+        ) {
           showRequestFailureToast(speakError);
         } else {
           console.error('Speech failed:', speakError);

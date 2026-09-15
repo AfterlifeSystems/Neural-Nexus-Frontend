@@ -2,13 +2,13 @@
 //
 // The highlight on a bubble (or the glow around a face) while that person is
 // speaking. Avatar replies and the signed-in person's own messages use the
-// house amber speak glow; a colour is only passed for overheard third-party
-// voices, which carry their own identity disc colour.
+// house atmosphere speak glow; a colour is only passed for overheard
+// third-party voices, which carry their own identity disc colour.
 
 import { rgbChannelsOf } from '../config/avatarColorScheme.js';
 
 export const SPEAKING_BUBBLE_HIGHLIGHT =
-  'ring-2 ring-amber-400/80 border-amber-400/50 bg-amber-400/10';
+  'ring-2 ring-[rgb(135,206,250)]/80 border-[rgb(135,206,250)]/50 bg-[rgb(135,206,250)]/10';
 
 /**
  * CSS variables that recolour `voice-speak-glow` without changing its shape.
@@ -29,7 +29,7 @@ export function speakingGlowStyle(color) {
 /**
  * Class and inline style for a bubble that is currently being spoken.
  *
- * @param {{fill?: string}|null|undefined} [color] Identity colour; omit for amber.
+ * @param {{fill?: string}|null|undefined} [color] Identity colour; omit for atmosphere.
  * @returns {{className: string, style: Object|undefined}}
  */
 export function speakingBubbleProps(color) {

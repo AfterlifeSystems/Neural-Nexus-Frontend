@@ -11,15 +11,29 @@ import AvatarWorkspaceHeader from './AvatarWorkspaceHeader';
 import InboxPanel from './inbox/InboxPanel';
 import LiveVoiceMode from './LiveVoiceMode';
 import PhoneCallListenBar from './PhoneCallListenBar';
-import { isAvatarOwnedByUser, canShareAvatar } from './utils';
+import {
+  canShareAvatar,
+  isAvatarOwnedByUser,
+  isValidImageUrl,
+  readCachedAvatarIcons,
+  writeCachedAvatarIcon,
+} from './utils';
 import useInboxCount from '../hooks/useInboxCount';
+import useMissingClonedVoiceNotice from '../hooks/useMissingClonedVoiceNotice';
+import { forgetUnmintedVoiceNotReadyShown } from './voiceNotReadyToast';
 import {
   listUserAvatars,
   getAvatarReferenceImage,
 } from '../services/avatarService';
-import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
+import { useParams, useNavigate, useSearchParams, useLocation } from 'react-router-dom';
+import {
+  chatWorkspacePaintedTab,
+  chatWorkspaceTabFromSearch,
+  isAvatarSelectionLocation,
+} from './personalAvatarWorkspace';
 import useEmotionMedia, { stillFor } from '../hooks/useEmotionMedia';
 import useAvatarFaceSource from '../hooks/useAvatarFaceSource';
+import { seedOpenedAvatarPortraitWell } from './openedAvatarPortraitWell';
 import { subscribeAvatarPortraitChanged } from '../services/avatarPortraitEvents';
 import { useGeoAvatars } from '../context/GeoAvatarContext';
 import {
@@ -27,11 +41,23 @@ import {
   readVoiceModePreference,
   searchRequestsVoiceMode,
   voiceModeIsOpen,
+  voiceModeStageShouldMount,
   writeVoiceModePreference,
 } from '../services/voiceModePreference';
 import { primeAvatarSpeechPlayback } from '../services/avatarSpeechUnlock';
 
-const ChatArea = ({ onActivateLiveChat, onEndLiveChat, className }) => {
+function cachedPortraitOf(assistantId) {
+  if (!assistantId) return null;
+  const cached = readCachedAvatarIcons()[assistantId];
+  return isValidImageUrl(cached) ? cached : null;
+}
+
+const ChatArea = ({
+  onActivateLiveChat,
+  onEndLiveChat,
+  className,
+  avatarId: avatarIdFromParent,
+}) => {
   const { activeAvatar, setActiveAvatar, userAvatars, user, setContext } =
     useAuth();
   const {
@@ -42,13 +68,26 @@ const ChatArea = ({ onActivateLiveChat, onEndLiveChat, className }) => {
     setActiveConversation,
     setMessages,
     resetConversationState,
+    activeConversation,
+    conversationList,
   } = useMedia(); // messages is now a simple array
 
+  const { avatarId: avatarIdFromRoute } = useParams(); // from /chat/:avatarId
+  const avatarId = avatarIdFromParent ?? avatarIdFromRoute;
+  seedOpenedAvatarPortraitWell(avatarId);
   // The open avatar's portrait, shown beside its name. Avatar records carry no
   // imagery, so it comes from GET /avatar_reference_image like everywhere else.
-  const [avatarPortrait, setAvatarPortrait] = useState(null);
-  const { avatarId } = useParams(); // from /chat/:avatarId
+  // The gallery already has this face; do not clear it while the request runs
+  // or the header snaps from a placeholder to the picture.
+  const cachedPortrait = cachedPortraitOf(avatarId);
+  const [avatarPortrait, setAvatarPortrait] = useState(cachedPortrait);
+  const portraitForAvatarIdRef = useRef(avatarId);
+  if (portraitForAvatarIdRef.current !== avatarId) {
+    portraitForAvatarIdRef.current = avatarId;
+    setAvatarPortrait(cachedPortrait);
+  }
   const navigate = useNavigate();
+  const location = useLocation();
   const [searchParams, setSearchParams] = useSearchParams();
   // Live mode is a different way into the same conversation, so it opens over
   // this screen rather than navigating away from it. The choice is a browser
@@ -68,14 +107,6 @@ const ChatArea = ({ onActivateLiveChat, onEndLiveChat, className }) => {
   // place. A `?camera=1` on the URL is leftover navigation from a nearby
   // toast; arrival is decided by the shared position watch, not the query.
   const { isStandingAt } = useGeoAvatars();
-  // const [activeTab, setActiveTab] = useState('avatar-settings');
-  const [activeTab, setActiveTab] = useState(() => {
-    if (searchRequestsVoiceMode(searchParams)) return 'chat';
-    const requestedTab = searchParams.get('tab');
-    if (requestedTab === 'settings') return 'avatar-settings';
-    if (requestedTab === 'inbox') return 'inbox';
-    return 'chat';
-  });
 
   // Settings administer the avatar — rename, portrait, documents, sharing,
   // deletion — and every one of those is refused by the API for an avatar the
@@ -94,10 +125,58 @@ const ChatArea = ({ onActivateLiveChat, onEndLiveChat, className }) => {
   const isPersonalAvatar =
     activeAvatar?.metadata?.is_personal_avatar_of_creator === true;
   const inboxCount = useInboxCount();
+  // The workspace stays mounted under Avatar Selection. The tab on screen
+  // must follow the chat URL on the same render — a useEffect left Settings
+  // painted for a frame on Settings → Gallery → Chat, in both message modes.
+  //
+  // Read that URL from useLocation(), not useSearchParams(). ChatArea is not
+  // the matched /chat/:id route while the gallery is open, and useSearchParams
+  // can keep the last chat query (`tab=settings`) after the pathname is
+  // already /chat/:id again. That leftover query is the Settings flash.
+  const workspaceSearch = location.search;
+  const galleryIsCovering = isAvatarSelectionLocation(location.pathname);
+  const voiceQuery = searchRequestsVoiceMode(workspaceSearch);
+  const tabFromWorkspaceUrl = voiceQuery
+    ? 'chat'
+    : chatWorkspaceTabFromSearch(workspaceSearch);
+  const tabHeldUnderGalleryRef = useRef(tabFromWorkspaceUrl);
+  if (!galleryIsCovering) {
+    tabHeldUnderGalleryRef.current = tabFromWorkspaceUrl;
+  }
+  const activeTab = chatWorkspacePaintedTab({
+    pathname: location.pathname,
+    search: workspaceSearch,
+    tabHeldUnderGallery: tabHeldUnderGalleryRef.current,
+    canOpenAvatarSettings,
+    isPersonalAvatar,
+    voiceQuery,
+  });
   const isLiveModeOpen = voiceModeIsOpen(prefersVoiceMode, activeTab);
+  // #region agent log
+  fetch('http://127.0.0.1:7435/ingest/1ee0e368-4b09-4cc1-9ed9-f1724140320e',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'97868d'},body:JSON.stringify({sessionId:'97868d',runId:'post-fix',hypothesisId:'C',location:'ChatArea.jsx:render',message:'chat area voice mode',data:{avatarId,isLiveModeOpen,prefersVoiceMode,activeTab},timestamp:Date.now()})}).catch(()=>{});
+  // #endregion
+  const [voiceStageMounted, setVoiceStageMounted] = useState(
+    () => readVoiceModePreference() || searchRequestsVoiceMode(searchParams)
+  );
+  useEffect(() => {
+    if (prefersVoiceMode) setVoiceStageMounted(true);
+  }, [prefersVoiceMode]);
   const openAvatarId = activeAvatar?.assistant_id ?? activeAvatar?.avatar_id;
   const opensOverTheCamera = isStandingAt(openAvatarId);
   const routeAvatarIsResolved = !avatarId || openAvatarId === avatarId;
+  // A cloned voice has not been added yet. Ask from this screen, not only
+  // from voice mode or a Speak press — a new messages conversation never
+  // mounted those, so the notice never appeared.
+  useMissingClonedVoiceNotice({
+    assistantId: activeAvatar?.assistant_id ?? avatarId,
+    avatarName: activeAvatar?.name,
+    conversationId: activeConversation,
+    avatar: activeAvatar,
+    user,
+    readerOwnsAvatar: canAdministerAvatar,
+    readerIsAnonymous: false,
+    enabled: activeTab === 'chat' && routeAvatarIsResolved,
+  });
   // A visitor who was already on the settings tab when the avatar changed must
   // not be left looking at controls that no longer belong to them. The inbox
   // tab is the same: it only exists on the personal avatar.
@@ -109,46 +188,39 @@ const ChatArea = ({ onActivateLiveChat, onEndLiveChat, className }) => {
     if (!routeAvatarIsResolved) {
       return;
     }
-    if (!canOpenAvatarSettings && activeTab === 'avatar-settings') {
-      setActiveTab('chat');
+    if (galleryIsCovering) {
+      return;
     }
-    if (!isPersonalAvatar && activeTab === 'inbox') {
-      setActiveTab('chat');
+    const requestedTab = chatWorkspaceTabFromSearch(location.search);
+    if (
+      (requestedTab === 'avatar-settings' && !canOpenAvatarSettings) ||
+      (requestedTab === 'inbox' && !isPersonalAvatar)
+    ) {
+      const nextParams = new URLSearchParams(location.search);
+      nextParams.delete('tab');
+      setSearchParams(nextParams, { replace: true });
     }
   }, [
     canOpenAvatarSettings,
     isPersonalAvatar,
-    activeTab,
+    galleryIsCovering,
+    location.search,
     routeAvatarIsResolved,
+    setSearchParams,
   ]);
 
-  // `?tab=settings` opens this screen on the settings tab. The account menu
-  // uses it to send someone straight to their own avatar's settings, which
-  // otherwise takes a detour through the chat and a second click.
-  // `?tab=inbox` does the same for the personal avatar's inbox.
-  // `?voice=1` wins over those: the ready toast asked for talking, not
-  // settings, and the stage only belongs on Chat.
+  // `?voice=1` opens talking, not settings, and is stripped once honoured.
   useEffect(() => {
-    if (searchRequestsVoiceMode(searchParams)) {
-      rememberVoiceModePreference(true);
-      setActiveTab('chat');
-      setSearchParams(consumeVoiceModeSearchParams(searchParams), {
-        replace: true,
-      });
+    if (galleryIsCovering) {
       return;
     }
-    const requestedTab = searchParams.get('tab');
-    if (requestedTab === 'settings' && canOpenAvatarSettings) {
-      setActiveTab('avatar-settings');
-    } else if (requestedTab === 'inbox' && isPersonalAvatar) {
-      setActiveTab('inbox');
-    } else if (!requestedTab) {
-      // `/chat/:id` with no tab is Chat. Honour that when the same workspace
-      // stays mounted — for example the sidebar portrait sending someone here
-      // from settings or inbox — instead of leaving the previous tab up.
-      setActiveTab('chat');
+    if (searchRequestsVoiceMode(location.search)) {
+      rememberVoiceModePreference(true);
+      setSearchParams(consumeVoiceModeSearchParams(location.search), {
+        replace: true,
+      });
     }
-  }, [searchParams, canOpenAvatarSettings, isPersonalAvatar, setSearchParams]);
+  }, [galleryIsCovering, location.search, setSearchParams]);
 
   // Make the URL sufficient to open a chat.
   //
@@ -209,18 +281,15 @@ const ChatArea = ({ onActivateLiveChat, onEndLiveChat, className }) => {
       return;
     }
 
-    const nextParams = new URLSearchParams(searchParams);
+    const nextParams = new URLSearchParams(location.search);
     if (tab === 'avatar-settings') {
       nextParams.set('tab', 'settings');
-      setActiveTab('avatar-settings');
     } else if (tab === 'inbox') {
       nextParams.set('tab', 'inbox');
       nextParams.delete('section');
-      setActiveTab('inbox');
     } else {
       nextParams.delete('tab');
       nextParams.delete('section');
-      setActiveTab('chat');
     }
     setSearchParams(nextParams, { replace: true });
   };
@@ -230,12 +299,19 @@ const ChatArea = ({ onActivateLiveChat, onEndLiveChat, className }) => {
       return undefined;
     }
     let cancelled = false;
-    setAvatarPortrait(null);
+    const cached = cachedPortraitOf(avatarId);
+    if (cached) {
+      setAvatarPortrait(cached);
+    }
     const loadPortrait = async () => {
       try {
         const portrait = await getAvatarReferenceImage(avatarId);
-        if (!cancelled) {
+        if (cancelled) return;
+        if (isValidImageUrl(portrait)) {
+          writeCachedAvatarIcon(avatarId, portrait);
           setAvatarPortrait(portrait);
+        } else if (!cached) {
+          setAvatarPortrait(null);
         }
       } catch (portraitError) {
         // An avatar with no portrait is normal, and the placeholder covers it.
@@ -295,7 +371,14 @@ const ChatArea = ({ onActivateLiveChat, onEndLiveChat, className }) => {
     const thisGeneration = ++loadGeneration.current;
     const isCurrentLoad = () => loadGeneration.current === thisGeneration;
 
-    resetConversationState();
+    const workspaceAlreadyOpen =
+      openAvatarId === avatarId &&
+      (messages.length > 0 ||
+        Boolean(activeConversation) ||
+        (conversationList?.length ?? 0) > 0);
+    if (!workspaceAlreadyOpen) {
+      resetConversationState();
+    }
 
     (async () => {
       try {
@@ -324,7 +407,13 @@ const ChatArea = ({ onActivateLiveChat, onEndLiveChat, className }) => {
         // has none, and that must resolve to "no conversation yet" rather than
         // falling back to anything remembered from a previous avatar.
         const requestedThreadId = searchParams.get('thread');
+        if (workspaceAlreadyOpen && !requestedThreadId) {
+          return;
+        }
         if (requestedThreadId === 'new') {
+          forgetUnmintedVoiceNotReadyShown(
+            activeAvatar?.assistant_id ?? avatarId
+          );
           setActiveConversation(NEW_CONVERSATION_ID);
           setMessages([]);
           return;
@@ -366,9 +455,16 @@ const ChatArea = ({ onActivateLiveChat, onEndLiveChat, className }) => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user, openAvatarId, avatarId]);
 
+  useEffect(() => {
+    setVoiceStageMounted(prefersVoiceMode);
+    // Read the preference at the avatar change only. Switch to messages
+    // must keep the hidden stage so the portrait does not remount.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [openAvatarId]);
+
   return (
     <>
-      {isLiveModeOpen && (
+      {voiceModeStageShouldMount(prefersVoiceMode, voiceStageMounted) && (
         <LiveVoiceMode
           assistantId={activeAvatar?.assistant_id ?? avatarId}
           avatarName={activeAvatar?.name}
@@ -376,10 +472,11 @@ const ChatArea = ({ onActivateLiveChat, onEndLiveChat, className }) => {
           onClose={() => rememberVoiceModePreference(false)}
           onNavigateTab={handleTabChange}
           cameraBackground={opensOverTheCamera}
+          stageVisible={isLiveModeOpen}
         />
       )}
       <div
-        className={`flex flex-row flex-grow w-full h-full min-w-0 bg-black/60 backdrop-blur-lg rounded-2xl border border-white/10 overflow-hidden relative ${
+        className={`flex flex-row flex-grow w-full h-full min-w-0 rounded-2xl border border-white/10 bg-black/25 backdrop-blur-md overflow-hidden relative ${
           isLiveModeOpen ? 'invisible pointer-events-none' : ''
         } ${className}`}
       >
@@ -400,7 +497,7 @@ const ChatArea = ({ onActivateLiveChat, onEndLiveChat, className }) => {
             onTabChange={handleTabChange}
           />
 
-          {activeTab === 'chat' && (
+          {!galleryIsCovering && activeTab === 'chat' && (
             <div className="flex flex-col flex-grow min-w-0 overflow-hidden">
               <PhoneCallListenBar isPersonalAvatar={isPersonalAvatar} />
               <div className="flex-grow overflow-y-auto overflow-x-hidden p-2 sm:p-4 relative min-w-0">
@@ -435,13 +532,14 @@ const ChatArea = ({ onActivateLiveChat, onEndLiveChat, className }) => {
             </div>
           )}
 
-          {activeTab === 'inbox' && isPersonalAvatar && (
+          {!galleryIsCovering && activeTab === 'inbox' && isPersonalAvatar && (
             <div className="flex flex-col flex-grow p-2 sm:p-4 relative overflow-hidden">
               <InboxPanel embedded />
             </div>
           )}
 
-          {activeTab === 'avatar-settings' &&
+          {!galleryIsCovering &&
+            activeTab === 'avatar-settings' &&
             canOpenAvatarSettings &&
             routeAvatarIsResolved && (
             <div className="flex flex-col flex-grow p-2 sm:p-4 relative overflow-y-auto">
@@ -453,8 +551,7 @@ const ChatArea = ({ onActivateLiveChat, onEndLiveChat, className }) => {
                 // old face survives on screen until the page is reloaded.
                 onPortraitChanged={setAvatarPortrait}
                 onAvatarDeleted={() => {
-                  // Switch to avatar selection tab after deletion
-                  setActiveTab('avatar-selection');
+                  navigate('/avatars');
                 }}
               />
             </div>

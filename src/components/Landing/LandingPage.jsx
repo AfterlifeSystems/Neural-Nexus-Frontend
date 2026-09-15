@@ -11,7 +11,7 @@ import Footer from './Footer';
 
 export default function LandingPage() {
   return (
-    // `relative z-10` lifts this screen above the full-viewport Vanta net.
+    // `relative z-10` lifts this screen above the full-viewport world globe.
     // Without it the DOM still has Product, About, and the rest — a copy of
     // the page text is complete — and the canvas paints over them.
     <div className="relative z-10 min-h-screen flex flex-col">

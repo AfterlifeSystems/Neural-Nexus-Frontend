@@ -289,17 +289,14 @@ const AuthComponent = ({ initialView = 'login' }) => {
 
   return (
     <>
-      <div className="fixed inset-0 flex items-center justify-center z-[999]">
-        {/* <VantaBackground /> */}
-
-        {/* Backdrop */}
-        <div className="absolute inset-0 bg-black/0" />
-
-        {/* Modal */}
-        <div
-          className="relative z-10 p-8 rounded-xl shadow-2xl w-full max-w-md bg-black/60 backdrop-blur-lg border border-white/10"
-          onClick={(e) => e.stopPropagation()}
-        >
+      {/* Only the card sits above the globe. A full-viewport overlay, even a
+          transparent one, is its own stacking context at z-999, and globe.gl's
+          HTML pins live inside the z-0 world background. The WebGL Earth still
+          showed through; the pinned avatars did not. */}
+      <div
+        className="fixed left-1/2 top-1/2 z-10 w-[calc(100%-2rem)] max-w-md -translate-x-1/2 -translate-y-1/2 p-8 rounded-xl shadow-2xl bg-black/25 backdrop-blur-md border border-white/10"
+        onClick={(e) => e.stopPropagation()}
+      >
           {/* Header */}
           <>
             {/* relative flex items-center justify-center space-x-4 bg-black/60 backdrop-blur-lg rounded-2xl border border-white/10 p-16 text-center cursor-pointer hover:bg-white/10 transition-all duration-300 min-h-screen w-full flex flex-col justify-evenly items-center  */}
@@ -597,7 +594,6 @@ const AuthComponent = ({ initialView = 'login' }) => {
               </button>
             </div>
           )}
-        </div>
       </div>
     </>
   );

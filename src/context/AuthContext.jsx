@@ -16,6 +16,7 @@ import {
 } from '../services/neuralNexusApiClient';
 import { restoreSignedInUser } from './authSession';
 import { listUserAvatars } from '../services/avatarService';
+import { getAgeVerification } from '../services/ageVerification';
 
 const AuthContext = createContext();
 
@@ -40,6 +41,10 @@ export const AuthProvider = ({ children }) => {
   // page refresh does not bounce a signed-in user to /login while the check
   // is in flight.
   const [isRestoringSession, setIsRestoringSession] = useState(true);
+  // Whether this account has confirmed an age that unlocks adult-only avatars
+  // in search. False until a signed-in session loads the record, and false
+  // again the moment the session ends.
+  const [ageVerified, setAgeVerified] = useState(false);
 
   /**
    * Create an account. The API sends a verification email and will not authorize
@@ -183,6 +188,7 @@ export const AuthProvider = ({ children }) => {
     setProfile(null);
     setUserAvatars([]);
     setActiveAvatar(null);
+    setAgeVerified(false);
 
     await revokeSessionAtApi;
   };
@@ -220,6 +226,7 @@ export const AuthProvider = ({ children }) => {
     setProfile(null);
     setUserAvatars([]);
     setActiveAvatar(null);
+    setAgeVerified(false);
   };
 
   const requestPasswordReset = async (email) => {
@@ -309,12 +316,30 @@ export const AuthProvider = ({ children }) => {
     }
   };
 
+  const refreshAgeVerification = async () => {
+    if (!getSessionCredential()) {
+      setAgeVerified(false);
+      return { verified: false };
+    }
+    try {
+      const status = await getAgeVerification();
+      setAgeVerified(Boolean(status?.verified));
+      return status;
+    } catch (verificationError) {
+      console.debug('Age verification status is unavailable:', verificationError);
+      setAgeVerified(false);
+      return { verified: false };
+    }
+  };
+
   useEffect(() => {
     if (!user) {
       setUserPortrait(null);
+      setAgeVerified(false);
       return;
     }
     refreshUserPortrait();
+    refreshAgeVerification();
   }, [user]);
 
   return (
@@ -334,6 +359,8 @@ export const AuthProvider = ({ children }) => {
         setActiveAvatar,
         userPortrait,
         refreshUserPortrait,
+        ageVerified,
+        refreshAgeVerification,
         isLoading,
         setIsLoading,
         isRestoringSession,

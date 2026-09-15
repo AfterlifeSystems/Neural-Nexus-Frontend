@@ -23,6 +23,7 @@ import {
   Camera,
   Mic,
   Lock,
+  ShieldAlert,
   Copy,
   Search,
   Sparkles,
@@ -81,6 +82,7 @@ import {
   canUploadReferenceMedia,
   isAdminAccount,
 } from '../config/adminAccount';
+import { isAdultOnlyAvatar } from '../services/adultOnlyAvatar';
 import { parseHttpUrls } from '../services/parseHttpUrls';
 import { resolveIdentityMediaUrls } from '../services/identityMediaUrls';
 import { singleReferenceImageUrl } from '../services/referenceImageUrl';
@@ -156,6 +158,8 @@ const AvatarSettings = ({ avatarId, onPortraitChanged }) => {
     isAvatarListedPublicly(activeAvatar)
   );
   const [isUpdatingSharing, setIsUpdatingSharing] = useState(false);
+  const [isAdultOnly, setIsAdultOnly] = useState(isAdultOnlyAvatar(activeAvatar));
+  const [isUpdatingAdultOnly, setIsUpdatingAdultOnly] = useState(false);
   // New state for document management
   const [isDragging, setIsDragging] = useState(false);
   const [manualUrl, setManualUrl] = useState('');
@@ -556,6 +560,7 @@ const AvatarSettings = ({ avatarId, onPortraitChanged }) => {
   // Keep the sharing control in step with whichever avatar is open.
   useEffect(() => {
     setIsAvatarShared(isAvatarListedPublicly(activeAvatar));
+    setIsAdultOnly(isAdultOnlyAvatar(activeAvatar));
   }, [activeAvatar]);
 
   // Seed the editors with what the avatar is currently called. They started
@@ -1142,6 +1147,33 @@ const AvatarSettings = ({ avatarId, onPortraitChanged }) => {
     }
   };
 
+  const handleToggleAdultOnly = async (nextAdultOnly) => {
+    setIsUpdatingAdultOnly(true);
+    try {
+      await modifyAvatar({
+        assistantId,
+        adultOnly: nextAdultOnly,
+      });
+      setIsAdultOnly(nextAdultOnly);
+      applyAvatarChangeLocally({
+        adult_only: nextAdultOnly,
+        metadata: { adult_only: nextAdultOnly },
+      });
+      toast.success(
+        nextAdultOnly
+          ? 'This avatar is adult-only. It stays out of search until the viewer verifies their age.'
+          : 'This avatar can appear in search for everyone again.'
+      );
+    } catch (adultOnlyError) {
+      console.error('Changing the adult-only setting failed:', adultOnlyError);
+      toast.error(
+        adultOnlyError.message || 'Could not change the adult-only setting.'
+      );
+    } finally {
+      setIsUpdatingAdultOnly(false);
+    }
+  };
+
   const handleDeleteAvatar = async () => {
     if (
       !window.confirm(
@@ -1285,16 +1317,45 @@ const AvatarSettings = ({ avatarId, onPortraitChanged }) => {
     );
   };
 
-  // A last line of defence for everything OTHER than sharing. Renaming, the
-  // portrait, the source documents and deletion are all refused by the API for
-  // an avatar the caller did not create, so an avatar somebody else created
-  // shows the administrator the one control that account does hold over it, and
-  // shows everybody else nothing.
+  /**
+   * Adult-only is an administrator setting on this avatar. Search hides the
+   * avatar until the viewer confirms they are old enough.
+   */
+  const renderAdultOnlyCard = () => (
+    <div className="bg-black/60 backdrop-blur-lg rounded-2xl border border-white/10 p-6">
+      <h3 className="text-xl font-semibold text-neutral-200 mb-4 flex items-center gap-2">
+        <ShieldAlert size={20} />
+        Adult only
+      </h3>
+      <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
+        <p className="text-white/60 text-sm min-w-0 flex-1">
+          {isAdultOnly
+            ? 'This avatar stays out of the search bar until the viewer verifies their age. Anyone with a direct link can still open it. Only the administrator can change this.'
+            : 'Mark this avatar adult-only to keep it out of the search bar until the viewer verifies their age. Only the administrator can change this.'}
+        </p>
+        <Switch
+          checked={isAdultOnly}
+          onChange={handleToggleAdultOnly}
+          label="Adult only"
+          onLabel="Adult only"
+          offLabel="Everyone"
+          busy={isUpdatingAdultOnly}
+        />
+      </div>
+    </div>
+  );
+
+  // A last line of defence for everything OTHER than sharing and adult-only.
+  // Renaming, the portrait, the source documents and deletion are all refused
+  // by the API for an avatar the caller did not create, so an avatar somebody
+  // else created shows the administrator the controls that account does hold
+  // over it, and shows everybody else nothing.
   if (!canAdministerAvatar) {
     if (canChangeSharing) {
       return (
         <div className="avatar-settings flex flex-col gap-4 sm:gap-6 w-full max-w-4xl mx-auto min-w-0">
           {renderSharingCard()}
+          {isAdministrator && renderAdultOnlyCard()}
           {isAdministrator && (
             <AvatarIdentityFacts
               assistantId={assistantId}
@@ -1304,7 +1365,8 @@ const AvatarSettings = ({ avatarId, onPortraitChanged }) => {
           <p className="text-white/50 text-sm px-1">
             Another account created this avatar, so its name, portrait, source
             documents and deletion stay with that account. You can change
-            sharing, and you can review what the avatar has learned.
+            sharing and the adult-only setting, and you can review what the
+            avatar has learned.
           </p>
         </div>
       );
@@ -1937,6 +1999,7 @@ const AvatarSettings = ({ avatarId, onPortraitChanged }) => {
           avatar's control — except for the administrator, who may publish any
           avatar and therefore sees it on all of them. */}
       {canChangeSharing && renderSharingCard()}
+      {isAdministrator && renderAdultOnlyCard()}
       <AvatarPlaceCard
         assistantId={assistantId}
         activeAvatar={activeAvatar}

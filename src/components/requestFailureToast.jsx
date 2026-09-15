@@ -17,11 +17,11 @@
 // a payment method.
 //
 // A second standing failure is the operator's vendor account being out of
-// credit, or ElevenLabs / OpenAI / xAI refusing the key that account uses.
-// That is not the reader's allotment, so the sentence is about funding the
-// service rather than a spent month. Support is GitHub Sponsors. Billing
-// stays available so the reader can also subscribe. The card stays until
-// the reader presses Close.
+// credit. That is not the reader's allotment, so the sentence is about
+// funding the service rather than a spent month. Support is GitHub Sponsors.
+// Billing stays available so the reader can also subscribe. The card stays
+// until the reader presses Close. A refused vendor API key is a third
+// failure: the credential is wrong, not empty, so it must not use this card.
 //
 // Those refusals also do not time out. Every other toast here reports something
 // the reader only has to read, so a timer is right for it; these ask to be
@@ -42,6 +42,7 @@ import {
   PROVIDER_CREDIT_SUPPORT_LABEL,
   PROVIDER_CREDIT_SUPPORT_REASON,
   isProviderCreditExhausted,
+  isProviderKeyRefused,
 } from '../services/providerCreditExhausted';
 import { GITHUB_SPONSORS_PAGE_URL } from '../services/githubSponsors';
 import { readerIsAnonymousVisitor, resolveBillingPath } from './utils';
@@ -61,7 +62,13 @@ const PROVIDER_CREDIT_TOAST_ID = 'provider-credit-exhausted';
 export const isBillingRefusal = (requestError) =>
   requestError?.status === PAYMENT_REQUIRED_STATUS;
 
-export { isProviderCreditExhausted };
+export { isProviderCreditExhausted, isProviderKeyRefused };
+
+/** Reused so a second key refusal replaces the first notice instead of stacking. */
+const PROVIDER_KEY_REFUSED_TOAST_ID = 'provider-key-refused';
+
+const PROVIDER_KEY_REFUSED_MESSAGE =
+  "The speech provider refused this server's API key. This is not your Neural Nexus allotment.";
 
 /**
  * The two-pane toast for a vendor-credit pause: the same chrome as the
@@ -169,6 +176,15 @@ export function showRequestFailureToast(requestError, options = {}) {
 
   if (isProviderCreditExhausted(requestError)) {
     showProviderCreditToast(toastOptions);
+    return;
+  }
+
+  if (isProviderKeyRefused(requestError)) {
+    toast.error(PROVIDER_KEY_REFUSED_MESSAGE, {
+      ...toastOptions,
+      id: PROVIDER_KEY_REFUSED_TOAST_ID,
+      duration: Infinity,
+    });
     return;
   }
 

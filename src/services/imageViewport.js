@@ -76,6 +76,51 @@ export function imageViewportCoverSize(frame, media) {
   return { width: frameWidth, height: frameWidth / mediaRatio };
 }
 
+/**
+ * The box a picture occupies when it is fully visible in `frame` (CSS
+ * object-fit: contain).
+ *
+ * @param {{width?: number, height?: number}|null|undefined} frame
+ * @param {{width?: number, height?: number, mediaWidth?: number, mediaHeight?: number}|null|undefined} media
+ * @returns {{width: number, height: number, left: number, top: number}}
+ */
+export function imageViewportContainLayout(frame, media) {
+  const frameWidth = Number(frame?.width);
+  const frameHeight = Number(frame?.height);
+  if (!(frameWidth > 0) || !(frameHeight > 0)) {
+    return { width: 0, height: 0, left: 0, top: 0 };
+  }
+  const mediaWidth = Number(
+    media?.mediaWidth ?? media?.width ?? frame?.mediaWidth
+  );
+  const mediaHeight = Number(
+    media?.mediaHeight ?? media?.height ?? frame?.mediaHeight
+  );
+  if (!(mediaWidth > 0) || !(mediaHeight > 0)) {
+    return { width: frameWidth, height: frameHeight, left: 0, top: 0 };
+  }
+  const frameRatio = frameWidth / frameHeight;
+  const mediaRatio = mediaWidth / mediaHeight;
+  if (mediaRatio > frameRatio) {
+    const width = frameWidth;
+    const height = frameWidth / mediaRatio;
+    return {
+      width,
+      height,
+      left: 0,
+      top: (frameHeight - height) / 2,
+    };
+  }
+  const height = frameHeight;
+  const width = frameHeight * mediaRatio;
+  return {
+    width,
+    height,
+    left: (frameWidth - width) / 2,
+    top: 0,
+  };
+}
+
 export function imageViewportPanLimit(scale, frame) {
   const width = Number(frame?.width);
   const height = Number(frame?.height);

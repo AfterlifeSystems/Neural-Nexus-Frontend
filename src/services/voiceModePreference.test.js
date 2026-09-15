@@ -8,6 +8,7 @@ import {
   searchRequestsVoiceMode,
   voiceChatPath,
   voiceModeIsOpen,
+  voiceModeStageShouldMount,
   writeVoiceModePreference,
 } from './voiceModePreference.js';
 
@@ -54,6 +55,12 @@ test('settings and inbox hide the stage; Chat restores it', () => {
   assert.equal(voiceModeIsOpen(true, 'avatar-settings'), false);
   assert.equal(voiceModeIsOpen(true, 'inbox'), false);
   assert.equal(voiceModeIsOpen(false, 'chat'), false);
+});
+
+test('settings, inbox, and messages keep the stage mounted', () => {
+  assert.equal(voiceModeStageShouldMount(true, false), true);
+  assert.equal(voiceModeStageShouldMount(false, true), true);
+  assert.equal(voiceModeStageShouldMount(false, false), false);
 });
 
 test('voiceChatPath opens that avatar on the Chat tab in voice mode', () => {

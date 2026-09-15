@@ -39,6 +39,30 @@ export function resolveMessageResponseTimeMs(message) {
  * @param {Object} message An avatar message that may carry usage metadata.
  * @returns {string|null} The line, or null when nothing is known.
  */
+/**
+ * The text inference model that produced a reply, when the API recorded one.
+ *
+ * DEV attaches `text_model` / `text_model_provider` on `response_metadata`.
+ *
+ * @param {Object|null|undefined} message An avatar message.
+ * @returns {string|null} A label, or null when the row never recorded a model.
+ */
+export function formatTextInferenceModel(message) {
+  const textModel =
+    message?.text_model ?? message?.response_metadata?.text_model ?? null;
+  if (!textModel) return null;
+  const provider =
+    message?.text_model_provider ??
+    message?.response_metadata?.text_model_provider ??
+    null;
+  const usedFallback = Boolean(
+    message?.text_model_credit_fallback ??
+      message?.response_metadata?.text_model_credit_fallback
+  );
+  const label = provider ? `${textModel} · ${provider}` : String(textModel);
+  return usedFallback ? `${label} (NVIDIA NIM fallback)` : label;
+}
+
 export const formatMessageMetrics = (message) => {
   const parts = [];
   const timeMs = resolveMessageResponseTimeMs(message);

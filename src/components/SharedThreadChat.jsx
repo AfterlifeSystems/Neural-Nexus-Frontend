@@ -62,7 +62,7 @@ const SharedThreadChat = () => {
   }, [avatarId, threadId]);
 
   return (
-    <div className="flex flex-col flex-grow w-full h-full bg-black/60 backdrop-blur-lg rounded-2xl border border-white/10 overflow-hidden">
+    <div className="flex flex-col flex-grow w-full h-full rounded-2xl border border-white/10 bg-black/25 backdrop-blur-md overflow-hidden">
       <div className="flex items-center gap-3 px-4 py-3 border-b border-white/10">
         <div className="w-9 h-9 rounded-full overflow-hidden bg-black/50 border border-white/10 flex items-center justify-center">
           {avatarPortrait && isValidImageUrl(avatarPortrait) ? (

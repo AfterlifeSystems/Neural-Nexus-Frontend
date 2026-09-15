@@ -1,7 +1,14 @@
 import { profileBubbleCoverLayout } from '../services/profileBubbleViewport.js';
+import { imageViewportContainLayout } from '../services/imageViewport.js';
 
 /** Circle disc, the same silhouette as the message portraits. */
 export const GALLERY_AVATAR_BORDER_RADIUS = 0.5;
+
+/**
+ * Corner rounding for a contained 9:16 portrait in the square plane, in
+ * plane UV. Near CSS `rounded-2xl` on the voice-stage well.
+ */
+export const GALLERY_PORTRAIT_BORDER_RADIUS = 0.045;
 
 /** Create Avatar stays a rounded square so the live PixelCard overlay matches. */
 export const GALLERY_CREATE_BORDER_RADIUS = 0.05;
@@ -298,7 +305,27 @@ export function galleryCoverUv(planeU, planeV, ratio) {
 }
 
 /**
- * The same crop the message portrait uses, in plane UV space.
+ * Circle when the photo fills the square plane; rounded-2xl when a 9:16
+ * portrait is contained so the whole generated clip is visible.
+ *
+ * @param {number} sizeX Photo width in plane UV.
+ * @param {number} sizeY Photo height in plane UV.
+ * @returns {number}
+ */
+export function galleryMediaBorderRadius(sizeX, sizeY) {
+  const width = Number(sizeX);
+  const height = Number(sizeY);
+  if (!(width > 0) || !(height > 0)) return GALLERY_AVATAR_BORDER_RADIUS;
+  if (width >= 0.95 && height >= 0.95) return GALLERY_AVATAR_BORDER_RADIUS;
+  return GALLERY_PORTRAIT_BORDER_RADIUS;
+}
+
+/**
+ * Where the photograph sits on the gallery plane.
+ *
+ * Square stills cover the disc (the message-portrait crop). Generated idle
+ * loops are 9:16: contain the whole clip, centered, so the carousel shows
+ * the portrait rather than a zoomed head.
  *
  * @param {number} imageWidth
  * @param {number} imageHeight
@@ -315,13 +342,37 @@ export function galleryPortraitUvRect(
   if (!(mediaWidth > 0) || !(mediaHeight > 0)) {
     return { originX: 0, originY: 0, sizeX: 1, sizeY: 1 };
   }
-  const layout = profileBubbleCoverLayout(viewport, {
-    width: 1,
-    height: 1,
-    mediaWidth,
-    mediaHeight,
-    fit: 'cover',
-  });
+  const isPortrait = mediaHeight > mediaWidth * 1.05;
+  if (isPortrait) {
+    const contained = imageViewportContainLayout(
+      { width: 1, height: 1 },
+      { mediaWidth, mediaHeight }
+    );
+    if (contained.width > 0 && contained.height > 0) {
+      return {
+        originX: contained.left,
+        originY: contained.top,
+        sizeX: contained.width,
+        sizeY: contained.height,
+      };
+    }
+  }
+  const layout = profileBubbleCoverLayout(
+    {
+      scale: viewport?.scale,
+      offsetX: viewport?.offsetX,
+      offsetY: viewport?.offsetY,
+      mediaWidth,
+      mediaHeight,
+    },
+    {
+      width: 1,
+      height: 1,
+      mediaWidth,
+      mediaHeight,
+      fit: 'cover',
+    }
+  );
   if (!(layout.width > 0) || !(layout.height > 0)) {
     return { originX: 0, originY: 0, sizeX: 1, sizeY: 1 };
   }
@@ -379,4 +430,125 @@ export function visualCardIndexAtPointer(pointerX, cards) {
     }
   }
   return bestIndex;
+}
+
+/**
+ * Decode the idle loop only for cards near the playhead.
+ *
+ * Starting every 720p clip when the tape is built is what froze the
+ * carousel for a few seconds, then swapped every face at once. Neighbours
+ * already peek into the viewport, so the next swipe is still pre-buffered.
+ *
+ * @param {number} planeX Card centre in viewport units.
+ * @param {number} viewportWidth
+ * @returns {boolean}
+ */
+export function galleryCardShouldDecodeIdleLoop(planeX, viewportWidth) {
+  const x = Number(planeX);
+  const width = Number(viewportWidth);
+  if (!Number.isFinite(x) || !Number.isFinite(width) || width <= 0) {
+    return false;
+  }
+  return Math.abs(x) <= width;
+}
+
+/**
+ * The fields the WebGL gallery actually samples from an items row.
+ *
+ * @param {object|null|undefined} left
+ * @param {object|null|undefined} right
+ * @returns {boolean}
+ */
+export function galleryCardSourcesMatch(left, right) {
+  if (left === right) return true;
+  if (!left || !right) return false;
+  return (
+    left.id === right.id &&
+    left.type === right.type &&
+    left.image === right.image &&
+    left.video === right.video &&
+    left.text === right.text &&
+    Boolean(left.portraitLoop) === Boolean(right.portraitLoop)
+  );
+}
+
+/**
+ * Aspect used for the 9:16 generated-loop window before the clip has a frame.
+ *
+ * @type {number}
+ */
+export const GALLERY_GENERATED_PORTRAIT_WIDTH = 9;
+
+/**
+ * @type {number}
+ */
+export const GALLERY_GENERATED_PORTRAIT_HEIGHT = 16;
+
+/**
+ * Whether this card should keep the 9:16 portrait frame instead of the
+ * circular still. A square still in the disc is the round window that
+ * appears before the generated loop.
+ *
+ * @param {{showGenerated?: boolean, loopUrl?: string|null, loopLookupSettled?: boolean}} parameters
+ * @returns {boolean}
+ */
+export function galleryCardExpectsPortraitLoop({
+  showGenerated = false,
+  loopUrl = null,
+  loopLookupSettled = false,
+} = {}) {
+  if (!showGenerated) return false;
+  if (loopUrl) return true;
+  return !loopLookupSettled;
+}
+
+/**
+ * Whether the gallery may bind a face onto a card.
+ *
+ * Generated loops stay on the 9:16 placeholder until a video frame exists.
+ * Binding the square still first is what painted a circle, then popped the
+ * clip in. Reference photos still show as soon as the still decodes.
+ *
+ * @param {{portraitLoop?: boolean, loopHasFrame?: boolean, loopFailed?: boolean, stillReady?: boolean, hasStill?: boolean, hasLoopUrl?: boolean}} parameters
+ * @returns {boolean}
+ */
+export function galleryCardMayReveal({
+  portraitLoop = false,
+  loopHasFrame = false,
+  loopFailed = false,
+  stillReady = false,
+  hasStill = false,
+  hasLoopUrl = false,
+} = {}) {
+  if (loopHasFrame) return true;
+  if (portraitLoop && hasLoopUrl && !loopFailed) return false;
+  if (portraitLoop && !hasLoopUrl && !loopFailed) return false;
+  return Boolean(hasStill && stillReady);
+}
+
+/**
+ * @param {Array<object>|null|undefined} left
+ * @param {Array<object>|null|undefined} right
+ * @returns {boolean}
+ */
+export function galleryItemListSourcesMatch(left, right) {
+  if (left === right) return true;
+  if (!Array.isArray(left) || !Array.isArray(right)) return false;
+  if (left.length !== right.length) return false;
+  return left.every((item, index) =>
+    galleryCardSourcesMatch(item, right[index])
+  );
+}
+
+/**
+ * Same cards in the same order, so sources can be patched in place.
+ *
+ * @param {Array<object>|null|undefined} left
+ * @param {Array<object>|null|undefined} right
+ * @returns {boolean}
+ */
+export function galleryItemListSameIds(left, right) {
+  if (!Array.isArray(left) || !Array.isArray(right)) return false;
+  if (left.length !== right.length) return false;
+  return left.every((item, index) => item?.id === right[index]?.id);
 }

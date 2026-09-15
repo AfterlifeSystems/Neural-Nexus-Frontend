@@ -167,6 +167,18 @@ const EvanAssistOverlay = () => {
   }, [isOpen]);
 
   useEffect(() => {
+    if (!isOpen) return undefined;
+    const handleEscape = (keyEvent) => {
+      if (keyEvent.key !== 'Escape') return;
+      keyEvent.preventDefault();
+      keyEvent.stopPropagation();
+      close();
+    };
+    document.addEventListener('keydown', handleEscape);
+    return () => document.removeEventListener('keydown', handleEscape);
+  }, [isOpen, close]);
+
+  useEffect(() => {
     if (!dragSession || isOnDesktop) return undefined;
     const onMove = (event) => {
       const drag = dragRef.current;
@@ -213,7 +225,7 @@ const EvanAssistOverlay = () => {
     if (observationEnabled && ambientStatus?.inFlight) {
       return `${evanName} is looking…`;
     }
-    if (isLiveListening) return 'Live — say something';
+    if (isLiveListening) return 'Listening';
     if (observationEnabled) {
       return describeEvanAmbientStatus(ambientStatus, ambientNextInMs);
     }
@@ -431,7 +443,8 @@ const EvanAssistOverlay = () => {
           </p>
         )}
         {messages.map((message) => {
-          const fromEvan = message.type === 'ai' || message.type === 'assistant';
+          const fromEvan =
+            message.type === 'ai' || message.type === 'assistant';
           return (
             <div
               key={message.id}
@@ -538,11 +551,7 @@ const EvanAssistOverlay = () => {
       data-evan-assist-pill
       data-evan-assist-drag
       className={`flex items-center gap-1.5 sm:gap-2 bg-black/75 backdrop-blur-lg border border-white/10 rounded-full shadow-2xl pl-2 pr-1.5 select-none touch-none ${
-        isOnDesktop
-          ? ''
-          : isDragging
-            ? 'cursor-grabbing'
-            : 'cursor-grab'
+        isOnDesktop ? '' : isDragging ? 'cursor-grabbing' : 'cursor-grab'
       }`}
       style={{
         width: isOnDesktop ? '100%' : 'max-content',
@@ -555,7 +564,11 @@ const EvanAssistOverlay = () => {
         onClick={onExpandClick}
         className="flex items-center gap-2 min-w-0 flex-1 text-left px-1 py-1 rounded-full hover:bg-white/5 focus:outline-none focus:ring-2 focus:ring-amber-400/50"
         aria-label={`Expand ${evanName} help`}
-        title={isOnDesktop ? `Expand ${evanName} help` : 'Drag to move, or click to expand'}
+        title={
+          isOnDesktop
+            ? `Expand ${evanName} help`
+            : 'Drag to move, or click to expand'
+        }
       >
         <Portrait src={portrait} name={evanName} />
         <span className="min-w-0">

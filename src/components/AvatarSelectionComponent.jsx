@@ -6,10 +6,14 @@ import React, {
   useCallback,
 } from 'react';
 import { toast } from 'react-hot-toast';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import CircularGallery from './CircularGallery';
-import { idleLoopFor, loadEmotionMedia } from '../hooks/useEmotionMedia';
+import {
+  cachedIdleLoopUrl,
+  idleLoopFor,
+  loadEmotionMedia,
+} from '../hooks/useEmotionMedia';
 import { useAvatarFaceSourceRevision } from '../hooks/useAvatarFaceSource';
 import {
   galleryIdleLoopUrl,
@@ -43,11 +47,13 @@ import {
   canShareAvatar,
 } from './utils';
 import AvatarWorkspaceHeader from './AvatarWorkspaceHeader';
-import { useMedia } from '../context/MediaContext';
+import { seedOpenedAvatarPortraitWell } from './openedAvatarPortraitWell';
 import {
   getAvatarReferenceImage,
   listUserAvatars,
 } from '../services/avatarService';
+import { mayKeepAdultOnlyAvatarOnGallery } from '../services/adultOnlyAvatar';
+import { isAdminAccount } from '../config/adminAccount';
 import {
   avatarsWithPersonalFirst,
   startingCarouselIndex,
@@ -68,14 +74,29 @@ import { buildAvatarSearchSuggestions } from './avatarSearchSuggestions';
 import { avatarSettingsPath } from './createdAvatarSettings';
 import {
   avatarWorkspacePath,
+  createAvatarOverlayVisibility,
+  isAvatarSelectionLocation,
   personalAvatarWorkspacePath,
 } from './personalAvatarWorkspace';
+import {
+  assistantIdFromSelectionCard,
+  setGalleryFocusedAssistantId,
+} from '../services/worldBackgroundFocus';
 import useInboxCount from '../hooks/useInboxCount';
 import {
   galleryBoxIsPainted,
+  galleryCardExpectsPortraitLoop,
   galleryCardLayout,
   galleryFrameHeight,
 } from './galleryScrollIndex';
+import {
+  GALLERY_CAROUSEL_INTENT_CHAT,
+  GALLERY_CAROUSEL_INTENT_NEXT,
+  GALLERY_CAROUSEL_INTENT_PREVIOUS,
+  GALLERY_CAROUSEL_INTENT_SELECT,
+  GALLERY_CAROUSEL_INTENT_SETTINGS,
+  galleryCarouselKeyIntent,
+} from './galleryCarouselKeyboard';
 
 function elementOuterHeight(element) {
   if (!element) return 0;
@@ -119,12 +140,14 @@ const AvatarSelectionComponent = ({}) => {
     setActiveAvatar,
     setContext,
     activeAvatar,
+    ageVerified,
   } = useAuth();
 
-  const { setActiveConversation } = useMedia();
   const faceSourceRevision = useAvatarFaceSourceRevision();
   const inboxCount = useInboxCount();
   const navigate = useNavigate();
+  const location = useLocation();
+  const galleryIsOpen = isAvatarSelectionLocation(location.pathname);
   const [currentCardIndex, setCurrentCardIndex] = useState(0);
   const [searchQuery, setSearchQuery] = useState('');
   const [suggestions, setSuggestions] = useState([]);
@@ -166,6 +189,7 @@ const AvatarSelectionComponent = ({}) => {
     const search = searchRef.current;
     const footer = galleryFooterRef.current;
     if (
+      !galleryIsOpen ||
       !column ||
       !region ||
       !stage ||
@@ -229,13 +253,16 @@ const AvatarSelectionComponent = ({}) => {
       window.cancelAnimationFrame(measureFrame);
       observer.disconnect();
     };
-  }, [applyGalleryCardChrome]);
+  }, [applyGalleryCardChrome, galleryIsOpen]);
   const handleCreateCardMove = useCallback(
     ({ x, frontX, visible, isFront, cardPixelSize }) => {
       const overlay = createCardOverlayRef.current;
       if (overlay) {
         overlay.style.transform = `translate(calc(-50% + ${x}px), -50%)`;
-        overlay.style.visibility = visible ? 'visible' : 'hidden';
+        overlay.style.visibility = createAvatarOverlayVisibility(
+          galleryIsOpen,
+          visible
+        );
       }
       applyGalleryCardChrome(cardPixelSize);
       const createIsFront = Boolean(isFront);
@@ -251,8 +278,14 @@ const AvatarSelectionComponent = ({}) => {
         setCreateCardIsFront(createIsFront);
       }
     },
-    [applyGalleryCardChrome]
+    [applyGalleryCardChrome, galleryIsOpen]
   );
+  useEffect(() => {
+    const overlay = createCardOverlayRef.current;
+    if (!overlay) return;
+    if (galleryIsOpen) return;
+    overlay.style.visibility = createAvatarOverlayVisibility(false, false);
+  }, [galleryIsOpen]);
   const handleGalleryIndexChange = useCallback((index) => {
     setCurrentCardIndex(index);
     try {
@@ -474,11 +507,7 @@ const AvatarSelectionComponent = ({}) => {
       };
 
       setContext(context);
-
-      // Start with no conversation: the chat screen picks the newest thread for
-      // this avatar once it has listed them. (There is no recorded "active
-      // conversation" on an avatar — nothing server-side ever writes one.)
-      setActiveConversation(null);
+      seedOpenedAvatarPortraitWell(avatarId);
 
       navigate(`/chat/${avatarId}`); // ← ROUTE TO CHAT AREA
     } else if (actualCardData.type === 'create') {
@@ -487,37 +516,56 @@ const AvatarSelectionComponent = ({}) => {
   };
 
   // Each avatar's neutral idle loop, when its emotion media has been
-  // generated. Loaded once per avatar through the shared manifest cache.
-  // The still and the loop are handed to the gallery in the same items
-  // update, so a card never paints the portrait and then pops the video in.
-  const [neutralLoopsById, setNeutralLoopsById] = useState({});
-  const [loopLookupDone, setLoopLookupDone] = useState(false);
+  // generated. A missing key means the manifest has not arrived yet; `null`
+  // means this avatar has no loop. Generated cards keep the 9:16 window
+  // until a clip URL is known, so the circular still never paints first.
+  const [neutralLoopsById, setNeutralLoopsById] = useState(() => {
+    const seeded = {};
+    for (const avatar of userAvatars ?? []) {
+      const assistantId = avatar.assistant_id ?? avatar.avatar_id;
+      const loopUrl = cachedIdleLoopUrl(assistantId, 'neutral');
+      if (loopUrl === undefined) continue;
+      seeded[assistantId] = loopUrl;
+    }
+    return seeded;
+  });
   useEffect(() => {
     let cancelled = false;
-    setLoopLookupDone(false);
     (async () => {
-      const entries = await Promise.all(
+      await Promise.all(
         (userAvatars ?? []).map(async (avatar) => {
           const assistantId = avatar.assistant_id ?? avatar.avatar_id;
           const manifest = await loadEmotionMedia(assistantId);
-          return [assistantId, idleLoopFor(manifest, 'neutral')];
+          if (cancelled) return;
+          const loopUrl = idleLoopFor(manifest, 'neutral') || null;
+          setNeutralLoopsById((current) => {
+            if (assistantId in current && current[assistantId] === loopUrl) {
+              return current;
+            }
+            return { ...current, [assistantId]: loopUrl };
+          });
         })
       );
-      if (!cancelled) {
-        setNeutralLoopsById(
-          Object.fromEntries(entries.filter(([, loopUrl]) => Boolean(loopUrl)))
-        );
-        setLoopLookupDone(true);
-      }
     })();
     return () => {
       cancelled = true;
     };
   }, [userAvatars]);
 
+  const galleryAvatars = useMemo(
+    () =>
+      (userAvatars ?? []).filter((avatar) =>
+        mayKeepAdultOnlyAvatarOnGallery(avatar, {
+          ageVerified,
+          isAdmin: isAdminAccount(user),
+          viewerUserId: user?.id,
+        })
+      ),
+    [userAvatars, ageVerified, user]
+  );
   const orderedAvatars = useMemo(
-    () => avatarsWithPersonalFirst(userAvatars),
-    [userAvatars]
+    () => avatarsWithPersonalFirst(galleryAvatars),
+    [galleryAvatars]
   );
   const carouselAvatars = useMemo(
     () => avatarsOnCarousel(orderedAvatars, hiddenCarouselIds),
@@ -530,7 +578,10 @@ const AvatarSelectionComponent = ({}) => {
         const assistantId = avatar.assistant_id ?? avatar.avatar_id;
         const iconSource = avatarIconsById[assistantId];
         const showGenerated = showsGeneratedFace(assistantId);
-        const pairReady = !showGenerated || loopLookupDone;
+        const loopUrl = galleryIdleLoopUrl(
+          neutralLoopsById[assistantId],
+          showGenerated
+        );
         return {
           id: assistantId,
           component: (
@@ -543,12 +594,15 @@ const AvatarSelectionComponent = ({}) => {
           type: 'avatar',
           text: avatar.name,
           image:
-            pairReady && iconSource && isValidImageUrl(iconSource)
+            iconSource && isValidImageUrl(iconSource)
               ? iconSource
               : null,
-          video: pairReady
-            ? galleryIdleLoopUrl(neutralLoopsById[assistantId], showGenerated)
-            : null,
+          video: loopUrl,
+          portraitLoop: galleryCardExpectsPortraitLoop({
+            showGenerated,
+            loopUrl,
+            loopLookupSettled: assistantId in neutralLoopsById,
+          }),
           avatar_data: avatar,
         };
       }) || [];
@@ -566,9 +620,21 @@ const AvatarSelectionComponent = ({}) => {
     carouselAvatars,
     avatarIconsById,
     neutralLoopsById,
-    loopLookupDone,
     faceSourceRevision,
   ]);
+
+  useEffect(() => {
+    setGalleryFocusedAssistantId(
+      assistantIdFromSelectionCard(authenticatedCards[currentCardIndex])
+    );
+  }, [authenticatedCards, currentCardIndex]);
+
+  useEffect(
+    () => () => {
+      setGalleryFocusedAssistantId(null);
+    },
+    []
+  );
 
   const getCachedAvatarPosition = (avatarId = null) => {
     try {
@@ -591,7 +657,7 @@ const AvatarSelectionComponent = ({}) => {
     console.log(`AVATAR SELECTION COMPONENT ENTRYPOINT`);
   });
 
-  // Re-read the avatar list from the API every time this screen opens.
+  // Re-read the avatar list from the API every time this screen is shown.
   //
   // The list in context is written at sign-in and after a create, so anything
   // that changes it elsewhere — deleting an avatar, a change made in another
@@ -599,8 +665,12 @@ const AvatarSelectionComponent = ({}) => {
   // This screen is the one place the whole list is displayed, so it is the
   // right place to insist on server truth rather than trusting what an earlier
   // screen happened to leave in memory.
+  //
+  // The gallery itself stays mounted while the person is in chat or settings.
+  // Refresh when the screen is actually shown; do not throw a loading panel
+  // over chat just because the hidden gallery asked the server again.
   useEffect(() => {
-    if (!user) {
+    if (!user || !galleryIsOpen) {
       return;
     }
     let isCurrentRequest = true;
@@ -631,7 +701,7 @@ const AvatarSelectionComponent = ({}) => {
       isCurrentRequest = false;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [user, setUserAvatars]);
+  }, [user, galleryIsOpen, setUserAvatars]);
 
   useEffect(() => {
     if (!user?.id) {
@@ -665,6 +735,13 @@ const AvatarSelectionComponent = ({}) => {
     document.addEventListener('mousedown', handleClickOutside);
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
+
+  useEffect(() => {
+    if (galleryIsOpen) return;
+    setIsDropdownOpen(false);
+    setHighlightedIndex(-1);
+    setShowCreateModal(false);
+  }, [galleryIsOpen]);
 
   useEffect(() => {
     console.log('Avatar Selection Component user: ' + JSON.stringify(user));
@@ -724,10 +801,12 @@ const AvatarSelectionComponent = ({}) => {
 
   const listSearchSuggestions = (query, hiddenIds = hiddenCarouselIds) =>
     buildAvatarSearchSuggestions({
-      avatars: orderedAvatars,
+      avatars: userAvatars,
       query,
       hiddenIds,
       iconsById: avatarIconsById,
+      ageVerified,
+      isAdmin: isAdminAccount(user),
     });
 
   const persistHiddenCarouselIds = (hiddenIds) => {
@@ -895,6 +974,9 @@ const AvatarSelectionComponent = ({}) => {
       setHighlightedIndex((prev) =>
         prev > 0 ? prev - 1 : suggestions.length - 1
       );
+    } else if (e.key === 'Escape') {
+      setIsDropdownOpen(false);
+      setHighlightedIndex(-1);
     }
   };
 
@@ -909,26 +991,36 @@ const AvatarSelectionComponent = ({}) => {
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
-  // Keyboard navigation for avatar gallery
+  // Keyboard navigation for avatar gallery. Left/right turn the ring.
+  // Up opens chat for the front avatar; down opens that avatar's settings.
   useEffect(() => {
     const handleGalleryKeyDown = (e) => {
-      // Don't handle if dropdown is open or user is typing in search
-      if (
+      const searchOwnsKeys =
         isDropdownOpen ||
-        document.activeElement === searchRef.current?.querySelector('input')
-      ) {
+        document.activeElement === searchRef.current?.querySelector('input');
+      if (e.key === 'Escape' && isDropdownOpen) {
+        e.preventDefault();
+        setIsDropdownOpen(false);
+        setHighlightedIndex(-1);
         return;
       }
+      const frontCard = authenticatedCards[currentCardIndex];
+      const intent = galleryCarouselKeyIntent(e, {
+        searchOwnsKeys,
+        menuOpen: userSettingsMenuOpen,
+        modalOpen: showCreateModal,
+        frontCardType: frontCard?.type,
+      });
+      if (!intent) return;
 
-      if (e.key === 'ArrowLeft') {
-        e.preventDefault();
+      e.preventDefault();
+      if (intent === GALLERY_CAROUSEL_INTENT_PREVIOUS) {
         const newIndex = Math.max(0, currentCardIndex - 1);
         setCurrentCardIndex(newIndex);
         if (galleryRef.current) {
           galleryRef.current.setCurrentIndex(newIndex);
         }
-      } else if (e.key === 'ArrowRight') {
-        e.preventDefault();
+      } else if (intent === GALLERY_CAROUSEL_INTENT_NEXT) {
         const newIndex = Math.min(
           authenticatedCards.length - 1,
           currentCardIndex + 1
@@ -937,21 +1029,32 @@ const AvatarSelectionComponent = ({}) => {
         if (galleryRef.current) {
           galleryRef.current.setCurrentIndex(newIndex);
         }
-      } else if (e.key === 'Enter') {
-        e.preventDefault();
-        const currentCard = authenticatedCards[currentCardIndex];
-        if (currentCard) {
-          handleClick(currentCard);
+      } else if (
+        intent === GALLERY_CAROUSEL_INTENT_SELECT ||
+        intent === GALLERY_CAROUSEL_INTENT_CHAT
+      ) {
+        if (frontCard) {
+          handleClick(frontCard);
         }
+      } else if (intent === GALLERY_CAROUSEL_INTENT_SETTINGS) {
+        handleOpenFrontAvatarSettings();
       }
     };
 
-    if (user) {
+    if (user && galleryIsOpen) {
       document.addEventListener('keydown', handleGalleryKeyDown);
       return () =>
         document.removeEventListener('keydown', handleGalleryKeyDown);
     }
-  }, [user, currentCardIndex, authenticatedCards, isDropdownOpen]);
+  }, [
+    user,
+    galleryIsOpen,
+    currentCardIndex,
+    authenticatedCards,
+    isDropdownOpen,
+    userSettingsMenuOpen,
+    showCreateModal,
+  ]);
 
   const frontCompanionAction = carouselCompanionAction(
     authenticatedCards[currentCardIndex]?.avatar_data
@@ -1004,7 +1107,7 @@ const AvatarSelectionComponent = ({}) => {
 
   return (
     <div className="flex flex-col items-center justify-start p-2 sm:p-4 relative mx-auto h-full w-full">
-      {isLoadingAvatars && (
+      {isLoadingAvatars && galleryIsOpen && (
         <div className="fixed inset-0 z-[60] bg-black/60 backdrop-blur-sm flex items-center justify-center">
           <div className="bg-black/60 backdrop-blur-lg rounded-2xl border border-white/10 px-8 py-6 flex flex-col items-center gap-4">
             <LoadingSpinner />
@@ -1109,7 +1212,9 @@ const AvatarSelectionComponent = ({}) => {
         </div>
         {/* The leftover column centers a glass card that hugs the discs
             and the strip, so the faces read larger and the empty bands
-            above and below the cluster stay outside the panel. */}
+            above and below the cluster stay outside the panel. The fill
+            is a veil, not a wall: the world globe has to stay readable
+            through it. */}
         <div
           ref={galleryRegionRef}
           data-gallery-region
@@ -1118,7 +1223,7 @@ const AvatarSelectionComponent = ({}) => {
         <div
           ref={galleryStageRef}
           data-gallery-stage
-          className="relative flex w-full shrink-0 flex-col overflow-hidden rounded-2xl border border-white/10 bg-black/60 backdrop-blur-lg py-3"
+          className="relative flex w-full shrink-0 flex-col overflow-hidden rounded-2xl border border-white/10 bg-black/25 backdrop-blur-md py-3"
         >
         <div
           ref={galleryFrameRef}
@@ -1159,6 +1264,7 @@ const AvatarSelectionComponent = ({}) => {
             currentIndex={currentCardIndex}
             onIndexChange={handleGalleryIndexChange}
             onCreateCardMove={handleCreateCardMove}
+            isActive={galleryIsOpen}
           />
           {authenticatedCards[currentCardIndex]?.type === 'avatar' &&
             !createCardIsFront && (

@@ -17,6 +17,7 @@ import { toast } from 'react-hot-toast';
 
 import { useAuth } from '../context/AuthContext';
 import { useMedia, NEW_CONVERSATION_ID } from '../context/MediaContext';
+import useWorkspaceEscape from '../hooks/useWorkspaceEscape';
 import AnonymousSidebar from './AnonymousSidebar';
 import SharePreviewOutlet from './SharePreviewOutlet';
 import { MediaShareProvider } from '../context/MediaShareContext';
@@ -42,6 +43,10 @@ const SharedAvatarLayout = () => {
     setMessages,
   } = useMedia();
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
+  useWorkspaceEscape({
+    sidebarOpen: isSidebarOpen,
+    onCloseSidebar: () => setIsSidebarOpen(false),
+  });
 
   // Conversations belong to the chat. The billing screen under this same link
   // has none, and listing them there would offer a switch that goes nowhere.

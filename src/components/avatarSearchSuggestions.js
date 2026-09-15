@@ -10,6 +10,7 @@ import {
   carouselAvatarId,
   isAvatarOnCarousel,
 } from '../services/avatarCarouselMembership.js';
+import { maySeeAdultOnlyAvatarInSearch } from '../services/adultOnlyAvatar.js';
 
 const CREATE_SUGGESTION = {
   id: 'create-avatar',
@@ -40,6 +41,8 @@ function matchesQuery(text, query) {
  * @param {string} [parameters.query]
  * @param {string[]} [parameters.hiddenIds]
  * @param {Record<string, string|null|undefined>} [parameters.iconsById]
+ * @param {boolean} [parameters.ageVerified]
+ * @param {boolean} [parameters.isAdmin]
  * @returns {Array}
  */
 export function buildAvatarSearchSuggestions({
@@ -47,8 +50,13 @@ export function buildAvatarSearchSuggestions({
   query = '',
   hiddenIds = [],
   iconsById = {},
+  ageVerified = false,
+  isAdmin = false,
 } = {}) {
-  const ordered = avatarsWithPersonalFirst(avatars);
+  const discoverable = (avatars ?? []).filter((avatar) =>
+    maySeeAdultOnlyAvatarInSearch(avatar, { ageVerified, isAdmin })
+  );
+  const ordered = avatarsWithPersonalFirst(discoverable);
   const carouselIds = ordered
     .filter((avatar) => isAvatarOnCarousel(avatar, hiddenIds))
     .map((avatar) => carouselAvatarId(avatar));

@@ -98,6 +98,12 @@ const SharedAvatarChat = () => {
   const [isLiveModeOpen, setIsLiveModeOpen] = useState(() =>
     searchRequestsVoiceMode(sharedSearchParams)
   );
+  const [voiceStageMounted, setVoiceStageMounted] = useState(() =>
+    searchRequestsVoiceMode(sharedSearchParams)
+  );
+  useEffect(() => {
+    if (isLiveModeOpen) setVoiceStageMounted(true);
+  }, [isLiveModeOpen]);
   const { isStandingAt } = useGeoAvatars();
   const opensOverTheCamera = isStandingAt(avatarId);
   // Whether the lookup for this visitor's earlier chats with this avatar has
@@ -116,6 +122,7 @@ const SharedAvatarChat = () => {
     setAvatarPortrait(null);
     setLinkState('loading');
     setIsLiveModeOpen(false);
+    setVoiceStageMounted(false);
     setHasCheckedForEarlierChats(false);
 
     (async () => {
@@ -239,7 +246,7 @@ const SharedAvatarChat = () => {
   if (linkState === 'unavailable') {
     return (
       <div className="h-full flex items-center justify-center p-6">
-        <div className="w-full max-w-lg bg-black/60 backdrop-blur-lg rounded-2xl border border-white/10 p-6 text-center">
+        <div className="w-full max-w-lg rounded-2xl border border-white/10 bg-black/25 backdrop-blur-md p-6 text-center">
           <h1 className="text-xl font-semibold text-neutral-200 mb-2">
             This avatar is not available
           </h1>
@@ -269,17 +276,18 @@ const SharedAvatarChat = () => {
 
   return (
     <>
-    {isLiveModeOpen && (
+    {voiceStageMounted && (
       <LiveVoiceMode
         assistantId={avatarId}
         avatarName={activeAvatar?.name}
         avatarPortrait={avatarPortrait}
         onClose={() => setIsLiveModeOpen(false)}
         cameraBackground={opensOverTheCamera}
+        stageVisible={isLiveModeOpen}
       />
     )}
     <div className={`h-full w-full min-w-0 p-2 sm:p-4 ${isLiveModeOpen ? 'invisible pointer-events-none' : ''}`}>
-      <div className="flex flex-col w-full h-full min-w-0 bg-black/60 backdrop-blur-lg rounded-2xl border border-white/10 overflow-hidden relative">
+      <div className="flex flex-col w-full h-full min-w-0 rounded-2xl border border-white/10 bg-black/25 backdrop-blur-md overflow-hidden relative">
         {/* The header names the one avatar this link opens. There is nothing to
             switch to and nothing to administer, so it carries no tabs. */}
         <div className="flex items-center justify-between gap-3 px-4 py-3 border-b border-white/10">

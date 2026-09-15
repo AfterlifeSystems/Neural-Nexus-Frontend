@@ -225,6 +225,7 @@ const ConversationSuggestions = ({ enabled = true, onSend, overlay = false }) =>
     <div className="conversation-suggestions w-full overflow-visible mb-1">
       <div
         id={menuId}
+        data-voice-suggestion-sheet
         role="menu"
         aria-label={sheetNoun}
         hidden={!isOpen}

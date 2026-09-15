@@ -1,9 +1,10 @@
 // src/components/geo/WorldMapScreen.jsx
 //
 // The world map screen keeps the globe and the street map on screen together.
-// Clicking a globe pin flies the globe there and zooms the leaflet map to the
-// same coordinates. A pin created here can be dragged or edited on the street
-// map without putting the globe away.
+// Opening it is Reset world view: the whole planet, street inset folded,
+// nothing selected. Clicking a globe pin then flies the globe there and zooms
+// the leaflet map to the same coordinates. A pin created here can be dragged
+// or edited on the street map without putting the globe away.
 
 import {
   Component,
@@ -58,8 +59,14 @@ import {
   listUserAvatars,
   modifyAvatar,
 } from '../../services/avatarService';
-import { isAvatarOwnedByUser } from '../utils';
+import { maySeeAdultOnlyAvatarInSearch } from '../../services/adultOnlyAvatar';
 import { voiceChatPath } from '../../services/voiceModePreference';
+import {
+  initialWorldMapView,
+  wholeWorldMapViewFrom,
+} from '../../services/globeMap';
+import { isAdminAccount } from '../../config/adminAccount';
+import { isAvatarOwnedByUser } from '../utils';
 import AvatarMapCard from './AvatarMapCard';
 import AvatarRosterDropdown from './AvatarRosterDropdown';
 import ClearMyLocationButton from './ClearMyLocationButton';
@@ -152,8 +159,14 @@ function SearchResultRow({
 
 const WorldMapScreen = () => {
   const navigate = useNavigate();
-  const { user, userAvatars, setUserAvatars, setActiveAvatar, activeAvatar } =
-    useAuth();
+  const {
+    user,
+    userAvatars,
+    setUserAvatars,
+    setActiveAvatar,
+    activeAvatar,
+    ageVerified,
+  } = useAuth();
   const {
     canWatch,
     isWatchEnabled,
@@ -169,15 +182,29 @@ const WorldMapScreen = () => {
   const [publicAvatars, setPublicAvatars] = useState([]);
   const [isLoadingPins, setIsLoadingPins] = useState(true);
   const [pinsError, setPinsError] = useState('');
-  const [mapFocus, setMapFocus] = useState(null);
+  const [mapFocus, setMapFocus] = useState(
+    () => initialWorldMapView().mapFocus
+  );
   const [savingAssistantId, setSavingAssistantId] = useState('');
   const [avatarSearch, setAvatarSearch] = useState('');
   const [isSearchOpen, setIsSearchOpen] = useState(false);
   const [activeSearchIndex, setActiveSearchIndex] = useState(0);
   const [isNearbyOpen, setIsNearbyOpen] = useState(false);
-  const [isMinimapOpen, setIsMinimapOpen] = useState(true);
-  const [worldViewRevision, setWorldViewRevision] = useState(0);
+  const [isMinimapOpen, setIsMinimapOpen] = useState(
+    () => initialWorldMapView().isMinimapOpen
+  );
+  const [worldViewRevision, setWorldViewRevision] = useState(
+    () => initialWorldMapView().worldViewRevision
+  );
   const searchBoxRef = useRef(null);
+
+  const initiateResetWorldView = useCallback(() => {
+    setIsMinimapOpen(false);
+    setMapFocus(null);
+    setWorldViewRevision(
+      (revision) => wholeWorldMapViewFrom(revision).worldViewRevision
+    );
+  }, []);
 
   useEffect(() => {
     let isMounted = true;
@@ -293,27 +320,6 @@ const WorldMapScreen = () => {
     }
   }, []);
 
-  useEffect(() => {
-    if (mapFocus) return;
-    if (position) {
-      setMapFocus({
-        latitude: position.latitude,
-        longitude: position.longitude,
-        assistantId: null,
-        source: 'device',
-      });
-      return;
-    }
-    const firstPin = pinOf(avatars[0]);
-    if (!firstPin) return;
-    setMapFocus({
-      latitude: Number(firstPin.latitude),
-      longitude: Number(firstPin.longitude),
-      assistantId: avatarIdOf(avatars[0]),
-      source: 'seed',
-    });
-  }, [avatars, mapFocus, position]);
-
   const openAvatar = (assistantId) =>
     navigate(
       voiceChatPath(assistantId, {
@@ -418,6 +424,12 @@ const WorldMapScreen = () => {
     const query = avatarSearch.trim();
     if (!query) return [];
     return avatars
+      .filter((avatar) =>
+        maySeeAdultOnlyAvatarInSearch(avatar, {
+          ageVerified,
+          isAdmin: isAdminAccount(user),
+        })
+      )
       .filter((avatar) => avatarMatchesSearch(avatar, query, pinOf(avatar)))
       .sort((left, right) => {
         const rankDelta =
@@ -430,7 +442,7 @@ const WorldMapScreen = () => {
           { sensitivity: 'base' }
         );
       });
-  }, [avatarSearch, avatars]);
+  }, [ageVerified, avatarSearch, avatars, user]);
 
   useEffect(() => {
     setActiveSearchIndex(0);
@@ -747,9 +759,11 @@ const WorldMapScreen = () => {
                 avatars={avatars}
                 ownedAssistantIds={ownedAssistantIds}
                 isLoading={isLoadingPins}
-                onViewWholeWorld={() => setIsMinimapOpen(false)}
+                onViewWholeWorld={() => {
+                  setIsMinimapOpen(false);
+                  setMapFocus(null);
+                }}
                 loadError={pinsError}
-                devicePosition={position}
                 focus={mapFocus}
                 worldViewRevision={worldViewRevision}
                 onInspectPlace={focusPlace}
@@ -839,10 +853,7 @@ const WorldMapScreen = () => {
       <div className="flex justify-center">
         <button
           type="button"
-          onClick={() => {
-            setIsMinimapOpen(false);
-            setWorldViewRevision((revision) => revision + 1);
-          }}
+          onClick={initiateResetWorldView}
           className="inline-flex items-center gap-2 rounded-md border border-white/10 bg-black/60 px-3 py-1.5 text-sm text-neutral-200 backdrop-blur-lg transition-colors hover:bg-white/5 focus:outline-none focus:ring-2 focus:ring-amber-400/50"
         >
           <Globe className="h-4 w-4 text-amber-300" aria-hidden="true" />

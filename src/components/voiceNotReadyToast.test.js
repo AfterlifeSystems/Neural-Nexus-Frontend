@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import {
   avatarVoiceSettingsPath,
+  forgetUnmintedVoiceNotReadyShown,
   rememberVoiceNotReadyShown,
   resetVoiceNotReadyToastForTests,
   sameConversationAsVoiceNotReadyShown,
@@ -59,6 +60,49 @@ test('an unminted conversation is remembered in this tab, including after mint',
   assert.equal(voiceNotReadyAlreadyShown('ava-1', '__new__', storage), true);
   assert.equal(voiceNotReadyAlreadyShown('ava-1', 'thread-a', storage), true);
   assert.equal(voiceNotReadyAlreadyShown('ava-2', '__new__', storage), false);
+});
+
+test('a later new conversation for the same avatar may show the notice again', () => {
+  resetVoiceNotReadyToastForTests();
+  const storage = memoryStorage();
+  rememberVoiceNotReadyShown('ava-1', '__new__', storage);
+  assert.equal(voiceNotReadyAlreadyShown('ava-1', 'thread-a', storage), true);
+  assert.equal(voiceNotReadyAlreadyShown('ava-1', '__new__', storage), false);
+  assert.equal(voiceNotReadyAlreadyShown('ava-1', 'thread-b', storage), false);
+  rememberVoiceNotReadyShown('ava-1', '__new__', storage);
+  assert.equal(voiceNotReadyAlreadyShown('ava-1', '__new__', storage), true);
+  assert.equal(voiceNotReadyAlreadyShown('ava-1', 'thread-c', storage), true);
+  assert.equal(voiceNotReadyAlreadyShown('ava-1', 'thread-a', storage), true);
+});
+
+test('starting another unminted conversation may show the notice again', () => {
+  resetVoiceNotReadyToastForTests();
+  const storage = memoryStorage();
+  rememberVoiceNotReadyShown('ava-1', '__new__', storage);
+  assert.equal(voiceNotReadyAlreadyShown('ava-1', '__new__', storage), true);
+  forgetUnmintedVoiceNotReadyShown('ava-1');
+  assert.equal(voiceNotReadyAlreadyShown('ava-1', '__new__', storage), false);
+  assert.equal(voiceNotReadyAlreadyShown('ava-1', 'thread-a', storage), false);
+});
+
+test('forgetting an unminted showing does not clear a minted conversation', () => {
+  resetVoiceNotReadyToastForTests();
+  const storage = memoryStorage();
+  rememberVoiceNotReadyShown('ava-1', 'thread-a', storage);
+  forgetUnmintedVoiceNotReadyShown('ava-1');
+  assert.equal(voiceNotReadyAlreadyShown('ava-1', 'thread-a', storage), true);
+  assert.equal(voiceNotReadyAlreadyShown('ava-1', '__new__', storage), false);
+});
+
+test('a conversation that is not resolved yet is not remembered as shown', () => {
+  resetVoiceNotReadyToastForTests();
+  const storage = memoryStorage();
+  rememberVoiceNotReadyShown('ava-1', null, storage);
+  rememberVoiceNotReadyShown('ava-1', undefined, storage);
+  assert.equal(voiceNotReadyAlreadyShown('ava-1', null, storage), false);
+  assert.equal(voiceNotReadyAlreadyShown('ava-1', undefined, storage), false);
+  assert.equal(voiceNotReadyAlreadyShown('ava-1', '__new__', storage), false);
+  assert.equal(voiceNotReadyAlreadyShown('ava-1', 'thread-a', storage), false);
 });
 
 test('a minted thread is the same conversation the notice was shown for while new', () => {

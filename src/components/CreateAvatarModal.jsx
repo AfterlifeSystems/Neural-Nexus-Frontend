@@ -3,7 +3,11 @@ import { createPortal } from 'react-dom';
 import { MapPin, UserPenIcon } from 'lucide-react';
 import { toast } from 'react-hot-toast';
 import { useNavigate } from 'react-router-dom';
-import { createAvatar, listUserAvatars } from '../services/avatarService';
+import {
+  createAvatar,
+  listStandardVoices,
+  listUserAvatars,
+} from '../services/avatarService';
 import { useAuth } from '../context/AuthContext';
 import {
   assistantIdOf,
@@ -13,9 +17,12 @@ import {
 import CreateAvatarMediaField from './CreateAvatarMediaField';
 import CreateAvatarVoiceField from './CreateAvatarVoiceField';
 import {
-  assignCreatedAvatarStandardVoice,
-  standardVoiceIdToAssign,
+  assignStandardVoiceAfterCreate,
+  createAvatarGenderChoice,
+  standardVoiceWasChosen,
 } from '../services/createAvatarVoice';
+import { avatarVoiceSettingsPath } from './voiceNotReadyToast';
+import { showCreatedAvatarStandardVoiceToast } from './showCreatedAvatarStandardVoiceToast';
 import AvatarLocationPicker from './geo/AvatarLocationPicker';
 import { rememberResearchJob } from './research/researchJobMemory';
 import { startIdentityMediaUpload } from '../services/identityMediaJobs';
@@ -283,25 +290,47 @@ const CreateAvatarModal = ({ setShowCreateModal }) => {
       }
 
       const createdId = assistantIdOf(createdAvatar);
-      const voiceIdToStore = standardVoiceIdToAssign({
-        selectedVoiceId: standardVoiceId,
-        voices: standardVoices,
+      const genderChoice = createAvatarGenderChoice({
+        selectedGender: voiceGender,
+        avatarName: resolvedName,
       });
-      if (createdId && voiceIdToStore) {
-        try {
-          await assignCreatedAvatarStandardVoice({
-            assistantId: createdId,
-            voiceId: voiceIdToStore,
-          });
-        } catch (voiceError) {
+      let voiceAssignment = {
+        shouldShowGenderToast: !standardVoiceWasChosen({
+          selectedVoiceId: standardVoiceId,
+          voices: standardVoices,
+        }),
+        genderChoice,
+        assigned: false,
+        assignedVoice: null,
+      };
+      if (createdId) {
+        voiceAssignment = await assignStandardVoiceAfterCreate({
+          assistantId: createdId,
+          avatarName: resolvedName,
+          selectedGender: voiceGender,
+          selectedVoiceId: standardVoiceId,
+          voices: standardVoices,
+          listVoices: listStandardVoices,
+        });
+        if (voiceAssignment.assignError) {
           console.error(
             'Avatar created, but the initial standard voice was not saved:',
-            voiceError
-          );
-          toast.error(
-            'The avatar was created. Choose a standard voice in Settings if you want it to speak before a clone is uploaded.'
+            voiceAssignment.assignError
           );
         }
+      }
+      if (voiceAssignment.shouldShowGenderToast) {
+        showCreatedAvatarStandardVoiceToast({
+          assistantId: createdId,
+          avatarName: resolvedName,
+          gender: voiceAssignment.genderChoice.gender,
+          source: voiceAssignment.genderChoice.source,
+          givenName: voiceAssignment.genderChoice.givenName,
+          voiceName: voiceAssignment.assignedVoice?.name,
+          assigned: voiceAssignment.assigned,
+          onOpenSettings: (settingsPathForVoice) =>
+            navigate(settingsPathForVoice),
+        });
       }
       // The server starts research for every new avatar and hands the job back
       // here. Remembering it now is what lets the research panel pick the job
@@ -349,7 +378,10 @@ const CreateAvatarModal = ({ setShowCreateModal }) => {
       setStandardVoiceId('');
       setStandardVoices([]);
 
-      const settingsPath = avatarSettingsPath(createdAvatar);
+      const settingsPath =
+        createdId && voiceAssignment.shouldShowGenderToast
+          ? avatarVoiceSettingsPath(createdId)
+          : avatarSettingsPath(createdAvatar);
       if (settingsPath) {
         // A listed record carries ownership metadata. Setting that before
         // navigating keeps ChatArea on settings instead of bouncing to chat
@@ -379,6 +411,8 @@ const CreateAvatarModal = ({ setShowCreateModal }) => {
   useEffect(() => {
     const handleKeyDown = (e) => {
       if (e.key === 'Escape' && !isCreating) {
+        e.preventDefault();
+        e.stopPropagation();
         closeCreateModal();
       }
     };

@@ -41,6 +41,10 @@ import React, {
 } from 'react';
 
 import { useAuth } from './AuthContext';
+import {
+  recalledConversationWorkspace,
+  rememberConversationWorkspace,
+} from './conversationWorkspace';
 
 import { toast } from 'react-hot-toast';
 import {
@@ -453,6 +457,16 @@ function normalizeThreadMessages(storedMessages, threadId = null) {
           storedMessage.response_metadata?.request_id ??
           null,
         total_response_time_ms: totalResponseTimeMs,
+        text_model:
+          storedMessage.text_model ?? responseMetadata.text_model ?? null,
+        text_model_provider:
+          storedMessage.text_model_provider ??
+          responseMetadata.text_model_provider ??
+          null,
+        text_model_credit_fallback: Boolean(
+          storedMessage.text_model_credit_fallback ??
+            responseMetadata.text_model_credit_fallback
+        ),
         timestamp,
         feedback: storedMessage.feedback ?? null,
       };
@@ -575,6 +589,25 @@ export const MediaProvider = ({ children }) => {
   // record did not carry the set (the listing was fetched before research
   // finished). Holds the promise so both mounted sheets share the request.
   const standardStartersFetchRef = useRef(new Map());
+
+  const currentAssistantId = resolveAssistantId(activeAvatar);
+  const workspaceAssistantIdRef = useRef(currentAssistantId);
+  if (workspaceAssistantIdRef.current !== currentAssistantId) {
+    const leavingAssistantId = workspaceAssistantIdRef.current;
+    if (leavingAssistantId) {
+      rememberConversationWorkspace(leavingAssistantId, {
+        messages,
+        conversationList,
+        activeConversation,
+      });
+    }
+    workspaceAssistantIdRef.current = currentAssistantId;
+    onScreenAssistantIdRef.current = currentAssistantId;
+    const recalledWorkspace = recalledConversationWorkspace(currentAssistantId);
+    setMessages(recalledWorkspace?.messages ?? []);
+    setConversationList(recalledWorkspace?.conversationList ?? []);
+    setActiveConversation(recalledWorkspace?.activeConversation ?? null);
+  }
 
   useEffect(() => {
     onScreenAssistantIdRef.current = resolveAssistantId(activeAvatar);
@@ -1037,6 +1070,17 @@ export const MediaProvider = ({ children }) => {
           assistantId: resolveAssistantId(avatarForMessages),
           interrupt: restoredInterrupt,
           pauseMessageId,
+          restoredFromTranscript: true,
+        })
+      );
+    } else if (restoredInterrupt) {
+      interruptSequenceRef.current += 1;
+      setPendingInterrupt(
+        attachFactReviewDraft({
+          sequence: interruptSequenceRef.current,
+          threadId: pendingFromTranscript.thread_id ?? threadId,
+          assistantId: resolveAssistantId(avatarForMessages),
+          interrupt: restoredInterrupt,
           restoredFromTranscript: true,
         })
       );
@@ -1709,6 +1753,8 @@ export const MediaProvider = ({ children }) => {
       const isConnectAccountPause = isInChatCardInterrupt(
         terminalFrame.interrupt
       );
+      const isPhoneCallConfirmPause =
+        terminalFrame.interrupt?.kind === 'phone_call_confirm';
       if (isConnectAccountPause) {
         paintBubble();
       }
@@ -1728,6 +1774,10 @@ export const MediaProvider = ({ children }) => {
       // streamed was the proposal, and `appendTokenToStreamingMessage`
       // suppresses that from the transcript, so the message it was growing
       // never receives any text.
+      //
+      // A phone-call confirm is the opposite of a connect card: the question
+      // lives on InterruptPanel, not on the bubble. Keeping the streamed
+      // sentence would put the same ask on screen twice.
       updateMessagesIfStillOnScreen((previousMessages) =>
         previousMessages
           .map((message) => {
@@ -1757,12 +1807,12 @@ export const MediaProvider = ({ children }) => {
                 : {}),
             };
           })
-          .filter(
-            (message) =>
-              message.id !== streamingMessageId ||
-              isConnectAccountPause ||
-              (message.content ?? '').trim() !== ''
-          )
+          .filter((message) => {
+            if (message.id !== streamingMessageId) return true;
+            if (isPhoneCallConfirmPause) return false;
+            if (isConnectAccountPause) return true;
+            return (message.content ?? '').trim() !== '';
+          })
       );
       if (terminalFrame.thread_id && !hideFromTranscript) {
         // A turn can pause before the thread has ever been seen here — a first
@@ -1823,6 +1873,23 @@ export const MediaProvider = ({ children }) => {
               ...message,
               isLoading: false,
               streamingText: false,
+              timestamp:
+                message.timestamp ??
+                timed.response_metadata?.created_at ??
+                terminalFrame.response_metadata?.created_at ??
+                null,
+              text_model:
+                timed.response_metadata?.text_model ??
+                message.text_model ??
+                null,
+              text_model_provider:
+                timed.response_metadata?.text_model_provider ??
+                message.text_model_provider ??
+                null,
+              text_model_credit_fallback: Boolean(
+                timed.response_metadata?.text_model_credit_fallback ??
+                  message.text_model_credit_fallback
+              ),
               content: stripMinecraftBodyLeak(
                 terminalFrame.content ?? message.content
               ),
@@ -2399,10 +2466,12 @@ export const MediaProvider = ({ children }) => {
    * as well said the same thing twice, and said it over the conversation the
    * reader was trying to read.
    *
-   * The operator's model account being out of credit is written into the
-   * transcript (see ProviderCreditNotice) and toasted, so the pause is
-   * visible even when the card is off-screen. Support is GitHub Sponsors.
-   * A second card is not added while one is already the last line.
+   * The operator's model account being out of credit is the same shape: every
+   * later message is refused until the service is funded again, so it is
+   * written into the transcript alone (see ProviderCreditNotice). Support is
+   * GitHub Sponsors. A second card is not added while one is already the last
+   * line. Speak-aloud failures that never reach this function still toast,
+   * because there is no transcript notice on that path.
    *
    * Every other failure is reported by TOAST alone. Those are one-off — a
    * dropped connection, a rejected attachment — with nothing to come back to,
@@ -2428,7 +2497,6 @@ export const MediaProvider = ({ children }) => {
         }
         return [...previousMessages, buildProviderCreditNoticeMessage()];
       });
-      showRequestFailureToast(turnError, { fallbackMessage });
       return;
     }
     showRequestFailureToast(turnError, { fallbackMessage });

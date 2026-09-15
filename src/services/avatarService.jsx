@@ -104,6 +104,8 @@ export const createAvatar = async ({
  * @param {Object} [options.geoLocation] Pin the avatar to a real-world place, or
  *   move an existing pin: {latitude, longitude, locationName, geofenceRadiusMeters}.
  * @param {boolean} [options.clearGeoLocation] Remove the avatar's pin entirely.
+ * @param {boolean} [options.adultOnly] Administrator-only: hide this avatar
+ *   from search until the viewer verifies their age.
  * @returns {Promise<Object>} The modified assistant record.
  */
 export const modifyAvatar = async ({
@@ -113,6 +115,7 @@ export const modifyAvatar = async ({
   isPersonalAvatarOfCreator,
   geoLocation,
   clearGeoLocation,
+  adultOnly,
 }) => {
   return requestJson('/modify_avatar', {
     method: 'PATCH',
@@ -122,6 +125,7 @@ export const modifyAvatar = async ({
       new_avatar_description: newAvatarDescription,
       is_personal_avatar_of_creator: isPersonalAvatarOfCreator,
       clear_geo_location: clearGeoLocation,
+      adult_only: adultOnly,
       ...geoLocationQuery(geoLocation),
     },
   });
