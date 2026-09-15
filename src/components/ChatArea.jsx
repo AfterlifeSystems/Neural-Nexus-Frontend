@@ -152,9 +152,6 @@ const ChatArea = ({
     voiceQuery,
   });
   const isLiveModeOpen = voiceModeIsOpen(prefersVoiceMode, activeTab);
-  // #region agent log
-  fetch('http://127.0.0.1:7435/ingest/1ee0e368-4b09-4cc1-9ed9-f1724140320e',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'97868d'},body:JSON.stringify({sessionId:'97868d',runId:'post-fix',hypothesisId:'C',location:'ChatArea.jsx:render',message:'chat area voice mode',data:{avatarId,isLiveModeOpen,prefersVoiceMode,activeTab},timestamp:Date.now()})}).catch(()=>{});
-  // #endregion
   const [voiceStageMounted, setVoiceStageMounted] = useState(
     () => readVoiceModePreference() || searchRequestsVoiceMode(searchParams)
   );
@@ -466,7 +463,7 @@ const ChatArea = ({
     <>
       {voiceModeStageShouldMount(prefersVoiceMode, voiceStageMounted) && (
         <LiveVoiceMode
-          assistantId={activeAvatar?.assistant_id ?? avatarId}
+          assistantId={avatarId}
           avatarName={activeAvatar?.name}
           avatarPortrait={avatarPortrait}
           onClose={() => rememberVoiceModePreference(false)}

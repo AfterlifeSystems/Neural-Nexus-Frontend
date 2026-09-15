@@ -191,11 +191,12 @@ import {
   paintedPortraitFrameFor,
   portraitChromePadding,
   portraitComposerReserveHeight,
-  portraitWellIsSquare,
   portraitWellIsTall,
   portraitWellMediaIn,
   portraitWellShouldHoldOutgoingSize,
+  portraitWellShouldKeepRememberedSize,
   portraitWellSizeForConstraint,
+  portraitWellBoxStyle,
   portraitWellSizeIsUsable,
   portraitWellSizesEqual,
   presentedStageMedia,
@@ -541,15 +542,31 @@ const LiveVoiceMode = ({
       ? paintedPortraitFrameFor(rememberedWell, null)
       : null;
   });
+  const { showGenerated } = useAvatarFaceSource(assistantId);
   const stageIsShowing = stageVisible && !galleryIsOpen;
   const wellForAssistantIdRef = useRef(assistantId);
+  let openedPortraitWellSize = portraitWellSize;
+  let openedPaintedPortraitFrame = paintedPortraitFrame;
   if (wellForAssistantIdRef.current !== assistantId) {
     wellForAssistantIdRef.current = assistantId;
     seedOpenedAvatarPortraitWell(assistantId);
+    const recalledWell = recalledPortraitWellSize(assistantId);
+    openedPortraitWellSize = recalledWell;
+    openedPaintedPortraitFrame = recalledWell
+      ? paintedPortraitFrameFor(recalledWell, null)
+      : null;
     setPortraitWellSize(recalledPortraitWellSize(assistantId));
-    // #region agent log
-    fetch('http://127.0.0.1:7435/ingest/1ee0e368-4b09-4cc1-9ed9-f1724140320e',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'97868d'},body:JSON.stringify({sessionId:'97868d',runId:'post-fix',hypothesisId:'D',location:'LiveVoiceMode.jsx:assistantSwitch',message:'voice stage assistant changed',data:{assistantId,previousWell:portraitWellSize,recalledWell:recalledPortraitWellSize(assistantId)},timestamp:Date.now()})}).catch(()=>{});
-    // #endregion
+    const fittedWell = portraitWellSizeForConstraint(
+      portraitConstraintRef.current,
+      null,
+      recalledWell
+    );
+    if (portraitWellSizeIsUsable(fittedWell)) {
+      openedPortraitWellSize = fittedWell;
+      openedPaintedPortraitFrame = paintedPortraitFrameFor(fittedWell, null);
+      setPortraitWellSize(fittedWell);
+    }
+    setPaintedPortraitFrame(openedPaintedPortraitFrame);
     const recalledChromeForAvatar = recalledPortraitChrome(assistantId);
     if (recalledChromeForAvatar?.headerHeight > 0) {
       setStageHeaderHeight(recalledChromeForAvatar.headerHeight);
@@ -564,7 +581,6 @@ const LiveVoiceMode = ({
   const { manifest } = useEmotionMedia(assistantId, {
     asAnonymousIdentity: readerIsAnonymous,
   });
-  const { showGenerated } = useAvatarFaceSource(assistantId);
   const [holdNewCaptions, setHoldNewCaptions] = useState(false);
   const [captionGeneration, setCaptionGeneration] = useState(0);
   const [stageFlash, setStageFlash] = useState(null);
@@ -808,25 +824,17 @@ const LiveVoiceMode = ({
         paintedMedia,
         rememberedWell
       );
-      const holdOutgoing = portraitWellShouldHoldOutgoingSize(
-        portraitWellSize,
-        nextSize,
-        mediaIntrinsicSize(paintedMedia)
-      );
-      // #region agent log
-      fetch('http://127.0.0.1:7435/ingest/1ee0e368-4b09-4cc1-9ed9-f1724140320e',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'97868d'},body:JSON.stringify({sessionId:'97868d',runId:'post-fix',hypothesisId:'B',location:'LiveVoiceMode.jsx:measurePortraitWell',message:'portrait well measure',data:{assistantId,stageIsShowing,currentWell:portraitWellSize,rememberedWell,nextSize,holdOutgoing,skipNull:!portraitWellSizeIsUsable(nextSize),skipEqual:portraitWellSizesEqual(portraitWellSize,nextSize),paintedTag:paintedMedia?.tagName??null,paintedIntrinsic:mediaIntrinsicSize(paintedMedia),constraintBox:{w:constraint?.clientWidth??0,h:constraint?.clientHeight??0}},timestamp:Date.now()})}).catch(()=>{});
-      // #endregion
       if (!portraitWellSizeIsUsable(nextSize)) {
         return;
       }
-      // A square still must not overwrite a seeded 9:16 well. The loop has
-      // not reported a size yet; keeping the square is the snap the seed
-      // exists to prevent. The hairline still sits on the painted still.
+      // A square still must not overwrite a seeded 9:16 well. A leftover
+      // generated canvas must not grow a reference-photo well back to 9:16.
       if (
-        nextSize &&
-        rememberedWell &&
-        portraitWellIsTall(rememberedWell) &&
-        portraitWellIsSquare(nextSize)
+        portraitWellShouldKeepRememberedSize(
+          rememberedWell,
+          nextSize,
+          showGenerated
+        )
       ) {
         setPaintedPortraitFrame(
           paintedPortraitFrameFor(rememberedWell, paintedMedia)
@@ -854,7 +862,7 @@ const LiveVoiceMode = ({
       }
       setPaintedPortraitFrame(paintedPortraitFrameFor(nextSize, paintedMedia));
     },
-    [assistantId, portraitWellSize, stageIsShowing]
+    [assistantId, portraitWellSize, showGenerated, stageIsShowing]
   );
 
   // Leaving the screen stops everything: speech, listening, dictation.
@@ -1978,13 +1986,6 @@ const LiveVoiceMode = ({
     portraitComposerReserve
   );
 
-  const hasStageFace =
-    Boolean(lipSyncClipUrl) ||
-    Boolean(stageLoop) ||
-    Boolean(stageStill && isValidImageUrl(stageStill));
-  // #region agent log
-  fetch('http://127.0.0.1:7435/ingest/1ee0e368-4b09-4cc1-9ed9-f1724140320e',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'97868d'},body:JSON.stringify({sessionId:'97868d',runId:'post-fix',hypothesisId:'C',location:'LiveVoiceMode.jsx:render',message:'voice stage render',data:{assistantId,stageIsShowing,hasStageFace,wellHidden:!portraitWellSizeIsUsable(portraitWellSize),well:portraitWellSize,hasStill:Boolean(stageStill),hasLoop:Boolean(stageLoop),hasClip:Boolean(lipSyncClipUrl),circle:Boolean(paintedPortraitFrame?.circle)},timestamp:Date.now()})}).catch(()=>{});
-  // #endregion
   return createPortal(
     // `--app-rail-width` is the collapsed icon rail; `z-30` sits above the
     // page (z-10) and under the sidebar (rail 40, panel 50).
@@ -2033,29 +2034,17 @@ const LiveVoiceMode = ({
         <div
           ref={portraitWellRef}
           className="relative max-w-full max-h-full pointer-events-none"
-          style={
-            portraitWellSizeIsUsable(portraitWellSize)
-              ? {
-                  width: portraitWellSize.width,
-                  height: portraitWellSize.height,
-                }
-              : {
-                  width: 'auto',
-                  height: '100%',
-                  maxWidth: '100%',
-                  aspectRatio: '1 / 1',
-                }
-          }
+          style={portraitWellBoxStyle(openedPortraitWellSize)}
         >
           <div
             className="absolute"
             style={
-              paintedPortraitFrame?.width > 0
+              openedPaintedPortraitFrame?.width > 0
                 ? {
-                    left: paintedPortraitFrame.x,
-                    top: paintedPortraitFrame.y,
-                    width: paintedPortraitFrame.width,
-                    height: paintedPortraitFrame.height,
+                    left: openedPaintedPortraitFrame.x,
+                    top: openedPaintedPortraitFrame.y,
+                    width: openedPaintedPortraitFrame.width,
+                    height: openedPaintedPortraitFrame.height,
                   }
                 : { inset: 0 }
             }
@@ -2063,14 +2052,14 @@ const LiveVoiceMode = ({
             {isAvatarSpeaking && (
               <div
                 className={`voice-speak-glow absolute inset-0 z-10 pointer-events-none ${
-                  paintedPortraitFrame?.circle ? 'rounded-full' : 'rounded-2xl'
+                  openedPaintedPortraitFrame?.circle ? 'rounded-full' : 'rounded-2xl'
                 }`}
                 aria-hidden
               />
             )}
             <div
               className={`relative w-full h-full overflow-hidden bg-transparent ${
-                paintedPortraitFrame?.circle ? 'rounded-full' : 'rounded-2xl'
+                openedPaintedPortraitFrame?.circle ? 'rounded-full' : 'rounded-2xl'
               }`}
             >
               {lipSyncClipUrl ||
@@ -2090,7 +2079,11 @@ const LiveVoiceMode = ({
                     }
                   }}
                   onPresented={handleStagePresented}
-                  mediaClassName="w-full h-full object-contain"
+                  mediaClassName={`w-full h-full ${
+                    portraitWellIsTall(openedPortraitWellSize)
+                      ? 'object-cover'
+                      : 'object-contain'
+                  }`}
                   className="w-full h-full bg-transparent"
                 />
               ) : (
@@ -2100,7 +2093,7 @@ const LiveVoiceMode = ({
               )}
               <div
                 className={`voice-portrait-frame absolute inset-0 z-[9] pointer-events-none ${
-                  paintedPortraitFrame?.circle ? 'rounded-full' : 'rounded-2xl'
+                  openedPaintedPortraitFrame?.circle ? 'rounded-full' : 'rounded-2xl'
                 }`}
                 aria-hidden
               />

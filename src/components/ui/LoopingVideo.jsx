@@ -93,9 +93,6 @@ const LoopingVideo = ({
     const ready = readyRef.current[layerId] ?? {};
     if (!loopingVideoLayerMayReveal(layer, ready)) return;
     const alreadyShowing = visibleIdRef.current === layerId;
-    // #region agent log
-    fetch('http://127.0.0.1:7435/ingest/1ee0e368-4b09-4cc1-9ed9-f1724140320e',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'97868d'},body:JSON.stringify({sessionId:'97868d',runId:'post-fix',hypothesisId:'E',location:'LoopingVideo.jsx:revealIfReady',message:'looping video reveal',data:{layerId,alreadyShowing,visibleId:visibleIdRef.current,hasPoster:Boolean(layer.poster),hasSrc:Boolean(layer.src),layerCount:layersRef.current.length},timestamp:Date.now()})}).catch(()=>{});
-    // #endregion
     setVisibleId(layerId);
     if (!alreadyShowing) {
       onPresentedRef.current?.({ src: layer.src, poster: layer.poster });

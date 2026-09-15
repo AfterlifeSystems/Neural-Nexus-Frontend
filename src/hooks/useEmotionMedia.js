@@ -210,6 +210,10 @@ export function preloadEmotionMedia(manifest) {
 /**
  * React hook: the emotion media manifest for an avatar, cached across screens.
  *
+ * The cache is read for the open assistant on every render. Holding the
+ * previous avatar's stills and loops in `useState` until an effect ran left
+ * a square reference still in a 9:16 well for one paint after a swap.
+ *
  * @param {string} assistantId The avatar.
  * @param {Object} [options]
  * @param {boolean} [options.asAnonymousIdentity] Public chat: withhold the credential.
@@ -219,35 +223,52 @@ export default function useEmotionMedia(
   assistantId,
   { asAnonymousIdentity = false } = {}
 ) {
-  const [manifest, setManifest] = useState(
-    () => manifestCache.get(assistantId) ?? null
-  );
+  const cachedManifest = assistantId
+    ? (manifestCache.get(assistantId) ?? null)
+    : null;
+  const [loaded, setLoaded] = useState(() => ({
+    assistantId,
+    manifest: cachedManifest,
+  }));
+  if (loaded.assistantId !== assistantId) {
+    setLoaded({
+      assistantId,
+      manifest: assistantId ? manifestCache.get(assistantId) ?? null : null,
+    });
+  }
+  const manifest =
+    loaded.assistantId === assistantId ? loaded.manifest : cachedManifest;
 
   const refresh = useCallback(
     async ({ force = true } = {}) => {
-      const loaded = await loadEmotionMedia(assistantId, {
+      const nextManifest = await loadEmotionMedia(assistantId, {
         asAnonymousIdentity,
         force,
       });
-      setManifest(loaded);
-      return loaded;
+      setLoaded({ assistantId, manifest: nextManifest });
+      return nextManifest;
     },
     [assistantId, asAnonymousIdentity]
   );
 
   useEffect(() => {
     let cancelled = false;
-    setManifest(manifestCache.get(assistantId) ?? null);
-    loadEmotionMedia(assistantId, { asAnonymousIdentity }).then((loaded) => {
-      if (!cancelled) setManifest(loaded);
+    setLoaded({
+      assistantId,
+      manifest: manifestCache.get(assistantId) ?? null,
     });
+    loadEmotionMedia(assistantId, { asAnonymousIdentity }).then(
+      (nextManifest) => {
+        if (!cancelled) setLoaded({ assistantId, manifest: nextManifest });
+      }
+    );
     // When this avatar's manifest is dropped (a portrait was stored or the
     // media regenerated), read the new one without waiting for a remount.
     const onInvalidated = (invalidatedAssistantId) => {
       if (invalidatedAssistantId !== assistantId) return;
       loadEmotionMedia(assistantId, { asAnonymousIdentity, force: true }).then(
-        (loaded) => {
-          if (!cancelled) setManifest(loaded);
+        (nextManifest) => {
+          if (!cancelled) setLoaded({ assistantId, manifest: nextManifest });
         }
       );
     };

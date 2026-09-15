@@ -17,7 +17,10 @@ import {
   portraitWellIsTall,
   portraitWellSizeForConstraint,
   portraitWellShouldHoldOutgoingSize,
+  portraitWellShouldKeepRememberedSize,
   presentedStageMedia,
+  portraitWellBoxStyle,
+  portraitWellIsAspectSeed,
   portraitWellSizeIsUsable,
   portraitWellSizesEqual,
   recalledPortraitChrome,
@@ -50,6 +53,48 @@ test('an incoming still does not resize a 9:16 well until the loop is painted', 
   );
 });
 
+test('a leftover generated canvas does not grow a reference-photo well', () => {
+  assert.equal(
+    portraitWellShouldKeepRememberedSize(
+      { width: 400, height: 400 },
+      { width: 225, height: 400 },
+      false
+    ),
+    true
+  );
+  assert.equal(
+    portraitWellShouldKeepRememberedSize(
+      { width: 225, height: 400 },
+      { width: 400, height: 400 },
+      true
+    ),
+    true
+  );
+  assert.equal(
+    portraitWellShouldKeepRememberedSize(
+      { width: 400, height: 400 },
+      { width: 225, height: 400 },
+      true
+    ),
+    false
+  );
+});
+
+test('a 9:16 aspect seed is not painted as a 9 by 16 pixel well', () => {
+  assert.equal(portraitWellIsAspectSeed({ width: 9, height: 16 }), true);
+  assert.equal(portraitWellIsAspectSeed({ width: 397, height: 706 }), false);
+  assert.deepEqual(portraitWellBoxStyle({ width: 9, height: 16 }), {
+    width: 'auto',
+    height: '100%',
+    maxWidth: '100%',
+    aspectRatio: '9 / 16',
+  });
+  assert.deepEqual(portraitWellBoxStyle({ width: 400, height: 400 }), {
+    width: 400,
+    height: 400,
+  });
+});
+
 test('LoopingVideo presentation payloads do not count as painted media', () => {
   assert.equal(
     presentedStageMedia({ src: 'loop.mp4', poster: 'still.png' }),
@@ -70,15 +115,15 @@ test('a zero constraint does not count as a usable well', () => {
   );
 });
 
-test('a square still in a 9:16 well keeps the previous circular hairline on the face', () => {
+test('a square still in a 9:16 well keeps the standing frame on the well', () => {
   const well = { width: 225, height: 400 };
   const still = { tagName: 'IMG', naturalWidth: 400, naturalHeight: 400 };
   const painted = paintedPortraitFrameFor(well, still);
-  assert.equal(painted.circle, true);
-  assert.ok(Math.abs(painted.width - 225) < 1e-9);
-  assert.ok(Math.abs(painted.height - 225) < 1e-9);
-  assert.ok(Math.abs(painted.x) < 1e-9);
-  assert.ok(Math.abs(painted.y - (400 - 225) / 2) < 1e-9);
+  assert.equal(painted.circle, false);
+  assert.deepEqual(
+    { x: painted.x, y: painted.y, width: painted.width, height: painted.height },
+    { x: 0, y: 0, width: 225, height: 400 }
+  );
 });
 
 test('a 9:16 loop fills the well so the hairline sits on the portrait', () => {
@@ -260,6 +305,7 @@ test('the visible face is the layer that is not at opacity 0', () => {
 test('voice mode contains a 9:16 loop so the whole portrait is on stage', () => {
   const liveVoice = readFileSync(join(componentsDirectory, 'LiveVoiceMode.jsx'), 'utf8');
   assert.match(liveVoice, /object-contain/);
+  assert.match(liveVoice, /object-cover/);
   assert.match(liveVoice, /paintedPortraitFrameFor/);
   assert.match(liveVoice, /rememberPortraitWellSize/);
   assert.match(
@@ -268,6 +314,9 @@ test('voice mode contains a 9:16 loop so the whole portrait is on stage', () => 
   );
   assert.match(liveVoice, /seedOpenedAvatarPortraitWell/);
   assert.match(liveVoice, /wellForAssistantIdRef/);
+  assert.match(liveVoice, /openedPortraitWellSize/);
+  assert.match(liveVoice, /portraitWellBoxStyle/);
+  assert.doesNotMatch(liveVoice, /key=\{assistantId\}/);
   assert.match(liveVoice, /holdNarrowRail/);
   assert.match(
     liveVoice,
