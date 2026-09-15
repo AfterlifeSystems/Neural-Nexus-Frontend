@@ -5,7 +5,7 @@ import { buildSharedAvatarDemoUrl } from '../../config/demoAvatar';
 
 // `isEmbeddedInHero` drops the standalone section chrome (its own gradient
 // background and vertical padding) so the demo can sit directly on top of the
-// hero's animated background instead of below it as a separate band.
+// world globe instead of below it as a separate band.
 export default function LiveAvatarDemo({ isEmbeddedInHero = false }) {
   // Cleared by the iframe's onLoad handler. The framed page is this same
   // application booting a second time, so the panel is empty for the moment

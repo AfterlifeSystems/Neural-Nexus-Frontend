@@ -9,6 +9,8 @@ import {
   imageViewportCssTransform,
   imageViewportIsZoomed,
   imageViewportCanPan,
+  imageViewportContainLayout,
+  imageViewportCoverLayout,
   imageViewportCoverSize,
   imageViewportPanLimit,
   imageViewportPointerDistance,
@@ -47,6 +49,17 @@ test('cover size is empty until the picture’s own size is known', () => {
     imageViewportCoverSize({ width: 128, height: 128 }, null),
     { width: 0, height: 0 }
   );
+});
+
+test('a tall picture contained in a square sits in a centered strip', () => {
+  const layout = imageViewportContainLayout(
+    { width: 128, height: 128 },
+    { mediaWidth: 9, mediaHeight: 16 }
+  );
+  assert.equal(layout.height, 128);
+  assert.equal(layout.width, 128 * (9 / 16));
+  assert.equal(layout.top, 0);
+  assert.equal(layout.left, (128 - layout.width) / 2);
 });
 
 test('a tall cover picture can slide at scale one', () => {

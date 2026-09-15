@@ -13,10 +13,13 @@ import { AudioLines } from 'lucide-react';
 import {
   avatarVoiceSettingsPath,
   rememberVoiceNotReadyShown,
+  sameConversationAsVoiceNotReadyShown,
   voiceNotReadyAlreadyShown,
-  voiceNotReadyStorageKey,
+  voiceNotReadyToastId,
   voiceNotReadyToastTitle,
 } from './voiceNotReadyToast';
+
+let visibleNotice = null;
 
 /**
  * Show a two-pane toast: left opens Voice settings to create a voice, right dismisses.
@@ -37,15 +40,32 @@ export function showVoiceNotReadyToast({
   prompt = true,
 }) {
   if (!prompt) return;
-  if (voiceNotReadyAlreadyShown(assistantId, conversationId)) return;
+  if (!assistantId || !conversationId) return;
+  const toastId = voiceNotReadyToastId(assistantId);
+  if (voiceNotReadyAlreadyShown(assistantId, conversationId)) {
+    if (
+      visibleNotice &&
+      visibleNotice.assistantId === assistantId &&
+      visibleNotice.conversationId !== conversationId &&
+      !sameConversationAsVoiceNotReadyShown(
+        visibleNotice.conversationId,
+        conversationId
+      )
+    ) {
+      toast.dismiss(toastId);
+      visibleNotice = null;
+    }
+    return;
+  }
   rememberVoiceNotReadyShown(assistantId, conversationId);
+  visibleNotice = { assistantId, conversationId };
 
   const settingsPath = avatarVoiceSettingsPath(assistantId);
   const collected = Math.round(collectedSeconds);
-  const toastId = voiceNotReadyStorageKey(assistantId, conversationId);
 
   const openVoiceSettings = () => {
     toast.dismiss(toastId);
+    visibleNotice = null;
     window.location.assign(settingsPath);
   };
 
@@ -92,7 +112,10 @@ export function showVoiceNotReadyToast({
         <div className="flex border-l border-white/10">
           <button
             type="button"
-            onClick={() => toast.dismiss(voiceToast.id)}
+            onClick={() => {
+              toast.dismiss(voiceToast.id);
+              visibleNotice = null;
+            }}
             className="w-full border border-transparent rounded-none rounded-r-lg p-4 flex items-center justify-center text-sm font-medium text-amber-300 hover:text-amber-200 focus:outline-none focus:ring-2 focus:ring-amber-400/50"
           >
             Close

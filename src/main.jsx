@@ -17,7 +17,6 @@ import LandingPage from './components/Landing/LandingPage.jsx';
 import PrivacyPolicy from './components/Landing/PrivacyPolicy.jsx';
 import TermsOfService from './components/Landing/TermsOfService.jsx';
 import ProtectedRoute from './components/ProtectedRoute';
-import AvatarSelectionComponent from './components/AvatarSelectionComponent';
 import AuthComponent from './components/AuthComponent';
 import ChatArea from './components/ChatArea';
 
@@ -30,7 +29,7 @@ import { replaceLoopbackPageWithLocalhost } from './services/loopbackPageUrl';
 import SharedAvatarLayout from './components/SharedAvatarLayout';
 import SharedAvatarChat from './components/SharedAvatarChat';
 import SharedThreadChat from './components/SharedThreadChat';
-import VantaBackground from './components/VantaBackground.jsx';
+import WorldBackground from './components/WorldBackground.jsx';
 import QrBadge from './components/QrBadge';
 
 import { toast, Toaster, ToastBar } from 'react-hot-toast';
@@ -64,8 +63,9 @@ createRoot(document.getElementById('root')).render(
             the only sign that an upload is under way.
           * A notice that never times out (`duration: Infinity`) is one the
             reader has to answer rather than read — the billing refusal, the
-            vendor-credit pause, the voice-not-ready notice, and the
-            voice-ready notice. Each is closed by its own Close button.
+            vendor-credit pause, the voice-not-ready notice, the
+            voice-ready notice, and the created-avatar stock-voice notice.
+            Each is closed by its own Close button.
             Dismissing it with a stray press would take away a notice the
             reader has not finished with.
 
@@ -98,10 +98,10 @@ createRoot(document.getElementById('root')).render(
         )
       }
     </Toaster>
-    <VantaBackground />
     <AuthProvider>
       <MediaProvider>
         <BrowserRouter>
+          <WorldBackground />
           <UsageAnalyticsProvider>
           <EvanAssistProvider>
             {/* Outside the routes: the code belongs to the product, not to any
@@ -155,7 +155,10 @@ createRoot(document.getElementById('root')).render(
                 billing are reachable from every page rather than only from
                 whichever screen happens to link to them. */}
             <Route element={<ProtectedRoute />}>
-              <Route path="/avatars" element={<AvatarSelectionComponent />} />
+              {/* The gallery stays mounted in ProtectedRoute so leaving chat
+                  or settings does not rebuild the WebGL carousel. This route
+                  only matches the URL. */}
+              <Route path="/avatars" element={null} />
               <Route path="/chat/:avatarId" element={<ChatArea />} />
               <Route path="/account" element={<AccountSettings />} />
               {/* Accessibility now lives in account settings. Keep the old

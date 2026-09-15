@@ -1,7 +1,7 @@
 // src/hooks/useMessageActions.js
 import { useState } from 'react';
 import { toast } from 'react-hot-toast';
-import { NEW_CONVERSATION_ID, useMedia } from '../context/MediaContext';
+import { useMedia } from '../context/MediaContext';
 import useSpeech from './useSpeech';
 
 /**
@@ -41,7 +41,7 @@ export default function useMessageActions({
   const speech = useSpeech({
     asAnonymousIdentity,
     avatarName,
-    conversationId: activeConversation ?? NEW_CONVERSATION_ID,
+    conversationId: activeConversation,
     missingClonedVoice,
     promptForMissingClonedVoice,
   });

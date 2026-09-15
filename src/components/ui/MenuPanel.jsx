@@ -28,7 +28,10 @@ const MenuPanel = ({ open, onClose, className = '', id, children }) => {
       }
     };
     const handleEscape = (keyEvent) => {
-      if (keyEvent.key === 'Escape') onClose?.();
+      if (keyEvent.key !== 'Escape') return;
+      keyEvent.preventDefault();
+      keyEvent.stopPropagation();
+      onClose?.();
     };
     document.addEventListener('mousedown', handlePressOutside);
     document.addEventListener('keydown', handleEscape);

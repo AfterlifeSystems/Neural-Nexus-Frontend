@@ -63,6 +63,50 @@ test('a hidden personal avatar is still on the carousel, not offered as add', ()
   assert.equal(rows.at(-1).id, 'create-avatar');
 });
 
+test('an adult-only avatar stays out of search until the viewer verifies age', () => {
+  const adult = {
+    assistant_id: 'adult-1',
+    name: 'Adult Avatar',
+    adult_only: true,
+    metadata: { user_id: 'owner-1', adult_only: true },
+  };
+  const hidden = buildAvatarSearchSuggestions({
+    avatars: [personal, adult],
+    query: '',
+  });
+  assert.deepEqual(
+    hidden.map((row) => row.id),
+    ['me', 'create-avatar']
+  );
+  const typedName = buildAvatarSearchSuggestions({
+    avatars: [personal, adult],
+    query: 'Adult Avatar',
+    viewerUserId: 'owner-1',
+  });
+  assert.deepEqual(
+    typedName.map((row) => row.id),
+    ['create-avatar']
+  );
+  const adminSearch = buildAvatarSearchSuggestions({
+    avatars: [personal, adult],
+    query: 'Adult Avatar',
+    isAdmin: true,
+  });
+  assert.deepEqual(
+    adminSearch.map((row) => row.id),
+    ['adult-1', 'create-avatar']
+  );
+  const shown = buildAvatarSearchSuggestions({
+    avatars: [personal, adult],
+    query: '',
+    ageVerified: true,
+  });
+  assert.deepEqual(
+    shown.map((row) => row.id),
+    ['me', 'adult-1', 'create-avatar']
+  );
+});
+
 test('Create Avatar stays last when the query matches avatars', () => {
   const rows = buildAvatarSearchSuggestions({
     avatars: [personal, guide],

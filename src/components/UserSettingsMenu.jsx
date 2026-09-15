@@ -59,6 +59,18 @@ const UserSettingsMenu = ({
     return () => document.removeEventListener('mousedown', handlePressOutside);
   }, [setMenuOpen]);
 
+  useEffect(() => {
+    if (!isOpen) return undefined;
+    const handleEscape = (keyEvent) => {
+      if (keyEvent.key !== 'Escape') return;
+      keyEvent.preventDefault();
+      keyEvent.stopPropagation();
+      setMenuOpen(false);
+    };
+    document.addEventListener('keydown', handleEscape);
+    return () => document.removeEventListener('keydown', handleEscape);
+  }, [isOpen, setMenuOpen]);
+
   return (
     <div
       className={`min-h-[40px] w-full flex justify-center items-center gap-2 ${className}`}

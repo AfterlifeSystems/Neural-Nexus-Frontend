@@ -1,22 +1,33 @@
 // src/components/ui/LoopingVideo.jsx
 import React, { useEffect, useRef, useState } from 'react';
 import {
+  corsDecodableMediaUrl,
   createIdleLoopVideo,
   disposeIdleLoopTape,
   disposeIdleLoopVideo,
   paintIdleLoopFrame,
   stepIdleLoopMedia,
 } from './idleLoopSeam';
+import {
+  loopingVideoLayerMayReveal,
+  loopingVideoLayerIsShown,
+  loopingVideoLayersAfterReveal,
+  loopingVideoPosterIsVisible,
+} from './loopingVideoLayer';
 
 const IDLE_LOOP_MAX_EDGE = 512;
 
 /**
  * A silent, looping, autoplaying video with a still as its poster.
  *
- * The still and the loop of a swap are decoded off-screen, then one of them
- * is shown — never both. Stacking the poster under a contained video was
- * painting two faces. The outgoing frame stays up until the incoming pair is
- * ready, then they crossfade.
+ * The still of a swap is shown as soon as it has decoded. The idle loop
+ * paints over it once a frame exists. Waiting for both before showing
+ * anything left voice mode empty while the loop's decoder had not started.
+ * The still is then taken off: contain letterboxes a 9:16 canvas, and a
+ * transparent letterbox would show the square still beside the clip.
+ * The outgoing frame stays up until the incoming still is ready, then the
+ * incoming face replaces the outgoing face in the same paint. A dissolve
+ * left two faces on screen.
  *
  * Idle loops are not cyclic clips. They play forward, then reverse, so
  * wrapping to frame 0 is never a jump — the same hidden-video path as the
@@ -42,6 +53,7 @@ const IDLE_LOOP_MAX_EDGE = 512;
  *   the face change in the same paint.
  * @param {string} [parameters.className] Sizing classes for the frame.
  * @param {string} [parameters.mediaClassName] Fit classes for the media.
+ *   Default is `object-contain` so a 9:16 generated loop shows in full.
  */
 const LoopingVideo = ({
   src,
@@ -52,7 +64,7 @@ const LoopingVideo = ({
   onEnded,
   onPresented,
   className = '',
-  mediaClassName = 'w-full h-full object-cover',
+  mediaClassName = 'w-full h-full object-contain',
 }) => {
   const [layers, setLayers] = useState(() => [{ id: 0, src, poster }]);
   const [visibleId, setVisibleId] = useState(null);
@@ -66,8 +78,8 @@ const LoopingVideo = ({
   const onEndedRef = useRef(onEnded);
   const onPresentedRef = useRef(onPresented);
   const readyRef = useRef({});
-  const presentedOnceRef = useRef(false);
-  const [crossfade, setCrossfade] = useState(false);
+  const loopPaintedIdsRef = useRef(new Set());
+  const [loopPaintedIds, setLoopPaintedIds] = useState(() => new Set());
 
   visibleIdRef.current = visibleId;
   layersRef.current = layers;
@@ -79,24 +91,20 @@ const LoopingVideo = ({
     const layer = layersRef.current.find((item) => item.id === layerId);
     if (!layer) return;
     const ready = readyRef.current[layerId] ?? {};
-    if (layer.poster && !ready.poster) return;
-    if (layer.src && !ready.video) return;
-    if (!layer.poster && !layer.src) return;
+    if (!loopingVideoLayerMayReveal(layer, ready)) return;
     const alreadyShowing = visibleIdRef.current === layerId;
+    // #region agent log
+    fetch('http://127.0.0.1:7435/ingest/1ee0e368-4b09-4cc1-9ed9-f1724140320e',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'97868d'},body:JSON.stringify({sessionId:'97868d',runId:'post-fix',hypothesisId:'E',location:'LoopingVideo.jsx:revealIfReady',message:'looping video reveal',data:{layerId,alreadyShowing,visibleId:visibleIdRef.current,hasPoster:Boolean(layer.poster),hasSrc:Boolean(layer.src),layerCount:layersRef.current.length},timestamp:Date.now()})}).catch(()=>{});
+    // #endregion
     setVisibleId(layerId);
     if (!alreadyShowing) {
       onPresentedRef.current?.({ src: layer.src, poster: layer.poster });
     }
-    setTimeout(() => {
-      setLayers((previous) => {
-        const latest = previous[previous.length - 1];
-        const next = previous.filter(
-          (item) => item.id === visibleIdRef.current || item.id === latest?.id
-        );
-        layersRef.current = next;
-        return next;
-      });
-    }, 500);
+    setLayers((previous) => {
+      const next = loopingVideoLayersAfterReveal(previous, layerId);
+      layersRef.current = next;
+      return next;
+    });
   };
 
   const markReady = (layerId, kind) => {
@@ -201,7 +209,26 @@ const LoopingVideo = ({
         );
         video._idleLoopDirection = stepped.direction;
         const canvas = canvasElementsRef.current.get(layerId);
-        if (canvas) paintIdleLoopFrame(canvas, video);
+        if (canvas && paintIdleLoopFrame(canvas, video)) {
+          if (!loopPaintedIdsRef.current.has(layerId)) {
+            loopPaintedIdsRef.current.add(layerId);
+            setLoopPaintedIds((previous) => {
+              if (previous.has(layerId)) return previous;
+              const next = new Set(previous);
+              next.add(layerId);
+              return next;
+            });
+            if (layerId === visibleIdRef.current) {
+              const layer = layersRef.current.find(
+                (item) => item.id === layerId
+              );
+              onPresentedRef.current?.({
+                src: layer?.src,
+                poster: layer?.poster,
+              });
+            }
+          }
+        }
         if (layerId === visibleIdRef.current && stepped.cycleEnded) {
           onEndedRef.current?.();
         }
@@ -223,38 +250,62 @@ const LoopingVideo = ({
   );
 
   useEffect(() => {
-    if (visibleId == null) return undefined;
-    if (presentedOnceRef.current) {
-      setCrossfade(true);
+    const wanted = new Set(layers.map((layer) => layer.id));
+    const previous = loopPaintedIdsRef.current;
+    const next = new Set();
+    let changed = false;
+    for (const id of previous) {
+      if (wanted.has(id)) {
+        next.add(id);
+      } else {
+        changed = true;
+      }
     }
-    presentedOnceRef.current = true;
-    return undefined;
-  }, [visibleId]);
+    if (!changed) return;
+    loopPaintedIdsRef.current = next;
+    setLoopPaintedIds(next);
+  }, [layers]);
 
-  const fadeClass = crossfade ? 'transition-opacity duration-500 ease-in-out' : '';
   const useHiddenIdle = pingPong !== false;
 
   return (
     <div className={`relative overflow-hidden ${className}`}>
       {layers.map((layer) => {
-        const shown = layer.id === visibleId;
-        const layerClass = `absolute inset-0 ${mediaClassName} ${fadeClass} ${
+        const shown = loopingVideoLayerIsShown(
+          layer.id,
+          visibleId,
+          layers[0]?.id
+        );
+        const layerClass = `absolute inset-0 ${mediaClassName} ${
           shown ? 'opacity-100' : 'opacity-0'
         }`;
         if (layer.src && useHiddenIdle) {
+          const showPoster = loopingVideoPosterIsVisible(
+            layer,
+            loopPaintedIds.has(layer.id)
+          );
           return (
-            <canvas
-              key={layer.id}
-              ref={(element) => {
-                if (element) {
-                  canvasElementsRef.current.set(layer.id, element);
-                } else {
-                  canvasElementsRef.current.delete(layer.id);
-                }
-              }}
-              aria-label={alt}
-              className={layerClass}
-            />
+            <React.Fragment key={layer.id}>
+              {showPoster ? (
+                <img
+                  src={layer.poster}
+                  alt={shown ? alt : ''}
+                  className={layerClass}
+                  draggable={false}
+                />
+              ) : null}
+              <canvas
+                ref={(element) => {
+                  if (element) {
+                    canvasElementsRef.current.set(layer.id, element);
+                  } else {
+                    canvasElementsRef.current.delete(layer.id);
+                  }
+                }}
+                aria-label={alt}
+                className={layerClass}
+              />
+            </React.Fragment>
           );
         }
         if (layer.src) {
@@ -273,10 +324,11 @@ const LoopingVideo = ({
                   videoElementsRef.current.delete(layer.id);
                 }
               }}
-              src={layer.src}
+              src={corsDecodableMediaUrl(layer.src)}
               crossOrigin={
                 typeof layer.src === 'string' &&
-                (layer.src.startsWith('http://') || layer.src.startsWith('https://'))
+                (layer.src.startsWith('http://') ||
+                  layer.src.startsWith('https://'))
                   ? 'anonymous'
                   : undefined
               }
@@ -296,6 +348,12 @@ const LoopingVideo = ({
                   }
                 }
                 markReady(layer.id, 'video');
+                if (layer.id === visibleIdRef.current) {
+                  onPresentedRef.current?.({
+                    src: layer.src,
+                    poster: layer.poster,
+                  });
+                }
               }}
               onError={() => markReady(layer.id, 'video')}
               onEnded={() => {

@@ -63,6 +63,20 @@ export function voiceModeIsOpen(preferred, activeTab) {
 }
 
 /**
+ * Whether the voice-stage tree should stay mounted.
+ *
+ * Settings, inbox, and Switch to messages hide the stage. Unmounting it
+ * there remounts the portrait on the way back, and the face resizes.
+ *
+ * @param {boolean} preferred
+ * @param {boolean} [stageAlreadyMounted]
+ * @returns {boolean}
+ */
+export function voiceModeStageShouldMount(preferred, stageAlreadyMounted = false) {
+  return Boolean(preferred) || Boolean(stageAlreadyMounted);
+}
+
+/**
  * @param {string} [assistantId]
  * @returns {string}
  */

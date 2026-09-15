@@ -73,6 +73,8 @@ import {
 } from './speakingIndicator';
 import { transcribeAssistantIdOf } from '../services/personalAvatar';
 import AvatarWorkspaceHeader from './AvatarWorkspaceHeader';
+import { isAvatarSelectionLocation } from './personalAvatarWorkspace';
+import { readVoiceModePreference } from '../services/voiceModePreference';
 import useInboxCount from '../hooks/useInboxCount';
 import LoopingVideo from './ui/LoopingVideo';
 import LinkifiedText from './ui/LinkifiedText';
@@ -152,10 +154,7 @@ import {
 } from '../services/microphonePermission';
 import { startVoiceActivityListening } from '../services/voiceActivity';
 import { enqueueLiveUtterance } from '../services/liveUtteranceQueue';
-import {
-  isAvatarSelfEcho,
-  avatarSpokenLines,
-} from '../services/selfEchoGuard';
+import { isAvatarSelfEcho, avatarSpokenLines } from '../services/selfEchoGuard';
 import {
   getAvatarVoice,
   listStandardVoices,
@@ -169,8 +168,6 @@ import { isConversationSuggestionList } from '../services/conversationSuggestion
 import { inferAvatarGenderFromName } from '../services/avatarGenderFromName';
 import { avatarHasClonedVoice } from '../services/avatarHasClonedVoice';
 import { shouldPromptForMissingClonedVoice } from '../services/missingClonedVoicePrompt';
-import { showVoiceNotReadyToast } from './showVoiceNotReadyToast';
-import { NEW_CONVERSATION_ID } from '../context/MediaContext';
 import { findMessageByKey, messageKeyOf } from '../services/messageKey';
 import {
   captionForVoiceStage,
@@ -182,15 +179,32 @@ import {
 import {
   collapsedVoiceBarIsSpeaking,
   shouldCollapseVoiceMessageBar,
+  VOICE_COLLAPSED_MESSAGE_HANDLE_CLASS,
+  VOICE_COMPOSER_DOCK_PADDING_CLASS,
   voiceComposerDockItemsClass,
   voiceMessageBarControlsRowClass,
   voiceMessageBarHasDraftAttachments,
   voiceMessageBarOverflowControlsClass,
 } from './voiceMessageBar';
 import {
-  paintedMediaIn,
+  mediaIntrinsicSize,
+  paintedPortraitFrameFor,
+  portraitChromePadding,
+  portraitComposerReserveHeight,
+  portraitWellIsSquare,
+  portraitWellIsTall,
+  portraitWellMediaIn,
+  portraitWellShouldHoldOutgoingSize,
   portraitWellSizeForConstraint,
+  portraitWellSizeIsUsable,
+  portraitWellSizesEqual,
+  presentedStageMedia,
+  recalledPortraitChrome,
+  recalledPortraitWellSize,
+  rememberPortraitChrome,
+  rememberPortraitWellSize,
 } from './voicePortraitBox';
+import { seedOpenedAvatarPortraitWell } from './openedAvatarPortraitWell';
 import { voiceStageFace } from '../config/avatarFaceSource';
 import useAvatarFaceSource from '../hooks/useAvatarFaceSource';
 import useAvatarVideoReplies from '../hooks/useAvatarVideoReplies';
@@ -239,14 +253,11 @@ const SEND_BUTTON_CLASSES =
 const STAGE_FLASH_IN_ANIMATION = 'voice-stage-flash-in';
 const STAGE_FLASH_OUT_ANIMATION = 'voice-stage-flash-out';
 const LEGIBLE_TEXT_CLASSES = 'break-words [overflow-wrap:anywhere]';
-const HUMAN_BUBBLE_CLASSES =
-  `max-w-[min(100%,28rem)] sm:max-w-[85%] px-4 py-2 rounded-2xl text-[15px] leading-relaxed self-end bg-neutral-800/80 text-neutral-200 whitespace-pre-wrap min-w-0 ${LEGIBLE_TEXT_CLASSES}`;
+const HUMAN_BUBBLE_CLASSES = `max-w-[min(100%,28rem)] sm:max-w-[85%] px-4 py-2 rounded-2xl text-[15px] leading-relaxed self-end bg-neutral-800/80 text-neutral-200 whitespace-pre-wrap min-w-0 ${LEGIBLE_TEXT_CLASSES}`;
 const HUMAN_TURN_ROW_CLASSES =
   'flex items-end gap-2 max-w-[min(100%,28rem)] sm:max-w-[85%] self-end flex-row-reverse';
-const HUMAN_TURN_BUBBLE_CLASSES =
-  `px-4 py-2 rounded-2xl text-[15px] leading-relaxed bg-neutral-800/80 text-neutral-200 whitespace-pre-wrap min-w-0 ${LEGIBLE_TEXT_CLASSES}`;
-const AVATAR_BUBBLE_CLASSES =
-  `max-w-[min(100%,28rem)] sm:max-w-[85%] px-4 py-2 rounded-2xl text-[15px] leading-relaxed self-start bg-black/55 backdrop-blur-md border border-white/15 text-neutral-100 whitespace-pre-wrap min-w-0 ${LEGIBLE_TEXT_CLASSES}`;
+const HUMAN_TURN_BUBBLE_CLASSES = `px-4 py-2 rounded-2xl text-[15px] leading-relaxed bg-neutral-800/80 text-neutral-200 whitespace-pre-wrap min-w-0 ${LEGIBLE_TEXT_CLASSES}`;
+const AVATAR_BUBBLE_CLASSES = `max-w-[min(100%,28rem)] sm:max-w-[85%] px-4 py-2 rounded-2xl text-[15px] leading-relaxed self-start bg-black/55 backdrop-blur-md border border-white/15 text-neutral-100 whitespace-pre-wrap min-w-0 ${LEGIBLE_TEXT_CLASSES}`;
 const CAPTION_DOCK_CLASSES =
   'absolute left-0 right-0 max-h-[min(55dvh,28rem)] overflow-y-auto overscroll-contain touch-pan-y pointer-events-auto px-3 sm:px-6 pb-3';
 const CARD_DOCK_CLASSES =
@@ -313,6 +324,7 @@ const LiveVoiceMode = ({
   onClose,
   onNavigateTab,
   cameraBackground = false,
+  stageVisible = true,
 }) => {
   const {
     messages,
@@ -355,6 +367,7 @@ const LiveVoiceMode = ({
   const { user, activeAvatar, userPortrait, userAvatars } = useAuth();
   const location = useLocation();
   const navigate = useNavigate();
+  const galleryIsOpen = isAvatarSelectionLocation(location.pathname);
   const readerIsAnonymous = isSharedAvatarChatPath(location.pathname);
   const readerPortrait = readerIsAnonymous ? null : userPortrait;
   const canDictate = canUseAvatarSpeechInput(activeAvatar, user, {
@@ -502,10 +515,51 @@ const LiveVoiceMode = ({
   const ambientReplyInFlightRef = useRef(false);
   const transcriptEndRef = useRef(null);
   const composerDockRef = useRef(null);
+  const collapsedDockFloorRef = useRef(null);
+  const stageHeaderRef = useRef(null);
   const portraitConstraintRef = useRef(null);
   const portraitWellRef = useRef(null);
-  const [composerDockHeight, setComposerDockHeight] = useState(120);
-  const [portraitWellSize, setPortraitWellSize] = useState(null);
+  const rememberedChrome = recalledPortraitChrome(assistantId);
+  const [composerDockHeight, setComposerDockHeight] = useState(
+    () => rememberedChrome?.collapsedDockHeight ?? 120
+  );
+  const [portraitComposerReserve, setPortraitComposerReserve] = useState(
+    () => rememberedChrome?.collapsedDockHeight ?? 72
+  );
+  const lastCollapsedReserveRef = useRef(
+    rememberedChrome?.collapsedDockHeight ?? 0
+  );
+  const [stageHeaderHeight, setStageHeaderHeight] = useState(
+    () => rememberedChrome?.headerHeight ?? 72
+  );
+  const [portraitWellSize, setPortraitWellSize] = useState(() =>
+    recalledPortraitWellSize(assistantId)
+  );
+  const [paintedPortraitFrame, setPaintedPortraitFrame] = useState(() => {
+    const rememberedWell = recalledPortraitWellSize(assistantId);
+    return rememberedWell
+      ? paintedPortraitFrameFor(rememberedWell, null)
+      : null;
+  });
+  const stageIsShowing = stageVisible && !galleryIsOpen;
+  const wellForAssistantIdRef = useRef(assistantId);
+  if (wellForAssistantIdRef.current !== assistantId) {
+    wellForAssistantIdRef.current = assistantId;
+    seedOpenedAvatarPortraitWell(assistantId);
+    setPortraitWellSize(recalledPortraitWellSize(assistantId));
+    // #region agent log
+    fetch('http://127.0.0.1:7435/ingest/1ee0e368-4b09-4cc1-9ed9-f1724140320e',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'97868d'},body:JSON.stringify({sessionId:'97868d',runId:'post-fix',hypothesisId:'D',location:'LiveVoiceMode.jsx:assistantSwitch',message:'voice stage assistant changed',data:{assistantId,previousWell:portraitWellSize,recalledWell:recalledPortraitWellSize(assistantId)},timestamp:Date.now()})}).catch(()=>{});
+    // #endregion
+    const recalledChromeForAvatar = recalledPortraitChrome(assistantId);
+    if (recalledChromeForAvatar?.headerHeight > 0) {
+      setStageHeaderHeight(recalledChromeForAvatar.headerHeight);
+    }
+    if (recalledChromeForAvatar?.collapsedDockHeight > 0) {
+      lastCollapsedReserveRef.current =
+        recalledChromeForAvatar.collapsedDockHeight;
+      setPortraitComposerReserve(recalledChromeForAvatar.collapsedDockHeight);
+    }
+  }
 
   const { manifest } = useEmotionMedia(assistantId, {
     asAnonymousIdentity: readerIsAnonymous,
@@ -568,7 +622,8 @@ const LiveVoiceMode = ({
   // Owner-only route, so it is never called for a visitor or a shared link.
   // A character with no clone yet is given the first stock voice for the
   // gender inferred from its name, so voice mode is heard immediately. The
-  // missing-clone toast still fires once so they can upload a voice.
+  // missing-clone toast is offered from the chat workspace (and from Speak),
+  // not here — this effect is only the stock-voice assignment and status.
   useEffect(() => {
     if (!assistantId || !readerOwnsAvatar || readerIsAnonymous) {
       setVoiceStatus(null);
@@ -590,18 +645,6 @@ const LiveVoiceMode = ({
         }
         if (cancelled) return;
         setVoiceStatus(status);
-        if (!hasClone) {
-          showVoiceNotReadyToast({
-            assistantId,
-            avatarName,
-            collectedSeconds: status?.collected_seconds ?? 0,
-            conversationId: activeConversation ?? NEW_CONVERSATION_ID,
-            prompt: shouldPromptForMissingClonedVoice({
-              avatar: activeAvatar,
-              user,
-            }),
-          });
-        }
       } catch {
         if (!cancelled) setVoiceStatus(null);
       }
@@ -609,15 +652,7 @@ const LiveVoiceMode = ({
     return () => {
       cancelled = true;
     };
-  }, [
-    activeAvatar,
-    activeConversation,
-    assistantId,
-    avatarName,
-    readerIsAnonymous,
-    readerOwnsAvatar,
-    user,
-  ]);
+  }, [assistantId, avatarName, readerIsAnonymous, readerOwnsAvatar]);
 
   const spokenExchange = messages.filter((message) => {
     if (
@@ -652,6 +687,9 @@ const LiveVoiceMode = ({
       !isNoticeDismissed(message, dismissedNoticeIds)
   );
   const hasVoiceCards = noticeMessages.length > 0 || Boolean(pendingInterrupt);
+  const phoneCallConfirmIsOpen =
+    pendingInterrupt?.interrupt?.kind === 'phone_call_confirm' &&
+    (!assistantId || pendingInterrupt.assistantId === assistantId);
 
   useEffect(() => {
     transcriptEndRef.current?.scrollIntoView({
@@ -721,12 +759,103 @@ const LiveVoiceMode = ({
     return () => observer.disconnect();
   }, []);
 
-  const measurePortraitWell = useCallback(() => {
-    const constraint = portraitConstraintRef.current;
-    setPortraitWellSize(
-      portraitWellSizeForConstraint(constraint, paintedMediaIn(constraint))
-    );
-  }, []);
+  useLayoutEffect(() => {
+    const floor = collapsedDockFloorRef.current;
+    if (!floor || typeof ResizeObserver === 'undefined') return undefined;
+    const update = () => {
+      const reserve = portraitComposerReserveHeight({
+        collapsedDockHeight: floor.getBoundingClientRect().height,
+        lastCollapsedReserveHeight: lastCollapsedReserveRef.current,
+      });
+      if (reserve > 0) {
+        lastCollapsedReserveRef.current = reserve;
+        rememberPortraitChrome(assistantId, {
+          collapsedDockHeight: reserve,
+          headerHeight:
+            stageHeaderRef.current?.getBoundingClientRect?.().height,
+        });
+      }
+      setPortraitComposerReserve(reserve);
+    };
+    update();
+    const observer = new ResizeObserver(update);
+    observer.observe(floor);
+    return () => observer.disconnect();
+  }, [assistantId]);
+
+  useLayoutEffect(() => {
+    const header = stageHeaderRef.current;
+    if (!header || typeof ResizeObserver === 'undefined') return undefined;
+    const update = () => {
+      const headerHeight = header.getBoundingClientRect().height;
+      setStageHeaderHeight(headerHeight);
+      rememberPortraitChrome(assistantId, { headerHeight });
+    };
+    update();
+    const observer = new ResizeObserver(update);
+    observer.observe(header);
+    return () => observer.disconnect();
+  }, [assistantId]);
+
+  const measurePortraitWell = useCallback(
+    (presentedMedia = null) => {
+      if (!stageIsShowing) return;
+      const constraint = portraitConstraintRef.current;
+      const rememberedWell = recalledPortraitWellSize(assistantId);
+      const paintedMedia = presentedMedia ?? portraitWellMediaIn(constraint);
+      const nextSize = portraitWellSizeForConstraint(
+        constraint,
+        paintedMedia,
+        rememberedWell
+      );
+      const holdOutgoing = portraitWellShouldHoldOutgoingSize(
+        portraitWellSize,
+        nextSize,
+        mediaIntrinsicSize(paintedMedia)
+      );
+      // #region agent log
+      fetch('http://127.0.0.1:7435/ingest/1ee0e368-4b09-4cc1-9ed9-f1724140320e',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'97868d'},body:JSON.stringify({sessionId:'97868d',runId:'post-fix',hypothesisId:'B',location:'LiveVoiceMode.jsx:measurePortraitWell',message:'portrait well measure',data:{assistantId,stageIsShowing,currentWell:portraitWellSize,rememberedWell,nextSize,holdOutgoing,skipNull:!portraitWellSizeIsUsable(nextSize),skipEqual:portraitWellSizesEqual(portraitWellSize,nextSize),paintedTag:paintedMedia?.tagName??null,paintedIntrinsic:mediaIntrinsicSize(paintedMedia),constraintBox:{w:constraint?.clientWidth??0,h:constraint?.clientHeight??0}},timestamp:Date.now()})}).catch(()=>{});
+      // #endregion
+      if (!portraitWellSizeIsUsable(nextSize)) {
+        return;
+      }
+      // A square still must not overwrite a seeded 9:16 well. The loop has
+      // not reported a size yet; keeping the square is the snap the seed
+      // exists to prevent. The hairline still sits on the painted still.
+      if (
+        nextSize &&
+        rememberedWell &&
+        portraitWellIsTall(rememberedWell) &&
+        portraitWellIsSquare(nextSize)
+      ) {
+        setPaintedPortraitFrame(
+          paintedPortraitFrameFor(rememberedWell, paintedMedia)
+        );
+        return;
+      }
+      // The outgoing face is still on stage. Do not resize the well to the
+      // incoming 9:16 until that loop is the painted media — that hop is
+      // the circle-then-portrait the person sees when switching avatars.
+      if (
+        portraitWellShouldHoldOutgoingSize(
+          portraitWellSize,
+          nextSize,
+          mediaIntrinsicSize(paintedMedia)
+        )
+      ) {
+        setPaintedPortraitFrame(
+          paintedPortraitFrameFor(portraitWellSize, paintedMedia)
+        );
+        return;
+      }
+      if (!portraitWellSizesEqual(portraitWellSize, nextSize)) {
+        setPortraitWellSize(nextSize);
+        rememberPortraitWellSize(assistantId, nextSize);
+      }
+      setPaintedPortraitFrame(paintedPortraitFrameFor(nextSize, paintedMedia));
+    },
+    [assistantId, portraitWellSize, stageIsShowing]
+  );
 
   // Leaving the screen stops everything: speech, listening, dictation.
   useEffect(
@@ -742,12 +871,32 @@ const LiveVoiceMode = ({
     []
   );
 
-  // Voice mode is a transparent stage over Vanta. The sidebar stays up as a
+  // Voice mode is a transparent stage over the world. The sidebar stays up as a
   // compact icon rail (`html.voice-stage-open` narrows `--app-rail-width`).
+  // Drop the class on settings, inbox, and the transcript so those screens
+  // keep the ordinary rail. Hold the class on Avatar Selection when talking
+  // is preferred: dropping it widens the rail, the constraint grows, and
+  // opening another avatar's chat resizes the portrait.
+  //
+  // Do not remove the class in this effect's cleanup. Gallery → chat both
+  // hold the rail, and a cleanup-then-add leaves one paint with the wide
+  // rail — the well remasures, then snaps back.
   useEffect(() => {
-    document.documentElement.classList.add('voice-stage-open');
-    return () => document.documentElement.classList.remove('voice-stage-open');
-  }, []);
+    const holdNarrowRail =
+      stageIsShowing || (galleryIsOpen && readVoiceModePreference());
+    if (holdNarrowRail) {
+      document.documentElement.classList.add('voice-stage-open');
+    } else {
+      document.documentElement.classList.remove('voice-stage-open');
+    }
+  }, [galleryIsOpen, stageIsShowing]);
+
+  useEffect(
+    () => () => {
+      document.documentElement.classList.remove('voice-stage-open');
+    },
+    []
+  );
 
   // Keep a generated still on stage after the reply, the same way the
   // message view swaps faces. An idle loop is optional; snapping back
@@ -799,10 +948,19 @@ const LiveVoiceMode = ({
     const constraint = portraitConstraintRef.current;
     if (!constraint || typeof ResizeObserver === 'undefined') return undefined;
     measurePortraitWell();
-    const observer = new ResizeObserver(measurePortraitWell);
+    const observer = new ResizeObserver(() => {
+      measurePortraitWell();
+    });
     observer.observe(constraint);
     return () => observer.disconnect();
-  }, [measurePortraitWell, stageStill, stageLoop, lipSyncClipUrl]);
+  }, [
+    measurePortraitWell,
+    stageStill,
+    stageLoop,
+    lipSyncClipUrl,
+    stageHeaderHeight,
+    portraitComposerReserve,
+  ]);
   // Freeze on a still when this emotion has no loop of its own — including
   // after speech, so a stills-only avatar keeps the face that matches the
   // reply. Replacing a playing loop with a still was why voice mode never
@@ -851,9 +1009,9 @@ const LiveVoiceMode = ({
   const handleStagePresented = useCallback(
     (presented) => {
       stagePresentedWaiterRef.current?.(presented);
+      measurePortraitWell(presentedStageMedia(presented));
       requestAnimationFrame(() => {
         measurePortraitWell();
-        requestAnimationFrame(measurePortraitWell);
       });
     },
     [measurePortraitWell]
@@ -1063,7 +1221,14 @@ const LiveVoiceMode = ({
         }
       }
     },
-    [handleReply, sendSpokenAudioTurn, showCaptions, showStageFlash, speech, avatarName]
+    [
+      handleReply,
+      sendSpokenAudioTurn,
+      showCaptions,
+      showStageFlash,
+      speech,
+      avatarName,
+    ]
   );
 
   // Accept / retry must cut the transcript and then present the new reply
@@ -1484,14 +1649,32 @@ const LiveVoiceMode = ({
   // unavailable, or a browser that cannot record, is the only reason not to.
   const autoStartedListeningRef = useRef(false);
   useEffect(() => {
-    if (autoStartedListeningRef.current) return;
-    if (!activeAvatar || !assistantId) return;
-    if (!canDictate) return;
-    if (!canCaptureMicrophone()) return;
+    if (!stageIsShowing) {
+      autoStartedListeningRef.current = false;
+      speech.stop();
+      stopLiveListening();
+      dictationRef.current?.cancel?.();
+      return undefined;
+    }
+    if (autoStartedListeningRef.current) return undefined;
+    if (!activeAvatar || !assistantId) return undefined;
+    if (!canDictate) return undefined;
+    if (!canCaptureMicrophone()) return undefined;
     autoStartedListeningRef.current = true;
     setLiveListeningPreferred(true);
     startLiveListening();
-  }, [activeAvatar, assistantId, canDictate, startLiveListening]);
+    return undefined;
+    // speech.stop runs only when the stage hides; listing speech would
+    // restart the microphone on every playback state change.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [
+    activeAvatar,
+    assistantId,
+    canDictate,
+    stageIsShowing,
+    startLiveListening,
+    stopLiveListening,
+  ]);
 
   const toggleLiveListening = () => {
     if (isLiveListening) {
@@ -1606,7 +1789,10 @@ const LiveVoiceMode = ({
           isHumanMessage(message) &&
           messageKeyOf(message) === speech.speakingKey
       );
-      if (speech.speakingKey === COMPOSER_DRAFT_SPEAK_KEY || speakingUserMessage) {
+      if (
+        speech.speakingKey === COMPOSER_DRAFT_SPEAK_KEY ||
+        speakingUserMessage
+      ) {
         return 'Playing your voice…';
       }
       return `${avatarName ?? 'The avatar'} is speaking…`;
@@ -1616,14 +1802,13 @@ const LiveVoiceMode = ({
     }
     if (isMicMuted) return 'Mic muted';
     if (isMicrophoneBlocked) return 'Microphone blocked — tap to allow';
-    if (isLiveListening) return 'Live — say something';
+    if (isLiveListening) return 'Listening';
     if (ambientEnabled)
       return describeAmbientStatus(ambientStatus, ambientNextInMs);
     return '';
   };
 
-  const speakingComposerDraft =
-    speech.speakingKey === COMPOSER_DRAFT_SPEAK_KEY;
+  const speakingComposerDraft = speech.speakingKey === COMPOSER_DRAFT_SPEAK_KEY;
   const speakingUserMessage = messages.some(
     (message) =>
       isHumanMessage(message) && messageKeyOf(message) === speech.speakingKey
@@ -1736,51 +1921,51 @@ const LiveVoiceMode = ({
         data-voice-camera-bar
         className="pointer-events-auto shrink-0 flex items-center gap-0.5 rounded-full bg-black/60 backdrop-blur-lg border border-white/10 p-1"
       >
-      {/* The camera belongs beside the composer rather than in its control
+        {/* The camera belongs beside the composer rather than in its control
           row: that row lives inside the message bar, and touching the stage
           to look at the place collapses the bar — which is exactly when
           someone wants the camera off again. */}
-      {canShowTheCameraBehindTheAvatar && (
-        <button
-          type="button"
-          onClick={() => setIsCameraBackgroundOn((isOn) => !isOn)}
-          title={
-            isCameraBackgroundOn
-              ? 'Hide the live camera behind the avatar'
-              : 'Show the live camera behind the avatar'
-          }
-          aria-label={
-            isCameraBackgroundOn
-              ? 'Hide the live camera behind the avatar'
-              : 'Show the live camera behind the avatar'
-          }
-          aria-pressed={isCameraBackgroundOn}
-          className={`${CONTROL_CLASSES} ${isCameraBackgroundOn ? ACTIVE_CONTROL_CLASSES : ''}`}
-        >
-          {isCameraBackgroundOn ? (
-            <Camera className="w-5 h-5" />
-          ) : (
-            <CameraOff className="w-5 h-5" />
-          )}
-        </button>
-      )}
-      {canFlipTheCameraBehindTheAvatar && (
-        <button
-          type="button"
-          disabled={isCameraFlipping || !cameraBackgroundStream}
-          onClick={async () => {
-            const flipped = await flipCamera();
-            if (!flipped) {
-              toast('Could not switch cameras.');
+        {canShowTheCameraBehindTheAvatar && (
+          <button
+            type="button"
+            onClick={() => setIsCameraBackgroundOn((isOn) => !isOn)}
+            title={
+              isCameraBackgroundOn
+                ? 'Hide the live camera behind the avatar'
+                : 'Show the live camera behind the avatar'
             }
-          }}
-          title={describeCameraFlip(cameraFacingMode)}
-          aria-label={describeCameraFlip(cameraFacingMode)}
-          className={CONTROL_CLASSES}
-        >
-          <SwitchCamera className="w-5 h-5" />
-        </button>
-      )}
+            aria-label={
+              isCameraBackgroundOn
+                ? 'Hide the live camera behind the avatar'
+                : 'Show the live camera behind the avatar'
+            }
+            aria-pressed={isCameraBackgroundOn}
+            className={`${CONTROL_CLASSES} ${isCameraBackgroundOn ? ACTIVE_CONTROL_CLASSES : ''}`}
+          >
+            {isCameraBackgroundOn ? (
+              <Camera className="w-5 h-5" />
+            ) : (
+              <CameraOff className="w-5 h-5" />
+            )}
+          </button>
+        )}
+        {canFlipTheCameraBehindTheAvatar && (
+          <button
+            type="button"
+            disabled={isCameraFlipping || !cameraBackgroundStream}
+            onClick={async () => {
+              const flipped = await flipCamera();
+              if (!flipped) {
+                toast('Could not switch cameras.');
+              }
+            }}
+            title={describeCameraFlip(cameraFacingMode)}
+            aria-label={describeCameraFlip(cameraFacingMode)}
+            className={CONTROL_CLASSES}
+          >
+            <SwitchCamera className="w-5 h-5" />
+          </button>
+        )}
       </div>
     );
   };
@@ -1788,12 +1973,25 @@ const LiveVoiceMode = ({
   const statusLine = [describeState(), isRenderingClip ? 'rendering video' : '']
     .filter(Boolean)
     .join(' · ');
+  const chromePadding = portraitChromePadding(
+    stageHeaderHeight,
+    portraitComposerReserve
+  );
 
+  const hasStageFace =
+    Boolean(lipSyncClipUrl) ||
+    Boolean(stageLoop) ||
+    Boolean(stageStill && isValidImageUrl(stageStill));
+  // #region agent log
+  fetch('http://127.0.0.1:7435/ingest/1ee0e368-4b09-4cc1-9ed9-f1724140320e',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'97868d'},body:JSON.stringify({sessionId:'97868d',runId:'post-fix',hypothesisId:'C',location:'LiveVoiceMode.jsx:render',message:'voice stage render',data:{assistantId,stageIsShowing,hasStageFace,wellHidden:!portraitWellSizeIsUsable(portraitWellSize),well:portraitWellSize,hasStill:Boolean(stageStill),hasLoop:Boolean(stageLoop),hasClip:Boolean(lipSyncClipUrl),circle:Boolean(paintedPortraitFrame?.circle)},timestamp:Date.now()})}).catch(()=>{});
+  // #endregion
   return createPortal(
     // `--app-rail-width` is the collapsed icon rail; `z-30` sits above the
     // page (z-10) and under the sidebar (rail 40, panel 50).
     <div
-      className="voice-stage fixed top-0 right-0 bottom-0 left-[var(--app-rail-width)] z-30 bg-transparent overflow-hidden"
+      className={`voice-stage fixed top-0 right-0 bottom-0 left-[var(--app-rail-width)] z-30 bg-transparent overflow-hidden${
+        stageIsShowing ? '' : ' invisible pointer-events-none'
+      }`}
       onPointerDown={(event) => {
         primeAvatarSpeechPlayback();
         if (!shouldCollapseVoiceMessageBar(event.target)) return;
@@ -1822,64 +2020,91 @@ const LiveVoiceMode = ({
           className="absolute inset-0 w-full h-full object-cover pointer-events-none"
         />
       )}
-      {/* Portrait fills the stage and does not reflow when chrome toggles. */}
+      {/* Portrait sits in the open stage: below the workspace tabs and above
+          the message dock, so the head is not under the frost. */}
       <div
         ref={portraitConstraintRef}
-        className="absolute inset-0 flex items-center justify-center pointer-events-none overflow-hidden p-6 sm:p-10"
+        className="absolute inset-0 flex items-center justify-center pointer-events-none overflow-hidden px-6 sm:px-10"
+        style={{
+          paddingTop: chromePadding.paddingTop,
+          paddingBottom: chromePadding.paddingBottom,
+        }}
       >
         <div
           ref={portraitWellRef}
           className="relative max-w-full max-h-full pointer-events-none"
           style={
-            portraitWellSize
+            portraitWellSizeIsUsable(portraitWellSize)
               ? {
                   width: portraitWellSize.width,
                   height: portraitWellSize.height,
                 }
               : {
-                  aspectRatio: '1 / 1',
-                  width: 'min(100vw, 100dvh)',
+                  width: 'auto',
+                  height: '100%',
                   maxWidth: '100%',
-                  maxHeight: '100%',
+                  aspectRatio: '1 / 1',
                 }
           }
         >
-          {isAvatarSpeaking && (
-            <div
-              className="voice-speak-glow absolute inset-0 z-10 rounded-2xl pointer-events-none"
-              aria-hidden
-            />
-          )}
-          <div className="relative w-full h-full overflow-hidden rounded-2xl bg-transparent">
-            {lipSyncClipUrl ||
-            stageLoop ||
-            (stageStill && isValidImageUrl(stageStill)) ? (
-              <LoopingVideo
-                src={
-                  lipSyncClipUrl ?? (holdEmotionStill ? undefined : stageLoop)
-                }
-                poster={stageStill}
-                alt={avatarName ?? 'Avatar'}
-                loop={!lipSyncClipUrl}
-                pingPong={lipSyncClipUrl ? false : 'auto'}
-                onEnded={() => {
-                  if (lipSyncClipUrl) {
-                    setLipSyncClipUrl(null);
+          <div
+            className="absolute"
+            style={
+              paintedPortraitFrame?.width > 0
+                ? {
+                    left: paintedPortraitFrame.x,
+                    top: paintedPortraitFrame.y,
+                    width: paintedPortraitFrame.width,
+                    height: paintedPortraitFrame.height,
                   }
-                }}
-                onPresented={handleStagePresented}
-                mediaClassName="w-full h-full object-cover"
-                className="w-full h-full bg-transparent"
+                : { inset: 0 }
+            }
+          >
+            {isAvatarSpeaking && (
+              <div
+                className={`voice-speak-glow absolute inset-0 z-10 pointer-events-none ${
+                  paintedPortraitFrame?.circle ? 'rounded-full' : 'rounded-2xl'
+                }`}
+                aria-hidden
               />
-            ) : (
-              <div className="w-full h-full flex items-center justify-center">
-                <User className="w-[40%] h-[40%] max-w-64 max-h-64 text-white/20" />
-              </div>
             )}
             <div
-              className="voice-portrait-frame absolute inset-0 z-[9] rounded-2xl pointer-events-none"
-              aria-hidden
-            />
+              className={`relative w-full h-full overflow-hidden bg-transparent ${
+                paintedPortraitFrame?.circle ? 'rounded-full' : 'rounded-2xl'
+              }`}
+            >
+              {lipSyncClipUrl ||
+              stageLoop ||
+              (stageStill && isValidImageUrl(stageStill)) ? (
+                <LoopingVideo
+                  src={
+                    lipSyncClipUrl ?? (holdEmotionStill ? undefined : stageLoop)
+                  }
+                  poster={stageStill}
+                  alt={avatarName ?? 'Avatar'}
+                  loop={!lipSyncClipUrl}
+                  pingPong={lipSyncClipUrl ? false : 'auto'}
+                  onEnded={() => {
+                    if (lipSyncClipUrl) {
+                      setLipSyncClipUrl(null);
+                    }
+                  }}
+                  onPresented={handleStagePresented}
+                  mediaClassName="w-full h-full object-contain"
+                  className="w-full h-full bg-transparent"
+                />
+              ) : (
+                <div className="w-full h-full flex items-center justify-center">
+                  <User className="w-[40%] h-[40%] max-w-64 max-h-64 text-white/20" />
+                </div>
+              )}
+              <div
+                className={`voice-portrait-frame absolute inset-0 z-[9] pointer-events-none ${
+                  paintedPortraitFrame?.circle ? 'rounded-full' : 'rounded-2xl'
+                }`}
+                aria-hidden
+              />
+            </div>
           </div>
         </div>
       </div>
@@ -1887,6 +2112,7 @@ const LiveVoiceMode = ({
       {/* Same workspace tabs as chat / inbox / settings, so those places stay
           reachable while talking. A shared-link visitor has none of those. */}
       <div
+        ref={stageHeaderRef}
         data-voice-stage-header
         className="absolute top-0 left-0 right-0 z-20 bg-black/45 backdrop-blur-md"
       >
@@ -1918,7 +2144,9 @@ const LiveVoiceMode = ({
                   onNavigateTab?.('chat');
                   onClose?.();
                 }}
-                title={avatarName ? `Open chat with ${avatarName}` : 'Open chat'}
+                title={
+                  avatarName ? `Open chat with ${avatarName}` : 'Open chat'
+                }
                 aria-label={
                   avatarName ? `Open chat with ${avatarName}` : 'Open chat'
                 }
@@ -2066,6 +2294,14 @@ const LiveVoiceMode = ({
               const isHuman = isHumanMessage(message);
               const isFromAvatar = isAvatarMessage(message);
               const isLoading = message.isLoading || message.isPending;
+              if (
+                phoneCallConfirmIsOpen &&
+                isFromAvatar &&
+                message === visibleExchange[visibleExchange.length - 1] &&
+                !isLoading
+              ) {
+                return null;
+              }
               if (isFromAvatar && isAmbientNotice(message) && !isLoading) {
                 if (isNoticeDismissed(message, dismissedNoticeIds)) {
                   return null;
@@ -2238,7 +2474,9 @@ const LiveVoiceMode = ({
                                   : undefined
                             }
                           >
-                            <div className={`whitespace-pre-wrap ${LEGIBLE_TEXT_CLASSES}`}>
+                            <div
+                              className={`whitespace-pre-wrap ${LEGIBLE_TEXT_CLASSES}`}
+                            >
                               <LinkifiedText text={row.text} />
                             </div>
                             {isLast ? (
@@ -2309,11 +2547,15 @@ const LiveVoiceMode = ({
                         </div>
                       )}
                       {captionText ? (
-                        <div className={`whitespace-pre-wrap ${LEGIBLE_TEXT_CLASSES}`}>
+                        <div
+                          className={`whitespace-pre-wrap ${LEGIBLE_TEXT_CLASSES}`}
+                        >
                           <LinkifiedText text={captionText} />
                         </div>
                       ) : message.media?.length ? null : (
-                        <div className={`whitespace-pre-wrap ${LEGIBLE_TEXT_CLASSES}`}>
+                        <div
+                          className={`whitespace-pre-wrap ${LEGIBLE_TEXT_CLASSES}`}
+                        >
                           …
                         </div>
                       )}
@@ -2364,10 +2606,19 @@ const LiveVoiceMode = ({
         </div>
       )}
 
+      {/* Folded-handle height only. The open composer may cover the portrait. */}
+      <div
+        ref={collapsedDockFloorRef}
+        data-voice-collapsed-dock-floor
+        aria-hidden
+        className={`${VOICE_COMPOSER_DOCK_PADDING_CLASS} invisible pointer-events-none`}
+      >
+        <div className={VOICE_COLLAPSED_MESSAGE_HANDLE_CLASS} />
+      </div>
       {/* Message bar: docked to the bottom. A press on empty stage folds it. */}
       <div
         ref={composerDockRef}
-        className="absolute bottom-0 left-0 right-0 z-30 pointer-events-none px-3 pt-2 pb-[max(0.75rem,env(safe-area-inset-bottom))] sm:px-6 sm:pt-3 sm:pb-5"
+        className={`${VOICE_COMPOSER_DOCK_PADDING_CLASS} z-30 pointer-events-none`}
       >
         <div
           className={`mx-auto max-w-3xl w-full flex gap-2.5 ${voiceComposerDockItemsClass(isMessageBarCollapsed)}`}
@@ -2550,7 +2801,9 @@ const LiveVoiceMode = ({
                       isDictating={isDictating}
                       isTranscribing={isTranscribing && !isLiveListening}
                       isPlayingDraft={speakingComposerDraft}
-                      isPlayLoading={loadingSpeechKey === COMPOSER_DRAFT_SPEAK_KEY}
+                      isPlayLoading={
+                        loadingSpeechKey === COMPOSER_DRAFT_SPEAK_KEY
+                      }
                       hasDraft={Boolean(String(draft ?? '').trim())}
                       unavailableMessage={speechInputUnavailableMessage}
                       onToggleDictation={toggleDictation}

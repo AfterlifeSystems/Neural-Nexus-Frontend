@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import {
   IDLE_LOOP_VIDEO_HOST_STYLE,
+  corsDecodableMediaUrl,
   idleLoopReverseImage,
   idleLoopUsesNativeLoop,
   meanRgbDistance,
@@ -91,6 +92,20 @@ function paintTape(video, duration, count) {
   };
 }
 
+test('CORS canvas videos use a distinct cache key from a no-CORS load of the same file', () => {
+  const url = corsDecodableMediaUrl(
+    'http://localhost:9600/avatar_emotion_media/loop-id'
+  );
+  assert.equal(
+    url,
+    'http://localhost:9600/avatar_emotion_media/loop-id?crossorigin=anonymous'
+  );
+  assert.equal(corsDecodableMediaUrl(url), url);
+  assert.equal(corsDecodableMediaUrl('blob:http://localhost/abc'), 'blob:http://localhost/abc');
+  assert.equal(corsDecodableMediaUrl('data:video/mp4;base64,aa'), 'data:video/mp4;base64,aa');
+  assert.equal(corsDecodableMediaUrl(null), null);
+});
+
 test('the idle-loop host stays a painted pixel so decoders are not suspended', () => {
   const style = IDLE_LOOP_VIDEO_HOST_STYLE;
   assert.doesNotMatch(style, /z-index\s*:\s*-/);
@@ -98,6 +113,9 @@ test('the idle-loop host stays a painted pixel so decoders are not suspended', (
   assert.doesNotMatch(style, /visibility\s*:\s*hidden/);
   assert.doesNotMatch(style, /display\s*:\s*none/);
   assert.match(style, /opacity\s*:\s*1/);
+  // The voice stage covers the right edge. Sit in the rail gap instead.
+  assert.match(style, /left\s*:\s*0/);
+  assert.doesNotMatch(style, /right\s*:\s*0/);
 });
 
 test('meanRgbDistance compares image pixels, not array metadata', () => {

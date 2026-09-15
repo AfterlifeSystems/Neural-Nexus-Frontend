@@ -43,4 +43,6 @@ test('an identity colour recolours the speak glow and the bubble ring', () => {
   const bubble = speakingBubbleProps(color);
   assert.equal(bubble.style.borderColor, color.fill);
   assert.equal(speakingBubbleProps(null).className, SPEAKING_BUBBLE_HIGHLIGHT);
+  assert.match(SPEAKING_BUBBLE_HIGHLIGHT, /135,\s*206,\s*250/);
+  assert.doesNotMatch(SPEAKING_BUBBLE_HIGHLIGHT, /amber/);
 });

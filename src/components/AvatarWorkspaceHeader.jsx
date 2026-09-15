@@ -3,14 +3,18 @@
 // The identity block on an avatar's screen. The portrait and name sit
 // centered above Chat, Inbox (personal avatar), Avatar Settings, and Avatar
 // Selection so the face is the header, not a leftover beside the labels.
-// Clicking the portrait opens Chat. Tab labels share the row and wrap
-// rather than sliding sideways.
+// Clicking the portrait on Chat opens Avatar Selection; clicking it on
+// Avatar Selection opens that avatar's chat. Tab labels share the row
+// and wrap rather than sliding sideways.
 
 import React from 'react';
 import { User } from 'lucide-react';
 import { isValidImageUrl } from './utils';
 import ProfileBubbleImage from './ProfileBubbleImage';
-import { workspaceHeaderPortraitTab } from './personalAvatarWorkspace';
+import {
+  workspaceHeaderPortraitLabel,
+  workspaceHeaderPortraitTab,
+} from './personalAvatarWorkspace';
 
 const tabButtonClass = (isActive) =>
   `voice-workspace-tab relative flex min-w-0 flex-1 flex-col items-center justify-center gap-0.5 px-1 py-1.5 text-center text-[11px] leading-tight sm:flex-row sm:gap-1.5 sm:px-2 sm:py-2 sm:text-sm ${
@@ -79,10 +83,10 @@ const AvatarWorkspaceHeader = ({
         <button
           type="button"
           data-workspace-portrait
-          title={avatarName ? `Open chat with ${avatarName}` : 'Open chat'}
-          aria-label={avatarName ? `Open chat with ${avatarName}` : 'Open chat'}
+          title={workspaceHeaderPortraitLabel(activeTab, avatarName)}
+          aria-label={workspaceHeaderPortraitLabel(activeTab, avatarName)}
           className="profile-bubble-disc relative w-11 h-11 sm:w-14 sm:h-14 shrink-0 rounded-full bg-black/50 border border-white/10 overflow-hidden hover:bg-white/10 focus:outline-none focus:ring-2 focus:ring-white/20"
-          onClick={() => onTabChange(workspaceHeaderPortraitTab())}
+          onClick={() => onTabChange(workspaceHeaderPortraitTab(activeTab))}
         >
           {headerFace && isValidImageUrl(headerFace) ? (
             <ProfileBubbleImage

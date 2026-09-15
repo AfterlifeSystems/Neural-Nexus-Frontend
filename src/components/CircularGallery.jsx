@@ -22,9 +22,16 @@ import {
 import {
   GALLERY_AVATAR_BORDER_RADIUS,
   GALLERY_CREATE_BORDER_RADIUS,
+  GALLERY_GENERATED_PORTRAIT_HEIGHT,
+  GALLERY_GENERATED_PORTRAIT_WIDTH,
   galleryBoxIsPainted,
+  galleryCardMayReveal,
+  galleryCardShouldDecodeIdleLoop,
   galleryCardWorldLayout,
   galleryIndexFromScroll,
+  galleryItemListSameIds,
+  galleryItemListSourcesMatch,
+  galleryMediaBorderRadius,
   galleryPortraitUvRect,
   isCreateCardAtCenter,
   nearestCardOffset,
@@ -221,6 +228,7 @@ class Media {
     onCardClick,
     cardType = 'avatar', // New prop to identify card type
     video = null,
+    portraitLoop = false,
     assistantId = null,
   }) {
     this.extra = 0;
@@ -228,10 +236,10 @@ class Media {
     this.gl = gl;
     this.image = image;
     this.assistantId = assistantId;
-    // The avatar's neutral idle loop, when one has been generated. The still
-    // is shown until the first frame decodes, then the texture is refreshed
-    // from the video every frame so the card breathes and blinks in place.
+    // Generated idle loops are 9:16. The square still must not paint first:
+    // that is the circular window that appears before the clip.
     this.video = video;
+    this.portraitLoop = Boolean(portraitLoop || video);
     this.videoElement = null;
     this.loopDirection = 1;
     this.index = index;
@@ -297,22 +305,26 @@ class Media {
           // v=0 is the bottom, and the texture is flipY, so reverse both.
           vec2 cssUv = vec2(vUv.x, 1.0 - vUv.y);
           vec2 photoFromTop = (cssUv - uPortraitOrigin) / max(uPortraitSize, vec2(0.0001));
-          vec2 uv = clamp(vec2(photoFromTop.x, 1.0 - photoFromTop.y), 0.0, 1.0);
+          vec2 uv = vec2(photoFromTop.x, 1.0 - photoFromTop.y);
 
-          float d = roundedBoxSDF(vUv - 0.5, vec2(0.5 - uBorderRadius), uBorderRadius);
+          vec2 center = uPortraitOrigin + 0.5 * uPortraitSize;
+          vec2 halfSize = 0.5 * uPortraitSize;
+          float r = min(uBorderRadius, min(halfSize.x, halfSize.y));
+          vec2 b = max(halfSize - vec2(r), vec2(0.0));
+          float d = roundedBoxSDF(cssUv - center, b, r);
           float edgeSmooth = 0.002;
           float alpha = 1.0 - smoothstep(-edgeSmooth, edgeSmooth, d);
           float strokeWidth = 0.0035;
           float inner = roundedBoxSDF(
-            vUv - 0.5,
-            vec2(0.5 - uBorderRadius - strokeWidth),
-            max(uBorderRadius - strokeWidth, 0.0)
+            cssUv - center,
+            max(b - vec2(strokeWidth), vec2(0.0)),
+            max(r - strokeWidth, 0.0)
           );
           float stroke = smoothstep(-0.0015, 0.0015, inner) *
             (1.0 - smoothstep(-0.0015, 0.0015, d));
           vec3 frame = vec3(1.0);
 
-          vec4 color = texture2D(tMap, uv);
+          vec4 color = texture2D(tMap, clamp(uv, 0.0, 1.0));
           gl_FragColor = vec4(mix(color.rgb, frame, stroke * 0.25), color.a * alpha);
         }
       `,
@@ -330,28 +342,42 @@ class Media {
     });
     this.texture = texture;
     this.stillImage = null;
+    this.stillLoadToken = 0;
     this.stillReady = !this.image;
     this.loopReady = !this.video;
+    this.loopBound = false;
     this.mediaRevealed = false;
     this.applyPlaceholder();
-    if (this.image) {
-      const img = new Image();
-      img.crossOrigin = 'anonymous';
-      img.decoding = 'async';
-      img.src = this.image;
-      img.onload = () => {
-        this.stillImage = img;
-        this.stillReady = true;
-        this.tryRevealMedia();
-      };
-      img.onerror = () => {
-        console.warn(`Failed to load image: ${this.image}, using placeholder`);
-        this.stillReady = true;
-        this.tryRevealMedia();
-      };
-    }
-    this.startIdleLoop();
+    this.loadStillImage(this.image);
     this.tryRevealMedia();
+  }
+  loadStillImage(src) {
+    this.stillLoadToken += 1;
+    const token = this.stillLoadToken;
+    this.image = src || null;
+    this.stillImage = null;
+    this.stillReady = !this.image;
+    if (!this.image) {
+      if (!this.loopBound) this.applyPlaceholder();
+      this.tryRevealMedia();
+      return;
+    }
+    const img = new Image();
+    img.crossOrigin = 'anonymous';
+    img.decoding = 'async';
+    img.src = this.image;
+    img.onload = () => {
+      if (token !== this.stillLoadToken) return;
+      this.stillImage = img;
+      this.stillReady = true;
+      this.tryRevealMedia();
+    };
+    img.onerror = () => {
+      if (token !== this.stillLoadToken) return;
+      console.warn(`Failed to load image: ${this.image}, using placeholder`);
+      this.stillReady = true;
+      this.tryRevealMedia();
+    };
   }
   applyPlaceholder() {
     const {
@@ -360,6 +386,13 @@ class Media {
       height,
     } = createPlaceholderTexture(this.gl, this.cardType, 512, 512);
     this.program.uniforms.tMap.value = placeholderTexture;
+    if (this.portraitLoop) {
+      this.setImageSizes(
+        GALLERY_GENERATED_PORTRAIT_WIDTH,
+        GALLERY_GENERATED_PORTRAIT_HEIGHT
+      );
+      return;
+    }
     this.setImageSizes(width, height);
   }
   setImageSizes(width, height) {
@@ -367,11 +400,12 @@ class Media {
     this.applyPortraitFrame();
   }
   applyPortraitFrame() {
-    const stillWidth = this.stillImage?.naturalWidth;
-    const stillHeight = this.stillImage?.naturalHeight;
+    // `uImageSizes` is the bound texture: the square still, then the 9:16
+    // idle loop. Framing from the still while the loop was bound mapped the
+    // tall clip onto the disc as a small window instead of covering it.
     const sizes = this.program.uniforms.uImageSizes.value;
-    const width = stillWidth > 0 ? stillWidth : Number(sizes?.[0]);
-    const height = stillHeight > 0 ? stillHeight : Number(sizes?.[1]);
+    const width = Number(sizes?.[0]);
+    const height = Number(sizes?.[1]);
     const frame = {
       width: 1,
       height: 1,
@@ -398,13 +432,36 @@ class Media {
     const rect = galleryPortraitUvRect(width, height, viewport);
     this.program.uniforms.uPortraitOrigin.value = [rect.originX, rect.originY];
     this.program.uniforms.uPortraitSize.value = [rect.sizeX, rect.sizeY];
+    if (this.cardType !== 'create') {
+      this.program.uniforms.uBorderRadius.value = galleryMediaBorderRadius(
+        rect.sizeX,
+        rect.sizeY
+      );
+    }
   }
   tryRevealMedia() {
-    if (this.mediaRevealed) return;
-    if (!this.stillReady || !this.loopReady) return;
-    this.mediaRevealed = true;
+    const video = this.videoElement;
+    const loopHasFrame = Boolean(video && video.readyState >= 2);
+    if (loopHasFrame) this.loopReady = true;
+    if (
+      !galleryCardMayReveal({
+        portraitLoop: this.portraitLoop,
+        loopHasFrame,
+        loopFailed: Boolean(this.video && this.loopReady && !video),
+        stillReady: this.stillReady,
+        hasStill: Boolean(this.stillImage),
+        hasLoopUrl: Boolean(this.video),
+      })
+    ) {
+      return;
+    }
+    this.bindPresentedMedia();
+  }
+  bindPresentedMedia() {
     const video = this.videoElement;
     if (video && video.readyState >= 2) {
+      this.mediaRevealed = true;
+      this.loopBound = true;
       this.program.uniforms.tMap.value = this.texture;
       this.texture.image = video;
       const width = video.videoWidth;
@@ -421,6 +478,7 @@ class Media {
       return;
     }
     if (this.stillImage) {
+      this.mediaRevealed = true;
       this.program.uniforms.tMap.value = this.texture;
       this.texture.image = this.stillImage;
       this.setImageSizes(
@@ -429,6 +487,17 @@ class Media {
       );
       this.texture.needsUpdate = true;
     }
+  }
+  startIdleLoopIfNearby() {
+    if (
+      !galleryCardShouldDecodeIdleLoop(
+        this.plane?.position?.x,
+        this.viewport?.width
+      )
+    ) {
+      return;
+    }
+    this.startIdleLoop();
   }
   startIdleLoop() {
     if (!this.video || this.videoElement) return;
@@ -448,6 +517,44 @@ class Media {
     });
     this.videoElement = video;
   }
+  setSources(item = {}) {
+    const nextImage = item.image ?? null;
+    const nextVideo = item.video ?? null;
+    const nextPortraitLoop = Boolean(item.portraitLoop || nextVideo);
+    if (item.text) this.text = item.text;
+    if (nextImage !== this.image) {
+      this.loadStillImage(nextImage);
+    }
+    const loopChanged = nextVideo !== this.video;
+    const frameChanged = nextPortraitLoop !== this.portraitLoop;
+    this.portraitLoop = nextPortraitLoop;
+    if (!loopChanged && !frameChanged) return;
+    if (loopChanged) {
+      if (this.videoElement) {
+        disposeIdleLoopVideo(this.videoElement);
+        this.videoElement = null;
+      }
+      this.video = nextVideo;
+      this.loopReady = !nextVideo;
+      this.loopBound = false;
+    }
+    if (!this.loopBound) {
+      this.mediaRevealed = false;
+      this.applyPlaceholder();
+      this.tryRevealMedia();
+    }
+    this.startIdleLoopIfNearby();
+  }
+  destroy() {
+    this.unsubscribePortraitViewport?.();
+    if (this.videoElement) {
+      disposeIdleLoopVideo(this.videoElement);
+      this.videoElement = null;
+    }
+    if (this.plane) {
+      this.plane.setParent(null);
+    }
+  }
   createMesh() {
     this.plane = new Mesh(this.gl, {
       geometry: this.geometry,
@@ -466,36 +573,6 @@ class Media {
     });
   }
   update(scroll, direction) {
-    // Refresh the card's texture from the idle loop once the still and the
-    // loop have both decoded. Painting the still first, then popping the
-    // video in, is the jump this waits to avoid.
-    const video = this.videoElement;
-    if (!this.mediaRevealed && video?.readyState >= 2) {
-      this.loopReady = true;
-      this.tryRevealMedia();
-    }
-    if (this.mediaRevealed && video && video.readyState >= 2 && this.texture) {
-      video._idleLoopMaxEdge = 512;
-      video._idleLoopAllowCapture = !(this.isBefore || this.isAfter);
-      const stepped = stepIdleLoopMedia(
-        video,
-        this.loopDirection,
-        performance.now(),
-        { repeat: true }
-      );
-      this.loopDirection = stepped.direction;
-      if (this.texture.image !== stepped.source) {
-        this.texture.image = stepped.source;
-      }
-      if (stepped.source === video) {
-        const width = video.videoWidth;
-        const height = video.videoHeight;
-        if (width > 0 && height > 0) {
-          this.setImageSizes(width, height);
-        }
-      }
-      this.texture.needsUpdate = true;
-    }
     this.plane.position.x = this.x - scroll.current - this.extra;
     const x = this.plane.position.x;
     const H = this.viewport.width / 2;
@@ -529,6 +606,34 @@ class Media {
     if (direction === 'left' && this.isAfter) {
       this.extra += this.widthTotal;
       this.isBefore = this.isAfter = false;
+    }
+    this.startIdleLoopIfNearby();
+    const video = this.videoElement;
+    if (!this.loopBound && video?.readyState >= 2) {
+      this.loopReady = true;
+      this.tryRevealMedia();
+    }
+    if (this.mediaRevealed && video && video.readyState >= 2 && this.texture) {
+      video._idleLoopMaxEdge = 512;
+      video._idleLoopAllowCapture = !(this.isBefore || this.isAfter);
+      const stepped = stepIdleLoopMedia(
+        video,
+        this.loopDirection,
+        performance.now(),
+        { repeat: true }
+      );
+      this.loopDirection = stepped.direction;
+      if (this.texture.image !== stepped.source) {
+        this.texture.image = stepped.source;
+      }
+      if (stepped.source === video) {
+        const width = video.videoWidth;
+        const height = video.videoHeight;
+        if (width > 0 && height > 0) {
+          this.setImageSizes(width, height);
+        }
+      }
+      this.texture.needsUpdate = true;
     }
   }
   onResize({ screen, viewport } = {}) {
@@ -578,6 +683,7 @@ class App {
       currentIndex = 0,
       onIndexChange,
       onCreateCardMove,
+      isActive = true,
     } = {}
   ) {
     document.documentElement.classList.remove('no-js');
@@ -590,6 +696,10 @@ class App {
     this.onIndexChange = onIndexChange;
     this.onCreateCardMove = onCreateCardMove;
     this.isExternalControl = false;
+    this.bend = bend;
+    this.textColor = textColor;
+    this.borderRadius = borderRadius;
+    this.font = font;
     this.createRenderer();
     this.createCamera();
     this.createScene();
@@ -599,8 +709,11 @@ class App {
     // Sit on the restored card before the first frame, or that frame reports
     // index 0 and the bottom strip jumps away from the carousel.
     this.setCurrentIndex(currentIndex, false);
+    this.isActive = isActive !== false;
     this.update();
-    this.addEventListeners();
+    if (this.isActive) {
+      this.addEventListeners();
+    }
   }
   createRenderer() {
     this.renderer = new Renderer({
@@ -641,6 +754,7 @@ class App {
         gl: this.gl,
         image: data.image,
         video: data.video ?? null,
+        portraitLoop: Boolean(data.portraitLoop || data.video),
         assistantId: data.type === 'avatar' ? data.id ?? null : null,
         index,
         length: this.mediasImages.length,
@@ -660,6 +774,29 @@ class App {
         cardType: data.type || 'avatar', // Pass card type
       });
     });
+  }
+  updateItems(items) {
+    const galleryItems = items && items.length ? items : [];
+    if (galleryItemListSourcesMatch(this.originalItems, galleryItems)) {
+      return;
+    }
+    const sameIds = galleryItemListSameIds(this.originalItems, galleryItems);
+    this.originalItems = galleryItems;
+    this.mediasImages = galleryItems;
+    if (sameIds && this.medias?.length === galleryItems.length) {
+      this.medias.forEach((media, index) => media.setSources(galleryItems[index]));
+      return;
+    }
+    this.medias?.forEach((media) => media.destroy());
+    this.createMedias(
+      galleryItems,
+      this.bend,
+      this.textColor,
+      this.borderRadius,
+      this.font
+    );
+    this.onResize();
+    this.setCurrentIndex(this.currentIndex, false);
   }
   onTouchDown(e) {
     if (shouldIgnoreGalleryWindowPointer(e.target)) return;
@@ -913,7 +1050,33 @@ class App {
     this.reportCreateCardPosition();
     this.renderer.render({ scene: this.scene, camera: this.camera });
     this.scroll.last = this.scroll.current;
-    this.raf = window.requestAnimationFrame(this.update.bind(this));
+    if (this.isActive) {
+      this.raf = window.requestAnimationFrame(this.update.bind(this));
+    }
+  }
+  /**
+   * Run the carousel only while Avatar Selection is on screen.
+   *
+   * The gallery stays mounted when the person is in chat or settings so the
+   * WebGL scene is not rebuilt on the way back. Window wheel and pointer
+   * listeners, and the animation frame, have to sleep in the meantime or
+   * they steal scrolling from those other screens.
+   *
+   * @param {boolean} isActive
+   */
+  setActive(isActive) {
+    const nextIsActive = Boolean(isActive);
+    if (nextIsActive === this.isActive) return;
+    this.isActive = nextIsActive;
+    if (this.isActive) {
+      this.addEventListeners();
+      this.onResize();
+      this.update();
+      return;
+    }
+    window.cancelAnimationFrame(this.raf);
+    this.raf = 0;
+    this.removeEventListeners();
   }
   addEventListeners() {
     this.boundOnResize = this.onResize.bind(this);
@@ -937,17 +1100,7 @@ class App {
     window.addEventListener('touchend', this.boundOnTouchUp);
     this.gl.canvas.addEventListener('click', this.boundOnClick);
   }
-  destroy() {
-    window.cancelAnimationFrame(this.raf);
-    if (this.medias) {
-      this.medias.forEach((media) => {
-        media.unsubscribePortraitViewport?.();
-        if (media.videoElement) {
-          disposeIdleLoopVideo(media.videoElement);
-          media.videoElement = null;
-        }
-      });
-    }
+  removeEventListeners() {
     window.removeEventListener('resize', this.boundOnResize);
     this.resizeObserver?.disconnect();
     this.resizeObserver = null;
@@ -962,6 +1115,14 @@ class App {
     if (this.gl && this.gl.canvas) {
       this.gl.canvas.removeEventListener('click', this.boundOnClick);
     }
+  }
+  destroy() {
+    this.isActive = false;
+    window.cancelAnimationFrame(this.raf);
+    this.raf = 0;
+    this.medias?.forEach((media) => media.destroy());
+    this.medias = null;
+    this.removeEventListeners();
     if (
       this.renderer &&
       this.renderer.gl &&
@@ -985,11 +1146,16 @@ const CircularGallery = forwardRef(
       currentIndex = 0,
       onIndexChange,
       onCreateCardMove,
+      isActive = true,
     },
     ref
   ) => {
     const containerRef = useRef(null);
     const appRef = useRef(null);
+    const itemsRef = useRef(items);
+    itemsRef.current = items;
+    const isActiveRef = useRef(isActive);
+    isActiveRef.current = isActive;
     useImperativeHandle(ref, () => ({
       setCurrentIndex: (index, animate = true) => {
         if (appRef.current) {
@@ -1019,7 +1185,7 @@ const CircularGallery = forwardRef(
           return;
         }
         app = new App(container, {
-          items,
+          items: itemsRef.current,
           bend,
           textColor,
           borderRadius,
@@ -1030,6 +1196,7 @@ const CircularGallery = forwardRef(
           currentIndex,
           onIndexChange,
           onCreateCardMove,
+          isActive: isActiveRef.current,
         });
         appRef.current = app;
       };
@@ -1053,7 +1220,13 @@ const CircularGallery = forwardRef(
         app?.destroy();
         appRef.current = null;
       };
-    }, [items, bend, textColor, borderRadius, font, scrollSpeed, scrollEase]);
+    }, [bend, textColor, borderRadius, font, scrollSpeed, scrollEase]);
+    useEffect(() => {
+      appRef.current?.setActive(isActive);
+    }, [isActive]);
+    useEffect(() => {
+      appRef.current?.updateItems(items);
+    }, [items]);
     useEffect(() => {
       const app = appRef.current;
       if (!app) return;
@@ -1073,7 +1246,7 @@ const CircularGallery = forwardRef(
     }, [currentIndex]);
     return (
       <div
-        className="absolute inset-0 overflow-hidden cursor-grab active:cursor-grabbing bg-black/60 backdrop-blur-lg"
+        className="absolute inset-0 overflow-hidden cursor-grab active:cursor-grabbing bg-transparent"
         ref={containerRef}
       />
     );

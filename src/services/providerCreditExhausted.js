@@ -1,14 +1,21 @@
-// The operator's vendor account cannot serve: no credit, or the key ElevenLabs,
-// OpenAI, or xAI was given is refused. Every reply and every spoken line fails
-// the same way until that account is funded or the key is replaced.
+// The operator's vendor account cannot serve: no credit. Every reply and
+// every spoken line fails the same way until that account is funded.
 //
 // This is not the reader's monthly allotment. A 402 / `allotment_exhausted`
 // sends them to billing. The code the stream `error` frame carries is
-// `model_provider_credit_exhausted`; raw vendor sentences are recognised as a
-// fallback when a path has not classified them. A Neural Nexus session 401
-// ("Invalid API key" with spaces, no vendor name) is not this refusal.
+// `model_provider_credit_exhausted`; raw vendor quota sentences are recognised
+// as a fallback when a path has not classified them.
+//
+// A refused vendor *key* (401 invalid_api_key) is a different failure. That
+// is a credential the operator must replace, not empty funds. Matching it
+// here used to show "the API has run out of funds" on Speak and speech-to-text
+// while the reader's Neural Nexus allotment was still fine. See
+// `isProviderKeyRefused`. A Neural Nexus session 401 ("Invalid API key" with
+// spaces, no vendor name) is neither of these refusals.
 
 export const PROVIDER_CREDIT_EXHAUSTED_CODE = 'model_provider_credit_exhausted';
+
+export const PROVIDER_KEY_REFUSED_CODE = 'vendor_key_refused';
 
 export const PROVIDER_CREDIT_NOTICE_TITLE = 'Neural Nexus needs your support.';
 
@@ -39,22 +46,13 @@ const VENDOR_CREDIT_EXHAUSTED_MARKERS = [
   PROVIDER_CREDIT_EXHAUSTED_CODE,
 ];
 
-// Snake_case vendor statuses. Neural Nexus session refusals say
-// "Invalid API key" with spaces and must not match these.
+// Snake_case vendor statuses for a refused operator key — not empty funds.
 const VENDOR_KEY_REFUSED_MARKERS = [
   'invalid_api_key',
   'incorrect_api_key',
   'incorrect api key provided',
-];
-
-const VENDOR_NAMES = ['elevenlabs', 'openai', 'open ai', 'x.ai', 'xai'];
-
-const VENDOR_NAMED_AUTH_MARKERS = [
-  '401',
-  'invalid api key',
-  'incorrect api key',
-  'authentication_error',
-  'permission-denied',
+  'missing_api_key',
+  PROVIDER_KEY_REFUSED_CODE,
 ];
 
 /**
@@ -84,18 +82,8 @@ function requestErrorText(requestError) {
 }
 
 /**
- * Whether the flattened error names one of the model or voice vendors.
- *
- * @param {string} errorText
- * @returns {boolean}
- */
-function textNamesVendor(errorText) {
-  return VENDOR_NAMES.some((vendorName) => errorText.includes(vendorName));
-}
-
-/**
- * Whether this failure is the model or voice vendor refusing the operator's
- * key or credit, not the reader's allotment.
+ * Whether this failure is the model or voice vendor refusing the call for
+ * lack of credit, not the reader's allotment and not a refused API key.
  *
  * @param {Error|null|undefined} requestError
  * @returns {boolean}
@@ -117,11 +105,30 @@ export function isProviderCreditExhausted(requestError) {
   if (VENDOR_CREDIT_EXHAUSTED_MARKERS.some((marker) => text.includes(marker))) {
     return true;
   }
-  if (VENDOR_KEY_REFUSED_MARKERS.some((marker) => text.includes(marker))) {
-    return true;
+  return false;
+}
+
+/**
+ * Whether this failure is the model or voice vendor refusing the operator's
+ * API key, not empty funds and not the reader's allotment.
+ *
+ * @param {Error|null|undefined} requestError
+ * @returns {boolean}
+ */
+export function isProviderKeyRefused(requestError) {
+  if (!requestError) return false;
+  if (isProviderCreditExhausted(requestError)) return false;
+  if (requestError.code === PROVIDER_KEY_REFUSED_CODE) return true;
+  const body = requestError.body;
+  if (body && typeof body === 'object') {
+    if (body.code === PROVIDER_KEY_REFUSED_CODE) return true;
+    if (body.error === PROVIDER_KEY_REFUSED_CODE) return true;
+    const detail = body.detail;
+    if (detail && typeof detail === 'object') {
+      if (detail.code === PROVIDER_KEY_REFUSED_CODE) return true;
+      if (detail.error === PROVIDER_KEY_REFUSED_CODE) return true;
+    }
   }
-  return (
-    textNamesVendor(text) &&
-    VENDOR_NAMED_AUTH_MARKERS.some((marker) => text.includes(marker))
-  );
+  const text = requestErrorText(requestError);
+  return VENDOR_KEY_REFUSED_MARKERS.some((marker) => text.includes(marker));
 }

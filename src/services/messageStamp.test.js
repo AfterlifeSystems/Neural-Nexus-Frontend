@@ -33,6 +33,12 @@ test('a stored turn without timestamp still stamps from created_at', () => {
     }),
     '2026-09-11T12:00:00.000Z'
   );
+  assert.equal(
+    messageStampValueOf({
+      response_metadata: { created_at: '2026-09-10T12:00:00.000Z' },
+    }),
+    '2026-09-10T12:00:00.000Z'
+  );
 });
 
 test('a missing or invalid instant is not a stamp', () => {

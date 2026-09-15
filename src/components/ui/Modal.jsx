@@ -34,7 +34,10 @@ const Modal = ({
   useEffect(() => {
     if (!open) return undefined;
     const closeOnEscape = (keyEvent) => {
-      if (keyEvent.key === 'Escape') onClose?.();
+      if (keyEvent.key !== 'Escape') return;
+      keyEvent.preventDefault();
+      keyEvent.stopPropagation();
+      onClose?.();
     };
     document.addEventListener('keydown', closeOnEscape);
     return () => document.removeEventListener('keydown', closeOnEscape);

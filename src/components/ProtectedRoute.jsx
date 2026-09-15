@@ -1,5 +1,5 @@
 // components/ProtectedRoute.jsx
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { Navigate, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { useMedia, NEW_CONVERSATION_ID } from '../context/MediaContext';
@@ -9,10 +9,25 @@ import SharePreviewOutlet from './SharePreviewOutlet';
 import { MediaShareProvider } from '../context/MediaShareContext';
 import { VoiceMuteProvider } from '../context/VoiceMuteContext';
 import { toast } from 'react-hot-toast';
+import { isAvatarOwnedByUser } from './utils';
+import AvatarSelectionComponent from './AvatarSelectionComponent';
+import ChatArea from './ChatArea';
+import { forgetUnmintedVoiceNotReadyShown } from './voiceNotReadyToast';
+import { offerMissingClonedVoiceNotice } from '../hooks/useMissingClonedVoiceNotice';
 import { isAmbientCaptureSurface } from '../services/ambientCaptureSurface';
 import useSceneNarration from '../hooks/useSceneNarration';
+import useWorkspaceEscape from '../hooks/useWorkspaceEscape';
 import { GeoAvatarProvider } from '../context/GeoAvatarContext';
 import { voiceChatPath } from '../services/voiceModePreference';
+import {
+  avatarGalleryKeepAliveClassName,
+  avatarWorkspaceKeepAliveClassName,
+  chatWorkspaceAvatarId,
+  isAvatarChatLocation,
+  isAvatarSelectionLocation,
+  isAvatarSettingsLocation,
+  isAvatarWorkspaceEscapeLocation,
+} from './personalAvatarWorkspace';
 
 export default function ProtectedRoute() {
   const { user, isRestoringSession, activeAvatar } = useAuth();
@@ -26,6 +41,28 @@ export default function ProtectedRoute() {
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const location = useLocation();
   const navigate = useNavigate();
+  const galleryIsOpen = isAvatarSelectionLocation(location.pathname);
+  const chatAvatarIdFromRoute = chatWorkspaceAvatarId(location.pathname);
+  const lastChatAvatarIdRef = useRef(chatAvatarIdFromRoute);
+  if (chatAvatarIdFromRoute) {
+    lastChatAvatarIdRef.current = chatAvatarIdFromRoute;
+  }
+  const keptChatAvatarId = lastChatAvatarIdRef.current;
+  const keepChatMounted = Boolean(
+    keptChatAvatarId && (chatAvatarIdFromRoute || galleryIsOpen)
+  );
+  const workspacePaneIsOpen = !galleryIsOpen;
+  useWorkspaceEscape({
+    sidebarOpen: isSidebarOpen,
+    onCloseSidebar: () => setIsSidebarOpen(false),
+    canGoToAvatarSelection: isAvatarWorkspaceEscapeLocation(location.pathname),
+    onGoToAvatarSelection: () => navigate('/avatars'),
+    isAvatarSettings: isAvatarSettingsLocation(
+      location.pathname,
+      location.search
+    ),
+    isAvatarChat: isAvatarChatLocation(location.pathname, location.search),
+  });
 
   // Reaching a geo-located avatar's place opens that avatar in voice mode with
   // the live camera behind them, so the avatar appears in the place the person
@@ -85,12 +122,26 @@ export default function ProtectedRoute() {
    */
   const handleStartNewConversation = () => {
     setIsSidebarOpen(false);
+    // `__new__` is reused for every unsent chat. Forget the last unminted
+    // showing so this conversation can prompt again, including when the
+    // previous new chat was closed without sending (no mint, same id, no
+    // React update to hang the notice on).
+    forgetUnmintedVoiceNotReadyShown(activeAvatarId);
     if (chatPath && !isOnChatScreen) {
       navigate(`${chatPath}?thread=new`);
       return;
     }
     setActiveConversation(NEW_CONVERSATION_ID);
     setMessages([]);
+    void offerMissingClonedVoiceNotice({
+      assistantId: activeAvatarId,
+      avatarName: activeAvatar?.name,
+      conversationId: NEW_CONVERSATION_ID,
+      avatar: activeAvatar,
+      user,
+      readerOwnsAvatar: isAvatarOwnedByUser(activeAvatar, user),
+      readerIsAnonymous: false,
+    });
   };
 
   // Until the mount-time session restore has decided whether the stored
@@ -135,15 +186,34 @@ export default function ProtectedRoute() {
           `h-full` is load-bearing: screens size themselves against this parent,
           and a wrapper of automatic height collapses the chat panel to the
           height of its messages.
-          `relative z-10` lifts the page above the animated background, which is
+          `relative z-10` lifts the page above the world globe, which is
           painted across the whole viewport. Screens that brought their own
           positioned container were fine; the ones that did not — account
           settings, billing — rendered correctly and were then covered by it,
           which looks exactly like a page that failed to load.
-          `overflow-y-auto` lets a page taller than the window scroll inside the
-          frame rather than pushing the fixed rail around. */}
-        <div className="pl-[var(--app-rail-width)] h-full min-w-0 relative z-10 overflow-y-auto overflow-x-hidden">
-          <Outlet />
+          Chat and the gallery each scroll in their own pane so a kept-alive
+          neighbour cannot change the other's height. `overflow-y-auto` on the
+          open workspace pane lets a page taller than the window scroll inside
+          the frame rather than pushing the fixed rail around. */}
+        <div className="pl-[var(--app-rail-width)] h-full min-w-0 relative z-10">
+          <div
+            className={avatarGalleryKeepAliveClassName(galleryIsOpen)}
+            aria-hidden={!galleryIsOpen}
+            inert={!galleryIsOpen}
+          >
+            <AvatarSelectionComponent />
+          </div>
+          <div
+            className={avatarWorkspaceKeepAliveClassName(workspacePaneIsOpen)}
+            aria-hidden={!workspacePaneIsOpen}
+            inert={!workspacePaneIsOpen}
+          >
+            {keepChatMounted ? (
+              <ChatArea avatarId={keptChatAvatarId} />
+            ) : (
+              <Outlet />
+            )}
+          </div>
         </div>
       </GeoAvatarProvider>
       </MediaShareProvider>

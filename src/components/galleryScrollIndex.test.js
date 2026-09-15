@@ -5,6 +5,7 @@ import { fileURLToPath } from 'node:url';
 import { test } from 'node:test';
 import {
   GALLERY_AVATAR_BORDER_RADIUS,
+  GALLERY_PORTRAIT_BORDER_RADIUS,
   GALLERY_CARD_HEIGHT_FRACTION,
   GALLERY_CARD_MAX_WIDTH_FRACTION,
   GALLERY_CARD_NEIGHBOR_PEEK_PIXELS,
@@ -13,9 +14,18 @@ import {
   galleryCardWorldLayout,
   galleryFrameHeight,
   galleryBoxIsPainted,
+  galleryCardExpectsPortraitLoop,
+  galleryCardMayReveal,
+  galleryCardShouldDecodeIdleLoop,
+  galleryCardSourcesMatch,
+  GALLERY_GENERATED_PORTRAIT_HEIGHT,
+  GALLERY_GENERATED_PORTRAIT_WIDTH,
   galleryCoverUv,
   galleryCoverUvRatio,
   galleryIndexFromScroll,
+  galleryItemListSameIds,
+  galleryItemListSourcesMatch,
+  galleryMediaBorderRadius,
   galleryPortraitUv,
   galleryPortraitUvRect,
   GALLERY_WINDOW_POINTER_IGNORE_SELECTOR,
@@ -128,24 +138,34 @@ test('a square photo fills a square card without letterbox', () => {
   assert.deepEqual(galleryCoverUv(1, 1, ratio), { x: 1, y: 1 });
 });
 
-test('an unframed portrait disc uses the same cover crop as a message portrait', () => {
+test('a 9:16 idle loop is contained so the whole portrait is on the card', () => {
   const rect = galleryPortraitUvRect(9, 16);
-  const cssTopFromTop = (0 - rect.originY) / rect.sizeY;
+  assert.ok(Math.abs(rect.sizeX - 9 / 16) < 1e-9);
+  assert.equal(rect.sizeY, 1);
+  assert.ok(Math.abs(rect.originX - (1 - 9 / 16) / 2) < 1e-9);
+  assert.equal(rect.originY, 0);
   const topOfCard = galleryPortraitUv(0.5, 1, rect);
-  assert.ok(Math.abs(topOfCard.y - (1 - cssTopFromTop)) < 1e-9);
-  assert.ok(cssTopFromTop > 0);
+  const centerOfCard = galleryPortraitUv(0.5, 0.5, rect);
+  assert.ok(Math.abs(topOfCard.y - 1) < 1e-9);
+  assert.ok(Math.abs(centerOfCard.x - 0.5) < 1e-9);
+  assert.ok(Math.abs(centerOfCard.y - 0.5) < 1e-9);
+  assert.equal(galleryMediaBorderRadius(rect.sizeX, rect.sizeY), GALLERY_PORTRAIT_BORDER_RADIUS);
 });
 
-test('a settings pan that shows the head samples the top of the photo', () => {
-  const rect = galleryPortraitUvRect(9, 16, {
+test('a square still still fills the circular disc', () => {
+  const squareFramed = galleryPortraitUvRect(400, 400, {
     scale: 1,
     offsetX: 0,
-    offsetY: (16 / 9 - 1) / 2,
-    mediaWidth: 9,
-    mediaHeight: 16,
+    offsetY: 0,
+    mediaWidth: 400,
+    mediaHeight: 400,
   });
-  const topOfCard = galleryPortraitUv(0.5, 1, rect);
-  assert.ok(Math.abs(topOfCard.y - 1) < 1e-9);
+  assert.equal(squareFramed.sizeX, 1);
+  assert.equal(squareFramed.sizeY, 1);
+  assert.equal(
+    galleryMediaBorderRadius(squareFramed.sizeX, squareFramed.sizeY),
+    GALLERY_AVATAR_BORDER_RADIUS
+  );
 });
 
 test('carousel avatars are circular like the message portraits', () => {
@@ -193,6 +213,38 @@ test('an unmeasured width does not shrink the gallery to a sliver', () => {
   assert.equal(galleryFrameHeight(1, 650), 650);
 });
 
+test('idle loops decode near the playhead, not the whole tape', () => {
+  assert.equal(galleryCardShouldDecodeIdleLoop(0, 20), true);
+  assert.equal(galleryCardShouldDecodeIdleLoop(12, 20), true);
+  assert.equal(galleryCardShouldDecodeIdleLoop(20, 20), true);
+  assert.equal(galleryCardShouldDecodeIdleLoop(21, 20), false);
+  assert.equal(galleryCardShouldDecodeIdleLoop(0, 0), false);
+  assert.equal(galleryCardShouldDecodeIdleLoop(Number.NaN, 20), false);
+});
+
+test('gallery items can be patched when only the idle loop URL arrives', () => {
+  const stills = [
+    { id: 'evan', type: 'avatar', image: 'evan.jpg', video: null, text: 'Evan' },
+    { id: 'create-avatar', type: 'create', image: null, video: null, text: 'Create' },
+  ];
+  const withLoop = [
+    { id: 'evan', type: 'avatar', image: 'evan.jpg', video: 'evan.mp4', text: 'Evan' },
+    { id: 'create-avatar', type: 'create', image: null, video: null, text: 'Create' },
+  ];
+  assert.equal(galleryItemListSameIds(stills, withLoop), true);
+  assert.equal(galleryItemListSourcesMatch(stills, withLoop), false);
+  assert.equal(
+    galleryCardSourcesMatch(stills[0], {
+      id: 'evan',
+      type: 'avatar',
+      image: 'evan.jpg',
+      video: null,
+      text: 'Evan',
+    }),
+    true
+  );
+});
+
 test('WebGL must not start on a 0×0 first paint', () => {
   assert.equal(galleryBoxIsPainted(0, 0), false);
   assert.equal(galleryBoxIsPainted(800, 0), false);
@@ -225,6 +277,89 @@ test('world units follow the pixel layout through the camera viewport', () => {
   assert.equal(world.paddingWorld, (world.paddingPixels / 1600) * 33.14);
 });
 
+test('a generated card keeps the 9:16 window until the loop has a frame', () => {
+  assert.equal(
+    galleryCardExpectsPortraitLoop({
+      showGenerated: true,
+      loopLookupSettled: false,
+    }),
+    true
+  );
+  assert.equal(
+    galleryCardExpectsPortraitLoop({
+      showGenerated: true,
+      loopUrl: 'idle.mp4',
+      loopLookupSettled: true,
+    }),
+    true
+  );
+  assert.equal(
+    galleryCardExpectsPortraitLoop({
+      showGenerated: true,
+      loopLookupSettled: true,
+    }),
+    false
+  );
+  assert.equal(
+    galleryCardExpectsPortraitLoop({ showGenerated: false, loopUrl: 'idle.mp4' }),
+    false
+  );
+  assert.equal(
+    galleryCardMayReveal({
+      portraitLoop: true,
+      hasStill: true,
+      stillReady: true,
+      hasLoopUrl: true,
+    }),
+    false
+  );
+  assert.equal(
+    galleryCardMayReveal({
+      portraitLoop: true,
+      hasStill: true,
+      stillReady: true,
+      hasLoopUrl: true,
+      loopHasFrame: true,
+    }),
+    true
+  );
+  assert.equal(
+    galleryCardMayReveal({
+      portraitLoop: false,
+      hasStill: true,
+      stillReady: true,
+    }),
+    true
+  );
+  assert.equal(GALLERY_GENERATED_PORTRAIT_WIDTH, 9);
+  assert.equal(GALLERY_GENERATED_PORTRAIT_HEIGHT, 16);
+});
+
+test('the gallery does not paint a circular still ahead of a generated loop', () => {
+  const gallerySource = readFileSync(
+    join(componentsDirectory, 'CircularGallery.jsx'),
+    'utf8'
+  );
+  const carouselSource = readFileSync(
+    join(componentsDirectory, 'AvatarSelectionComponent.jsx'),
+    'utf8'
+  );
+  assert.match(gallerySource, /galleryCardMayReveal/);
+  assert.match(gallerySource, /updateItems/);
+  assert.match(gallerySource, /galleryCardShouldDecodeIdleLoop/);
+  assert.match(gallerySource, /portraitLoop/);
+  assert.match(
+    gallerySource,
+    /\}, \[bend, textColor, borderRadius, font, scrollSpeed, scrollEase\]\);/
+  );
+  assert.doesNotMatch(
+    gallerySource,
+    /if \(!this\.stillReady \|\| !this\.loopReady\) return;/
+  );
+  assert.doesNotMatch(carouselSource, /pairReady/);
+  assert.match(carouselSource, /portraitLoop/);
+});
+
 test('Create overlay and hide controls follow the painted disc size', () => {
   const carouselSource = readFileSync(
     join(componentsDirectory, 'AvatarSelectionComponent.jsx'),
@@ -245,6 +380,18 @@ test('Create overlay and hide controls follow the painted disc size', () => {
   assert.match(carouselSource, /data-gallery-frame/);
   assert.match(carouselSource, /relative min-h-0 w-full overflow-hidden/);
   assert.match(carouselSource, /shrink-0 flex-col overflow-hidden rounded-2xl/);
+  assert.match(
+    carouselSource,
+    /rounded-2xl border border-white\/10 bg-black\/25 backdrop-blur-md/
+  );
+  const chatSource = readFileSync(
+    join(componentsDirectory, 'ChatArea.jsx'),
+    'utf8'
+  );
+  assert.match(
+    chatSource,
+    /rounded-2xl border border-white\/10 bg-black\/25 backdrop-blur-md/
+  );
   assert.equal(carouselSource.includes('stage.style.flexGrow'), false);
   assert.match(carouselSource, /width: '36px'/);
   assert.match(carouselSource, /galleryBoxIsPainted/);
@@ -258,7 +405,7 @@ test('Create overlay and hide controls follow the painted disc size', () => {
   assert.match(gallerySource, /startWhenPainted/);
   assert.match(
     gallerySource,
-    /className="absolute inset-0 overflow-hidden cursor-grab/
+    /className="absolute inset-0 overflow-hidden cursor-grab active:cursor-grabbing bg-transparent"/
   );
   assert.match(carouselSource, /absolute left-1\/2 z-20 flex items-center/);
   assert.match(

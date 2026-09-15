@@ -113,7 +113,7 @@ const AgentComputerTakeover = ({ card, onDone, onSkip }) => {
   }, [sessionId, streamPath, token]);
 
   return (
-    <div className="fixed inset-0 z-[80] bg-black flex flex-col">
+    <div className="fixed inset-0 z-[80] bg-black flex flex-col" data-agent-computer-takeover>
       <div className="sticky top-0 z-10 flex items-center gap-3 px-4 py-3 bg-[#141418] border-b border-white/10">
         <p className="min-w-0 flex-grow text-neutral-200 text-sm whitespace-normal break-words">
           {task}

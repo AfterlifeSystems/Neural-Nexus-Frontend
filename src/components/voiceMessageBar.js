@@ -1,6 +1,17 @@
 const KEEP_MESSAGE_BAR_OPEN =
   '[data-voice-message-bar], [data-voice-mute-bar], [data-voice-camera-bar], [data-voice-stage-header], [data-voice-caption-dock]';
 
+/**
+ * Padding on the voice composer dock and on the invisible collapsed floor
+ * that the portrait reserves. The two must stay identical or the folded
+ * handle sits on the face.
+ */
+export const VOICE_COMPOSER_DOCK_PADDING_CLASS =
+  'absolute bottom-0 left-0 right-0 px-3 pt-2 pb-[max(0.75rem,env(safe-area-inset-bottom))] sm:px-6 sm:pt-3 sm:pb-5';
+
+/** Height of the folded Message handle, matching `min-h-10` on that button. */
+export const VOICE_COLLAPSED_MESSAGE_HANDLE_CLASS = 'min-h-10';
+
 const KEEP_MESSAGE_BAR_OPEN_CONTROL =
   'button, input, textarea, select, a, [role="menu"], [role="menuitem"], [role="dialog"]';
 

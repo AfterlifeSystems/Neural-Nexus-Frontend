@@ -21,7 +21,10 @@ import {
 import SpeakButton from './SpeakButton';
 import MessageStamp from './MessageStamp';
 import { editableScriptText } from '../speakerScript';
-import { formatMessageMetrics } from '../../services/messageResponseMetrics';
+import {
+  formatMessageMetrics,
+  formatTextInferenceModel,
+} from '../../services/messageResponseMetrics';
 import {
   formatMessageStamp,
   messageStampValueOf,
@@ -142,6 +145,10 @@ const MessageActionBar = ({
   if (!actionText && !stampLabel) return null;
 
   const metrics = isFromAvatar ? formatMessageMetrics(message) : null;
+  const textModelLabel =
+    import.meta.env.DEV && isFromAvatar
+      ? formatTextInferenceModel(message)
+      : null;
   // The reactions the person chose on this reply, kept on the row by the
   // stored preferences, so a lit button is a stored one.
   const liked = message.feedback?.type === 'like';
@@ -155,13 +162,13 @@ const MessageActionBar = ({
 
   return (
     <>
-      {metrics && (
+      {(metrics || textModelLabel) && (
         <p
           className={`mt-2 text-xs text-right select-none ${
             overlay ? 'text-white/55 drop-shadow' : 'text-white/40'
           }`}
         >
-          {metrics}
+          {[textModelLabel, metrics].filter(Boolean).join(' • ')}
         </p>
       )}
       <div

@@ -5,6 +5,7 @@ import { useLocation, useNavigate } from 'react-router-dom';
 
 import { useAuth } from '../context/AuthContext';
 
+import AgeVerificationSection from './AgeVerificationSection';
 import AccessibilitySection from './AccessibilitySection';
 import DeveloperOptionsSection from './DeveloperOptionsSection';
 import UserSettingsMenu from './UserSettingsMenu';
@@ -284,6 +285,8 @@ const AccountSettings = ({ activeTab }) => {
           </button>
         </div>
       </div>
+
+      <AgeVerificationSection />
 
       <AccessibilitySection />
 

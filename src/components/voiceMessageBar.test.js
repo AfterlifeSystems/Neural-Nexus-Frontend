@@ -3,6 +3,8 @@ import { test } from 'node:test';
 import {
   collapsedVoiceBarIsSpeaking,
   shouldCollapseVoiceMessageBar,
+  VOICE_COLLAPSED_MESSAGE_HANDLE_CLASS,
+  VOICE_COMPOSER_DOCK_PADDING_CLASS,
   voiceComposerDockItemsClass,
   voiceMessageBarControlsRowClass,
   voiceMessageBarHasDraftAttachments,
@@ -93,6 +95,12 @@ test('the folded bar glows while the person is speaking or dictating', () => {
     collapsedVoiceBarIsSpeaking({ hearingSpeech: false, dictating: false }),
     false
   );
+});
+
+test('the collapsed floor uses the same dock padding as the visible bar', () => {
+  assert.match(VOICE_COMPOSER_DOCK_PADDING_CLASS, /absolute bottom-0/);
+  assert.match(VOICE_COMPOSER_DOCK_PADDING_CLASS, /sm:pb-5/);
+  assert.equal(VOICE_COLLAPSED_MESSAGE_HANDLE_CLASS, 'min-h-10');
 });
 
 test('the composer dock keeps camera controls at the foot of the message bar', () => {

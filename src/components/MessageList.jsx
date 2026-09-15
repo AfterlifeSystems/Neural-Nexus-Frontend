@@ -107,12 +107,17 @@ const MessageList = ({
     dismissedNoticeIds,
     stopAssistantTurn,
     stoppableTurnCount,
+    pendingInterrupt,
   } = useMedia();
   // The composer's button never becomes Stop — an empty box has to keep
   // offering voice mode mid-reply — so the reply being generated carries its
   // own Stop, as the caption does in voice mode. A shared transcript is
   // read-only and has no turn of its own to end.
   const replyTurnIsStoppable = !readOnly && (stoppableTurnCount ?? 0) > 0;
+  const phoneCallConfirmIsOpen =
+    pendingInterrupt?.interrupt?.kind === 'phone_call_confirm' &&
+    (!assistantId || pendingInterrupt.assistantId === assistantId);
+  const lastMessage = messages[messages.length - 1];
   const renderStopReplyButton = () => (
     <button
       type="button"
@@ -241,6 +246,16 @@ const MessageList = ({
           const isFromUser = type === 'user' || type === 'human';
           const isFromAvatar =
             type === 'ai' || type === 'assistant' || type === 'avatar';
+          // The confirm card is the ask. A last avatar bubble with the same
+          // sentence is the same ask twice.
+          if (
+            phoneCallConfirmIsOpen &&
+            isFromAvatar &&
+            msg === lastMessage &&
+            !isLoading
+          ) {
+            return null;
+          }
           if (isFromAvatar && isConversationSuggestionList(msg.content)) {
             return null;
           }

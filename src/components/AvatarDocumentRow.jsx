@@ -683,7 +683,7 @@ const AvatarDocumentRow = ({
                 src={documentEntry.url}
                 alt={`Preview of ${documentEntry.label}`}
                 draggable={false}
-                className="w-full h-full object-contain"
+                className="w-full h-full object-cover"
               />
             )}
           </ImageViewport>

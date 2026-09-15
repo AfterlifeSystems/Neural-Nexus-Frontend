@@ -7,7 +7,9 @@ import {
   PROVIDER_CREDIT_SUBSCRIBE_LABEL,
   PROVIDER_CREDIT_SUPPORT_LABEL,
   PROVIDER_CREDIT_SUPPORT_REASON,
+  PROVIDER_KEY_REFUSED_CODE,
   isProviderCreditExhausted,
+  isProviderKeyRefused,
 } from './providerCreditExhausted.js';
 
 test('the notice asks the reader to support Neural Nexus rather than wait out a fault', () => {
@@ -97,40 +99,17 @@ test('an ordinary failure and a missing error are not this refusal', () => {
   assert.equal(isProviderCreditExhausted(null), false);
 });
 
-test('a nested vendor status on the body is recognised', () => {
-  assert.equal(
-    isProviderCreditExhausted({
-      status: 502,
-      message: 'Request failed (502)',
-      body: { detail: { status: 'invalid_api_key', message: 'Invalid API key' } },
-    }),
-    true
-  );
+test('a nested vendor key status is a key refusal, not empty funds', () => {
+  const requestError = {
+    status: 502,
+    message: 'Request failed (502)',
+    body: { detail: { status: 'invalid_api_key', message: 'Invalid API key' } },
+  };
+  assert.equal(isProviderCreditExhausted(requestError), false);
+  assert.equal(isProviderKeyRefused(requestError), true);
 });
 
-test('ElevenLabs, OpenAI, and xAI key or credit refusals are this pause', () => {
-  assert.equal(
-    isProviderCreditExhausted({
-      status: 502,
-      message:
-        'ElevenLabs rejected the request (401 invalid_api_key: Invalid API key)',
-    }),
-    true
-  );
-  assert.equal(
-    isProviderCreditExhausted({
-      status: 401,
-      message: 'Error code: 401 - Incorrect API key provided',
-    }),
-    true
-  );
-  assert.equal(
-    isProviderCreditExhausted({
-      status: 401,
-      message: 'openai.AuthenticationError: Error code: 401 - invalid_api_key',
-    }),
-    true
-  );
+test('xAI credit refusals are the out-of-funds pause', () => {
   assert.equal(
     isProviderCreditExhausted({
       status: 403,
@@ -149,14 +128,60 @@ test('ElevenLabs, OpenAI, and xAI key or credit refusals are this pause', () => 
   );
 });
 
-test('a Neural Nexus session 401 is not a vendor-credit pause', () => {
+test('ElevenLabs and OpenAI key refusals are not the out-of-funds pause', () => {
+  const elevenLabsKeyError = {
+    status: 502,
+    message:
+      'ElevenLabs rejected the request (401 invalid_api_key: Invalid API key)',
+  };
+  assert.equal(isProviderCreditExhausted(elevenLabsKeyError), false);
+  assert.equal(isProviderKeyRefused(elevenLabsKeyError), true);
+
+  const structuredKeyError = {
+    status: 503,
+    message: 'Request failed (503)',
+    body: { error: PROVIDER_KEY_REFUSED_CODE, detail: 'The speech provider refused this server\'s API key.' },
+  };
+  assert.equal(isProviderCreditExhausted(structuredKeyError), false);
+  assert.equal(isProviderKeyRefused(structuredKeyError), true);
+
   assert.equal(
     isProviderCreditExhausted({
       status: 401,
-      message: 'Invalid API key',
+      message: 'Error code: 401 - Incorrect API key provided',
     }),
     false
   );
+  assert.equal(
+    isProviderKeyRefused({
+      status: 401,
+      message: 'Error code: 401 - Incorrect API key provided',
+    }),
+    true
+  );
+  assert.equal(
+    isProviderCreditExhausted({
+      status: 401,
+      message: 'openai.AuthenticationError: Error code: 401 - invalid_api_key',
+    }),
+    false
+  );
+  assert.equal(
+    isProviderKeyRefused({
+      status: 401,
+      message: 'openai.AuthenticationError: Error code: 401 - invalid_api_key',
+    }),
+    true
+  );
+});
+
+test('a Neural Nexus session 401 is not a vendor-credit pause or a key refusal', () => {
+  const sessionError = {
+    status: 401,
+    message: 'Invalid API key',
+  };
+  assert.equal(isProviderCreditExhausted(sessionError), false);
+  assert.equal(isProviderKeyRefused(sessionError), false);
 });
 
 test('an ElevenLabs voice-id miss or a blocked clone is not a vendor-credit pause', () => {

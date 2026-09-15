@@ -176,6 +176,19 @@ export function idleLoopFor(manifest, emotion) {
   );
 }
 
+/**
+ * The cached idle-loop URL, or `undefined` when this avatar has not been
+ * looked up yet. `null` means the lookup ran and there is no loop.
+ *
+ * @param {string|null|undefined} assistantId
+ * @param {string} [emotion]
+ * @returns {string|null|undefined}
+ */
+export function cachedIdleLoopUrl(assistantId, emotion = 'neutral') {
+  if (!assistantId || !manifestCache.has(assistantId)) return undefined;
+  return idleLoopFor(manifestCache.get(assistantId), emotion) || null;
+}
+
 /** Decode every still and idle loop so a later swap does not wait on the network. */
 export function preloadEmotionMedia(manifest) {
   if (!manifest?.emotions || typeof document === 'undefined') return;

@@ -17,8 +17,49 @@ const VIDEO_HOST_ID = 'idle-loop-video-host';
 // hidden`, `display: none`, or `z-index: -1` behind an opaque page all
 // count as invisible: Chrome and Firefox suspend the decoder, rVFC
 // stops, and both the carousel and voice mode freeze on the last frame.
+// Sit in the sidebar rail gap (`html.voice-stage-open` narrows the rail and
+// the voice stage starts at `--app-rail-width`). `right:0;bottom:0` is under
+// the stage panel, which is how generated loops vanished in voice mode.
 export const IDLE_LOOP_VIDEO_HOST_STYLE =
-  'position:fixed;right:0;bottom:0;width:2px;height:2px;opacity:1;overflow:hidden;pointer-events:none;z-index:2147483647';
+  'position:fixed;left:0;bottom:4px;width:2px;height:2px;opacity:1;overflow:hidden;pointer-events:none;z-index:2147483647';
+
+const CORS_MEDIA_QUERY = 'crossorigin';
+const CORS_MEDIA_VALUE = 'anonymous';
+
+/**
+ * A URL the canvas decoder can load under `crossOrigin="anonymous"`.
+ *
+ * Emotion media is cached `immutable` for a year. The first load of a loop
+ * is often a no-CORS `<video>` or a Range GET; Chrome then serves that
+ * opaque copy to a later CORS decode and reports `MEDIA_ERR_SRC_NOT_SUPPORTED`
+ * ("Format error"). The still still shows. A dedicated query keeps the CORS
+ * decode off that cache key. Blob and data URLs are already same-origin.
+ *
+ * @param {string|null|undefined} src
+ * @returns {string|null|undefined}
+ */
+export function corsDecodableMediaUrl(src) {
+  if (typeof src !== 'string' || !src) {
+    return src;
+  }
+  if (src.startsWith('blob:') || src.startsWith('data:')) {
+    return src;
+  }
+  const base =
+    typeof globalThis.location?.href === 'string'
+      ? globalThis.location.href
+      : 'http://localhost/';
+  try {
+    const url = new URL(src, base);
+    if (url.searchParams.get(CORS_MEDIA_QUERY) === CORS_MEDIA_VALUE) {
+      return url.toString();
+    }
+    url.searchParams.set(CORS_MEDIA_QUERY, CORS_MEDIA_VALUE);
+    return url.toString();
+  } catch {
+    return src;
+  }
+}
 
 const DEFAULT_TAPE = {
   frames: [],
@@ -277,7 +318,7 @@ export function createIdleLoopVideo(
   video.preload = 'auto';
   video[REPEAT_FIELD] = repeat !== false;
   video[MAX_EDGE_FIELD] = maxEdge;
-  video.src = src;
+  video.src = corsDecodableMediaUrl(src);
   if (onLoaded) {
     video.addEventListener('loadeddata', onLoaded);
   }

@@ -5,6 +5,7 @@ import {
   attachResponseTimeMs,
   fingerprintMessageContent,
   formatMessageMetrics,
+  formatTextInferenceModel,
   rememberAvatarResponseMetrics,
   resolveMessageResponseTimeMs,
 } from './messageResponseMetrics.js';
@@ -105,6 +106,27 @@ test('attachResponseTimeMs writes the fields the metrics line already reads', ()
   assert.equal(attached.usage.latency_ms, 1500);
   assert.equal(attached.response_metadata.total_response_time_ms, 1500);
   assert.equal(formatMessageMetrics(attached), '1.5s • 12 tokens');
+});
+
+test('the text inference model is read from response_metadata', () => {
+  assert.equal(
+    formatTextInferenceModel({
+      response_metadata: {
+        text_model: 'meta/llama-3.2-90b-vision-instruct',
+        text_model_provider: 'NVIDIA',
+      },
+    }),
+    'meta/llama-3.2-90b-vision-instruct · NVIDIA'
+  );
+  assert.equal(
+    formatTextInferenceModel({
+      text_model: 'gpt-5.6-luna',
+      text_model_provider: 'OPEN_AI',
+      text_model_credit_fallback: true,
+    }),
+    'gpt-5.6-luna · OPEN_AI (NVIDIA NIM fallback)'
+  );
+  assert.equal(formatTextInferenceModel({ content: 'Hey.' }), null);
 });
 
 test('fingerprint ignores surrounding whitespace', () => {
