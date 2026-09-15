@@ -73,7 +73,12 @@ import {
 } from './speakingIndicator';
 import { transcribeAssistantIdOf } from '../services/personalAvatar';
 import AvatarWorkspaceHeader from './AvatarWorkspaceHeader';
-import { isAvatarSelectionLocation } from './personalAvatarWorkspace';
+import {
+  isAvatarChatLocation,
+  isAvatarSelectionLocation,
+  isAvatarSettingsLocation,
+  chatWorkspaceTabFromSearch,
+} from './personalAvatarWorkspace';
 import { readVoiceModePreference } from '../services/voiceModePreference';
 import useInboxCount from '../hooks/useInboxCount';
 import LoopingVideo from './ui/LoopingVideo';
@@ -188,13 +193,16 @@ import {
 } from './voiceMessageBar';
 import {
   mediaIntrinsicSize,
+  openedPortraitChromeAfterAssistantChange,
   paintedPortraitFrameFor,
+  portraitChromeHeightForMeasure,
   portraitChromePadding,
   portraitComposerReserveHeight,
   portraitWellIsTall,
   portraitWellMediaIn,
   portraitWellShouldHoldOutgoingSize,
   portraitWellShouldKeepRememberedSize,
+  portraitWellSizeAfterAssistantChange,
   portraitWellSizeForConstraint,
   portraitWellBoxStyle,
   portraitWellSizeIsUsable,
@@ -545,36 +553,42 @@ const LiveVoiceMode = ({
   const { showGenerated } = useAvatarFaceSource(assistantId);
   const stageIsShowing = stageVisible && !galleryIsOpen;
   const wellForAssistantIdRef = useRef(assistantId);
+  const voiceStageRootRef = useRef(null);
   let openedPortraitWellSize = portraitWellSize;
   let openedPaintedPortraitFrame = paintedPortraitFrame;
+  let openedStageHeaderHeight = stageHeaderHeight;
+  let openedPortraitComposerReserve = portraitComposerReserve;
   if (wellForAssistantIdRef.current !== assistantId) {
     wellForAssistantIdRef.current = assistantId;
     seedOpenedAvatarPortraitWell(assistantId);
     const recalledWell = recalledPortraitWellSize(assistantId);
-    openedPortraitWellSize = recalledWell;
-    openedPaintedPortraitFrame = recalledWell
-      ? paintedPortraitFrameFor(recalledWell, null)
-      : null;
-    setPortraitWellSize(recalledPortraitWellSize(assistantId));
     const fittedWell = portraitWellSizeForConstraint(
       portraitConstraintRef.current,
       null,
       recalledWell
     );
-    if (portraitWellSizeIsUsable(fittedWell)) {
-      openedPortraitWellSize = fittedWell;
-      openedPaintedPortraitFrame = paintedPortraitFrameFor(fittedWell, null);
-      setPortraitWellSize(fittedWell);
-    }
+    const nextWell = portraitWellSizeAfterAssistantChange(
+      recalledWell,
+      fittedWell
+    );
+    openedPortraitWellSize = nextWell;
+    openedPaintedPortraitFrame = nextWell
+      ? paintedPortraitFrameFor(nextWell, null)
+      : null;
+    setPortraitWellSize(nextWell);
     setPaintedPortraitFrame(openedPaintedPortraitFrame);
     const recalledChromeForAvatar = recalledPortraitChrome(assistantId);
-    if (recalledChromeForAvatar?.headerHeight > 0) {
-      setStageHeaderHeight(recalledChromeForAvatar.headerHeight);
-    }
-    if (recalledChromeForAvatar?.collapsedDockHeight > 0) {
-      lastCollapsedReserveRef.current =
-        recalledChromeForAvatar.collapsedDockHeight;
-      setPortraitComposerReserve(recalledChromeForAvatar.collapsedDockHeight);
+    const openedChrome = openedPortraitChromeAfterAssistantChange(
+      stageHeaderHeight,
+      portraitComposerReserve,
+      recalledChromeForAvatar
+    );
+    openedStageHeaderHeight = openedChrome.headerHeight;
+    openedPortraitComposerReserve = openedChrome.collapsedDockHeight;
+    setStageHeaderHeight(openedChrome.headerHeight);
+    if (openedChrome.collapsedDockHeight > 0) {
+      lastCollapsedReserveRef.current = openedChrome.collapsedDockHeight;
+      setPortraitComposerReserve(openedChrome.collapsedDockHeight);
     }
   }
 
@@ -779,53 +793,80 @@ const LiveVoiceMode = ({
     const floor = collapsedDockFloorRef.current;
     if (!floor || typeof ResizeObserver === 'undefined') return undefined;
     const update = () => {
+      if (!stageIsShowing) return;
       const reserve = portraitComposerReserveHeight({
         collapsedDockHeight: floor.getBoundingClientRect().height,
         lastCollapsedReserveHeight: lastCollapsedReserveRef.current,
       });
-      if (reserve > 0) {
-        lastCollapsedReserveRef.current = reserve;
-        rememberPortraitChrome(assistantId, {
-          collapsedDockHeight: reserve,
-          headerHeight:
-            stageHeaderRef.current?.getBoundingClientRect?.().height,
-        });
-      }
+      if (!(reserve > 0)) return;
+      lastCollapsedReserveRef.current = reserve;
+      rememberPortraitChrome(assistantId, {
+        collapsedDockHeight: reserve,
+        headerHeight: stageHeaderRef.current?.getBoundingClientRect?.().height,
+      });
       setPortraitComposerReserve(reserve);
     };
     update();
     const observer = new ResizeObserver(update);
     observer.observe(floor);
     return () => observer.disconnect();
-  }, [assistantId]);
+  }, [assistantId, stageIsShowing]);
 
   useLayoutEffect(() => {
     const header = stageHeaderRef.current;
     if (!header || typeof ResizeObserver === 'undefined') return undefined;
     const update = () => {
+      if (!stageIsShowing) return;
       const headerHeight = header.getBoundingClientRect().height;
-      setStageHeaderHeight(headerHeight);
+      if (!(headerHeight > 0)) return;
+      setStageHeaderHeight((current) =>
+        portraitChromeHeightForMeasure(headerHeight, current)
+      );
       rememberPortraitChrome(assistantId, { headerHeight });
     };
     update();
     const observer = new ResizeObserver(update);
     observer.observe(header);
     return () => observer.disconnect();
-  }, [assistantId]);
+  }, [assistantId, stageIsShowing]);
 
   const measurePortraitWell = useCallback(
     (presentedMedia = null) => {
       if (!stageIsShowing) return;
       const constraint = portraitConstraintRef.current;
       const rememberedWell = recalledPortraitWellSize(assistantId);
+      const recalledChrome = recalledPortraitChrome(assistantId);
+      const liveHeader = portraitChromeHeightForMeasure(
+        stageHeaderRef.current?.getBoundingClientRect?.().height,
+        stageHeaderHeight,
+        recalledChrome?.headerHeight
+      );
+      const liveReserve = portraitChromeHeightForMeasure(
+        portraitComposerReserveHeight({
+          collapsedDockHeight:
+            collapsedDockFloorRef.current?.getBoundingClientRect?.().height,
+          lastCollapsedReserveHeight: lastCollapsedReserveRef.current,
+        }),
+        portraitComposerReserve,
+        recalledChrome?.collapsedDockHeight
+      );
+      const livePadding = portraitChromePadding(liveHeader, liveReserve);
       const paintedMedia = presentedMedia ?? portraitWellMediaIn(constraint);
       const nextSize = portraitWellSizeForConstraint(
         constraint,
         paintedMedia,
-        rememberedWell
+        rememberedWell,
+        livePadding
       );
       if (!portraitWellSizeIsUsable(nextSize)) {
         return;
+      }
+      if (liveHeader > 0 && liveHeader !== stageHeaderHeight) {
+        setStageHeaderHeight(liveHeader);
+      }
+      if (liveReserve > 0 && liveReserve !== portraitComposerReserve) {
+        lastCollapsedReserveRef.current = liveReserve;
+        setPortraitComposerReserve(liveReserve);
       }
       // A square still must not overwrite a seeded 9:16 well. A leftover
       // generated canvas must not grow a reference-photo well back to 9:16.
@@ -862,7 +903,14 @@ const LiveVoiceMode = ({
       }
       setPaintedPortraitFrame(paintedPortraitFrameFor(nextSize, paintedMedia));
     },
-    [assistantId, portraitWellSize, showGenerated, stageIsShowing]
+    [
+      assistantId,
+      portraitComposerReserve,
+      portraitWellSize,
+      showGenerated,
+      stageHeaderHeight,
+      stageIsShowing,
+    ]
   );
 
   // Leaving the screen stops everything: speech, listening, dictation.
@@ -881,23 +929,36 @@ const LiveVoiceMode = ({
 
   // Voice mode is a transparent stage over the world. The sidebar stays up as a
   // compact icon rail (`html.voice-stage-open` narrows `--app-rail-width`).
-  // Drop the class on settings, inbox, and the transcript so those screens
-  // keep the ordinary rail. Hold the class on Avatar Selection when talking
-  // is preferred: dropping it widens the rail, the constraint grows, and
-  // opening another avatar's chat resizes the portrait.
+  // Drop the class on the transcript so that screen keeps the ordinary rail.
+  // Hold the class on Avatar Selection, Settings, and Inbox when talking is
+  // preferred: flipping the rail on every gallery↔settings hop reflows the
+  // whole signed-in frame (and forces a WebGL setSize), which is what made
+  // that navigation feel stalled.
   //
   // Do not remove the class in this effect's cleanup. Gallery → chat both
   // hold the rail, and a cleanup-then-add leaves one paint with the wide
   // rail — the well remasures, then snaps back.
   useEffect(() => {
+    const voicePreferred = readVoiceModePreference();
+    const workspaceTab = chatWorkspaceTabFromSearch(location.search);
+    const onAvatarWorkspace =
+      galleryIsOpen ||
+      isAvatarChatLocation(location.pathname, location.search) ||
+      isAvatarSettingsLocation(location.pathname, location.search) ||
+      location.pathname === '/inbox' ||
+      (Boolean(location.pathname?.startsWith('/chat/')) &&
+        workspaceTab === 'inbox');
     const holdNarrowRail =
-      stageIsShowing || (galleryIsOpen && readVoiceModePreference());
+      stageIsShowing || (voicePreferred && onAvatarWorkspace);
+    // #region agent log
+    fetch('http://127.0.0.1:7557/ingest/0403ecb1-fecd-46cd-92b1-501b8e956682',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'ad98d7'},body:JSON.stringify({sessionId:'ad98d7',runId:'post-fix',hypothesisId:'H6',location:'LiveVoiceMode.jsx:voiceStageRail',message:'voice-stage rail decision',data:{holdNarrowRail,stageIsShowing,galleryIsOpen,voicePreferred,onAvatarWorkspace,pathname:location.pathname},timestamp:Date.now()})}).catch(()=>{});
+    // #endregion
     if (holdNarrowRail) {
       document.documentElement.classList.add('voice-stage-open');
     } else {
       document.documentElement.classList.remove('voice-stage-open');
     }
-  }, [galleryIsOpen, stageIsShowing]);
+  }, [galleryIsOpen, stageIsShowing, location.pathname, location.search]);
 
   useEffect(
     () => () => {
@@ -905,6 +966,22 @@ const LiveVoiceMode = ({
     },
     []
   );
+
+  useEffect(() => {
+    if (stageIsShowing) return undefined;
+    const stageRoot = voiceStageRootRef.current;
+    const focused = document.activeElement;
+    if (
+      stageRoot &&
+      focused &&
+      typeof stageRoot.contains === 'function' &&
+      stageRoot.contains(focused) &&
+      typeof focused.blur === 'function'
+    ) {
+      focused.blur();
+    }
+    return undefined;
+  }, [galleryIsOpen, stageIsShowing]);
 
   // Keep a generated still on stage after the reply, the same way the
   // message view swaps faces. An idle loop is optional; snapping back
@@ -1982,17 +2059,19 @@ const LiveVoiceMode = ({
     .filter(Boolean)
     .join(' · ');
   const chromePadding = portraitChromePadding(
-    stageHeaderHeight,
-    portraitComposerReserve
+    openedStageHeaderHeight,
+    openedPortraitComposerReserve
   );
 
   return createPortal(
     // `--app-rail-width` is the collapsed icon rail; `z-30` sits above the
     // page (z-10) and under the sidebar (rail 40, panel 50).
     <div
+      ref={voiceStageRootRef}
       className={`voice-stage fixed top-0 right-0 bottom-0 left-[var(--app-rail-width)] z-30 bg-transparent overflow-hidden${
         stageIsShowing ? '' : ' invisible pointer-events-none'
       }`}
+      inert={!stageIsShowing}
       onPointerDown={(event) => {
         primeAvatarSpeechPlayback();
         if (!shouldCollapseVoiceMessageBar(event.target)) return;
@@ -2066,6 +2145,11 @@ const LiveVoiceMode = ({
               stageLoop ||
               (stageStill && isValidImageUrl(stageStill)) ? (
                 <LoopingVideo
+                  // A new assistant must not keep the previous looping face.
+                  // Holding layers left Shivon on Evan's stage after Avatar
+                  // Selection. Do not key LiveVoiceMode: that remounts the
+                  // well and snaps a generated portrait from a square to 9:16.
+                  key={assistantId}
                   src={
                     lipSyncClipUrl ?? (holdEmotionStill ? undefined : stageLoop)
                   }
@@ -2122,11 +2206,12 @@ const LiveVoiceMode = ({
               inboxCount={inboxCount}
               onTabChange={onNavigateTab}
             />
-            {statusLine ? (
-              <p className="px-3 pb-1.5 text-white/50 text-[10px] sm:text-center">
-                {statusLine}
-              </p>
-            ) : null}
+            <p
+              className="px-3 pb-1.5 text-white/50 text-[10px] sm:text-center"
+              aria-hidden={!statusLine}
+            >
+              {statusLine || '\u00a0'}
+            </p>
           </>
         ) : (
           <div className="flex items-center justify-between gap-2 px-3 pt-[max(0.5rem,env(safe-area-inset-top))] pb-2">

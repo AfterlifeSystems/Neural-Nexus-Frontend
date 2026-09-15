@@ -13,6 +13,7 @@ const CAPTURE_FIELD = '_idleLoopCaptureAttached';
 const REPEAT_FIELD = '_idleLoopRepeat';
 const MAX_EDGE_FIELD = '_idleLoopMaxEdge';
 const VIDEO_HOST_ID = 'idle-loop-video-host';
+export const IDLE_LOOP_VIDEO_HOST_ID = VIDEO_HOST_ID;
 // Must stay a painted pixel in the viewport. `opacity: 0`, `visibility:
 // hidden`, `display: none`, or `z-index: -1` behind an opaque page all
 // count as invisible: Chrome and Firefox suspend the decoder, rVFC
@@ -228,6 +229,17 @@ export function blitIdleLoopReverse(video) {
     tape.output = document.createElement('canvas');
   }
   const output = tape.output;
+  // Gallery WebGL keys the texture on this canvas. Redraw only when the
+  // reverse sample changes — voice mode and the carousel both call this
+  // every animation frame, and a fresh drawImage each tick made the face
+  // hitch under load.
+  if (
+    tape.outputFrame === frame &&
+    output.width === frame.width &&
+    output.height === frame.height
+  ) {
+    return output;
+  }
   if (output.width !== frame.width || output.height !== frame.height) {
     output.width = frame.width;
     output.height = frame.height;
@@ -237,8 +249,9 @@ export function blitIdleLoopReverse(video) {
     return frame;
   }
   ctx.imageSmoothingEnabled = true;
-  ctx.imageSmoothingQuality = 'high';
+  ctx.imageSmoothingQuality = 'medium';
   ctx.drawImage(frame, 0, 0);
+  tape.outputFrame = frame;
   return output;
 }
 
@@ -361,13 +374,114 @@ export function stepIdleLoopMedia(video, direction, now, { repeat = true } = {})
   };
 }
 
+/**
+ * Whether this hidden idle-loop video has a frame that can fill a 9:16 well.
+ *
+ * @param {HTMLVideoElement|{readyState?: number, videoWidth?: number, videoHeight?: number}|null|undefined} video
+ * @returns {boolean}
+ */
+export function idleLoopVideoCanPaint(video) {
+  return Boolean(
+    video &&
+      video.readyState >= 2 &&
+      video.videoWidth > 0 &&
+      video.videoHeight > 0
+  );
+}
+
+/**
+ * Whether this mounted video is the idle loop for this URL.
+ *
+ * @param {HTMLVideoElement|{getAttribute?: Function, src?: string}|null|undefined} video
+ * @param {string|null|undefined} src
+ * @returns {boolean}
+ */
+export function idleLoopVideoSrcMatches(video, src) {
+  if (!video || !src) return false;
+  const want = corsDecodableMediaUrl(src);
+  const mounted = video.getAttribute?.('src') || video.src || '';
+  return mounted === want;
+}
+
+/**
+ * An already-decoded idle loop in the shared host — the carousel's copy.
+ * Voice mode paints that frame before the browser paints so a square still
+ * does not fill a 9:16 well and then unzoom when this clip arrives.
+ *
+ * @param {string|null|undefined} src
+ * @param {Document|null|undefined} [root]
+ * @returns {HTMLVideoElement|null}
+ */
+export function findMountedIdleLoopVideo(src, root) {
+  const documentRoot =
+    root ?? (typeof document !== 'undefined' ? document : null);
+  if (!documentRoot || !src) return null;
+  const host = documentRoot.getElementById?.(IDLE_LOOP_VIDEO_HOST_ID);
+  if (!host) return null;
+  for (const video of host.querySelectorAll('video')) {
+    if (idleLoopVideoSrcMatches(video, src) && idleLoopVideoCanPaint(video)) {
+      return video;
+    }
+  }
+  return null;
+}
+
+/**
+ * Pixel size of the voice-stage / gallery paint for this idle loop.
+ *
+ * Full decoder resolution (often 720×1280) on every animation frame made
+ * voice mode hitch. Match the tape capture edge so the well keeps a 9:16
+ * aspect without spending a full-res blit sixty times a second.
+ *
+ * @param {{videoWidth?: number, videoHeight?: number, _idleLoopMaxEdge?: number}|null|undefined} video
+ * @returns {{width: number, height: number}|null}
+ */
+export function idleLoopPaintSize(video) {
+  if (!idleLoopVideoCanPaint(video)) {
+    return null;
+  }
+  const edge = tapeEdge(video);
+  const longest = Math.max(video.videoWidth, video.videoHeight);
+  const scale = edge / longest;
+  return {
+    width: Math.max(2, Math.round(video.videoWidth * scale)),
+    height: Math.max(2, Math.round(video.videoHeight * scale)),
+  };
+}
+
+/**
+ * Whether this paint would show the same pixels as the last one.
+ *
+ * Forward play only advances when `currentTime` moves. Reverse only
+ * advances when the tape sample changes. Skipping an unchanged blit is
+ * what keeps voice mode from stuttering on a 60 Hz display with a 30 fps
+ * clip.
+ *
+ * @param {HTMLVideoElement|null|undefined} video
+ * @param {unknown} previousKey
+ * @returns {{unchanged: boolean, key: unknown}}
+ */
+export function idleLoopPaintKeyState(video, previousKey) {
+  const reverse = idleLoopReverseImage(video);
+  const key = reverse
+    ? reverse
+    : Math.round((Number(video?.currentTime) || 0) * 1000);
+  return {
+    unchanged: previousKey === key && previousKey != null,
+    key,
+  };
+}
+
 export function paintIdleLoopFrame(canvas, video) {
-  if (!canvas || !video || video.readyState < 2 || video.videoWidth === 0) {
+  if (!canvas || !idleLoopVideoCanPaint(video)) {
     return false;
   }
   const source = blitIdleLoopReverse(video) || video;
-  const width = video.videoWidth;
-  const height = video.videoHeight;
+  const size = idleLoopPaintSize(video);
+  if (!size) {
+    return false;
+  }
+  const { width, height } = size;
   if (canvas.width !== width || canvas.height !== height) {
     canvas.width = width;
     canvas.height = height;
@@ -377,9 +491,31 @@ export function paintIdleLoopFrame(canvas, video) {
     return false;
   }
   context.imageSmoothingEnabled = true;
-  context.imageSmoothingQuality = 'high';
+  context.imageSmoothingQuality = 'medium';
   context.drawImage(source, 0, 0, width, height);
   return true;
+}
+
+/**
+ * Park a shared-host idle loop so a sleeping carousel does not keep
+ * decoding under voice mode.
+ *
+ * @param {HTMLVideoElement|null|undefined} video
+ * @param {boolean} suspended
+ */
+export function setIdleLoopVideoSuspended(video, suspended) {
+  if (!video) {
+    return;
+  }
+  if (suspended) {
+    video._idleLoopAllowCapture = false;
+    video.pause();
+    return;
+  }
+  if (video._idleLoopAllowCapture === false) {
+    video._idleLoopAllowCapture = true;
+  }
+  playQuietly(video);
 }
 
 export function idleLoopNeedsPingPong(video) {

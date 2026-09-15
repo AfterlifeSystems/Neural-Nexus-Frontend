@@ -17,6 +17,7 @@ import {
 import {
   createIdleLoopVideo,
   disposeIdleLoopVideo,
+  setIdleLoopVideoSuspended,
   stepIdleLoopMedia,
 } from './ui/idleLoopSeam';
 import {
@@ -354,9 +355,13 @@ class Media {
   loadStillImage(src) {
     this.stillLoadToken += 1;
     const token = this.stillLoadToken;
+    const previousImage = this.image;
     this.image = src || null;
     this.stillImage = null;
     this.stillReady = !this.image;
+    // #region agent log
+    fetch('http://127.0.0.1:7557/ingest/0403ecb1-fecd-46cd-92b1-501b8e956682',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'ad98d7'},body:JSON.stringify({sessionId:'ad98d7',runId:'pre-fix',hypothesisId:'H5',location:'CircularGallery.jsx:loadStillImage',message:'still image reload started',data:{assistantId:this.assistantId||null,hadPrevious:Boolean(previousImage),hasNext:Boolean(this.image),previousLength:previousImage?.length??0,nextLength:this.image?.length??0,mediaRevealed:this.mediaRevealed,portraitLoop:this.portraitLoop},timestamp:Date.now()})}).catch(()=>{});
+    // #endregion
     if (!this.image) {
       if (!this.loopBound) this.applyPlaceholder();
       this.tryRevealMedia();
@@ -529,6 +534,12 @@ class Media {
     const frameChanged = nextPortraitLoop !== this.portraitLoop;
     this.portraitLoop = nextPortraitLoop;
     if (!loopChanged && !frameChanged) return;
+    const keepStillWhileLoopLoads = Boolean(
+      this.stillImage && this.stillReady && !this.loopBound
+    );
+    // #region agent log
+    fetch('http://127.0.0.1:7557/ingest/0403ecb1-fecd-46cd-92b1-501b8e956682',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'ad98d7'},body:JSON.stringify({sessionId:'ad98d7',runId:'post-fix',hypothesisId:'H2',location:'CircularGallery.jsx:setSources',message:'card sources changed',data:{assistantId:this.assistantId||item.id||null,loopChanged,frameChanged,loopBound:this.loopBound,keepStillWhileLoopLoads,willApplyPlaceholder:!this.loopBound&&!keepStillWhileLoopLoads,hadVideo:Boolean(this.video),nextVideo:Boolean(nextVideo),prevPortraitLoop:!frameChanged?nextPortraitLoop:!nextPortraitLoop,nextPortraitLoop},timestamp:Date.now()})}).catch(()=>{});
+    // #endregion
     if (loopChanged) {
       if (this.videoElement) {
         disposeIdleLoopVideo(this.videoElement);
@@ -539,8 +550,13 @@ class Media {
       this.loopBound = false;
     }
     if (!this.loopBound) {
-      this.mediaRevealed = false;
-      this.applyPlaceholder();
+      // A ready still must stay on screen while an idle loop catches up.
+      // Blanking to the placeholder here was the intermittent flash when
+      // gallery cards patched sources after settings → gallery.
+      if (!(this.stillImage && this.stillReady)) {
+        this.mediaRevealed = false;
+        this.applyPlaceholder();
+      }
       this.tryRevealMedia();
     }
     this.startIdleLoopIfNearby();
@@ -781,6 +797,9 @@ class App {
       return;
     }
     const sameIds = galleryItemListSameIds(this.originalItems, galleryItems);
+    // #region agent log
+    fetch('http://127.0.0.1:7557/ingest/0403ecb1-fecd-46cd-92b1-501b8e956682',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'ad98d7'},body:JSON.stringify({sessionId:'ad98d7',runId:'pre-fix',hypothesisId:'H1',location:'CircularGallery.jsx:updateItems',message:'gallery items update path',data:{path:sameIds&&this.medias?.length===galleryItems.length?'patch':'rebuild',prevCount:this.originalItems?.length??0,nextCount:galleryItems.length,sameIds,sample:galleryItems.slice(0,3).map((item)=>({id:item?.id,hasImage:Boolean(item?.image),hasVideo:Boolean(item?.video),portraitLoop:Boolean(item?.portraitLoop)}))},timestamp:Date.now()})}).catch(()=>{});
+    // #endregion
     this.originalItems = galleryItems;
     this.mediasImages = galleryItems;
     if (sameIds && this.medias?.length === galleryItems.length) {
@@ -927,6 +946,9 @@ class App {
     ) {
       return;
     }
+    // #region agent log
+    fetch('http://127.0.0.1:7557/ingest/0403ecb1-fecd-46cd-92b1-501b8e956682',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'ad98d7'},body:JSON.stringify({sessionId:'ad98d7',runId:'post-fix',hypothesisId:'H3',location:'CircularGallery.jsx:onResize',message:'webgl resize will setSize',data:{prevWidth:this.screen?.width??null,prevHeight:this.screen?.height??null,nextWidth:nextScreen.width,nextHeight:nextScreen.height,isActive:this.isActive,mediaCount:this.medias?.length??0},timestamp:Date.now()})}).catch(()=>{});
+    // #endregion
     const previousWidth = this.medias?.[0]?.width ?? 0;
     this.screen = nextScreen;
     this.renderer.setSize(this.screen.width, this.screen.height);
@@ -1068,15 +1090,36 @@ class App {
     const nextIsActive = Boolean(isActive);
     if (nextIsActive === this.isActive) return;
     this.isActive = nextIsActive;
+    // #region agent log
+    fetch('http://127.0.0.1:7557/ingest/0403ecb1-fecd-46cd-92b1-501b8e956682',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'ad98d7'},body:JSON.stringify({sessionId:'ad98d7',runId:'post-fix',hypothesisId:'H3',location:'CircularGallery.jsx:setActive',message:'gallery active toggled',data:{isActive:this.isActive,screenWidth:this.screen?.width??null,screenHeight:this.screen?.height??null,containerWidth:this.container?.clientWidth??null,containerHeight:this.container?.clientHeight??null,mediaCount:this.medias?.length??0,revealedCount:(this.medias||[]).filter((media)=>media.mediaRevealed).length},timestamp:Date.now()})}).catch(()=>{});
+    // #endregion
     if (this.isActive) {
+      this.medias?.forEach((media) => {
+        setIdleLoopVideoSuspended(media.videoElement, false);
+      });
       this.addEventListeners();
-      this.onResize();
+      // Paint immediately with the last known size, then resize after the
+      // settings→gallery keep-alive layout swap settles. Synchronous setSize
+      // here was thrashing 1776↔1792 (scrollbar gutter) and clearing the
+      // framebuffer on every return to the gallery.
       this.update();
+      requestAnimationFrame(() => {
+        requestAnimationFrame(() => {
+          if (!this.isActive) return;
+          this.onResize();
+        });
+      });
       return;
     }
     window.cancelAnimationFrame(this.raf);
     this.raf = 0;
     this.removeEventListeners();
+    // Voice mode paints its own idle loop. Leaving these decoders running
+    // under a sleeping carousel contended for the GPU and made the stage
+    // face hitch.
+    this.medias?.forEach((media) => {
+      setIdleLoopVideoSuspended(media.videoElement, true);
+    });
   }
   addEventListeners() {
     this.boundOnResize = this.onResize.bind(this);

@@ -3,14 +3,21 @@ import { test } from 'node:test';
 import {
   IDLE_LOOP_VIDEO_HOST_STYLE,
   corsDecodableMediaUrl,
+  idleLoopPaintKeyState,
+  idleLoopPaintSize,
   idleLoopReverseImage,
   idleLoopUsesNativeLoop,
+  idleLoopVideoCanPaint,
+  idleLoopVideoSrcMatches,
+  findMountedIdleLoopVideo,
+  IDLE_LOOP_VIDEO_HOST_ID,
   meanRgbDistance,
   pingPongCaptureInterval,
   pingPongMaxFrames,
   handleIdleLoopEnded,
   reverseFrameAtElapsed,
   reverseFrameIndex,
+  setIdleLoopVideoSuspended,
   stepIdleLoopMedia,
   stepIdleLoopPingPong,
   syncIdleLoopPlayback,
@@ -561,4 +568,100 @@ test('ended at time zero does not start reverse', () => {
   const direction = stepIdleLoopPingPong(video, 1, 0);
   assert.equal(direction, 1);
   assert.equal(video._idleLoopTape.reverseStartedAt, null);
+});
+
+test('an idle-loop video can paint once it has a decoded frame', () => {
+  assert.equal(
+    idleLoopVideoCanPaint({
+      readyState: 2,
+      videoWidth: 720,
+      videoHeight: 1280,
+    }),
+    true
+  );
+  assert.equal(
+    idleLoopVideoCanPaint({
+      readyState: 1,
+      videoWidth: 720,
+      videoHeight: 1280,
+    }),
+    false
+  );
+  const loopUrl = 'https://cdn.example/idle.mp4';
+  assert.equal(
+    idleLoopVideoSrcMatches(
+      { getAttribute: () => corsDecodableMediaUrl(loopUrl), src: '' },
+      loopUrl
+    ),
+    true
+  );
+  assert.equal(
+    idleLoopVideoSrcMatches(
+      { getAttribute: () => corsDecodableMediaUrl(loopUrl), src: '' },
+      'https://cdn.example/other.mp4'
+    ),
+    false
+  );
+});
+
+test('findMountedIdleLoopVideo returns the decoded host video for that URL', () => {
+  const loopUrl = 'https://cdn.example/idle.mp4';
+  const ready = {
+    getAttribute: () => corsDecodableMediaUrl(loopUrl),
+    readyState: 2,
+    videoWidth: 720,
+    videoHeight: 1280,
+  };
+  const root = {
+    getElementById: (id) =>
+      id === IDLE_LOOP_VIDEO_HOST_ID
+        ? { querySelectorAll: () => [ready] }
+        : null,
+  };
+  assert.equal(findMountedIdleLoopVideo(loopUrl, root), ready);
+  assert.equal(
+    findMountedIdleLoopVideo('https://cdn.example/other.mp4', root),
+    null
+  );
+});
+
+test('idle-loop paint size caps the long edge so voice mode does not blit full res', () => {
+  assert.deepEqual(
+    idleLoopPaintSize({
+      readyState: 2,
+      videoWidth: 720,
+      videoHeight: 1280,
+      _idleLoopMaxEdge: 512,
+    }),
+    { width: 288, height: 512 }
+  );
+  assert.equal(idleLoopPaintSize({ readyState: 1, videoWidth: 720, videoHeight: 1280 }), null);
+});
+
+test('idle-loop paint key skips unchanged forward and reverse samples', () => {
+  const video = makeVideo(6);
+  video.currentTime = 1.234;
+  const first = idleLoopPaintKeyState(video, null);
+  assert.equal(first.unchanged, false);
+  assert.equal(idleLoopPaintKeyState(video, first.key).unchanged, true);
+  video.currentTime = 1.235;
+  assert.equal(idleLoopPaintKeyState(video, first.key).unchanged, false);
+
+  const reverseFrame = { width: 32, height: 32 };
+  video._idleLoopReverseImage = reverseFrame;
+  const reverse = idleLoopPaintKeyState(video, first.key);
+  assert.equal(reverse.unchanged, false);
+  assert.equal(idleLoopPaintKeyState(video, reverse.key).unchanged, true);
+});
+
+test('suspending an idle-loop video pauses capture and playback', () => {
+  const video = makeVideo(6);
+  video.play();
+  video._idleLoopAllowCapture = true;
+  setIdleLoopVideoSuspended(video, true);
+  assert.equal(video.paused, true);
+  assert.equal(video._idleLoopAllowCapture, false);
+  setIdleLoopVideoSuspended(video, false);
+  assert.equal(video.paused, false);
+  assert.equal(video._idleLoopAllowCapture, true);
 });
