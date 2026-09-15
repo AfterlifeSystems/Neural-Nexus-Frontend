@@ -6,6 +6,13 @@
  * person moves between them.
  */
 
+import { VOICE_MODE_QUERY } from '../services/voiceModePreference.js';
+
+const NEW_CONVERSATION_THREAD_QUERY = 'new';
+// Same sentinel MediaContext exports as NEW_CONVERSATION_ID. Kept here so
+// this path helper does not import the React provider.
+const UNMINTED_CONVERSATION_ID = '__new__';
+
 /**
  * The workspace URL for a personal avatar.
  *
@@ -19,6 +26,42 @@ export function personalAvatarWorkspacePath(assistantId, tab = 'chat') {
   if (tab === 'settings') return `/chat/${encoded}?tab=settings`;
   if (tab === 'inbox') return `/chat/${encoded}?tab=inbox`;
   return `/chat/${encoded}`;
+}
+
+/**
+ * Chat-tab URL for a conversation.
+ *
+ * Voice mode and the typed message area are two ways into the same Chat tab.
+ * This path never carries settings or inbox, so New conversation (and picking
+ * a thread from another screen) lands on whichever of those two the browser
+ * last used, not on the tab the person is leaving.
+ *
+ * @param {string|null|undefined} assistantId
+ * @param {Object} [options]
+ * @param {string|null|undefined} [options.threadId] Thread to open, or
+ *   `'new'` / `'__new__'` for an unsent conversation.
+ * @param {boolean} [options.voicePreferred] Last used surface was voice mode.
+ * @returns {string|null}
+ */
+export function conversationChatPath(
+  assistantId,
+  { threadId, voicePreferred = false } = {}
+) {
+  if (!assistantId) return null;
+  const params = new URLSearchParams();
+  if (
+    threadId === NEW_CONVERSATION_THREAD_QUERY ||
+    threadId === UNMINTED_CONVERSATION_ID
+  ) {
+    params.set('thread', NEW_CONVERSATION_THREAD_QUERY);
+  } else if (threadId) {
+    params.set('thread', threadId);
+  }
+  if (voicePreferred) {
+    params.set(VOICE_MODE_QUERY, '1');
+  }
+  const query = params.toString();
+  return `/chat/${encodeURIComponent(assistantId)}${query ? `?${query}` : ''}`;
 }
 
 /**

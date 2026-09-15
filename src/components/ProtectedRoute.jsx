@@ -18,11 +18,15 @@ import { isAmbientCaptureSurface } from '../services/ambientCaptureSurface';
 import useSceneNarration from '../hooks/useSceneNarration';
 import useWorkspaceEscape from '../hooks/useWorkspaceEscape';
 import { GeoAvatarProvider } from '../context/GeoAvatarContext';
-import { voiceChatPath } from '../services/voiceModePreference';
+import {
+  readVoiceModePreference,
+  voiceChatPath,
+} from '../services/voiceModePreference';
 import {
   avatarGalleryKeepAliveClassName,
   avatarWorkspaceKeepAliveClassName,
   chatWorkspaceAvatarId,
+  conversationChatPath,
   isAvatarChatLocation,
   isAvatarSelectionLocation,
   isAvatarSettingsLocation,
@@ -72,14 +76,26 @@ export default function ProtectedRoute() {
   };
 
   // The sidebar lists conversations wherever an avatar is open in context —
-  // the gallery, account settings, billing — but only the chat screen can show
-  // one. Picking a conversation anywhere else has to go to that screen first,
-  // carrying the choice in the URL so the chat opens on it rather than on the
-  // newest thread, which is what the chat screen opens by default.
+  // the gallery, account settings, billing — but only Chat (typed messages or
+  // voice mode) can show one. Settings and inbox share `/chat/:id`, so the
+  // pathname alone is not enough: leaving those tabs has to drop the tab
+  // query. ChatArea stays mounted under the gallery, so the conversation is
+  // applied here rather than waiting for a remount to read `?thread=`.
   const activeAvatarId =
     activeAvatar?.assistant_id ?? activeAvatar?.avatar_id ?? null;
-  const chatPath = activeAvatarId ? `/chat/${activeAvatarId}` : null;
-  const isOnChatScreen = chatPath !== null && location.pathname === chatPath;
+  const conversationSurfaceIsOpen = isAvatarChatLocation(
+    location.pathname,
+    location.search
+  );
+  const openConversationSurface = (threadId) => {
+    if (!activeAvatarId || conversationSurfaceIsOpen) return;
+    navigate(
+      conversationChatPath(activeAvatarId, {
+        threadId,
+        voicePreferred: readVoiceModePreference(),
+      })
+    );
+  };
   // Webcam and screen stay on the rail on the gallery. Snapshots only go out
   // on the message view or voice mode — not settings, inbox, or avatar pick.
   const isConversationSurface = isAmbientCaptureSurface(
@@ -95,30 +111,9 @@ export default function ProtectedRoute() {
   const isViewingAChat = Boolean(activeAvatar);
 
   /**
-   * Open a different conversation with the current avatar.
-   *
-   * The history is re-read rather than restored from memory: another device may
-   * have added to it since, and a stale transcript is indistinguishable from a
-   * current one until the user notices a missing reply.
-   */
-  const handleSelectConversation = async (threadId) => {
-    setIsSidebarOpen(false);
-    if (chatPath && !isOnChatScreen) {
-      navigate(`${chatPath}?thread=${encodeURIComponent(threadId)}`);
-      return;
-    }
-    setActiveConversation(threadId);
-    try {
-      await getActiveConversationMessages(user, activeAvatar, threadId);
-    } catch (loadError) {
-      console.error('Loading the conversation failed:', loadError);
-      toast.error(loadError.message || 'Could not open that conversation.');
-    }
-  };
-
-  /**
    * Begin a conversation that does not exist yet. Nothing is created until the
-   * first message; the server mints the thread on that send.
+   * first message; the server mints the thread on that send. Opens Chat on
+   * the last used surface — voice mode or the typed message area.
    */
   const handleStartNewConversation = () => {
     setIsSidebarOpen(false);
@@ -127,21 +122,47 @@ export default function ProtectedRoute() {
     // previous new chat was closed without sending (no mint, same id, no
     // React update to hang the notice on).
     forgetUnmintedVoiceNotReadyShown(activeAvatarId);
-    if (chatPath && !isOnChatScreen) {
-      navigate(`${chatPath}?thread=new`);
-      return;
-    }
     setActiveConversation(NEW_CONVERSATION_ID);
     setMessages([]);
-    void offerMissingClonedVoiceNotice({
-      assistantId: activeAvatarId,
-      avatarName: activeAvatar?.name,
-      conversationId: NEW_CONVERSATION_ID,
-      avatar: activeAvatar,
-      user,
-      readerOwnsAvatar: isAvatarOwnedByUser(activeAvatar, user),
-      readerIsAnonymous: false,
-    });
+    // ChatArea remounts from account or billing and offers from its hook.
+    // The workspace stays mounted under gallery, settings, and inbox, so
+    // the notice has to be offered here or a second New conversation on an
+    // already-empty thread would never prompt.
+    if (keepChatMounted) {
+      void offerMissingClonedVoiceNotice({
+        assistantId: activeAvatarId,
+        avatarName: activeAvatar?.name,
+        conversationId: NEW_CONVERSATION_ID,
+        avatar: activeAvatar,
+        user,
+        readerOwnsAvatar: isAvatarOwnedByUser(activeAvatar, user),
+        readerIsAnonymous: false,
+      });
+    }
+    openConversationSurface('new');
+  };
+
+  /**
+   * Open a different conversation with the current avatar.
+   *
+   * The history is re-read rather than restored from memory: another device may
+   * have added to it since, and a stale transcript is indistinguishable from a
+   * current one until the user notices a missing reply.
+   */
+  const handleSelectConversation = async (threadId) => {
+    if (threadId === NEW_CONVERSATION_ID) {
+      handleStartNewConversation();
+      return;
+    }
+    setIsSidebarOpen(false);
+    setActiveConversation(threadId);
+    openConversationSurface(threadId);
+    try {
+      await getActiveConversationMessages(user, activeAvatar, threadId);
+    } catch (loadError) {
+      console.error('Loading the conversation failed:', loadError);
+      toast.error(loadError.message || 'Could not open that conversation.');
+    }
   };
 
   // Until the mount-time session restore has decided whether the stored
@@ -195,7 +216,7 @@ export default function ProtectedRoute() {
           neighbour cannot change the other's height. `overflow-y-auto` on the
           open workspace pane lets a page taller than the window scroll inside
           the frame rather than pushing the fixed rail around. */}
-        <div className="pl-[var(--app-rail-width)] h-full min-w-0 relative z-10">
+        <div className="pl-[var(--app-rail-width)] h-full min-w-0 relative z-10 [scrollbar-gutter:stable]">
           <div
             className={avatarGalleryKeepAliveClassName(galleryIsOpen)}
             aria-hidden={!galleryIsOpen}

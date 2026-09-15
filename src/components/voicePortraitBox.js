@@ -303,6 +303,54 @@ export function seedPortraitWellAspectIfUnknown(
 }
 
 /**
+ * Well size to open after the assistant changes.
+ *
+ * Fitting the recalled aspect to the constraint during that render reads
+ * the previous avatar's chrome padding, so the portrait hops when the
+ * header catch-up remesures. Keep a stored well as-is; an aspect seed
+ * paints through CSS until layout can measure.
+ *
+ * @param {{width?: number, height?: number}|null|undefined} recalledWell
+ * @param {{width?: number, height?: number}|null|undefined} fittedWell
+ * @returns {{width: number, height: number}|null}
+ */
+export function portraitWellSizeAfterAssistantChange(recalledWell, fittedWell) {
+  if (portraitWellSizeIsUsable(recalledWell)) return recalledWell;
+  if (portraitWellSizeIsUsable(fittedWell)) return fittedWell;
+  return null;
+}
+
+/**
+ * Header and folded-handle padding to open after the assistant changes.
+ *
+ * Restoring these through setState left one paint on the previous avatar's
+ * chrome, which resized the well.
+ *
+ * @param {number} currentHeaderHeight
+ * @param {number} currentReserve
+ * @param {{headerHeight?: number, collapsedDockHeight?: number}|null|undefined} recalledChrome
+ * @returns {{headerHeight: number, collapsedDockHeight: number}}
+ */
+export function openedPortraitChromeAfterAssistantChange(
+  currentHeaderHeight,
+  currentReserve,
+  recalledChrome
+) {
+  const recalledHeader = Number(recalledChrome?.headerHeight);
+  const recalledReserve = Number(recalledChrome?.collapsedDockHeight);
+  return {
+    headerHeight:
+      Number.isFinite(recalledHeader) && recalledHeader > 0
+        ? recalledHeader
+        : currentHeaderHeight,
+    collapsedDockHeight:
+      Number.isFinite(recalledReserve) && recalledReserve > 0
+        ? recalledReserve
+        : currentReserve,
+  };
+}
+
+/**
  * Whether the voice well should keep the outgoing avatar's size for this
  * paint.
  *
@@ -424,11 +472,19 @@ export function paintedPortraitFrameFor(wellSize, media) {
  * @param {Element|null|undefined} constraint
  * @param {Element|null|undefined} media
  * @param {{width: number, height: number}|null|undefined} [rememberedSize]
+ * @param {{paddingTop?: number, paddingBottom?: number}|null|undefined} [chromePadding]
  * @returns {{width: number, height: number}|null}
  */
-export function portraitWellSizeForConstraint(constraint, media, rememberedSize) {
+export function portraitWellSizeForConstraint(
+  constraint,
+  media,
+  rememberedSize,
+  chromePadding
+) {
   if (!constraint) return null;
-  const box = constraintContentSize(constraint);
+  const box = chromePadding
+    ? constraintContentSizeWithPadding(constraint, chromePadding)
+    : constraintContentSize(constraint);
   if (!box) return null;
   const { width, height } = box;
   const intrinsic = mediaIntrinsicSize(media);
@@ -492,6 +548,59 @@ export function constraintContentSize(constraint) {
 }
 
 /**
+ * Header or dock height to pad the well with. A hidden stage can report 0;
+ * using that grew the well, then the real chrome shrank it — the hop.
+ *
+ * @param {...number} heights
+ * @returns {number}
+ */
+export function portraitChromeHeightForMeasure(...heights) {
+  let tallest = 0;
+  for (const height of heights) {
+    const value = Number(height);
+    if (Number.isFinite(value) && value > tallest) {
+      tallest = value;
+    }
+  }
+  return tallest;
+}
+
+/**
+ * Content box of the voice constraint using live header/dock padding for
+ * the vertical edges. Reading computed padding after a hidden stage used
+ * leftover 0-height chrome and oversized the well for one paint.
+ *
+ * @param {Element|{clientWidth?: number, clientHeight?: number}|null|undefined} constraint
+ * @param {{paddingTop?: number, paddingBottom?: number}|null|undefined} padding
+ * @returns {{width: number, height: number}|null}
+ */
+export function constraintContentSizeWithPadding(constraint, padding) {
+  const width = Number(constraint?.clientWidth);
+  const height = Number(constraint?.clientHeight);
+  if (!(width > 0) || !(height > 0)) return null;
+  let paddingLeft = 0;
+  let paddingRight = 0;
+  try {
+    if (typeof getComputedStyle === 'function' && constraint.nodeType) {
+      const style = getComputedStyle(constraint);
+      paddingLeft = Number.parseFloat(style.paddingLeft) || 0;
+      paddingRight = Number.parseFloat(style.paddingRight) || 0;
+    }
+  } catch {
+    // Test doubles have no computed style.
+  }
+  const paddingTop = Number(padding?.paddingTop);
+  const paddingBottom = Number(padding?.paddingBottom);
+  const contentWidth = width - paddingLeft - paddingRight;
+  const contentHeight =
+    height -
+    (Number.isFinite(paddingTop) && paddingTop > 0 ? paddingTop : 0) -
+    (Number.isFinite(paddingBottom) && paddingBottom > 0 ? paddingBottom : 0);
+  if (!(contentWidth > 0) || !(contentHeight > 0)) return null;
+  return { width: contentWidth, height: contentHeight };
+}
+
+/**
  * Extra gap so the portrait does not kiss the frosted header or message dock.
  */
 export const PORTRAIT_CHROME_GUTTER_PX = 16;
@@ -541,7 +650,12 @@ export function rememberPortraitChrome(assistantId, chrome) {
   const headerHeight = Number(chrome?.headerHeight);
   const collapsedDockHeight = Number(chrome?.collapsedDockHeight);
   const previous = rememberedPortraitChromeByAssistant.get(assistantId) ?? {};
-  const nextHeader = headerHeight > 0 ? headerHeight : previous.headerHeight;
+  // A shorter header is the status line unmounting. Storing that height
+  // grew the portrait, then the status line came back and shrank it.
+  const nextHeader = portraitChromeHeightForMeasure(
+    headerHeight,
+    previous.headerHeight
+  );
   const nextCollapsed =
     collapsedDockHeight > 0
       ? collapsedDockHeight

@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import {
+  ADULT_ONLY_FEATURES_ENABLED,
   isAdultOnlyAvatar,
   mayKeepAdultOnlyAvatarOnGallery,
   maySeeAdultOnlyAvatarInSearch,
@@ -30,7 +31,8 @@ test('search hides an adult-only avatar until the viewer verifies age', () => {
       viewerUserId: 'visitor-1',
       ageVerified: true,
     }),
-    true
+    // Inert for demos: age verification does not unlock search.
+    ADULT_ONLY_FEATURES_ENABLED
   );
   assert.equal(
     maySeeAdultOnlyAvatarInSearch(ordinary, { viewerUserId: 'visitor-1' }),
@@ -48,7 +50,8 @@ test('the administrator sees adult-only avatars in search without verifying age'
       isAdmin: true,
       viewerUserId: 'admin-1',
     }),
-    true
+    // Inert for demos: the administrator exception stays off.
+    ADULT_ONLY_FEATURES_ENABLED
   );
 });
 
@@ -62,7 +65,8 @@ test('the owner and the administrator still keep an adult-only avatar on the gal
       isAdmin: true,
       viewerUserId: 'admin-1',
     }),
-    true
+    // Inert for demos: only the owner keeps the gallery entry.
+    ADULT_ONLY_FEATURES_ENABLED
   );
   assert.equal(
     mayKeepAdultOnlyAvatarOnGallery(adult, { viewerUserId: 'visitor-1' }),
@@ -73,6 +77,7 @@ test('the owner and the administrator still keep an adult-only avatar on the gal
       viewerUserId: 'visitor-1',
       ageVerified: true,
     }),
-    true
+    // Inert for demos: age verification does not unlock the gallery.
+    ADULT_ONLY_FEATURES_ENABLED
   );
 });

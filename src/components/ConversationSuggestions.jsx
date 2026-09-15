@@ -226,6 +226,7 @@ const ConversationSuggestions = ({ enabled = true, onSend, overlay = false }) =>
       <div
         id={menuId}
         data-voice-suggestion-sheet
+        data-conversation-suggestion-sheet
         role="menu"
         aria-label={sheetNoun}
         hidden={!isOpen}

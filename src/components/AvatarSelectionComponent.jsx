@@ -109,27 +109,51 @@ function elementOuterHeight(element) {
 }
 
 /**
- * Whether two avatar lists say the same thing.
+ * Gallery-relevant fields for one avatar record.
+ *
+ * Full-record JSON equality is too strict for the gallery open refresh: the
+ * list endpoint often returns the same 26 avatars with volatile nested fields
+ * (research progress, timestamps) that do not change which faces are shown.
+ * Replacing context for those mismatches re-ran portrait revalidation for every
+ * avatar — including multi-megabyte data URIs — and made settings→gallery
+ * navigation feel stalled.
+ *
+ * @param {object|null|undefined} avatar
+ * @returns {object}
+ */
+function galleryAvatarListIdentity(avatar) {
+  const metadata = avatar?.metadata ?? {};
+  return {
+    id: avatar?.assistant_id ?? avatar?.avatar_id ?? '',
+    name: avatar?.name ?? '',
+    description: avatar?.description ?? '',
+    is_public: Boolean(avatar?.is_public ?? metadata.is_public),
+    adult_only: Boolean(avatar?.adult_only ?? metadata.adult_only),
+    is_personal: Boolean(metadata.is_personal_avatar_of_creator),
+    user_id: metadata.user_id ?? '',
+  };
+}
+
+/**
+ * Whether two avatar lists say the same thing for the gallery.
  *
  * The gallery is a WebGL scene that CircularGallery rebuilds from scratch
  * whenever the identity of its `items` array changes, and a rebuild shows as a
  * black frame before the cards are drawn again. Handing it a freshly parsed
  * copy of a list it is already displaying therefore costs a visible flash and
- * buys nothing, so the refresh below replaces the list only when the server
- * actually disagrees with what is on screen.
- *
- * Serialising is sound here because both lists come from the same endpoint and
- * are parsed by the same JSON parser, so equal content serialises identically.
+ * buys nothing, so the refresh below replaces the list only when gallery-
+ * relevant fields disagree with what is on screen.
  *
  * @param {Array} freshAvatars The list just read from the API.
  * @param {Array} displayedAvatars The list the gallery is currently showing.
  * @returns {boolean} True when replacing one with the other would change nothing.
  */
 function describesTheSameAvatars(freshAvatars, displayedAvatars) {
-  return (
-    JSON.stringify(freshAvatars ?? []) ===
-    JSON.stringify(displayedAvatars ?? [])
+  const freshIdentity = (freshAvatars ?? []).map(galleryAvatarListIdentity);
+  const displayedIdentity = (displayedAvatars ?? []).map(
+    galleryAvatarListIdentity
   );
+  return JSON.stringify(freshIdentity) === JSON.stringify(displayedIdentity);
 }
 
 const AvatarSelectionComponent = ({}) => {
@@ -226,6 +250,9 @@ const AvatarSelectionComponent = ({}) => {
         frame.style.height !== nextHeight ||
         frame.style.flexBasis !== nextHeight
       ) {
+        // #region agent log
+        fetch('http://127.0.0.1:7557/ingest/0403ecb1-fecd-46cd-92b1-501b8e956682',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'ad98d7'},body:JSON.stringify({sessionId:'ad98d7',runId:'pre-fix',hypothesisId:'H4',location:'AvatarSelectionComponent.jsx:measureFrame',message:'gallery frame height applied',data:{prevHeight:frame.style.height||null,nextHeight,width,available,regionHeight:region.clientHeight},timestamp:Date.now()})}).catch(()=>{});
+        // #endregion
         frame.style.flexGrow = '0';
         frame.style.flexShrink = '0';
         frame.style.flexBasis = nextHeight;
@@ -347,11 +374,17 @@ const AvatarSelectionComponent = ({}) => {
 
         if (iconSource) {
           writeCachedAvatarIcon(assistantId, iconSource);
-          setAvatarIconsById((previousIcons) =>
-            previousIcons[assistantId] === iconSource
+          setAvatarIconsById((previousIcons) => {
+            const iconUnchanged = previousIcons[assistantId] === iconSource;
+            // #region agent log
+            if (!iconUnchanged) {
+              fetch('http://127.0.0.1:7557/ingest/0403ecb1-fecd-46cd-92b1-501b8e956682',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'ad98d7'},body:JSON.stringify({sessionId:'ad98d7',runId:'pre-fix',hypothesisId:'H5',location:'AvatarSelectionComponent.jsx:iconRevalidate',message:'portrait icon string changed',data:{assistantId,hadPrevious:Boolean(previousIcons[assistantId]),previousLength:previousIcons[assistantId]?.length??0,nextLength:iconSource?.length??0,samePrefix:(previousIcons[assistantId]||'').slice(0,32)===(iconSource||'').slice(0,32)},timestamp:Date.now()})}).catch(()=>{});
+            }
+            // #endregion
+            return iconUnchanged
               ? previousIcons
-              : { ...previousIcons, [assistantId]: iconSource }
-          );
+              : { ...previousIcons, [assistantId]: iconSource };
+          });
           return;
         }
 
@@ -681,9 +714,16 @@ const AvatarSelectionComponent = ({}) => {
     (async () => {
       try {
         const freshAvatars = await listUserAvatars();
+        const listMatches = describesTheSameAvatars(freshAvatars, userAvatars);
+        const fullJsonMatches =
+          JSON.stringify(freshAvatars ?? []) ===
+          JSON.stringify(userAvatars ?? []);
+        // #region agent log
+        fetch('http://127.0.0.1:7557/ingest/0403ecb1-fecd-46cd-92b1-501b8e956682',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'ad98d7'},body:JSON.stringify({sessionId:'ad98d7',runId:'post-fix',hypothesisId:'H1',location:'AvatarSelectionComponent.jsx:listRefresh',message:'gallery open list refresh',data:{listMatches,fullJsonMatches,willReplace:!listMatches,freshCount:(freshAvatars??[]).length,displayedCount:(userAvatars??[]).length},timestamp:Date.now()})}).catch(()=>{});
+        // #endregion
         if (
           isCurrentRequest &&
-          !describesTheSameAvatars(freshAvatars, userAvatars)
+          !listMatches
         ) {
           setUserAvatars(freshAvatars ?? []);
         }

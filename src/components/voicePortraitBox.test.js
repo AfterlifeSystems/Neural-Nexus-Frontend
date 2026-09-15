@@ -18,6 +18,9 @@ import {
   portraitWellSizeForConstraint,
   portraitWellShouldHoldOutgoingSize,
   portraitWellShouldKeepRememberedSize,
+  portraitWellSizeAfterAssistantChange,
+  openedPortraitChromeAfterAssistantChange,
+  portraitChromeHeightForMeasure,
   presentedStageMedia,
   portraitWellBoxStyle,
   portraitWellIsAspectSeed,
@@ -231,6 +234,76 @@ test('seeding a 9:16 well replaces a square still recall', () => {
   });
 });
 
+test('switching assistants keeps a stored well instead of a stale constraint fit', () => {
+  assert.deepEqual(
+    portraitWellSizeAfterAssistantChange(
+      { width: 9, height: 16 },
+      { width: 407, height: 724 }
+    ),
+    { width: 9, height: 16 }
+  );
+  assert.deepEqual(
+    portraitWellSizeAfterAssistantChange(
+      { width: 395.7, height: 703.5 },
+      { width: 407.5, height: 724.5 }
+    ),
+    { width: 395.7, height: 703.5 }
+  );
+  assert.deepEqual(
+    portraitWellSizeAfterAssistantChange(null, { width: 400, height: 400 }),
+    { width: 400, height: 400 }
+  );
+  assert.equal(portraitWellSizeAfterAssistantChange(null, null), null);
+});
+
+test('switching assistants restores chrome on the same paint as the well', () => {
+  assert.deepEqual(
+    openedPortraitChromeAfterAssistantChange(90, 80, {
+      headerHeight: 72,
+      collapsedDockHeight: 64,
+    }),
+    { headerHeight: 72, collapsedDockHeight: 64 }
+  );
+  assert.deepEqual(
+    openedPortraitChromeAfterAssistantChange(90, 80, null),
+    { headerHeight: 90, collapsedDockHeight: 80 }
+  );
+});
+
+test('a hidden header of 0 does not replace the last visible chrome height', () => {
+  assert.equal(portraitChromeHeightForMeasure(0, 119.5), 119.5);
+  assert.equal(portraitChromeHeightForMeasure(72, 119.5, 0), 119.5);
+  assert.equal(portraitChromeHeightForMeasure(0, 0), 0);
+});
+
+test('live chrome padding sizes the well even when computed padding is leftover gutter', () => {
+  const previous = globalThis.getComputedStyle;
+  globalThis.getComputedStyle = () => ({
+    paddingLeft: '16px',
+    paddingRight: '16px',
+    paddingTop: '16px',
+    paddingBottom: '16px',
+  });
+  try {
+    const constraint = { clientWidth: 800, clientHeight: 800, nodeType: 1 };
+    const media = { tagName: 'VIDEO', videoWidth: 9, videoHeight: 16 };
+    const withStalePadding = portraitWellSizeForConstraint(
+      constraint,
+      media
+    );
+    const withLiveChrome = portraitWellSizeForConstraint(
+      constraint,
+      media,
+      null,
+      { paddingTop: 135.5, paddingBottom: 88 }
+    );
+    assert.ok(withStalePadding.height > withLiveChrome.height);
+    assert.equal(withLiveChrome.width / withLiveChrome.height, 9 / 16);
+  } finally {
+    globalThis.getComputedStyle = previous;
+  }
+});
+
 test('a remembered 9:16 well wins over a square still still on stage', () => {
   assert.equal(portraitWellIsSquare({ width: 400, height: 400 }), true);
   assert.equal(portraitWellIsTall({ width: 9, height: 16 }), true);
@@ -316,12 +389,19 @@ test('voice mode contains a 9:16 loop so the whole portrait is on stage', () => 
   assert.match(liveVoice, /wellForAssistantIdRef/);
   assert.match(liveVoice, /openedPortraitWellSize/);
   assert.match(liveVoice, /portraitWellBoxStyle/);
-  assert.doesNotMatch(liveVoice, /key=\{assistantId\}/);
-  assert.match(liveVoice, /holdNarrowRail/);
-  assert.match(
-    liveVoice,
-    /setPortraitWellSize\(recalledPortraitWellSize\(assistantId\)\)/
+  assert.match(liveVoice, /<LoopingVideo[\s\S]*?key=\{assistantId\}/);
+  assert.doesNotMatch(
+    readFileSync(join(componentsDirectory, 'ChatArea.jsx'), 'utf8'),
+    /<LiveVoiceMode[\s\S]*?key=/
   );
+  assert.match(liveVoice, /portraitWellSizeAfterAssistantChange/);
+  assert.match(liveVoice, /openedPortraitChromeAfterAssistantChange/);
+  assert.match(liveVoice, /portraitChromeHeightForMeasure/);
+  assert.match(liveVoice, /statusLine \|\| '\\u00a0'/);
+  assert.doesNotMatch(liveVoice, /statusLine \? \(/);
+  assert.match(liveVoice, /inert=\{!stageIsShowing\}/);
+  assert.match(liveVoice, /holdNarrowRail/);
+  assert.match(liveVoice, /setPortraitWellSize\(nextWell\)/);
   assert.match(liveVoice, /portraitWellSizeIsUsable/);
   assert.doesNotMatch(liveVoice, /visibility: 'hidden'/);
   assert.match(
@@ -399,6 +479,20 @@ test('remembered chrome padding is restored for the same avatar', () => {
     headerHeight: 80,
     collapsedDockHeight: 72,
   });
+});
+
+test('a shorter header does not replace the last visible chrome height', () => {
+  rememberPortraitChrome('maya-status-line', {
+    headerHeight: 140.5,
+    collapsedDockHeight: 72,
+  });
+  rememberPortraitChrome('maya-status-line', {
+    headerHeight: 119.5,
+  });
+  assert.equal(
+    recalledPortraitChrome('maya-status-line').headerHeight,
+    140.5
+  );
 });
 
 test('the voice stage keeps a collapsed-handle floor for the reserve', () => {
