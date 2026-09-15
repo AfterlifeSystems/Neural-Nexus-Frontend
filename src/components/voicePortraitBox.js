@@ -181,6 +181,48 @@ export function portraitWellSizeIsUsable(size) {
 }
 
 /**
+ * Gallery seeding stores 9×16 as an aspect, not a measured well. Painting
+ * those numbers as CSS pixels leaves a stamp-sized portrait that then
+ * jumps to the constraint.
+ *
+ * @param {{width?: number, height?: number}|null|undefined} size
+ * @returns {boolean}
+ */
+export function portraitWellIsAspectSeed(size) {
+  return portraitWellSizeIsUsable(size) && size.width < 32 && size.height < 32;
+}
+
+/**
+ * CSS for the voice well. An aspect seed fills the constraint at that
+ * ratio; a measured size keeps its pixel box.
+ *
+ * @param {{width?: number, height?: number}|null|undefined} size
+ * @returns {Record<string, string|number>}
+ */
+export function portraitWellBoxStyle(size) {
+  if (!portraitWellSizeIsUsable(size)) {
+    return {
+      width: 'auto',
+      height: '100%',
+      maxWidth: '100%',
+      aspectRatio: '1 / 1',
+    };
+  }
+  if (portraitWellIsAspectSeed(size)) {
+    return {
+      width: 'auto',
+      height: '100%',
+      maxWidth: '100%',
+      aspectRatio: `${size.width} / ${size.height}`,
+    };
+  }
+  return {
+    width: size.width,
+    height: size.height,
+  };
+}
+
+/**
  * @param {{width?: number, height?: number}|null|undefined} left
  * @param {{width?: number, height?: number}|null|undefined} right
  * @returns {boolean}
@@ -293,6 +335,37 @@ export function portraitWellShouldHoldOutgoingSize(
 }
 
 /**
+ * Keep the well this avatar already owns when painted media is the other
+ * shape — a leftover generated canvas after a swap onto a reference photo,
+ * or the square still that paints before a generated idle loop.
+ *
+ * @param {{width?: number, height?: number}|null|undefined} rememberedWell
+ * @param {{width?: number, height?: number}|null|undefined} nextSize
+ * @param {boolean} showGenerated Whether this avatar uses generated faces.
+ * @returns {boolean}
+ */
+export function portraitWellShouldKeepRememberedSize(
+  rememberedWell,
+  nextSize,
+  showGenerated
+) {
+  if (!portraitWellSizeIsUsable(rememberedWell)) return false;
+  if (!portraitWellSizeIsUsable(nextSize)) return false;
+  if (portraitWellAspectsAgree(rememberedWell, nextSize)) return false;
+  if (portraitWellIsTall(rememberedWell) && portraitWellIsSquare(nextSize)) {
+    return true;
+  }
+  if (
+    !showGenerated &&
+    portraitWellIsSquare(rememberedWell) &&
+    portraitWellIsTall(nextSize)
+  ) {
+    return true;
+  }
+  return false;
+}
+
+/**
  * Where the standing hairline and speak glow sit: the painted photograph,
  * not the letterbox a square still leaves in a 9:16 well.
  *
@@ -309,7 +382,20 @@ export function paintedPortraitFrameFor(wellSize, media) {
   if (!(wellWidth > 0) || !(wellHeight > 0)) {
     return { x: 0, y: 0, width: 0, height: 0, circle: true };
   }
+  const well = { width: wellWidth, height: wellHeight };
   const intrinsic = mediaIntrinsicSize(media);
+  // A square still inside a 9:16 well used to shrink the standing frame to a
+  // circle on the face. The idle loop then filled the well and the frame
+  // jumped — the hop after swapping onto a generated avatar.
+  if (portraitWellIsTall(well) && !portraitWellIsTall(intrinsic)) {
+    return {
+      x: 0,
+      y: 0,
+      width: wellWidth,
+      height: wellHeight,
+      circle: false,
+    };
+  }
   const box = objectContainBox(
     wellWidth,
     wellHeight,
