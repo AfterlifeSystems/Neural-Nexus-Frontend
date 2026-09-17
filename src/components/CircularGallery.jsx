@@ -41,14 +41,8 @@ import {
   shouldIgnoreGalleryWindowPointer,
   visualCardIndexAtPointer,
 } from './galleryScrollIndex';
-import {
-  denormalizeProfileBubbleViewport,
-  readProfileBubbleViewport,
-  subscribeProfileBubbleViewport,
-} from '../services/profileBubbleViewport';
-import {
-  rememberedAvatarImageViewport,
-} from '../services/avatarImageViewport';
+import { subscribeProfileBubbleViewport } from '../services/profileBubbleViewport';
+import { resolveProfileBubbleViewport } from '../services/avatarImageViewport';
 function debounce(func, wait) {
   let timeout;
   return function (...args) {
@@ -415,22 +409,9 @@ class Media {
       mediaHeight: height,
       fit: 'cover',
     };
-    const local = this.assistantId
-      ? readProfileBubbleViewport(this.assistantId, frame)
+    const viewport = this.assistantId
+      ? resolveProfileBubbleViewport(this.assistantId, frame)
       : null;
-    const remembered = this.assistantId
-      ? rememberedAvatarImageViewport(this.assistantId)
-      : null;
-    const viewport =
-      local &&
-      (Number(local.offsetX) !== 0 ||
-        Number(local.offsetY) !== 0 ||
-        Number(local.scale) !== 1 ||
-        Number(local.mediaWidth) > 0)
-        ? local
-        : remembered
-          ? denormalizeProfileBubbleViewport(remembered, frame)
-          : local;
     const rect = galleryPortraitUvRect(width, height, viewport);
     this.program.uniforms.uPortraitOrigin.value = [rect.originX, rect.originY];
     this.program.uniforms.uPortraitSize.value = [rect.sizeX, rect.sizeY];

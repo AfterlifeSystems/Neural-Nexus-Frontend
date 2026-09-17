@@ -14,7 +14,7 @@
 // API ever expects a different token from the login response, only that one
 // function changes.
 
-import { notifyApiRequest } from './apiRequestObservers';
+import { notifyApiRequest } from './apiRequestObservers.js';
 
 export const NEURAL_NEXUS_API_BASE_URL =
   import.meta.env.VITE_NEURAL_NEXUS_API_BASE_URL ?? 'http://localhost:8080';

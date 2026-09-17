@@ -4,9 +4,11 @@
 // avatar so profile bubbles, voice mode, and every other visitor paint the
 // same part of the photograph. localStorage is only a same-tab cache.
 
-import { requestJson } from './neuralNexusApiClient.js';
+import { imageViewportIsFramed } from './imageViewport.js';
 import {
+  denormalizeProfileBubbleViewport,
   normalizeProfileBubbleViewport,
+  readProfileBubbleViewport,
   writeProfileBubbleViewport,
 } from './profileBubbleViewport.js';
 
@@ -77,9 +79,24 @@ export function rememberAvatarImageViewport(assistantId, viewport) {
 export function rememberImageViewportsFromAvatars(avatars) {
   if (!Array.isArray(avatars)) return;
   for (const avatar of avatars) {
-    rememberAvatarImageViewport(
-      assistantIdOfAvatar(avatar),
-      imageViewportFromAvatar(avatar)
+    const assistantId = assistantIdOfAvatar(avatar);
+    const viewport = imageViewportFromAvatar(avatar);
+    rememberAvatarImageViewport(assistantId, viewport);
+    // Seed localStorage when this browser has no framed crop yet, so header
+    // bubbles and the gallery share the server crop after a reload.
+    if (!assistantId || !viewport) continue;
+    const local = readProfileBubbleViewport(assistantId);
+    if (imageViewportIsFramed(local)) continue;
+    const seedFrame = {
+      width: 128,
+      height: 128,
+      mediaWidth: viewport.mediaWidth,
+      mediaHeight: viewport.mediaHeight,
+    };
+    writeProfileBubbleViewport(
+      assistantId,
+      denormalizeProfileBubbleViewport(viewport, seedFrame),
+      seedFrame
     );
   }
 }
@@ -95,6 +112,33 @@ export function rememberedAvatarImageViewport(assistantId) {
 }
 
 /**
+ * The crop to paint for an avatar's bubbles.
+ *
+ * Prefers a framed localStorage crop. When localStorage only has the default
+ * (or was wiped by a zero-size settings tile), falls back to the crop the
+ * server remembered on the avatar record.
+ *
+ * @param {string|null|undefined} assistantId
+ * @param {{width?: number, height?: number, mediaWidth?: number, mediaHeight?: number}|null|undefined} [frame]
+ * @param {Storage|null|undefined} [storage]
+ */
+export function resolveProfileBubbleViewport(
+  assistantId,
+  frame = null,
+  storage = globalThis.localStorage
+) {
+  const local = readProfileBubbleViewport(assistantId, frame, storage);
+  if (imageViewportIsFramed(local)) {
+    return local;
+  }
+  const remembered = rememberedAvatarImageViewport(assistantId);
+  if (!remembered) {
+    return local;
+  }
+  return denormalizeProfileBubbleViewport(remembered, frame);
+}
+
+/**
  * @param {string} assistantId
  * @param {{scale?: number, offsetX?: number, offsetY?: number, mediaWidth?: number, mediaHeight?: number}} viewport
  * @param {{width?: number, height?: number}|null|undefined} frame
@@ -106,6 +150,8 @@ export async function saveAvatarImageViewport(assistantId, viewport, frame) {
   const normalized = normalizeProfileBubbleViewport(viewport, frame);
   rememberAvatarImageViewport(id, normalized);
   writeProfileBubbleViewport(id, viewport, frame);
+  // Lazy so unit tests of the crop math do not need Vite's import.meta.env.
+  const { requestJson } = await import('./neuralNexusApiClient.js');
   return requestJson('/avatar_image_viewport', {
     method: 'POST',
     body: {

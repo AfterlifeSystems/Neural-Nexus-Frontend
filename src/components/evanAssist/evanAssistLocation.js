@@ -26,6 +26,7 @@ export function describeAssistLocation(
     return 'account settings';
   if (path === '/inbox' || tab === 'inbox') return 'the avatar inbox';
   if (path === '/billing' || /\/billing\/?$/.test(path)) return 'billing';
+  if (path === '/map' || path.startsWith('/map/')) return 'the world map';
   if (tab === 'settings') {
     return named ? `settings for ${named}` : 'avatar settings';
   }

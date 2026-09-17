@@ -50,7 +50,7 @@ const WorkspaceTab = ({ tab, activeTab, onTabChange, ariaLabel, children }) => {
 /**
  * @param {Object} parameters
  * @param {string} [parameters.avatarName]
- * @param {string|null} [parameters.headerFace] Portrait or emotion still.
+ * @param {string|null} [parameters.headerFace] Reference portrait for the bubble.
  * @param {string|null} [parameters.assistantId] Profile-bubble crop from settings.
  * @param {Function} [parameters.onPortraitError]
  * @param {'chat'|'inbox'|'avatar-settings'|'avatar-selection'} parameters.activeTab

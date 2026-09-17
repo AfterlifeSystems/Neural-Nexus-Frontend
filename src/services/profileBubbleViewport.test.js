@@ -63,3 +63,29 @@ test('a stored bubble crop is read back for that avatar', () => {
   assert.equal(other.offsetX, 0);
   assert.equal(other.offsetY, 0);
 });
+
+test('a zero-size settings tile does not wipe a stored crop', () => {
+  const storage = new Map();
+  const memory = {
+    getItem: (key) => storage.get(key) ?? null,
+    setItem: (key, value) => {
+      storage.set(key, value);
+    },
+  };
+  writeProfileBubbleViewport(
+    'maya',
+    { scale: 2, offsetX: 20, offsetY: -12, mediaWidth: 200, mediaHeight: 400 },
+    { width: 128, height: 128, mediaWidth: 200, mediaHeight: 400 },
+    memory
+  );
+  writeProfileBubbleViewport(
+    'maya',
+    { scale: 1, offsetX: 0, offsetY: 0, mediaWidth: 200, mediaHeight: 400 },
+    { width: 0, height: 0, mediaWidth: 200, mediaHeight: 400 },
+    memory
+  );
+  const read = readProfileBubbleViewport('maya', { width: 128, height: 128 }, memory);
+  assert.equal(read.scale, 2);
+  assert.ok(Math.abs(read.offsetX - 20) < 1e-9);
+  assert.ok(Math.abs(read.offsetY + 12) < 1e-9);
+});

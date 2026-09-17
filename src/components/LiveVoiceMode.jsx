@@ -1990,10 +1990,9 @@ const LiveVoiceMode = ({
     voiceMessageIsGenerating(message, { turnActive: textTurnIsGenerating })
   );
   const showGeneratingStopRow = textTurnIsGenerating;
-  const headerFace = showGenerated
-    ? ((currentEmotion && currentEmotion !== 'neutral' ? stageStill : null) ??
-      avatarPortrait)
-    : avatarPortrait;
+  // Same reference portrait as Avatar Settings, so the profile-bubble crop
+  // matches the framing the owner set. Emotion stills stay on the stage.
+  const headerFace = avatarPortrait;
 
   const leaveLabel = 'Switch to messages';
 

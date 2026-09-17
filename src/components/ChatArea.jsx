@@ -31,13 +31,10 @@ import {
   chatWorkspaceTabFromSearch,
   isAvatarSelectionLocation,
 } from './personalAvatarWorkspace';
-import useEmotionMedia, { stillFor } from '../hooks/useEmotionMedia';
-import useAvatarFaceSource from '../hooks/useAvatarFaceSource';
 import { seedOpenedAvatarPortraitWell } from './openedAvatarPortraitWell';
 import { subscribeAvatarPortraitChanged } from '../services/avatarPortraitEvents';
 import { useGeoAvatars } from '../context/GeoAvatarContext';
-import {
-  consumeVoiceModeSearchParams,
+import {  consumeVoiceModeSearchParams,
   readVoiceModePreference,
   searchRequestsVoiceMode,
   voiceModeIsOpen,
@@ -328,21 +325,11 @@ const ChatArea = ({
     };
   }, [avatarId]);
 
-  // The header face follows the most recent reply's emotion, so the avatar
-  // "looks" the way it last spoke. Neutral, or an avatar with no generated
-  // media, shows the portrait.
+  // The workspace header bubble uses the reference portrait — the same image
+  // framed in Avatar Settings — so the crop stays put. Emotion stills still
+  // drive the voice stage and message faces.
   const headerAssistantId = activeAvatar?.assistant_id ?? avatarId;
-  const { manifest: emotionMedia } = useEmotionMedia(headerAssistantId);
-  const { showGenerated } = useAvatarFaceSource(headerAssistantId);
-  const lastReplyEmotion = [...messages]
-    .reverse()
-    .find((message) => message.type === 'ai' && message.sentiment?.base_emotion)
-    ?.sentiment?.base_emotion;
-  const headerFace = showGenerated
-    ? ((lastReplyEmotion && lastReplyEmotion !== 'neutral'
-        ? stillFor(emotionMedia, lastReplyEmotion)
-        : null) ?? avatarPortrait)
-    : avatarPortrait;
+  const headerFace = avatarPortrait;
 
   // Load the open avatar's conversation.
   //

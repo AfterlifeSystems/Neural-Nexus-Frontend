@@ -7,9 +7,9 @@
 
 import { useEffect, useRef, useState } from 'react';
 
+import { resolveProfileBubbleViewport } from '../services/avatarImageViewport';
 import {
   profileBubbleCoverLayout,
-  readProfileBubbleViewport,
   subscribeProfileBubbleViewport,
 } from '../services/profileBubbleViewport';
 
@@ -32,13 +32,19 @@ const ProfileBubbleImage = ({
   const [frameSize, setFrameSize] = useState({ width: 0, height: 0 });
   const [mediaSize, setMediaSize] = useState({ width: 0, height: 0 });
   const [viewport, setViewport] = useState(() =>
-    readProfileBubbleViewport(assistantId)
+    resolveProfileBubbleViewport(assistantId)
   );
 
   useEffect(() => {
-    setViewport(readProfileBubbleViewport(assistantId));
-    return subscribeProfileBubbleViewport(assistantId, setViewport);
+    setViewport(resolveProfileBubbleViewport(assistantId));
+    return subscribeProfileBubbleViewport(assistantId, () => {
+      setViewport(resolveProfileBubbleViewport(assistantId));
+    });
   }, [assistantId]);
+
+  useEffect(() => {
+    setMediaSize({ width: 0, height: 0 });
+  }, [src]);
 
   useEffect(() => {
     const frame = frameRef.current;
@@ -60,7 +66,7 @@ const ProfileBubbleImage = ({
   const hasMedia = mediaWidth > 0 && mediaHeight > 0;
   const painted =
     frameSize.width > 0 && frameSize.height > 0 && hasMedia
-      ? readProfileBubbleViewport(assistantId, {
+      ? resolveProfileBubbleViewport(assistantId, {
           ...frameSize,
           mediaWidth,
           mediaHeight,

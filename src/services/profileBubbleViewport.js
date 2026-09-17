@@ -131,6 +131,11 @@ export function writeProfileBubbleViewport(
 ) {
   const persistKey = profileBubblePersistKey(assistantId);
   if (!persistKey) return;
+  // A hidden settings tile (display:none) reports 0×0. Writing that frame
+  // stores x/y as 0 and wipes the crop the person just framed.
+  const frameWidth = Number(frame?.width);
+  const frameHeight = Number(frame?.height);
+  if (!(frameWidth > 0) || !(frameHeight > 0)) return;
   const normalized = normalizeProfileBubbleViewport(viewport, frame);
   try {
     let book = {};

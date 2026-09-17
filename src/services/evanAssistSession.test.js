@@ -117,6 +117,9 @@ test('a spoken line keeps its words in the bubble and names the place for Evan',
   assert.match(built.apiText, /avatar gallery/);
   assert.match(built.apiText, /sharing the screen/);
   assert.match(built.apiText, /What is this button\?/);
+  assert.match(built.apiText, /Keyboard shortcuts/);
+  assert.match(built.apiText, /\bm opens the world map\b/);
+  assert.match(built.apiText, /\? opens this help assistant\b/);
 });
 
 test('a live share is named as background watching, never as an attachment', () => {

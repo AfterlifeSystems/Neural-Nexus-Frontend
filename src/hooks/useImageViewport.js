@@ -113,6 +113,12 @@ export default function useImageViewport({
   const commit = useCallback(
     (next) => {
       const bounds = boundsOf();
+      // Avatar Settings stays mounted under the gallery with `hidden`
+      // (display:none). That collapses the tile to 0×0; persisting that
+      // frame would zero the crop. Keep the last painted framing instead.
+      if (!(bounds.width > 0) || !(bounds.height > 0)) {
+        return viewportRef.current;
+      }
       const framed = {
         ...clampImageViewport(next, bounds),
         mediaWidth: bounds.mediaWidth,
@@ -123,9 +129,7 @@ export default function useImageViewport({
       const profileAssistantId = assistantIdFromProfileBubbleKey(persistKey);
       if (profileAssistantId) {
         writeProfileBubbleViewport(profileAssistantId, framed, bounds);
-        if (bounds.width > 0 && bounds.height > 0) {
-          scheduleAvatarImageViewportSave(profileAssistantId, framed, bounds);
-        }
+        scheduleAvatarImageViewportSave(profileAssistantId, framed, bounds);
       } else {
         writeImageViewport(persistKey, framed);
       }
@@ -151,11 +155,13 @@ export default function useImageViewport({
     const frame = frameRef.current;
     if (!frame || typeof ResizeObserver === 'undefined') return undefined;
     const observer = new ResizeObserver(() => {
+      const bounds = boundsOf(frame);
+      if (!(bounds.width > 0) || !(bounds.height > 0)) return;
       commit(viewportRef.current);
     });
     observer.observe(frame);
     return () => observer.disconnect();
-  }, [commit]);
+  }, [boundsOf, commit]);
 
   useEffect(() => {
     const frame = frameRef.current;

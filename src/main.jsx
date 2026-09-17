@@ -10,6 +10,7 @@ import {
   UsageAnalyticsRecorder,
 } from './context/UsageAnalyticsContext.jsx';
 import EvanAssistOverlay from './components/evanAssist/EvanAssistOverlay.jsx';
+import WorkspaceNavigationHotkeys from './components/WorkspaceNavigationHotkeys.jsx';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 
 import 'react-toastify/dist/ReactToastify.css';
@@ -107,6 +108,7 @@ createRoot(document.getElementById('root')).render(
             {/* Outside the routes: the code belongs to the product, not to any
                 one screen, so it is present wherever the user is. */}
             <QrBadge />
+            <WorkspaceNavigationHotkeys />
             <EvanAssistOverlay />
             {/* Opt-in usage analytics: records actions and captures the page
                 only while the signed-in account has consented. Inside the

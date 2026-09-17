@@ -11,6 +11,8 @@
 // Node test runner can load it without Vite or the API client. The fetch
 // wrappers live in evanAssistApi.js.
 
+import { EVAN_ASSIST_KEYBOARD_SHORTCUTS_NOTE } from '../components/workspaceNavigationKeyboard.js';
+
 export const INITIAL_EVAN_STREAM = Object.freeze({
   streamedText: '',
   activity: null,
@@ -196,6 +198,9 @@ export function buildEvanUserMessage({
   if (locationLabel) {
     notes.push(`[Neural Nexus] The person is looking at ${locationLabel}.`);
   }
+  // Same list the document listener honors, so Evan can name the keys when
+  // asked how to move around Neural Nexus.
+  notes.push(EVAN_ASSIST_KEYBOARD_SHORTCUTS_NOTE);
   if (screenShared && webcamShared) {
     notes.push(
       '[Neural Nexus] The person is sharing the screen and the webcam with you ' +
