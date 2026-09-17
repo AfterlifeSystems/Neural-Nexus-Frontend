@@ -10,8 +10,17 @@ import { showVoiceNotReadyToast } from '../components/showVoiceNotReadyToast';
 import { speakText } from '../services/avatarService';
 import { rememberAvatarSpokenLine } from '../services/selfEchoGuard';
 import {
+  bindAvatarSpeechSession,
+  claimAvatarSpeechSessionOwnerId,
+  publishAvatarSpeechSession,
+  readAvatarSpeechSession,
+  releaseAvatarSpeechSessionMedia,
+  releaseAvatarSpeechSessionOwner,
+  stopAvatarSpeechSession,
+  subscribeAvatarSpeechSession,
+} from '../services/avatarSpeechSession';
+import {
   isSpeechPlayBlocked,
-  isUnlockedSpeechElement,
   playOnUnlockedSpeechElement,
   primeAvatarSpeechPlayback,
 } from '../services/avatarSpeechUnlock';
@@ -26,28 +35,32 @@ import {
  *
  * Wraps `POST /speak`: the response bytes become an object URL played by a
  * single `Audio` element, so starting a new utterance stops the previous one
- * and there is never more than one voice speaking. `voice_not_ready` (no clone
- * and no standard voice) surfaces as `notReady` with the server's progress so
- * the caller can open the Voice panel rather than showing a generic failure.
- * A successful speak that used a standard voice still shows the missing-clone
- * toast: a stock voice is not a voice added to this model. That is not the same
- * as `voice_blocked` (a clone ElevenLabs has banned): a banned voice was
- * uploaded and then refused, and more recording will not clear it. Blocked is
- * reported through `blocked` and NOT toasted — a notice on every reply would
- * repeat something the reader can do nothing about, and live voice mode
- * answers in text. The settings Voice panel is where the ban is explained.
- * A missing clone (or voice stack that is not configured yet) raises the
- * create-voice toast once per conversation per avatar: left side opens Voice settings,
- * Close dismisses. "The avatar could not speak that message" is the wrong
- * sentence for that case. A server that has no voice stack at all
- * (`unavailable`) is different: the avatar may already have a clone, so the
- * create-voice toast is wrong — that case gets a plain unavailable notice.
- * A refused ElevenLabs, OpenAI, or xAI key is not an empty vendor account:
- * it is reported as a key refusal, not the Support toast. A spent vendor
- * account still uses the same Support toast as a chat credit pause. Every
- * other failure is toasted as a failed utterance — a speak button that
- * spins and then does nothing at all leaves the reader with no way to tell
- * a broken voice from a silent one.
+ * and there is never more than one voice speaking. Speaking flags live in
+ * `avatarSpeechSession` so message view and live voice mode — which each call
+ * this hook — both see the same utterance: a transcript Speak that is still
+ * playing when the person opens voice mode still lights the portrait glow and
+ * keeps the microphone shut.
+ * `voice_not_ready` (no clone and no standard voice) surfaces as `notReady`
+ * with the server's progress so the caller can open the Voice panel rather
+ * than showing a generic failure. A successful speak that used a standard
+ * voice still shows the missing-clone toast: a stock voice is not a voice
+ * added to this model. That is not the same as `voice_blocked` (a clone
+ * ElevenLabs has banned): a banned voice was uploaded and then refused, and
+ * more recording will not clear it. Blocked is reported through `blocked` and
+ * NOT toasted — a notice on every reply would repeat something the reader can
+ * do nothing about, and live voice mode answers in text. The settings Voice
+ * panel is where the ban is explained. A missing clone (or voice stack that is
+ * not configured yet) raises the create-voice toast once per conversation per
+ * avatar: left side opens Voice settings, Close dismisses. "The avatar could
+ * not speak that message" is the wrong sentence for that case. A server that
+ * has no voice stack at all (`unavailable`) is different: the avatar may
+ * already have a clone, so the create-voice toast is wrong — that case gets a
+ * plain unavailable notice. A refused ElevenLabs, OpenAI, or xAI key is not an
+ * empty vendor account: it is reported as a key refusal, not the Support
+ * toast. A spent vendor account still uses the same Support toast as a chat
+ * credit pause. Every other failure is toasted as a failed utterance — a speak
+ * button that spins and then does nothing at all leaves the reader with no way
+ * to tell a broken voice from a silent one.
  *
  * @param {Object} [options]
  * @param {boolean} [options.asAnonymousIdentity] Public chat: withhold the credential.
@@ -75,20 +88,28 @@ export default function useSpeech({
   missingClonedVoice = false,
   promptForMissingClonedVoice = true,
 } = {}) {
-  const audioRef = useRef(null);
-  const objectUrlRef = useRef(null);
-  const abortRef = useRef(null);
-  // Removes the current element's `ended`/`error` listeners.
-  const detachRef = useRef(null);
-  // Ends the utterance currently being awaited, exactly once.
-  const settleRef = useRef(null);
-  const [isSpeaking, setIsSpeaking] = useState(false);
-  const [speakingKey, setSpeakingKey] = useState(null);
+  const sessionOwnerIdRef = useRef(null);
+  if (sessionOwnerIdRef.current == null) {
+    sessionOwnerIdRef.current = claimAvatarSpeechSessionOwnerId();
+  }
+  const initialSession = readAvatarSpeechSession();
+  const [isSpeaking, setIsSpeaking] = useState(initialSession.isSpeaking);
+  const [speakingKey, setSpeakingKey] = useState(initialSession.speakingKey);
   const [notReady, setNotReady] = useState(null);
   // Set once the API confirms this avatar's cloned voice is banned. Further
   // utterances are dropped rather than re-requested: the answer cannot change,
   // and every attempt costs a round trip to be refused again.
   const [blocked, setBlocked] = useState(false);
+
+  useEffect(() => {
+    const syncFromSharedSession = () => {
+      const session = readAvatarSpeechSession();
+      setIsSpeaking(session.isSpeaking);
+      setSpeakingKey(session.speakingKey);
+    };
+    syncFromSharedSession();
+    return subscribeAvatarSpeechSession(syncFromSharedSession);
+  }, []);
 
   // Voice mode learns that a voice is missing by trying to speak and being
   // refused. This is the opposite signal: the transcribe reply reports whether
@@ -107,47 +128,16 @@ export default function useSpeech({
     if (avatarHasClonedVoice(voice)) setNotReady(null);
   }, []);
 
-  const release = useCallback(() => {
-    if (audioRef.current) {
-      // Drop the element's own listeners BEFORE clearing the source. Clearing
-      // `src` makes the browser fire `error` on the element a moment later, and
-      // a listener still attached would report that as the utterance ending —
-      // long after a newer utterance had taken over. In live voice mode that
-      // late ending re-opened the microphone underneath the reply that
-      // replaced it, so the avatar transcribed its own voice and answered
-      // itself.
-      detachRef.current?.();
-      detachRef.current = null;
-      audioRef.current.pause();
-      // The primed element must stay alive: destroying it and constructing a
-      // new Audio() after the next /speak fetch is exactly the mobile
-      // autoplay miss. Leave its src; the next utterance replaces it.
-      if (!isUnlockedSpeechElement(audioRef.current)) {
-        audioRef.current.src = '';
-        audioRef.current = null;
-      }
-    }
-    if (objectUrlRef.current) {
-      URL.revokeObjectURL(objectUrlRef.current);
-      objectUrlRef.current = null;
-    }
+  const stop = useCallback(() => {
+    stopAvatarSpeechSession();
   }, []);
 
-  const stop = useCallback(() => {
-    abortRef.current?.abort();
-    abortRef.current = null;
-    // Settle the utterance in flight here and now. `speak` awaits playback, so
-    // a caller that stops one utterance and starts another must see the first
-    // one end before the second begins, not on whatever media event the
-    // browser gets around to firing afterwards.
-    const settleInFlightUtterance = settleRef.current;
-    if (settleInFlightUtterance) settleInFlightUtterance();
-    else release();
-    setIsSpeaking(false);
-    setSpeakingKey(null);
-  }, [release]);
-
-  useEffect(() => stop, [stop]);
+  useEffect(() => {
+    const ownerId = sessionOwnerIdRef.current;
+    return () => {
+      releaseAvatarSpeechSessionOwner(ownerId);
+    };
+  }, []);
 
   const speak = useCallback(
     async (assistantId, text, { onStart, onEnd, key } = {}) => {
@@ -158,8 +148,12 @@ export default function useSpeech({
       stop();
       if (!text?.trim() || !assistantId) return false;
       if (blocked) return false;
+      const ownerId = sessionOwnerIdRef.current;
       const controller = new AbortController();
-      abortRef.current = controller;
+      bindAvatarSpeechSession({
+        ownerId,
+        abortController: controller,
+      });
       setNotReady(null);
       try {
         const audioBlob = await speakText(assistantId, text, {
@@ -184,9 +178,7 @@ export default function useSpeech({
           });
         }
         const objectUrl = URL.createObjectURL(audioBlob);
-        objectUrlRef.current = objectUrl;
         const audio = playOnUnlockedSpeechElement(objectUrl);
-        audioRef.current = audio;
         // Everything the avatar says out loud is said here, so this is where
         // it is remembered: a microphone that catches this line — a live voice
         // screen listening while the transcript's speak button plays, a
@@ -194,7 +186,7 @@ export default function useSpeech({
         // whose speakers beat the browser's echo cancellation — can then
         // recognise the avatar's own words instead of answering them.
         rememberAvatarSpokenLine(text);
-        setSpeakingKey(key ?? text);
+        const utteranceKey = key ?? text;
         let playBlocked = false;
         await new Promise((resolve) => {
           let ended = false;
@@ -202,24 +194,51 @@ export default function useSpeech({
             if (ended) return;
             ended = true;
             if (autoplayBlocked) playBlocked = true;
-            if (settleRef.current === finish) settleRef.current = null;
-            setIsSpeaking(false);
-            setSpeakingKey(null);
-            release();
+            // Clear settle first so a nested stop cannot re-enter finish, but
+            // keep the detach/audio handles so release can tear them down.
+            bindAvatarSpeechSession({
+              ownerId: null,
+              abortController: null,
+              detachListeners,
+              settleUtterance: null,
+              audioElement: audio,
+              objectUrl,
+            });
+            releaseAvatarSpeechSessionMedia();
+            publishAvatarSpeechSession({
+              isSpeaking: false,
+              speakingKey: null,
+            });
             onEnd?.();
             resolve();
           };
-          settleRef.current = finish;
-          detachRef.current = () => {
-            audio.removeEventListener('ended', finish);
-            audio.removeEventListener('error', finish);
+          const detachListeners = () => {
+            audio.removeEventListener('ended', onEnded);
+            audio.removeEventListener('error', onError);
           };
-          audio.addEventListener('ended', () => finish(false), { once: true });
-          audio.addEventListener('error', () => finish(false), { once: true });
+          const onEnded = () => finish(false);
+          const onError = () => finish(false);
+          bindAvatarSpeechSession({
+            ownerId,
+            abortController: controller,
+            detachListeners,
+            settleUtterance: finish,
+            audioElement: audio,
+            objectUrl,
+          });
+          publishAvatarSpeechSession({
+            isSpeaking: false,
+            speakingKey: utteranceKey,
+          });
+          audio.addEventListener('ended', onEnded, { once: true });
+          audio.addEventListener('error', onError, { once: true });
           audio.addEventListener(
             'play',
             () => {
-              setIsSpeaking(true);
+              publishAvatarSpeechSession({
+                isSpeaking: true,
+                speakingKey: utteranceKey,
+              });
               onStart?.();
             },
             { once: true }
@@ -290,8 +309,16 @@ export default function useSpeech({
             { id: 'avatar-speak-failed' }
           );
         }
-        setIsSpeaking(false);
-        setSpeakingKey(null);
+        bindAvatarSpeechSession({
+          ownerId: null,
+          abortController: null,
+          detachListeners: null,
+          settleUtterance: null,
+          audioElement: null,
+          objectUrl: null,
+        });
+        releaseAvatarSpeechSessionMedia();
+        publishAvatarSpeechSession({ isSpeaking: false, speakingKey: null });
         onEnd?.();
         return false;
       }
@@ -303,7 +330,6 @@ export default function useSpeech({
       conversationId,
       missingClonedVoice,
       promptForMissingClonedVoice,
-      release,
       stop,
     ]
   );

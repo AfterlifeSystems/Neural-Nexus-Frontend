@@ -69,3 +69,33 @@ export function userResponseIsSpeaking({
   if (messageKey && speakingKey === messageKey) return true;
   return Boolean(liveSpeaking && isPending);
 }
+
+/**
+ * Whether the voice-stage portrait should wear the speak glow.
+ *
+ * A personal avatar's own user-message replay still uses that avatar's voice,
+ * so the portrait glows. On a character stage, user-message replay uses the
+ * person's personal voice — not the character — so the character stays dark.
+ *
+ * @param {Object} [state]
+ * @param {boolean} [state.isPlayingReply]
+ * @param {boolean} [state.isSpeaking]
+ * @param {boolean} [state.speakingUserMessage]
+ * @param {boolean} [state.speakingComposerDraft]
+ * @param {boolean} [state.hasLipSyncClip]
+ * @param {boolean} [state.isPersonalAvatar]
+ * @returns {boolean}
+ */
+export function avatarPortraitIsSpeaking({
+  isPlayingReply = false,
+  isSpeaking = false,
+  speakingUserMessage = false,
+  speakingComposerDraft = false,
+  hasLipSyncClip = false,
+  isPersonalAvatar = false,
+} = {}) {
+  if (isPlayingReply || hasLipSyncClip) return true;
+  if (!isSpeaking || speakingComposerDraft) return false;
+  if (speakingUserMessage && !isPersonalAvatar) return false;
+  return true;
+}

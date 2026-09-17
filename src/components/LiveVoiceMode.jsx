@@ -70,6 +70,7 @@ import {
   SPEAKING_BUBBLE_HIGHLIGHT,
   speakingBubbleProps,
   userResponseIsSpeaking,
+  avatarPortraitIsSpeaking,
 } from './speakingIndicator';
 import { transcribeAssistantIdOf } from '../services/personalAvatar';
 import AvatarWorkspaceHeader from './AvatarWorkspaceHeader';
@@ -149,6 +150,7 @@ import {
   noticeStartsCollapsed,
 } from '../services/ambientNotice';
 import { primeAvatarSpeechPlayback } from '../services/avatarSpeechUnlock';
+import { readAvatarSpeechSession } from '../services/avatarSpeechSession';
 import { noticeDecisionFor } from '../services/avatarPreferences';
 import { focusComposer } from '../services/composerFocus';
 import { composerHasSendableDraft } from './composerSendState';
@@ -728,6 +730,28 @@ const LiveVoiceMode = ({
     });
   }, [visibleExchange.length, assistantActivity, showCaptions]);
 
+  // When a transcript Speak is still playing as the person opens voice mode
+  // (or starts another line with captions open), bring that caption into view
+  // instead of leaving them at the bottom of a long strip.
+  useEffect(() => {
+    if (!stageVisible || !showCaptions) return undefined;
+    const speakingCaptionKey =
+      speech.speakingKey === 'live-reply'
+        ? messageKeyOf(lastCompletedAvatarMessage)
+        : speech.speakingKey;
+    if (!speakingCaptionKey) return undefined;
+    const captionNode = document.querySelector(
+      `[data-voice-caption-key="${CSS.escape(String(speakingCaptionKey))}"]`
+    );
+    captionNode?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    return undefined;
+  }, [
+    stageVisible,
+    showCaptions,
+    speech.speakingKey,
+    lastCompletedAvatarMessage,
+  ]);
+
   useEffect(() => {
     preloadEmotionMedia(manifest);
   }, [manifest]);
@@ -913,10 +937,12 @@ const LiveVoiceMode = ({
     ]
   );
 
-  // Leaving the screen stops everything: speech, listening, dictation.
+  // Leaving the screen stops listening and dictation. Cloned-voice playback
+  // is shared with the message transcript, so a Speak that started there must
+  // keep playing when the person flips to messages or the stage remounts —
+  // `useSpeech` only stops the utterance this screen owns on its own unmount.
   useEffect(
     () => () => {
-      speech.stop();
       listenerStartGenerationRef.current += 1;
       listenerRef.current?.stop();
       listenerRef.current = null;
@@ -950,9 +976,6 @@ const LiveVoiceMode = ({
         workspaceTab === 'inbox');
     const holdNarrowRail =
       stageIsShowing || (voicePreferred && onAvatarWorkspace);
-    // #region agent log
-    fetch('http://127.0.0.1:7557/ingest/0403ecb1-fecd-46cd-92b1-501b8e956682',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'ad98d7'},body:JSON.stringify({sessionId:'ad98d7',runId:'post-fix',hypothesisId:'H6',location:'LiveVoiceMode.jsx:voiceStageRail',message:'voice-stage rail decision',data:{holdNarrowRail,stageIsShowing,galleryIsOpen,voicePreferred,onAvatarWorkspace,pathname:location.pathname},timestamp:Date.now()})}).catch(()=>{});
-    // #endregion
     if (holdNarrowRail) {
       document.documentElement.classList.add('voice-stage-open');
     } else {
@@ -1506,6 +1529,13 @@ const LiveVoiceMode = ({
   );
 
   const startLiveListening = useCallback(async () => {
+    // Opening getUserMedia / a fresh AudioContext while the shared Speak
+    // element is mid-utterance skips the avatar's voice. Callers that run
+    // from a tap while Speak is playing must wait until the line ends.
+    const sharedSpeechSession = readAvatarSpeechSession();
+    if (sharedSpeechSession.isSpeaking || sharedSpeechSession.speakingKey) {
+      return;
+    }
     primeAvatarSpeechPlayback();
     if (!canDictate) {
       toast.error(speechInputUnavailableMessage);
@@ -1732,12 +1762,24 @@ const LiveVoiceMode = ({
   // Start listening as soon as the stage opens and the avatar is loaded
   // (once). Opening live voice turns the microphone on; spoken audio being
   // unavailable, or a browser that cannot record, is the only reason not to.
+  // Hiding the stage must not call speech.stop(): playback is shared with the
+  // message transcript, and a Speak started there has to survive the flip.
+  //
+  // Opening or closing the microphone AudioContext while that shared HTML
+  // audio is still playing skips the avatar's voice on several browsers.
+  // Defer getUserMedia until Speak is quiet, and when leaving mid-playback
+  // only pause the listener — tear it down once the utterance ends.
+  const sharedSpeechIsActive =
+    Boolean(speech.isSpeaking) || Boolean(speech.speakingKey);
   const autoStartedListeningRef = useRef(false);
   useEffect(() => {
     if (!stageIsShowing) {
       autoStartedListeningRef.current = false;
-      speech.stop();
-      stopLiveListening();
+      if (sharedSpeechIsActive) {
+        listenerRef.current?.pause();
+      } else {
+        stopLiveListening();
+      }
       dictationRef.current?.cancel?.();
       return undefined;
     }
@@ -1745,20 +1787,51 @@ const LiveVoiceMode = ({
     if (!activeAvatar || !assistantId) return undefined;
     if (!canDictate) return undefined;
     if (!canCaptureMicrophone()) return undefined;
+    if (sharedSpeechIsActive) return undefined;
     autoStartedListeningRef.current = true;
     setLiveListeningPreferred(true);
     startLiveListening();
     return undefined;
-    // speech.stop runs only when the stage hides; listing speech would
-    // restart the microphone on every playback state change.
+    // Listing speech would restart the microphone on every playback state
+    // change — sharedSpeechIsActive is the only speaking flag that may gate
+    // the first open / the quiet teardown.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
     activeAvatar,
     assistantId,
     canDictate,
     stageIsShowing,
+    sharedSpeechIsActive,
     startLiveListening,
     stopLiveListening,
+  ]);
+
+  // Stage is hidden and Speak finished: finish tearing down a listener that
+  // was only paused so the utterance could keep playing.
+  useEffect(() => {
+    if (stageIsShowing || sharedSpeechIsActive) return undefined;
+    if (!listenerRef.current) return undefined;
+    stopLiveListening();
+    return undefined;
+  }, [stageIsShowing, sharedSpeechIsActive, stopLiveListening]);
+
+  // Speak finished while the stage still wants the microphone (deferred open,
+  // or a mic tap during playback): open it now that the shared utterance is
+  // quiet.
+  useEffect(() => {
+    if (!stageIsShowing || sharedSpeechIsActive) return undefined;
+    if (!liveListeningPreferred || !canDictate) return undefined;
+    if (listenerRef.current || listenerStartInFlightRef.current) {
+      return undefined;
+    }
+    startLiveListening();
+    return undefined;
+  }, [
+    stageIsShowing,
+    sharedSpeechIsActive,
+    liveListeningPreferred,
+    canDictate,
+    startLiveListening,
   ]);
 
   const toggleLiveListening = () => {
@@ -1848,9 +1921,16 @@ const LiveVoiceMode = ({
   };
 
   const leaveVoiceMode = () => {
-    speech.stop();
+    // Keep any shared Speak playing — the transcript is about to show it.
+    // Closing the mic AudioContext mid-playback skips that utterance, so only
+    // pause here when Speak is still active; the quiet-teardown effect above
+    // finishes the stop once the line ends.
     setLipSyncClipUrl(null);
-    stopLiveListening();
+    if (sharedSpeechIsActive) {
+      listenerRef.current?.pause();
+    } else {
+      stopLiveListening();
+    }
     dictationRef.current?.cancel?.();
     onClose?.();
   };
@@ -1898,10 +1978,14 @@ const LiveVoiceMode = ({
     (message) =>
       isHumanMessage(message) && messageKeyOf(message) === speech.speakingKey
   );
-  const isAvatarSpeaking =
-    isPlayingReply ||
-    (speech.isSpeaking && !speakingUserMessage && !speakingComposerDraft) ||
-    Boolean(lipSyncClipUrl);
+  const isAvatarSpeaking = avatarPortraitIsSpeaking({
+    isPlayingReply,
+    isSpeaking: speech.isSpeaking,
+    speakingUserMessage,
+    speakingComposerDraft,
+    hasLipSyncClip: Boolean(lipSyncClipUrl),
+    isPersonalAvatar,
+  });
   const generatingCaption = visibleExchange.find((message) =>
     voiceMessageIsGenerating(message, { turnActive: textTurnIsGenerating })
   );
@@ -2511,7 +2595,11 @@ const LiveVoiceMode = ({
                 ) : null;
               if (speakerRows) {
                 return (
-                  <React.Fragment key={messageKey}>
+                  <div
+                    key={messageKey}
+                    data-voice-caption-key={messageKey}
+                    className="flex flex-col gap-3 items-end self-end max-w-[min(100%,28rem)] sm:max-w-[85%] w-full"
+                  >
                     {speakerRows.map((row, index) => {
                       const isLast = index === speakerRows.length - 1;
                       const isGuest = row.role === SPEAKER_ROLE_OTHER;
@@ -2567,12 +2655,13 @@ const LiveVoiceMode = ({
                         </div>
                       );
                     })}
-                  </React.Fragment>
+                  </div>
                 );
               }
               return (
                 <div
                   key={messageKey}
+                  data-voice-caption-key={messageKey}
                   className={`${
                     isHuman ? HUMAN_BUBBLE_CLASSES : AVATAR_BUBBLE_CLASSES
                   } ${

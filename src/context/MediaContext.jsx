@@ -262,6 +262,12 @@ function describeInterrupt(interrupt) {
     const destination = interrupt?.destination_name || 'the restaurant';
     return `Waiting for you to confirm a call to ${destination}`;
   }
+  // A look is answered by the browser automatically; it is not a correction
+  // the person must approve. Without this branch the default line below made
+  // an automatic webcam glance read as a stuck fact-correction pause.
+  if (interrupt?.kind === LOOK_NOW_INTERRUPT_KIND) {
+    return 'Looking…';
+  }
   return 'Waiting for your confirmation on a correction';
 }
 

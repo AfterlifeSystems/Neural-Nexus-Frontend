@@ -30,7 +30,12 @@ import MessageStamp from './media/MessageStamp';
 import MessageEditor from './messageEdit/MessageEditor';
 import { isConversationSuggestionList } from '../services/conversationSuggestions';
 import { messageKeyOf } from '../services/messageKey';
-import { transcriptScrollSignature } from '../services/transcriptScroll';
+import {
+  findNearestScrollingAncestor,
+  scrollElementIntoNearestScroller,
+  speakingTranscriptMessageKey,
+  transcriptScrollSignature,
+} from '../services/transcriptScroll';
 import AmbientNotificationCard from './AmbientNotificationCard';
 import { isAmbientNotice, isNoticeDismissed } from '../services/ambientNotice';
 import { noticeDecisionFor } from '../services/avatarPreferences';
@@ -64,28 +69,9 @@ import {
   stripArtifactReferences,
 } from '../services/createdArtifacts';
 
-/**
- * The scrolling box a descendant actually scrolls inside: the nearest ancestor
- * whose own overflow is scrollable, or the document itself when no element in
- * the chain scrolls. Deliberately stops at this document — a parent frame's
- * scroll position belongs to the page doing the embedding, not to the chat.
- *
- * @param {Element} descendantElement The element to scroll into view.
- * @returns {Element|null} The box to scroll, or null when there is none.
- */
-const findNearestScrollingAncestor = (descendantElement) => {
-  let candidate = descendantElement.parentElement;
-  while (candidate) {
-    const { overflowY } = window.getComputedStyle(candidate);
-    if (
-      (overflowY === 'auto' || overflowY === 'scroll') &&
-      candidate.scrollHeight > candidate.clientHeight
-    ) {
-      return candidate;
-    }
-    candidate = candidate.parentElement;
-  }
-  return descendantElement.ownerDocument?.scrollingElement ?? null;
+const isAvatarMessageType = (message) => {
+  const type = message?.type || message?.sender;
+  return type === 'ai' || type === 'assistant' || type === 'avatar';
 };
 
 const MessageList = ({
@@ -191,6 +177,23 @@ const MessageList = ({
   const speakerOptions = { humanTurn: true, avatarName };
 
   const transcriptGrowthKey = transcriptScrollSignature(messages);
+  const lastCompletedAvatarMessageKey = (() => {
+    for (let index = messages.length - 1; index >= 0; index -= 1) {
+      const message = messages[index];
+      if (
+        isAvatarMessageType(message) &&
+        !message?.isLoading &&
+        !message?.isPending
+      ) {
+        return messageKeyOf(message);
+      }
+    }
+    return null;
+  })();
+  const speakingMessageKey = speakingTranscriptMessageKey(
+    speech.speakingKey,
+    lastCompletedAvatarMessageKey
+  );
 
   useEffect(() => {
     const transcriptEndMarker = messagesEndRef?.current;
@@ -213,6 +216,17 @@ const MessageList = ({
       behavior: 'smooth',
     });
   }, [transcriptGrowthKey, messagesEndRef]);
+
+  // When Speak is playing a transcript row (or a live-stage reply that maps
+  // onto the latest avatar turn), bring that bubble into view — same idea as
+  // the voice-mode caption scroll, without walking parent-frame scrollers.
+  useEffect(() => {
+    if (!speakingMessageKey) return;
+    const messageNode = document.querySelector(
+      `[data-message-key="${CSS.escape(String(speakingMessageKey))}"]`
+    );
+    scrollElementIntoNearestScroller(messageNode, { behavior: 'smooth' });
+  }, [speakingMessageKey]);
 
   return (
     <div className="flex-grow mb-4 space-y-2 px-2 flex flex-col min-w-0 w-full">
@@ -413,13 +427,18 @@ const MessageList = ({
           return (
             <React.Fragment key={messageKey}>
               {speakerRows
-                ? speakerRows.map((row, index) => {
+                ? (
+                  <div
+                    data-message-key={messageKey}
+                    className="flex flex-col gap-2 items-end self-end max-w-[85%] min-w-0 w-full"
+                  >
+                    {speakerRows.map((row, index) => {
                     const isLast = index === speakerRows.length - 1;
                     const isGuest = row.role === SPEAKER_ROLE_OTHER;
                     return (
                       <div
                         key={`${messageKey}-${row.role}-${row.speaker}-${index}`}
-                        className="flex items-end gap-2 max-w-[85%] min-w-0 self-end flex-row-reverse"
+                        className="flex items-end gap-2 min-w-0 w-full flex-row-reverse"
                       >
                         {isGuest ? (
                           <ThirdPartySpeakerIcon identity={row.identity} />
@@ -457,9 +476,12 @@ const MessageList = ({
                         </div>
                       </div>
                     );
-                  })
+                  })}
+                  </div>
+                )
                 : (
               <div
+                data-message-key={messageKey}
                 className={`flex items-end gap-2 max-w-[85%] min-w-0 ${
                   isFromUser ? 'self-end flex-row-reverse' : 'self-start'
                 } ${charts.length > 0 ? 'w-full' : ''}`}
