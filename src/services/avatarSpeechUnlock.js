@@ -16,6 +16,10 @@ const SILENT_WAV_DATA_URL =
   'data:audio/wav;base64,UklGRigAAABXQVZFZm10IBIAAAABAAEARKwAAIhYAQACABAAAABkYXRhAgAAAAEA';
 
 let unlockedSpeechElement = null;
+// Object URL of the utterance currently bound to the unlocked element. Kept
+// even while the element is briefly paused (microphone open, AudioContext
+// resume, play() not yet resolved) so prime cannot replace it with silence.
+let activeUtteranceObjectUrl = null;
 
 /**
  * Whether a play() rejection is the mobile autoplay gate, not a bad file.
@@ -47,10 +51,38 @@ export function isUnlockedSpeechElement(audio) {
 }
 
 /**
+ * Whether the unlocked element still holds a live utterance source.
+ *
+ * @returns {boolean}
+ */
+export function unlockedSpeechHasActiveUtterance() {
+  return Boolean(
+    activeUtteranceObjectUrl &&
+      unlockedSpeechElement &&
+      unlockedSpeechElement.src === activeUtteranceObjectUrl
+  );
+}
+
+/**
+ * Forget the live utterance source after stop / end. Prime may then play
+ * silence on the unlocked element again.
+ *
+ * @param {string|null|undefined} objectUrl The URL that was released.
+ * @returns {void}
+ */
+export function clearActiveUtteranceSource(objectUrl) {
+  if (!objectUrl) return;
+  if (activeUtteranceObjectUrl === objectUrl) {
+    activeUtteranceObjectUrl = null;
+  }
+}
+
+/**
  * Unlock HTML audio from inside a tap, so a later cloned-voice reply can play.
  *
  * Safe to call often: a second prime on an already-playing utterance does not
- * replace the source.
+ * replace the source. A briefly paused live utterance is protected the same
+ * way — opening the microphone mid-playback must not swap the blob for silence.
  *
  * @returns {boolean} Whether an element was asked to play.
  */
@@ -61,6 +93,9 @@ export function primeAvatarSpeechPlayback() {
   }
   const audio = unlockedSpeechElement;
   try {
+    if (unlockedSpeechHasActiveUtterance()) {
+      return true;
+    }
     if (!audio.paused && audio.src && !audio.src.startsWith('data:')) {
       return true;
     }
@@ -94,6 +129,7 @@ export function playOnUnlockedSpeechElement(objectUrl) {
   audio.muted = false;
   audio.volume = 1;
   audio.src = objectUrl;
+  activeUtteranceObjectUrl = objectUrl;
   return audio;
 }
 
@@ -112,4 +148,5 @@ export function resetAvatarSpeechUnlockForTests() {
     }
   }
   unlockedSpeechElement = null;
+  activeUtteranceObjectUrl = null;
 }

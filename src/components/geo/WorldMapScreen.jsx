@@ -543,7 +543,7 @@ const WorldMapScreen = () => {
     isSearchOpen && avatarSearch.trim().length > 0;
 
   return (
-    <div className="mx-auto flex h-full w-full max-w-6xl flex-col gap-3 p-4">
+    <div className="flex h-full w-full flex-col gap-3 p-4">
       <header>
         <h1 className="text-lg font-semibold text-neutral-100">
           Avatars in the world

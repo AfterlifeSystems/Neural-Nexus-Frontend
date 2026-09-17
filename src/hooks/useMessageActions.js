@@ -7,9 +7,12 @@ import useSpeech from './useSpeech';
 /**
  * Copy, edit, retry, regenerate, feedback, and speak for a transcript.
  *
- * Owns the one speech session those controls share, so starting one utterance
- * stops another. Callers that also speak a live reply (voice mode) should use
- * this same `speech` object rather than opening a second session.
+ * Owns the speech controls for one transcript surface. Message view and live
+ * voice mode each call this hook, but `useSpeech` publishes speaking flags
+ * through `avatarSpeechSession` so a Speak press in the transcript still
+ * lights the portrait glow after the person opens voice mode. Starting one
+ * utterance still stops another because both hooks drive the same audio
+ * element.
  *
  * @param {Object} parameters
  * @param {string} [parameters.assistantId] The avatar whose voice to use.

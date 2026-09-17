@@ -250,9 +250,6 @@ const AvatarSelectionComponent = ({}) => {
         frame.style.height !== nextHeight ||
         frame.style.flexBasis !== nextHeight
       ) {
-        // #region agent log
-        fetch('http://127.0.0.1:7557/ingest/0403ecb1-fecd-46cd-92b1-501b8e956682',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'ad98d7'},body:JSON.stringify({sessionId:'ad98d7',runId:'pre-fix',hypothesisId:'H4',location:'AvatarSelectionComponent.jsx:measureFrame',message:'gallery frame height applied',data:{prevHeight:frame.style.height||null,nextHeight,width,available,regionHeight:region.clientHeight},timestamp:Date.now()})}).catch(()=>{});
-        // #endregion
         frame.style.flexGrow = '0';
         frame.style.flexShrink = '0';
         frame.style.flexBasis = nextHeight;
@@ -376,11 +373,6 @@ const AvatarSelectionComponent = ({}) => {
           writeCachedAvatarIcon(assistantId, iconSource);
           setAvatarIconsById((previousIcons) => {
             const iconUnchanged = previousIcons[assistantId] === iconSource;
-            // #region agent log
-            if (!iconUnchanged) {
-              fetch('http://127.0.0.1:7557/ingest/0403ecb1-fecd-46cd-92b1-501b8e956682',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'ad98d7'},body:JSON.stringify({sessionId:'ad98d7',runId:'pre-fix',hypothesisId:'H5',location:'AvatarSelectionComponent.jsx:iconRevalidate',message:'portrait icon string changed',data:{assistantId,hadPrevious:Boolean(previousIcons[assistantId]),previousLength:previousIcons[assistantId]?.length??0,nextLength:iconSource?.length??0,samePrefix:(previousIcons[assistantId]||'').slice(0,32)===(iconSource||'').slice(0,32)},timestamp:Date.now()})}).catch(()=>{});
-            }
-            // #endregion
             return iconUnchanged
               ? previousIcons
               : { ...previousIcons, [assistantId]: iconSource };
@@ -718,9 +710,6 @@ const AvatarSelectionComponent = ({}) => {
         const fullJsonMatches =
           JSON.stringify(freshAvatars ?? []) ===
           JSON.stringify(userAvatars ?? []);
-        // #region agent log
-        fetch('http://127.0.0.1:7557/ingest/0403ecb1-fecd-46cd-92b1-501b8e956682',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'ad98d7'},body:JSON.stringify({sessionId:'ad98d7',runId:'post-fix',hypothesisId:'H1',location:'AvatarSelectionComponent.jsx:listRefresh',message:'gallery open list refresh',data:{listMatches,fullJsonMatches,willReplace:!listMatches,freshCount:(freshAvatars??[]).length,displayedCount:(userAvatars??[]).length},timestamp:Date.now()})}).catch(()=>{});
-        // #endregion
         if (
           isCurrentRequest &&
           !listMatches
