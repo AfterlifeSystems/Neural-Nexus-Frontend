@@ -694,20 +694,21 @@ const VoicePanel = ({
       {/* What the voice is built from: the reference clip the diarizer uses
           to find this avatar in recordings, and every upload whose speech
           reached the model. */}
-      <div className="mb-4 rounded-xl bg-black/40 border border-white/10 p-3">
+      <div className="mb-4 min-w-0 overflow-hidden rounded-xl bg-black/40 border border-white/10 p-3">
         <p className="text-xs font-semibold text-white/70 mb-1.5">
           What feeds the voice model
         </p>
-        <p className="text-xs text-white/60 mb-2">
+        <p className="min-w-0 break-words text-xs text-white/60 mb-2">
           {status?.reference_audio_document ? (
             <>
               Reference audio:{' '}
               <span
                 className={
                   status?.reference_audio_usable === false
-                    ? 'text-amber-200'
-                    : 'text-emerald-200'
+                    ? 'break-all text-amber-200'
+                    : 'break-all text-emerald-200'
                 }
+                title={status.reference_audio_document}
               >
                 {status.reference_audio_document}
               </span>
@@ -721,11 +722,11 @@ const VoicePanel = ({
             other people in a recording, so the requirement is stated here
             rather than left for the owner to infer from an absence. */}
         {referenceWarning ? (
-          <div className="mb-2 rounded-lg border border-amber-400/40 bg-amber-400/10 p-2">
-            <p className="text-xs font-semibold text-amber-200">
+          <div className="mb-2 min-w-0 rounded-lg border border-amber-400/40 bg-amber-400/10 p-2">
+            <p className="break-words text-xs font-semibold text-amber-200">
               {referenceWarning.title}
             </p>
-            <p className="mt-0.5 text-[11px] text-amber-100/80">
+            <p className="mt-0.5 break-words text-[11px] text-amber-100/80">
               {referenceWarning.detail}
             </p>
           </div>

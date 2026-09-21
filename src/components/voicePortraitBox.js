@@ -354,21 +354,28 @@ export function openedPortraitChromeAfterAssistantChange(
  * Whether the voice well should keep the outgoing avatar's size for this
  * paint.
  *
- * Switching avatars paints the incoming still first. That still is square,
- * so sizing the well to the still turns the portrait into a circle, then the
- * idle loop snaps the well to 9:16 — the hop. Hold the outgoing size until
- * the painted media matches the incoming well's aspect.
+ * Switching onto a generated avatar paints the square still first. The well
+ * is already 9:16 from the gallery card. Shrinking to the square and growing
+ * again when the loop arrives is the hop — hold the tall well until the
+ * painted media is tall.
+ *
+ * Switching onto a reference photo must not hold: the square still is the
+ * final face. Keeping the previous avatar's 9:16 well then object-cover
+ * crops the reference photo into a tight headshot ("too close").
  *
  * @param {{width?: number, height?: number}|null|undefined} outgoingSize
  * @param {{width?: number, height?: number}|null|undefined} incomingSize
  * @param {{width?: number, height?: number}|null|undefined} paintedIntrinsic
+ * @param {boolean} [showGenerated] Incoming avatar uses generated faces.
  * @returns {boolean}
  */
 export function portraitWellShouldHoldOutgoingSize(
   outgoingSize,
   incomingSize,
-  paintedIntrinsic
+  paintedIntrinsic,
+  showGenerated = true
 ) {
+  if (!showGenerated) return false;
   if (!portraitWellSizeIsUsable(outgoingSize)) return false;
   if (!portraitWellSizeIsUsable(incomingSize)) return false;
   if (portraitWellAspectsAgree(outgoingSize, incomingSize)) return false;
@@ -387,6 +394,9 @@ export function portraitWellShouldHoldOutgoingSize(
  * shape — a leftover generated canvas after a swap onto a reference photo,
  * or the square still that paints before a generated idle loop.
  *
+ * A tall remembered well must not win over a square reference photo: that
+ * left object-cover zooming the face in a 9:16 frame.
+ *
  * @param {{width?: number, height?: number}|null|undefined} rememberedWell
  * @param {{width?: number, height?: number}|null|undefined} nextSize
  * @param {boolean} showGenerated Whether this avatar uses generated faces.
@@ -400,7 +410,11 @@ export function portraitWellShouldKeepRememberedSize(
   if (!portraitWellSizeIsUsable(rememberedWell)) return false;
   if (!portraitWellSizeIsUsable(nextSize)) return false;
   if (portraitWellAspectsAgree(rememberedWell, nextSize)) return false;
-  if (portraitWellIsTall(rememberedWell) && portraitWellIsSquare(nextSize)) {
+  if (
+    showGenerated &&
+    portraitWellIsTall(rememberedWell) &&
+    portraitWellIsSquare(nextSize)
+  ) {
     return true;
   }
   if (
@@ -411,6 +425,20 @@ export function portraitWellShouldKeepRememberedSize(
     return true;
   }
   return false;
+}
+
+/**
+ * Drop a leftover 9:16 well when this avatar shows the original reference
+ * photo, so the stage can open as a square instead of object-cover cropping
+ * the face.
+ *
+ * @param {string|null|undefined} assistantId
+ */
+export function forgetTallPortraitWellForReference(assistantId) {
+  if (!assistantId) return;
+  const rememberedWell = recalledPortraitWellSize(assistantId);
+  if (!portraitWellIsTall(rememberedWell)) return;
+  rememberedPortraitWellByAssistant.delete(assistantId);
 }
 
 /**

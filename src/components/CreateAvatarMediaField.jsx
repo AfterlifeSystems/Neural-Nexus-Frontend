@@ -20,7 +20,7 @@ const quietButtonClassName =
   'inline-flex items-center justify-center gap-1.5 rounded-md border border-neutral-700 bg-black/60 px-3 py-1.5 text-xs text-neutral-200 hover:bg-neutral-900 focus:outline-none focus:ring-2 focus:ring-amber-400/50 disabled:opacity-50';
 
 const chipClassName =
-  'flex items-center gap-2 rounded border border-neutral-700 bg-black/60 px-2 py-1 text-xs text-neutral-200';
+  'flex min-w-0 w-full items-center gap-2 overflow-hidden rounded border border-neutral-700 bg-black/60 px-2 py-1 text-xs text-neutral-200';
 
 function MediaChip({
   icon,
@@ -58,7 +58,7 @@ function MediaChip({
         type="button"
         onClick={onRemove}
         disabled={disabled}
-        className="rounded-md border border-neutral-700 bg-black/60 p-1 text-neutral-200 hover:bg-neutral-900 focus:outline-none focus:ring-2 focus:ring-amber-400/50 disabled:opacity-50"
+        className="shrink-0 rounded-md border border-neutral-700 bg-black/60 p-1 text-neutral-200 hover:bg-neutral-900 focus:outline-none focus:ring-2 focus:ring-amber-400/50 disabled:opacity-50"
         aria-label={`Remove ${label}`}
       >
         <X className="h-3.5 w-3.5" aria-hidden="true" />

@@ -503,27 +503,30 @@ const AvatarDocumentRow = ({
   return (
     <div
       onClick={canOpenPreview ? handleRowClick : undefined}
-      className={`p-3 bg-black/60 border border-white/10 rounded-lg hover:bg-white/10 transition-colors${
+      className={`min-w-0 overflow-hidden p-3 bg-black/60 border border-white/10 rounded-lg hover:bg-white/10 transition-colors${
         canOpenPreview ? ' cursor-pointer' : ''
       }`}
     >
-      <div className="flex items-center justify-between gap-3">
-        <div className="flex items-center gap-3 min-w-0">
+      <div className="flex min-w-0 items-center justify-between gap-3">
+        <div className="flex min-w-0 flex-1 items-center gap-3 overflow-hidden">
           {renderLeadingVisual()}
-          <div className="min-w-0">
-            <div className="flex items-center gap-2 flex-wrap">
+          <div className="min-w-0 flex-1 overflow-hidden">
+            <div className="flex min-w-0 items-center gap-2 flex-wrap">
               {sourceUrl ? (
                 <a
                   href={sourceUrl.href}
                   target="_blank"
                   rel="noopener noreferrer"
                   title={documentEntry.label}
-                  className="text-neutral-200 text-sm font-medium break-all hover:text-blue-300 transition-colors"
+                  className="min-w-0 max-w-full text-neutral-200 text-sm font-medium break-all hover:text-blue-300 transition-colors"
                 >
                   {displayLabel}
                 </a>
               ) : (
-                <span className="text-neutral-200 text-sm font-medium break-all">
+                <span
+                  className="min-w-0 max-w-full text-neutral-200 text-sm font-medium break-all"
+                  title={documentEntry.label}
+                >
                   {displayLabel}
                 </span>
               )}
@@ -593,7 +596,7 @@ const AvatarDocumentRow = ({
           </div>
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="flex shrink-0 items-center gap-2">
           {/* The reference badge tells the owner another upload can take the
               reference clip's place; this is how that is done. The endpoint
               re-cuts the clip from the speech this upload already contributed

@@ -555,6 +555,7 @@ const LiveVoiceMode = ({
   const { showGenerated } = useAvatarFaceSource(assistantId);
   const stageIsShowing = stageVisible && !galleryIsOpen;
   const wellForAssistantIdRef = useRef(assistantId);
+  const faceSourceGeneratedRef = useRef(showGenerated);
   const voiceStageRootRef = useRef(null);
   let openedPortraitWellSize = portraitWellSize;
   let openedPaintedPortraitFrame = paintedPortraitFrame;
@@ -562,6 +563,7 @@ const LiveVoiceMode = ({
   let openedPortraitComposerReserve = portraitComposerReserve;
   if (wellForAssistantIdRef.current !== assistantId) {
     wellForAssistantIdRef.current = assistantId;
+    faceSourceGeneratedRef.current = showGenerated;
     seedOpenedAvatarPortraitWell(assistantId);
     const recalledWell = recalledPortraitWellSize(assistantId);
     const fittedWell = portraitWellSizeForConstraint(
@@ -592,6 +594,27 @@ const LiveVoiceMode = ({
       lastCollapsedReserveRef.current = openedChrome.collapsedDockHeight;
       setPortraitComposerReserve(openedChrome.collapsedDockHeight);
     }
+  } else if (faceSourceGeneratedRef.current !== showGenerated) {
+    // Toggling off generated faces must drop a leftover 9:16 well before
+    // the reference photo paints, or object-cover zooms the face.
+    faceSourceGeneratedRef.current = showGenerated;
+    seedOpenedAvatarPortraitWell(assistantId);
+    const recalledWell = recalledPortraitWellSize(assistantId);
+    const fittedWell = portraitWellSizeForConstraint(
+      portraitConstraintRef.current,
+      null,
+      recalledWell
+    );
+    const nextWell = portraitWellSizeAfterAssistantChange(
+      recalledWell,
+      fittedWell
+    );
+    openedPortraitWellSize = nextWell;
+    openedPaintedPortraitFrame = nextWell
+      ? paintedPortraitFrameFor(nextWell, null)
+      : null;
+    setPortraitWellSize(nextWell);
+    setPaintedPortraitFrame(openedPaintedPortraitFrame);
   }
 
   const { manifest } = useEmotionMedia(assistantId, {
@@ -913,7 +936,8 @@ const LiveVoiceMode = ({
         portraitWellShouldHoldOutgoingSize(
           portraitWellSize,
           nextSize,
-          mediaIntrinsicSize(paintedMedia)
+          mediaIntrinsicSize(paintedMedia),
+          showGenerated
         )
       ) {
         setPaintedPortraitFrame(
@@ -2247,6 +2271,7 @@ const LiveVoiceMode = ({
                   }}
                   onPresented={handleStagePresented}
                   mediaClassName={`w-full h-full ${
+                    showGenerated &&
                     portraitWellIsTall(openedPortraitWellSize)
                       ? 'object-cover'
                       : 'object-contain'

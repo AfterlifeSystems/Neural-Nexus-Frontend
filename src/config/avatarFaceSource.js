@@ -167,3 +167,46 @@ export function voiceStageFace({
 export function galleryIdleLoopUrl(loopUrl, showGenerated) {
   return showGenerated ? loopUrl ?? null : null;
 }
+
+/**
+ * The still the gallery card should bind.
+ *
+ * Generated mode prefers the emotion still and must not keep the circular
+ * reference photo on screen while a generated loop is loading — that was the
+ * delay after "Use generated videos". When the manifest has settled and this
+ * avatar has no generated still and no idle loop, fall back to the reference
+ * photo so the card is not blank (for example an avatar with no emotion media).
+ *
+ * @param {Object} options
+ * @param {boolean} options.showGenerated
+ * @param {string|null|undefined} [options.generatedStill]
+ * @param {string|null|undefined} [options.referenceImage]
+ * @param {string|null|undefined} [options.loopUrl]
+ * @param {boolean} [options.loopLookupSettled]
+ * @returns {string|null}
+ */
+export function galleryCardFaceImage({
+  showGenerated,
+  generatedStill = null,
+  referenceImage = null,
+  loopUrl = null,
+  loopLookupSettled = false,
+}) {
+  if (!showGenerated) {
+    return referenceImage ?? null;
+  }
+  if (generatedStill) {
+    return generatedStill;
+  }
+  // Manifest still loading: stay empty so the reference does not flash before
+  // a generated still or loop arrives.
+  if (!loopLookupSettled) {
+    return null;
+  }
+  // No generated media at all — show the reference rather than a blank disc.
+  if (!loopUrl) {
+    return referenceImage ?? null;
+  }
+  // Idle loop is on the way; optional still. Placeholder until a frame paints.
+  return null;
+}

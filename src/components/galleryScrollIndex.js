@@ -1,4 +1,3 @@
-import { profileBubbleCoverLayout } from '../services/profileBubbleViewport.js';
 import { imageViewportContainLayout } from '../services/imageViewport.js';
 
 /** Circle disc, the same silhouette as the message portraits. */
@@ -19,15 +18,23 @@ export const GALLERY_CARD_HEIGHT_FRACTION = 0.66;
 /**
  * A tall phone gallery makes a height-based disc wider than the screen.
  * Cap at this fraction of gallery width so the centre portrait stays the
- * hero and the next faces still peek.
+ * hero and the next faces still peek — with enough leftover for a real gap
+ * between discs. 0.76 left only ~7px of padding on a 358px phone.
  */
-export const GALLERY_CARD_MAX_WIDTH_FRACTION = 0.76;
+export const GALLERY_CARD_MAX_WIDTH_FRACTION = 0.62;
 
 /**
  * Gap between discs as a fraction of card size. Matches the old world
  * padding of 2 on a 0.6-height card (~0.20 of the painted disc).
  */
 export const GALLERY_CARD_PADDING_FRACTION = 0.2;
+
+/**
+ * Floor for the gap between discs on a narrow gallery, as a fraction of
+ * card size. Without this, peek budgeting ate the padding down to a few
+ * pixels and the faces sat on top of each other on mobile.
+ */
+export const GALLERY_CARD_MIN_PADDING_FRACTION = 0.12;
 
 /** Visible sliver of each neighboring disc, in CSS pixels. */
 export const GALLERY_CARD_NEIGHBOR_PEEK_PIXELS = 36;
@@ -95,12 +102,16 @@ export function galleryCardLayout(containerWidth, containerHeight) {
   );
   const leftoverEachSide = Math.max((width - pixelSize) / 2, 0);
   const fullPadding = pixelSize * GALLERY_CARD_PADDING_FRACTION;
+  const minPadding = pixelSize * GALLERY_CARD_MIN_PADDING_FRACTION;
   let paddingPixels;
   if (leftoverEachSide <= GALLERY_CARD_NEIGHBOR_PEEK_PIXELS) {
-    paddingPixels = Math.max(leftoverEachSide * 0.2, 4);
+    paddingPixels = Math.max(leftoverEachSide * 0.2, Math.min(minPadding, leftoverEachSide * 0.45), 4);
   } else {
     const peekBudget = leftoverEachSide - GALLERY_CARD_NEIGHBOR_PEEK_PIXELS;
-    paddingPixels = Math.min(fullPadding, Math.max(peekBudget, 4));
+    paddingPixels = Math.min(
+      fullPadding,
+      Math.max(peekBudget, minPadding, 4)
+    );
   }
   return {
     pixelSize,
@@ -323,65 +334,42 @@ export function galleryMediaBorderRadius(sizeX, sizeY) {
 /**
  * Where the photograph sits on the gallery plane.
  *
- * Square stills cover the disc (the message-portrait crop). Generated idle
- * loops are 9:16: contain the whole clip, centered, so the carousel shows
- * the portrait rather than a zoomed head.
+ * Always contain the whole still or clip, centered. Cover-plus-bubble-crop
+ * used to paint the message-bubble zoom on the large disc whenever the
+ * owner framed a tight headshot — that made personal-avatar reference
+ * photos look too close next to tall Mom/Dad portraits that already
+ * contained. Message bubbles keep the framed crop via ProfileBubbleImage;
+ * the carousel shows the full photograph.
  *
  * @param {number} imageWidth
  * @param {number} imageHeight
- * @param {{scale?: number, offsetX?: number, offsetY?: number, mediaWidth?: number, mediaHeight?: number}|null|undefined} viewport
+ * @param {{scale?: number, offsetX?: number, offsetY?: number, mediaWidth?: number, mediaHeight?: number}|null|undefined} [_viewport]
+ *   Ignored. Kept so older call sites that pass the bubble crop still compile.
  * @returns {{originX: number, originY: number, sizeX: number, sizeY: number}}
  */
 export function galleryPortraitUvRect(
   imageWidth,
   imageHeight,
-  viewport = null
+  _viewport = null
 ) {
   const mediaWidth = Number(imageWidth);
   const mediaHeight = Number(imageHeight);
   if (!(mediaWidth > 0) || !(mediaHeight > 0)) {
     return { originX: 0, originY: 0, sizeX: 1, sizeY: 1 };
   }
-  const isPortrait = mediaHeight > mediaWidth * 1.05;
-  if (isPortrait) {
-    const contained = imageViewportContainLayout(
-      { width: 1, height: 1 },
-      { mediaWidth, mediaHeight }
-    );
-    if (contained.width > 0 && contained.height > 0) {
-      return {
-        originX: contained.left,
-        originY: contained.top,
-        sizeX: contained.width,
-        sizeY: contained.height,
-      };
-    }
-  }
-  const layout = profileBubbleCoverLayout(
-    {
-      scale: viewport?.scale,
-      offsetX: viewport?.offsetX,
-      offsetY: viewport?.offsetY,
-      mediaWidth,
-      mediaHeight,
-    },
-    {
-      width: 1,
-      height: 1,
-      mediaWidth,
-      mediaHeight,
-      fit: 'cover',
-    }
+  const contained = imageViewportContainLayout(
+    { width: 1, height: 1 },
+    { mediaWidth, mediaHeight }
   );
-  if (!(layout.width > 0) || !(layout.height > 0)) {
-    return { originX: 0, originY: 0, sizeX: 1, sizeY: 1 };
+  if (contained.width > 0 && contained.height > 0) {
+    return {
+      originX: contained.left,
+      originY: contained.top,
+      sizeX: contained.width,
+      sizeY: contained.height,
+    };
   }
-  return {
-    originX: layout.left,
-    originY: layout.top,
-    sizeX: layout.width,
-    sizeY: layout.height,
-  };
+  return { originX: 0, originY: 0, sizeX: 1, sizeY: 1 };
 }
 
 /**
@@ -505,9 +493,11 @@ export function galleryCardExpectsPortraitLoop({
 /**
  * Whether the gallery may bind a face onto a card.
  *
- * Generated loops stay on the 9:16 placeholder until a video frame exists.
- * Binding the square still first is what painted a circle, then popped the
- * clip in. Reference photos still show as soon as the still decodes.
+ * A generated still may fill the 9:16 window while the idle loop catches up
+ * (framed as a portrait, not a circle). Blocking every still left either a
+ * blank disc or the circular reference photo on screen until mobile video
+ * decode finished. With no still yet, generated cards stay on the placeholder
+ * until a loop frame exists.
  *
  * @param {{portraitLoop?: boolean, loopHasFrame?: boolean, loopFailed?: boolean, stillReady?: boolean, hasStill?: boolean, hasLoopUrl?: boolean}} parameters
  * @returns {boolean}
@@ -518,12 +508,12 @@ export function galleryCardMayReveal({
   loopFailed = false,
   stillReady = false,
   hasStill = false,
-  hasLoopUrl = false,
+  hasLoopUrl: _hasLoopUrl = false,
 } = {}) {
   if (loopHasFrame) return true;
-  if (portraitLoop && hasLoopUrl && !loopFailed) return false;
-  if (portraitLoop && !hasLoopUrl && !loopFailed) return false;
-  return Boolean(hasStill && stillReady);
+  if (hasStill && stillReady) return true;
+  if (portraitLoop && !loopFailed) return false;
+  return false;
 }
 
 /**

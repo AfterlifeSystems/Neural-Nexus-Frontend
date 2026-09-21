@@ -7,12 +7,20 @@
 //
 // Sponsorships are separate: GitHub Sponsors for efwoods sits on this page
 // above the portal so a reader who came to subscribe can also donate.
+//
+// The administrator also sees SpendSummary at the top: real vendor spend read
+// from the API's own ledger and from the vendors. The portal cannot show that
+// spend, because the portal reads Stripe's meters in the Stripe test
+// environment, and because much of the spend is never charged to anybody.
 
 import React, { useEffect, useRef, useState } from 'react';
 import { ArrowLeft, ExternalLink, CreditCard } from 'lucide-react';
 import { useNavigate, useParams } from 'react-router-dom';
 
 import GitHubSponsorsEmbed from './GitHubSponsorsEmbed';
+import SpendSummary from './SpendSummary';
+import { useAuth } from '../context/AuthContext';
+import { isAdminAccount } from '../config/adminAccount';
 import { SHARED_AVATAR_ROUTE_PREFIX } from './utils';
 
 const BILLING_PORTAL_URL =
@@ -48,6 +56,10 @@ import { signInToBillingPortalFrame } from '../services/billingPortalSingleSignO
 const BillingManagement = ({ showAccountMenu = true }) => {
   const navigate = useNavigate();
   const { avatarId } = useParams();
+  const { user } = useAuth();
+  // The spend report is the operator's, not a customer's: the API refuses it
+  // for every other account, so the panel is not offered to them either.
+  const showsSpendSummary = !avatarId && isAdminAccount(user);
   const [hasLoaded, setHasLoaded] = useState(false);
   // Resolved once per mount: the frame must not be handed a new src on every
   // render, which would reload the portal underneath whoever is using it.
@@ -90,7 +102,7 @@ const BillingManagement = ({ showAccountMenu = true }) => {
   };
 
   return (
-    <div className="h-full flex flex-col p-4 sm:p-6 gap-4">
+    <div className="h-full overflow-y-auto flex flex-col p-4 sm:p-6 gap-4">
       <div className="flex items-center justify-between gap-4 flex-wrap">
         <div className="flex items-center gap-3 flex-wrap">
           <h1 className="text-2xl font-bold text-neutral-200 flex items-center gap-2">
@@ -113,6 +125,8 @@ const BillingManagement = ({ showAccountMenu = true }) => {
         </a>
       </div>
 
+      {showsSpendSummary && <SpendSummary />}
+
       <section
         aria-label="Support Neural Nexus"
         className="shrink-0 rounded-2xl border border-white/10 bg-black/30 p-4"
@@ -126,7 +140,15 @@ const BillingManagement = ({ showAccountMenu = true }) => {
         <GitHubSponsorsEmbed className="mt-3" />
       </section>
 
-      <div className="relative flex-grow min-h-[360px] rounded-2xl overflow-hidden border border-white/10 bg-black/30">
+      {/* With the spend panel above, the page scrolls and the portal keeps a
+          fixed height; without the panel, the portal fills the page as before. */}
+      <div
+        className={`relative ${
+          showsSpendSummary
+            ? 'shrink-0 h-[75vh] min-h-[480px]'
+            : 'flex-grow min-h-[360px]'
+        } rounded-2xl overflow-hidden border border-white/10 bg-black/30`}
+      >
         {!hasLoaded && (
           <div className="absolute inset-0 flex items-center justify-center text-white/60">
             Loading the customer portal…

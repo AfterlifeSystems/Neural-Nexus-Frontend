@@ -537,7 +537,7 @@ const ChatArea = ({
               className={
                 galleryIsCovering
                   ? 'hidden'
-                  : 'flex flex-col flex-grow p-2 sm:p-4 relative overflow-y-auto'
+                  : 'flex flex-col flex-grow min-w-0 p-2 sm:p-4 relative overflow-y-auto overflow-x-hidden'
               }
               aria-hidden={galleryIsCovering}
               inert={galleryIsCovering || undefined}
