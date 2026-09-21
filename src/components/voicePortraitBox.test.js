@@ -31,6 +31,7 @@ import {
   rememberPortraitChrome,
   rememberPortraitWellSize,
   seedPortraitWellAspectIfUnknown,
+  forgetTallPortraitWellForReference,
   suggestionSheetHeightIn,
   VOICE_SUGGESTION_SHEET_SELECTOR,
 } from './voicePortraitBox.js';
@@ -42,7 +43,8 @@ test('an incoming still does not resize a 9:16 well until the loop is painted', 
     portraitWellShouldHoldOutgoingSize(
       { width: 225, height: 400 },
       { width: 400, height: 400 },
-      { width: 400, height: 400 }
+      { width: 400, height: 400 },
+      true
     ),
     true
   );
@@ -50,7 +52,28 @@ test('an incoming still does not resize a 9:16 well until the loop is painted', 
     portraitWellShouldHoldOutgoingSize(
       { width: 225, height: 400 },
       { width: 225, height: 400 },
-      { width: 720, height: 1280 }
+      { width: 720, height: 1280 },
+      true
+    ),
+    false
+  );
+});
+
+test('a reference-photo avatar does not keep the previous 9:16 well', () => {
+  assert.equal(
+    portraitWellShouldHoldOutgoingSize(
+      { width: 225, height: 400 },
+      { width: 400, height: 400 },
+      { width: 400, height: 400 },
+      false
+    ),
+    false
+  );
+  assert.equal(
+    portraitWellShouldKeepRememberedSize(
+      { width: 225, height: 400 },
+      { width: 400, height: 400 },
+      false
     ),
     false
   );
@@ -234,6 +257,18 @@ test('seeding a 9:16 well replaces a square still recall', () => {
   });
 });
 
+test('opening a reference-photo avatar drops a leftover 9:16 well', () => {
+  rememberPortraitWellSize('personal-reference', { width: 225, height: 400 });
+  forgetTallPortraitWellForReference('personal-reference');
+  assert.equal(recalledPortraitWellSize('personal-reference'), null);
+  rememberPortraitWellSize('personal-square', { width: 400, height: 400 });
+  forgetTallPortraitWellForReference('personal-square');
+  assert.deepEqual(recalledPortraitWellSize('personal-square'), {
+    width: 400,
+    height: 400,
+  });
+});
+
 test('switching assistants keeps a stored well instead of a stale constraint fit', () => {
   assert.deepEqual(
     portraitWellSizeAfterAssistantChange(
@@ -379,14 +414,16 @@ test('voice mode contains a 9:16 loop so the whole portrait is on stage', () => 
   const liveVoice = readFileSync(join(componentsDirectory, 'LiveVoiceMode.jsx'), 'utf8');
   assert.match(liveVoice, /object-contain/);
   assert.match(liveVoice, /object-cover/);
+  assert.match(liveVoice, /showGenerated &&/);
   assert.match(liveVoice, /paintedPortraitFrameFor/);
   assert.match(liveVoice, /rememberPortraitWellSize/);
   assert.match(
     readFileSync(join(componentsDirectory, 'openedAvatarPortraitWell.js'), 'utf8'),
-    /seedOpenedAvatarPortraitWell/
+    /forgetTallPortraitWellForReference/
   );
   assert.match(liveVoice, /seedOpenedAvatarPortraitWell/);
   assert.match(liveVoice, /wellForAssistantIdRef/);
+  assert.match(liveVoice, /faceSourceGeneratedRef/);
   assert.match(liveVoice, /openedPortraitWellSize/);
   assert.match(liveVoice, /portraitWellBoxStyle/);
   assert.match(liveVoice, /<LoopingVideo[\s\S]*?key=\{assistantId\}/);

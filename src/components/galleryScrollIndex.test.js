@@ -8,6 +8,7 @@ import {
   GALLERY_PORTRAIT_BORDER_RADIUS,
   GALLERY_CARD_HEIGHT_FRACTION,
   GALLERY_CARD_MAX_WIDTH_FRACTION,
+  GALLERY_CARD_MIN_PADDING_FRACTION,
   GALLERY_CARD_NEIGHBOR_PEEK_PIXELS,
   GALLERY_CREATE_BORDER_RADIUS,
   galleryCardLayout,
@@ -168,6 +169,28 @@ test('a square still still fills the circular disc', () => {
   );
 });
 
+test('a zoomed message-bubble crop does not pull the gallery face closer', () => {
+  const zoomedBubbleCrop = galleryPortraitUvRect(400, 400, {
+    scale: 3,
+    offsetX: -40,
+    offsetY: 20,
+    mediaWidth: 400,
+    mediaHeight: 400,
+  });
+  assert.equal(zoomedBubbleCrop.sizeX, 1);
+  assert.equal(zoomedBubbleCrop.sizeY, 1);
+  assert.equal(zoomedBubbleCrop.originX, 0);
+  assert.equal(zoomedBubbleCrop.originY, 0);
+});
+
+test('a wide reference photo is contained so the whole frame stays on the disc', () => {
+  const wide = galleryPortraitUvRect(1600, 900);
+  assert.equal(wide.sizeX, 1);
+  assert.ok(Math.abs(wide.sizeY - 900 / 1600) < 1e-9);
+  assert.equal(wide.originX, 0);
+  assert.ok(Math.abs(wide.originY - (1 - 900 / 1600) / 2) < 1e-9);
+});
+
 test('carousel avatars are circular like the message portraits', () => {
   assert.equal(GALLERY_AVATAR_BORDER_RADIUS, 0.5);
   assert.equal(GALLERY_CREATE_BORDER_RADIUS, 0.05);
@@ -202,6 +225,10 @@ test('a tall phone gallery caps the disc so neighbors peek', () => {
   const leftoverEachSide = (358 - layout.pixelSize) / 2;
   const peek = leftoverEachSide - layout.paddingPixels;
   assert.ok(peek + 1e-9 >= GALLERY_CARD_NEIGHBOR_PEEK_PIXELS);
+  assert.ok(
+    layout.paddingPixels + 1e-9 >=
+      layout.pixelSize * GALLERY_CARD_MIN_PADDING_FRACTION
+  );
 });
 
 test('a wide gallery box keeps the leftover height', () => {
@@ -269,6 +296,10 @@ test('a tall phone gallery box shrinks until discs fill 60%', () => {
   const leftoverEachSide = (width - layout.pixelSize) / 2;
   const peek = leftoverEachSide - layout.paddingPixels;
   assert.ok(peek + 1e-9 >= GALLERY_CARD_NEIGHBOR_PEEK_PIXELS);
+  assert.ok(
+    layout.paddingPixels + 1e-9 >=
+      layout.pixelSize * GALLERY_CARD_MIN_PADDING_FRACTION
+  );
 });
 
 test('world units follow the pixel layout through the camera viewport', () => {
@@ -311,7 +342,7 @@ test('a generated card keeps the 9:16 window until the loop has a frame', () => 
       stillReady: true,
       hasLoopUrl: true,
     }),
-    false
+    true
   );
   assert.equal(
     galleryCardMayReveal({
@@ -325,6 +356,15 @@ test('a generated card keeps the 9:16 window until the loop has a frame', () => 
   );
   assert.equal(
     galleryCardMayReveal({
+      portraitLoop: true,
+      hasStill: false,
+      stillReady: false,
+      hasLoopUrl: true,
+    }),
+    false
+  );
+  assert.equal(
+    galleryCardMayReveal({
       portraitLoop: false,
       hasStill: true,
       stillReady: true,
@@ -335,7 +375,7 @@ test('a generated card keeps the 9:16 window until the loop has a frame', () => 
   assert.equal(GALLERY_GENERATED_PORTRAIT_HEIGHT, 16);
 });
 
-test('the gallery does not paint a circular still ahead of a generated loop', () => {
+test('the gallery does not keep the circular reference still ahead of a generated loop', () => {
   const gallerySource = readFileSync(
     join(componentsDirectory, 'CircularGallery.jsx'),
     'utf8'
@@ -344,10 +384,15 @@ test('the gallery does not paint a circular still ahead of a generated loop', ()
     join(componentsDirectory, 'AvatarSelectionComponent.jsx'),
     'utf8'
   );
+  const faceSource = readFileSync(
+    join(componentsDirectory, '../config/avatarFaceSource.js'),
+    'utf8'
+  );
   assert.match(gallerySource, /galleryCardMayReveal/);
   assert.match(gallerySource, /updateItems/);
   assert.match(gallerySource, /galleryCardShouldDecodeIdleLoop/);
   assert.match(gallerySource, /portraitLoop/);
+  assert.match(gallerySource, /GALLERY_GENERATED_PORTRAIT_WIDTH/);
   assert.match(
     gallerySource,
     /\}, \[bend, textColor, borderRadius, font, scrollSpeed, scrollEase\]\);/
@@ -358,6 +403,13 @@ test('the gallery does not paint a circular still ahead of a generated loop', ()
   );
   assert.doesNotMatch(carouselSource, /pairReady/);
   assert.match(carouselSource, /portraitLoop/);
+  assert.match(carouselSource, /galleryCardFaceImage/);
+  assert.match(carouselSource, /neutralStillsById/);
+  assert.match(faceSource, /galleryCardFaceImage/);
+  assert.match(
+    gallerySource,
+    /drop whatever was on the disc \(usually the circular/
+  );
 });
 
 test('Create overlay and hide controls follow the painted disc size', () => {

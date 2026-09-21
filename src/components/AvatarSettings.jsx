@@ -1353,7 +1353,7 @@ const AvatarSettings = ({ avatarId, onPortraitChanged }) => {
   if (!canAdministerAvatar) {
     if (canChangeSharing) {
       return (
-        <div className="avatar-settings flex flex-col gap-4 sm:gap-6 w-full max-w-4xl mx-auto min-w-0">
+        <div className="avatar-settings flex flex-col gap-4 sm:gap-6 w-full max-w-4xl mx-auto min-w-0 overflow-x-hidden">
           {renderSharingCard()}
           {/* Inert for public demos — restore with ADULT_ONLY_FEATURES_ENABLED.
           {isAdministrator && renderAdultOnlyCard()}
@@ -1380,7 +1380,7 @@ const AvatarSettings = ({ avatarId, onPortraitChanged }) => {
   }
 
   return (
-    <div className="avatar-settings flex flex-col gap-4 sm:gap-6 w-full max-w-4xl mx-auto min-w-0">
+    <div className="avatar-settings flex flex-col gap-4 sm:gap-6 w-full max-w-4xl mx-auto min-w-0 overflow-x-hidden">
       {/* Drag Overlay */}
       {isDragging && (
         <div
@@ -1801,32 +1801,6 @@ const AvatarSettings = ({ avatarId, onPortraitChanged }) => {
           />
         </div>
       </div>
-      {/* What the avatar may do with the camera and a screen share. */}
-      <div className="bg-black/60 backdrop-blur-lg rounded-2xl border border-white/10 p-6">
-        <h2 className="text-xl sm:text-2xl font-semibold text-neutral-200 mb-4 flex items-center gap-2">
-          <Camera size={22} />
-          Camera Settings
-        </h2>
-        <ShareControlSetting assistantId={assistantId} />
-      </div>
-      {/* How the person moves: learned from the camera and uploaded video,
-          rendered to the text that drives the generated video. The switch
-          that lets the camera teach it belongs to the person, so it is shown
-          on the personal avatar only — the same switch account settings
-          shows — and an invented avatar learns from uploaded video alone. */}
-      <div className="bg-black/60 backdrop-blur-lg rounded-2xl border border-white/10 p-4 sm:p-6 min-w-0 flex flex-col gap-4">
-        <MotionProfilePanel
-          assistantId={assistantId}
-          learnsFromCamera={isPersonalAvatar}
-        />
-        {isPersonalAvatar && (
-          <MotionCaptureSection
-            source="avatar_settings"
-            avatarName={activeAvatar?.name}
-            embedded
-          />
-        )}
-      </div>
       {/* Upload Section */}
       <div
         ref={uploadSectionRef}
@@ -2125,10 +2099,10 @@ const AvatarSettings = ({ avatarId, onPortraitChanged }) => {
               </div>
             )}
 
-            {/* The list scrolls within a bounded height, so a long upload history
-            does not push the rest of the settings off the bottom of the page,
-            and the search and filters above it stay in reach. */}
-            <div className="space-y-2 max-h-[60vh] overflow-y-auto pr-1">
+            {/* One page scroller only: a nested max-height list used to put a
+            second vertical scrollbar beside the settings pane, and on narrow
+            viewports that often also woke a horizontal bar at the bottom. */}
+            <div className="space-y-2 min-w-0">
               {allAvatarRows.length > 0 ? (
                 visibleAvatarDocuments.length > 0 ? (
                   visibleAvatarDocuments.map((documentEntry) => (
@@ -2172,6 +2146,33 @@ const AvatarSettings = ({ avatarId, onPortraitChanged }) => {
           personal avatar is the account's own avatar, so the switch lives
           here (and in account settings) rather than on every avatar. */}
       {isPersonalAvatar && <UsageAnalyticsSection source="avatar_settings" />}
+      {/* What the avatar may do with the camera and a screen share. Kept at
+          the bottom so profile, upload, and data controls come first. */}
+      <div className="bg-black/60 backdrop-blur-lg rounded-2xl border border-white/10 p-4 sm:p-6 min-w-0">
+        <h2 className="text-xl sm:text-2xl font-semibold text-neutral-200 mb-4 flex items-center gap-2">
+          <Camera size={22} />
+          Camera Settings
+        </h2>
+        <ShareControlSetting assistantId={assistantId} />
+      </div>
+      {/* How the person moves: learned from the camera and uploaded video,
+          rendered to the text that drives the generated video. The switch
+          that lets the camera teach it belongs to the person, so it is shown
+          on the personal avatar only — the same switch account settings
+          shows — and an invented avatar learns from uploaded video alone. */}
+      <div className="bg-black/60 backdrop-blur-lg rounded-2xl border border-white/10 p-4 sm:p-6 min-w-0 flex flex-col gap-4">
+        <MotionProfilePanel
+          assistantId={assistantId}
+          learnsFromCamera={isPersonalAvatar}
+        />
+        {isPersonalAvatar && (
+          <MotionCaptureSection
+            source="avatar_settings"
+            avatarName={activeAvatar?.name}
+            embedded
+          />
+        )}
+      </div>
     </div>
   );
 };

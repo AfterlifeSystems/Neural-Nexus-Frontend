@@ -3,6 +3,7 @@ import { test } from 'node:test';
 import {
   AVATAR_FACE_SOURCE_GENERATED,
   AVATAR_FACE_SOURCE_REFERENCE,
+  galleryCardFaceImage,
   galleryIdleLoopUrl,
   normalizeAvatarFaceSource,
   readAvatarFaceSource,
@@ -87,6 +88,56 @@ test('the carousel loop is withheld when the original photo is on', () => {
   assert.equal(galleryIdleLoopUrl('idle.mp4', true), 'idle.mp4');
   assert.equal(galleryIdleLoopUrl('idle.mp4', false), null);
   assert.equal(galleryIdleLoopUrl(null, true), null);
+});
+
+test('generated gallery cards never fall back to the reference photo while a loop loads', () => {
+  assert.equal(
+    galleryCardFaceImage({
+      showGenerated: true,
+      generatedStill: 'generated.jpg',
+      referenceImage: 'original.jpg',
+      loopLookupSettled: true,
+      loopUrl: 'idle.mp4',
+    }),
+    'generated.jpg'
+  );
+  assert.equal(
+    galleryCardFaceImage({
+      showGenerated: true,
+      generatedStill: null,
+      referenceImage: 'original.jpg',
+      loopLookupSettled: false,
+    }),
+    null
+  );
+  assert.equal(
+    galleryCardFaceImage({
+      showGenerated: true,
+      generatedStill: null,
+      referenceImage: 'original.jpg',
+      loopLookupSettled: true,
+      loopUrl: 'idle.mp4',
+    }),
+    null
+  );
+  assert.equal(
+    galleryCardFaceImage({
+      showGenerated: true,
+      generatedStill: null,
+      referenceImage: 'original.jpg',
+      loopLookupSettled: true,
+      loopUrl: null,
+    }),
+    'original.jpg'
+  );
+  assert.equal(
+    galleryCardFaceImage({
+      showGenerated: false,
+      generatedStill: 'generated.jpg',
+      referenceImage: 'original.jpg',
+    }),
+    'original.jpg'
+  );
 });
 
 test('each avatar keeps its own generated-or-reference choice', () => {

@@ -11,11 +11,14 @@ import { useAuth } from '../context/AuthContext';
 import CircularGallery from './CircularGallery';
 import {
   cachedIdleLoopUrl,
+  cachedStillUrl,
   idleLoopFor,
   loadEmotionMedia,
+  stillFor,
 } from '../hooks/useEmotionMedia';
 import { useAvatarFaceSourceRevision } from '../hooks/useAvatarFaceSource';
 import {
+  galleryCardFaceImage,
   galleryIdleLoopUrl,
   showsGeneratedFace,
 } from '../config/avatarFaceSource';
@@ -540,10 +543,11 @@ const AvatarSelectionComponent = ({}) => {
     }
   };
 
-  // Each avatar's neutral idle loop, when its emotion media has been
-  // generated. A missing key means the manifest has not arrived yet; `null`
-  // means this avatar has no loop. Generated cards keep the 9:16 window
-  // until a clip URL is known, so the circular still never paints first.
+  // Each avatar's neutral idle loop and emotion still, when its emotion
+  // media has been generated. A missing key means the manifest has not
+  // arrived yet; `null` means this avatar has no asset. Generated cards use
+  // the emotion still (never the reference photo) in the 9:16 window until
+  // a loop frame is ready.
   const [neutralLoopsById, setNeutralLoopsById] = useState(() => {
     const seeded = {};
     for (const avatar of userAvatars ?? []) {
@@ -551,6 +555,16 @@ const AvatarSelectionComponent = ({}) => {
       const loopUrl = cachedIdleLoopUrl(assistantId, 'neutral');
       if (loopUrl === undefined) continue;
       seeded[assistantId] = loopUrl;
+    }
+    return seeded;
+  });
+  const [neutralStillsById, setNeutralStillsById] = useState(() => {
+    const seeded = {};
+    for (const avatar of userAvatars ?? []) {
+      const assistantId = avatar.assistant_id ?? avatar.avatar_id;
+      const stillUrl = cachedStillUrl(assistantId, 'neutral');
+      if (stillUrl === undefined) continue;
+      seeded[assistantId] = stillUrl;
     }
     return seeded;
   });
@@ -563,11 +577,18 @@ const AvatarSelectionComponent = ({}) => {
           const manifest = await loadEmotionMedia(assistantId);
           if (cancelled) return;
           const loopUrl = idleLoopFor(manifest, 'neutral') || null;
+          const stillUrl = stillFor(manifest, 'neutral') || null;
           setNeutralLoopsById((current) => {
             if (assistantId in current && current[assistantId] === loopUrl) {
               return current;
             }
             return { ...current, [assistantId]: loopUrl };
+          });
+          setNeutralStillsById((current) => {
+            if (assistantId in current && current[assistantId] === stillUrl) {
+              return current;
+            }
+            return { ...current, [assistantId]: stillUrl };
           });
         })
       );
@@ -607,26 +628,34 @@ const AvatarSelectionComponent = ({}) => {
           neutralLoopsById[assistantId],
           showGenerated
         );
+        const generatedStill = neutralStillsById[assistantId] || null;
+        const referenceImage =
+          iconSource && isValidImageUrl(iconSource) ? iconSource : null;
+        const loopLookupSettled = assistantId in neutralLoopsById;
+        const faceImage = galleryCardFaceImage({
+          showGenerated,
+          generatedStill,
+          referenceImage,
+          loopUrl,
+          loopLookupSettled,
+        });
         return {
           id: assistantId,
           component: (
             <AvatarCardComponent
               avatar={avatar}
-              iconSource={iconSource}
+              iconSource={faceImage || iconSource}
               onCardClick={handleClick}
             />
           ),
           type: 'avatar',
           text: avatar.name,
-          image:
-            iconSource && isValidImageUrl(iconSource)
-              ? iconSource
-              : null,
+          image: faceImage,
           video: loopUrl,
           portraitLoop: galleryCardExpectsPortraitLoop({
             showGenerated,
             loopUrl,
-            loopLookupSettled: assistantId in neutralLoopsById,
+            loopLookupSettled,
           }),
           avatar_data: avatar,
         };
@@ -645,6 +674,7 @@ const AvatarSelectionComponent = ({}) => {
     carouselAvatars,
     avatarIconsById,
     neutralLoopsById,
+    neutralStillsById,
     faceSourceRevision,
   ]);
 

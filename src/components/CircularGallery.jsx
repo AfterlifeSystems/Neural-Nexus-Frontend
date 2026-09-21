@@ -41,8 +41,6 @@ import {
   shouldIgnoreGalleryWindowPointer,
   visualCardIndexAtPointer,
 } from './galleryScrollIndex';
-import { subscribeProfileBubbleViewport } from '../services/profileBubbleViewport';
-import { resolveProfileBubbleViewport } from '../services/avatarImageViewport';
 function debounce(func, wait) {
   let timeout;
   return function (...args) {
@@ -254,11 +252,6 @@ class Media {
     this.createMesh();
     this.createTitle();
     this.onResize();
-    this.unsubscribePortraitViewport = this.assistantId
-      ? subscribeProfileBubbleViewport(this.assistantId, () => {
-          this.applyPortraitFrame();
-        })
-      : () => {};
   }
   createShader() {
     const texture = new Texture(this.gl, {
@@ -349,12 +342,18 @@ class Media {
   loadStillImage(src) {
     this.stillLoadToken += 1;
     const token = this.stillLoadToken;
-    const previousImage = this.image;
     this.image = src || null;
     this.stillImage = null;
     this.stillReady = !this.image;
+    if (!this.loopBound) {
+      // Drop the previous still (often the circular reference photo) as soon
+      // as the card image URL changes. Leaving the old texture bound is the
+      // delay where generated mode still shows the upload while the new
+      // still or idle loop loads.
+      this.mediaRevealed = false;
+      this.applyPlaceholder();
+    }
     if (!this.image) {
-      if (!this.loopBound) this.applyPlaceholder();
       this.tryRevealMedia();
       return;
     }
@@ -399,20 +398,12 @@ class Media {
     // `uImageSizes` is the bound texture: the square still, then the 9:16
     // idle loop. Framing from the still while the loop was bound mapped the
     // tall clip onto the disc as a small window instead of covering it.
+    // Do not apply the message-bubble zoom here: that crop made personal
+    // reference photos look too close on the large disc.
     const sizes = this.program.uniforms.uImageSizes.value;
     const width = Number(sizes?.[0]);
     const height = Number(sizes?.[1]);
-    const frame = {
-      width: 1,
-      height: 1,
-      mediaWidth: width,
-      mediaHeight: height,
-      fit: 'cover',
-    };
-    const viewport = this.assistantId
-      ? resolveProfileBubbleViewport(this.assistantId, frame)
-      : null;
-    const rect = galleryPortraitUvRect(width, height, viewport);
+    const rect = galleryPortraitUvRect(width, height);
     this.program.uniforms.uPortraitOrigin.value = [rect.originX, rect.originY];
     this.program.uniforms.uPortraitSize.value = [rect.sizeX, rect.sizeY];
     if (this.cardType !== 'create') {
@@ -464,10 +455,20 @@ class Media {
       this.mediaRevealed = true;
       this.program.uniforms.tMap.value = this.texture;
       this.texture.image = this.stillImage;
-      this.setImageSizes(
-        this.stillImage.naturalWidth,
-        this.stillImage.naturalHeight
-      );
+      // Generated cards keep the 9:16 window even when only the still is
+      // ready. Sizing from the square still is what painted a circle, then
+      // hopped when the idle loop arrived.
+      if (this.portraitLoop) {
+        this.setImageSizes(
+          GALLERY_GENERATED_PORTRAIT_WIDTH,
+          GALLERY_GENERATED_PORTRAIT_HEIGHT
+        );
+      } else {
+        this.setImageSizes(
+          this.stillImage.naturalWidth,
+          this.stillImage.naturalHeight
+        );
+      }
       this.texture.needsUpdate = true;
     }
   }
@@ -512,9 +513,6 @@ class Media {
     const frameChanged = nextPortraitLoop !== this.portraitLoop;
     this.portraitLoop = nextPortraitLoop;
     if (!loopChanged && !frameChanged) return;
-    const keepStillWhileLoopLoads = Boolean(
-      this.stillImage && this.stillReady && !this.loopBound
-    );
     if (loopChanged) {
       if (this.videoElement) {
         disposeIdleLoopVideo(this.videoElement);
@@ -525,19 +523,22 @@ class Media {
       this.loopBound = false;
     }
     if (!this.loopBound) {
-      // A ready still must stay on screen while an idle loop catches up.
-      // Blanking to the placeholder here was the intermittent flash when
-      // gallery cards patched sources after settings → gallery.
-      if (!(this.stillImage && this.stillReady)) {
+      // Generated cards drop whatever was on the disc (usually the circular
+      // reference photo) before the generated still or idle loop binds.
+      // Keeping the reference until the loop decoded is the delay after
+      // "Use generated videos". Reference-photo cards still keep a ready
+      // still while sources patch so settings → gallery does not flash.
+      if (this.portraitLoop || !(this.stillImage && this.stillReady)) {
         this.mediaRevealed = false;
         this.applyPlaceholder();
       }
       this.tryRevealMedia();
     }
-    this.startIdleLoopIfNearby();
+    // Idle loops start from update() while the carousel is active. Starting
+    // them here while Avatar Selection is asleep contended for the decoder
+    // under chat and settings.
   }
   destroy() {
-    this.unsubscribePortraitViewport?.();
     if (this.videoElement) {
       disposeIdleLoopVideo(this.videoElement);
       this.videoElement = null;
