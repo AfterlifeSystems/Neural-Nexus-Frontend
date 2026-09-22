@@ -16,7 +16,7 @@ export default function Hero() {
             <h2 className="text-4xl md:text-6xl lg:text-5xl xl:text-6xl font-bold mb-4">
               Extend Consciousness with Authentic Artificial Intelligence
             </h2>
-            <p className="text-lg md:text-xl bg-black/40 backdrop-blur-md [box-decoration-break:clone] [-webkit-box-decoration-break:clone] px-1.5">
+            <p className="text-lg md:text-xl rounded-2xl border border-neutral-700 bg-black/40 backdrop-blur-md px-4 py-3">
               Create custom Avatars powered by word-of-mouth stories, social
               media, and personal data for seamless, authentic interactions.
             </p>
