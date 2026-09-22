@@ -300,8 +300,12 @@ const AnonymousSidebar = ({
             {/* The chats held with this avatar. Same shape as the signed-in
                 sidebar's list, so a visitor who later signs up finds the panel
                 they already know. */}
+            {/* shrink-0 on every scroll-pane block: a flex child with
+                min-h-0 (or default shrink) collapses to fit the pane height,
+                then paints New conversation under the guest card. The pane
+                scrolls instead. */}
             {showConversations && (
-              <div className="flex flex-col gap-2 min-h-0">
+              <div className="flex flex-col gap-2 shrink-0">
                 <div className="flex items-center justify-between shrink-0">
                   <h2 className="text-sm font-semibold text-white/60 uppercase tracking-wide">
                     {avatarName ? `Chats with ${avatarName}` : 'Conversations'}

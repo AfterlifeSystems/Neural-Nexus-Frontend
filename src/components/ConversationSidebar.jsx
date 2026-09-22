@@ -550,8 +550,11 @@ const ConversationSidebar = ({
 
             <SidebarGeoAvatarSection onNavigate={onClose} />
 
+            {/* shrink-0 so the thread list keeps its content height and the
+                scroll pane scrolls — min-h-0 lets the list collapse and paint
+                New conversation under mute / share / guest chrome. */}
             {showConversations && (
-              <div className="flex flex-col gap-2 min-h-0">
+              <div className="flex flex-col gap-2 shrink-0">
                 <div className="flex items-center justify-between shrink-0">
                   <h2 className="text-sm font-semibold text-white/60 uppercase tracking-wide">
                     {avatarName ? `Chats with ${avatarName}` : 'Conversations'}
