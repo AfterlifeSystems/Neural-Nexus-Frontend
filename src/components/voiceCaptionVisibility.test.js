@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import { test } from 'node:test';
 import {
   captionForVoiceStage,
@@ -6,6 +7,7 @@ import {
   stagePresentationIsClip,
   voiceExchangeHasGeneratingText,
   voiceMessageIsGenerating,
+  voiceStageFlashBelongsToOpenAvatar,
 } from './voiceCaptionVisibility.js';
 
 test('human lines stay visible while a reply is being staged', () => {
@@ -143,6 +145,56 @@ test('a later turn does not put Stop back on earlier streaming rows', () => {
       { id: 'streaming-1', type: 'ai', content: 'Done', streamingText: false },
     ]),
     false
+  );
+});
+
+test('a captions-off flash from another avatar does not paint', () => {
+  // The defect: LiveVoiceMode stays mounted across avatar switches, so a
+  // stageFlash written for the previous avatar stayed on stage while
+  // captions were off.
+  assert.equal(
+    voiceStageFlashBelongsToOpenAvatar('avatar-b', {
+      id: 1,
+      from: 'avatar',
+      text: 'Hello from A',
+      assistantId: 'avatar-a',
+    }),
+    false
+  );
+  assert.equal(
+    voiceStageFlashBelongsToOpenAvatar('avatar-a', {
+      id: 1,
+      from: 'avatar',
+      text: 'Hello from A',
+      assistantId: 'avatar-a',
+    }),
+    true
+  );
+  assert.equal(voiceStageFlashBelongsToOpenAvatar('avatar-a', null), false);
+  assert.equal(
+    voiceStageFlashBelongsToOpenAvatar(null, {
+      id: 1,
+      text: 'orphan',
+      assistantId: 'avatar-a',
+    }),
+    false
+  );
+});
+
+test('LiveVoiceMode drops the captions-off flash when the open avatar changes', () => {
+  const liveVoiceSource = readFileSync(
+    new URL('./LiveVoiceMode.jsx', import.meta.url),
+    'utf8'
+  );
+  assert.match(liveVoiceSource, /stageFlashAssistantIdRef/);
+  assert.match(liveVoiceSource, /voiceStageFlashBelongsToOpenAvatar/);
+  assert.match(
+    liveVoiceSource,
+    /assistantId,\s*\n\s*stageFlash/
+  );
+  assert.match(
+    liveVoiceSource,
+    /dismissing:\s*false,\s*\n\s*assistantId,/
   );
 });
 

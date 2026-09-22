@@ -14,7 +14,7 @@ import { useNavigate, useLocation } from 'react-router-dom';
 
 import { useAuth } from '../context/AuthContext';
 import { isSharedAvatarLinkPath } from './utils';
-import { pathCarriesItsOwnQrCode } from './qrBadgePath';
+import { pathCarriesItsOwnQrCode, pathIsSignedOutAuthForm } from './qrBadgePath';
 import qrCode from '../assets/qr-neuralnexus-transparent.png';
 
 const QrBadge = () => {
@@ -43,6 +43,13 @@ const QrBadge = () => {
   // `/` and `/welcome` already show a scan-sized code in the hero, so a
   // second copy in the corner only pollutes the page text and the camera.
   if (pathCarriesItsOwnQrCode(location.pathname)) {
+    return null;
+  }
+
+  // Login and signup put the password field and the submit button in the same
+  // bottom-right corner the badge occupies. The badge is z-30 over the auth
+  // card's z-10, so on a phone the code covers the controls used to sign in.
+  if (pathIsSignedOutAuthForm(location.pathname)) {
     return null;
   }
 
