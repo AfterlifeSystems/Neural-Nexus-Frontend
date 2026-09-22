@@ -182,6 +182,7 @@ import {
   stagePresentationIsClip,
   voiceExchangeHasGeneratingText,
   voiceMessageIsGenerating,
+  voiceStageFlashBelongsToOpenAvatar,
 } from './voiceCaptionVisibility';
 import {
   collapsedVoiceBarIsSpeaking,
@@ -626,6 +627,17 @@ const LiveVoiceMode = ({
   const [voiceReadiness, setVoiceReadiness] = useState(null);
   const [voiceStatus, setVoiceStatus] = useState(null);
   const pendingStageFlashRef = useRef(null);
+  // LiveVoiceMode stays mounted across avatar switches (portrait well). The
+  // captions-off latest line lives in stageFlash; drop that line as soon as
+  // another avatar opens so the previous reply does not paint on the new stage.
+  const stageFlashAssistantIdRef = useRef(assistantId);
+  if (stageFlashAssistantIdRef.current !== assistantId) {
+    stageFlashAssistantIdRef.current = assistantId;
+    pendingStageFlashRef.current = null;
+    if (stageFlash != null) {
+      setStageFlash(null);
+    }
+  }
   const holdNewCaptionsRef = useRef(false);
   const revealedCaptionIdsRef = useRef(new Set());
   const stagePresentedWaiterRef = useRef(null);
@@ -791,17 +803,26 @@ const LiveVoiceMode = ({
     if (added) setCaptionGeneration((generation) => generation + 1);
   }, [spokenExchange, holdNewCaptions, captionGeneration]);
 
-  const showStageFlash = useCallback((from, text) => {
-    const words = text?.trim();
-    if (!words) return;
-    const next = { id: Date.now(), from, text: words, dismissing: false };
-    setStageFlash((current) => {
-      if (!current) return next;
-      pendingStageFlashRef.current = next;
-      if (current.dismissing) return current;
-      return { ...current, dismissing: true };
-    });
-  }, []);
+  const showStageFlash = useCallback(
+    (from, text) => {
+      const words = text?.trim();
+      if (!words || !assistantId) return;
+      const next = {
+        id: Date.now(),
+        from,
+        text: words,
+        dismissing: false,
+        assistantId,
+      };
+      setStageFlash((current) => {
+        if (!current) return next;
+        pendingStageFlashRef.current = next;
+        if (current.dismissing) return current;
+        return { ...current, dismissing: true };
+      });
+    },
+    [assistantId]
+  );
 
   useEffect(() => {
     if (!showCaptions) return;
@@ -2169,6 +2190,14 @@ const LiveVoiceMode = ({
     openedStageHeaderHeight,
     openedPortraitComposerReserve
   );
+  // LiveVoiceMode stays mounted across avatar switches; only paint a
+  // captions-off flash that belongs to the avatar now on stage.
+  const openAvatarStageFlash = voiceStageFlashBelongsToOpenAvatar(
+    assistantId,
+    stageFlash
+  )
+    ? stageFlash
+    : null;
 
   return createPortal(
     // `--app-rail-width` is the collapsed icon rail; `z-30` sits above the
@@ -2375,24 +2404,26 @@ const LiveVoiceMode = ({
             canPlayAvatarVoice && !speech.notReady && !speech.blocked,
           playbackBlocked: speechPlaybackBlocked,
         }) &&
-          (stageFlash || assistantActivity || showGeneratingStopRow))) && (
+          (openAvatarStageFlash ||
+            assistantActivity ||
+            showGeneratingStopRow))) && (
         <div
           data-voice-caption-dock
           className={`${hasVoiceCards ? CARD_DOCK_CLASSES : CAPTION_DOCK_CLASSES} z-20`}
           style={{ bottom: composerDockHeight }}
         >
           <div className={CAPTION_COLUMN_CLASSES}>
-            {stageFlash && (
+            {openAvatarStageFlash && (
               <div
-                key={stageFlash.id}
+                key={openAvatarStageFlash.id}
                 role="status"
                 aria-live="polite"
                 className={`${
-                  stageFlash.dismissing
+                  openAvatarStageFlash.dismissing
                     ? 'voice-stage-flash-out'
                     : 'voice-stage-flash'
                 } ${
-                  stageFlash.from === 'human'
+                  openAvatarStageFlash.from === 'human'
                     ? `${HUMAN_BUBBLE_CLASSES} ${
                         isHearingSpeech || isDictating || isTranscribing
                           ? SPEAKING_BUBBLE_HIGHLIGHT
@@ -2411,13 +2442,13 @@ const LiveVoiceMode = ({
                   const next = pendingStageFlashRef.current;
                   pendingStageFlashRef.current = null;
                   setStageFlash((current) => {
-                    if (!current || current.id !== stageFlash.id)
+                    if (!current || current.id !== openAvatarStageFlash.id)
                       return current;
                     return next;
                   });
                 }}
               >
-                {stageFlash.text}
+                {openAvatarStageFlash.text}
               </div>
             )}
             {!showCaptions &&

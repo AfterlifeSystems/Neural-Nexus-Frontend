@@ -4,7 +4,7 @@
 // the reply's `response_metadata.learned_facts` are the same shape; this
 // module is the one place that reads them onto a message.
 
-const LEARNED_FACT_KINDS = new Set(['identity', 'preference', 'memory']);
+const LEARNED_FACT_KINDS = new Set(['identity', 'preference', 'memory', 'user']);
 const MAXIMUM_FACT_CHARACTERS = 280;
 
 /**

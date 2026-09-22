@@ -140,8 +140,8 @@ const AccountSettings = ({ activeTab }) => {
     toast.success(`${service} API key updated`);
 
   return (
-    <div className="flex flex-col gap-6 p-6 w-full">
-      <h1 className="text-3xl font-bold mb-4">Account Settings</h1>
+    <div className="account-settings flex flex-col gap-6 p-4 sm:p-6 w-full min-w-0 overflow-x-hidden">
+      <h1 className="text-3xl font-bold mb-4 break-words">Account Settings</h1>
 
       {/* Username */}
       {/* <div className="flex flex-col gap-2">
@@ -225,9 +225,9 @@ const AccountSettings = ({ activeTab }) => {
           leaving. These are the three operations the API supports on an
           account, and each one is destructive in its own way, so each says
           what it will do before it does it. */}
-      <div className="flex flex-col gap-4 bg-black/60 border border-white/10 rounded-2xl p-6">
-        <h2 className="text-xl font-semibold">Manage your account</h2>
-        <div className="flex flex-col gap-1">
+      <div className="flex flex-col gap-4 bg-black/60 border border-white/10 rounded-2xl p-4 sm:p-6 min-w-0">
+        <h2 className="text-xl font-semibold break-words">Manage your account</h2>
+        <div className="flex flex-col gap-1 min-w-0">
           <p className="text-white/50 text-sm">Email</p>
           <p className="text-neutral-200 break-all">
             {user?.email || 'This session has no email on file.'}
@@ -235,7 +235,7 @@ const AccountSettings = ({ activeTab }) => {
         </div>
 
         {newApiKey && (
-          <div className="rounded-lg border border-amber-400/40 bg-amber-400/10 p-4 space-y-2">
+          <div className="rounded-lg border border-amber-400/40 bg-amber-400/10 p-4 space-y-2 min-w-0">
             <p className="text-sm text-amber-100/90">
               Your new API key. It is shown only once, and the previous key has
               already stopped working — give this to anything that used it.
@@ -246,8 +246,8 @@ const AccountSettings = ({ activeTab }) => {
           </div>
         )}
 
-        <div className="flex flex-col gap-2">
-          <p className="text-white/60 text-sm">
+        <div className="flex flex-col gap-2 min-w-0">
+          <p className="text-white/60 text-sm break-words">
             Replace your API key. Anything still using the old key — the Discord
             bot, your own scripts — stops working until you give it the new one.
           </p>
@@ -260,8 +260,8 @@ const AccountSettings = ({ activeTab }) => {
           </button>
         </div>
 
-        <div className="flex flex-col gap-2 border-t border-white/10 pt-4">
-          <p className="text-white/60 text-sm">
+        <div className="flex flex-col gap-2 border-t border-white/10 pt-4 min-w-0">
+          <p className="text-white/60 text-sm break-words">
             Send a password reset link to {user?.email ?? 'your email address'}.
           </p>
           <button

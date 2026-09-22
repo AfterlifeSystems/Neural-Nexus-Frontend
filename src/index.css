@@ -425,18 +425,26 @@ html.voice-stage-open [data-rail-badge] {
 /* Same specificity as the unlayered `button { padding }` rule below, so
    settings actions stay compact on a wide window — otherwise Connect /
    Remove inflate and clip the machine name down to a few letters. */
-.avatar-settings button {
+.avatar-settings button,
+.account-settings button,
+.billing-page button {
   padding: 0.4rem 0.75rem;
   font-size: 0.875rem;
   line-height: 1.25;
   border-color: transparent;
 }
 /* Compact button padding would shove this knob off its track. */
-.avatar-settings button[role="switch"] {
+.avatar-settings button[role="switch"],
+.account-settings button[role="switch"],
+.billing-page button[role="switch"] {
   padding: 0;
 }
 .avatar-settings button:focus,
-.avatar-settings button:focus-visible {
+.avatar-settings button:focus-visible,
+.account-settings button:focus,
+.account-settings button:focus-visible,
+.billing-page button:focus,
+.billing-page button:focus-visible {
   outline: none;
 }
 
@@ -469,10 +477,10 @@ button.profile-bubble-disc:focus-visible,
   display: none;
 }
 
-h1 {
-  font-size: 3.2em;
-  line-height: 1.1;
-}
+/* Do not set `h1 { font-size }` here. An unlayered size beats every Tailwind
+   `text-*` utility on headings, so Account Settings, Billing, Inbox, and the
+   legal pages all rendered at 3.2em (~51px) and the titles spilled past their
+   layout. Heading size belongs on the element via Tailwind classes. */
 
 button {
   border-radius: 8px;

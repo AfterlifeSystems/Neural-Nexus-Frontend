@@ -45,6 +45,25 @@ export function voiceExchangeHasGeneratingText(messages) {
 }
 
 /**
+ * Whether the captions-off latest-line overlay may paint for the open avatar.
+ *
+ * LiveVoiceMode stays mounted across avatar switches so the portrait well
+ * does not remount. A flash written while another avatar was open must not
+ * stay on stage when captions are hidden.
+ *
+ * @param {string|null|undefined} openAssistantId
+ * @param {Object|null|undefined} stageFlash
+ * @returns {boolean}
+ */
+export function voiceStageFlashBelongsToOpenAvatar(
+  openAssistantId,
+  stageFlash
+) {
+  if (!stageFlash || !openAssistantId) return false;
+  return stageFlash.assistantId === openAssistantId;
+}
+
+/**
  * Whether a caption-hidden stage should paint a line.
  *
  * A folded message bar is a clean stage: if the avatar can be heard and
