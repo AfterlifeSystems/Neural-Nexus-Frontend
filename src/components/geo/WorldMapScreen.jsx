@@ -55,6 +55,11 @@ import {
   withoutPin,
 } from '../../services/avatarProximity';
 import {
+  avatarsVisibleOnGlobe,
+  readHiddenCarouselAvatarIds,
+  subscribeHiddenCarouselAvatarIds,
+} from '../../services/avatarCarouselMembership';
+import {
   listGeoAvatars,
   listUserAvatars,
   modifyAvatar,
@@ -180,6 +185,7 @@ const WorldMapScreen = () => {
   } = useGeoAvatars();
 
   const [publicAvatars, setPublicAvatars] = useState([]);
+  const [hiddenCarouselIds, setHiddenCarouselIds] = useState([]);
   const [isLoadingPins, setIsLoadingPins] = useState(true);
   const [pinsError, setPinsError] = useState('');
   const [mapFocus, setMapFocus] = useState(
@@ -205,6 +211,15 @@ const WorldMapScreen = () => {
       (revision) => wholeWorldMapViewFrom(revision).worldViewRevision
     );
   }, []);
+
+  useEffect(() => {
+    const userId = user?.id;
+    setHiddenCarouselIds(readHiddenCarouselAvatarIds(userId));
+    return subscribeHiddenCarouselAvatarIds((changedUserId, nextHiddenIds) => {
+      if (String(changedUserId) !== String(userId ?? '')) return;
+      setHiddenCarouselIds(nextHiddenIds);
+    });
+  }, [user?.id]);
 
   useEffect(() => {
     let isMounted = true;
@@ -276,8 +291,13 @@ const WorldMapScreen = () => {
   }, [user]);
 
   const avatars = useMemo(
-    () => mergePinnedAvatars(publicAvatars, userAvatars),
-    [publicAvatars, userAvatars]
+    () =>
+      avatarsVisibleOnGlobe(mergePinnedAvatars(publicAvatars, userAvatars), {
+        galleryAvatars: userAvatars,
+        hiddenCarouselIds,
+        hasSignedInAccount: Boolean(user?.id),
+      }),
+    [hiddenCarouselIds, publicAvatars, user?.id, userAvatars]
   );
 
   const ownedAssistantIds = useMemo(() => {
@@ -498,9 +518,11 @@ const WorldMapScreen = () => {
           const known = avatars.find(
             (avatar) => avatarIdOf(avatar) === entry.assistant_id
           );
-          return known ?? entry;
+          // Only carousel members keep a nearby row; a geo hit off the ring
+          // must not reappear through the nearby feed.
+          return known ?? null;
         })
-        .filter((entry) => pinOf(entry)),
+        .filter((entry) => entry && pinOf(entry)),
     [avatars, nearbyAvatars]
   );
 

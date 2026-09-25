@@ -11,6 +11,9 @@ import { isPersonalCreatorAvatar } from './avatarListOrder.js';
 
 const STORAGE_KEY = 'neural_nexus_hidden_carousel_avatars';
 
+/** @type {Set<(userId: string, hiddenIds: string[]) => void>} */
+const hiddenCarouselListeners = new Set();
+
 /**
  * @param {unknown} avatar An avatar record, or an id string.
  * @returns {string}
@@ -82,16 +85,34 @@ export function writeHiddenCarouselAvatarIds(
 ) {
   const key = String(userId ?? '').trim();
   if (!key) return;
+  const nextHiddenIds = uniqueIds(hiddenIds);
   try {
     const next = {
       ...readHiddenByUser(storage),
-      [key]: uniqueIds(hiddenIds),
+      [key]: nextHiddenIds,
     };
     storage?.setItem(STORAGE_KEY, JSON.stringify(next));
   } catch {
     // Private mode and a full quota both refuse writes; the hide then
     // lasts only as long as this screen stays mounted.
   }
+  for (const listener of hiddenCarouselListeners) {
+    listener(key, nextHiddenIds);
+  }
+}
+
+/**
+ * Re-read when this account hides or restores a carousel card so the globe
+ * and world map drop or restore the matching pin in the same turn.
+ *
+ * @param {(userId: string, hiddenIds: string[]) => void} listener
+ * @returns {() => void}
+ */
+export function subscribeHiddenCarouselAvatarIds(listener) {
+  hiddenCarouselListeners.add(listener);
+  return () => {
+    hiddenCarouselListeners.delete(listener);
+  };
 }
 
 /**
@@ -171,6 +192,39 @@ export function avatarsOnCarousel(avatars, hiddenIds) {
     if (isPersonalCreatorAvatar(avatar)) return true;
     return !hidden.has(id);
   });
+}
+
+/**
+ * Pins the background globe and world map may draw.
+ *
+ * For a signed-in account the carousel is the source of truth: an avatar off
+ * the ring stays off the planet, even when `/avatars/geo` still returns the
+ * pin. Signed-out visitors have no carousel, so every public pin stays
+ * visible.
+ *
+ * @param {Array|null|undefined} pinnedAvatars Merged geo pins ready to place.
+ * @param {Object} options
+ * @param {Array|null|undefined} options.galleryAvatars The account listing
+ *   (`userAvatars`) that feeds the carousel.
+ * @param {string[]} [options.hiddenCarouselIds]
+ * @param {boolean} options.hasSignedInAccount
+ * @returns {Array}
+ */
+export function avatarsVisibleOnGlobe(
+  pinnedAvatars,
+  { galleryAvatars, hiddenCarouselIds = [], hasSignedInAccount }
+) {
+  if (!Array.isArray(pinnedAvatars) || pinnedAvatars.length === 0) return [];
+  if (!hasSignedInAccount) return pinnedAvatars;
+
+  const onCarouselIds = new Set(
+    avatarsOnCarousel(galleryAvatars, hiddenCarouselIds)
+      .map((avatar) => carouselAvatarId(avatar))
+      .filter(Boolean)
+  );
+  return pinnedAvatars.filter((avatar) =>
+    onCarouselIds.has(carouselAvatarId(avatar))
+  );
 }
 
 /**

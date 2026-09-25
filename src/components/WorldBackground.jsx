@@ -2,10 +2,11 @@
 //
 // Persistent world globe behind every screen. Same surface as the map globe
 // (night texture, slippy tiles, atmosphere, HTML pins). On /map it unmounts so
-// the interactive globe is the only WebGL world. Every geo-pinned avatar stays
-// on the planet. Selecting an avatar (gallery front card, chat, or a shared
-// link) flies the camera to that pin when the avatar has a location; without
-// a pin the planet keeps its idle spin.
+// the interactive globe is the only WebGL world. For a signed-in account only
+// carousel avatars keep their pins; hidden or never-added cards stay off the
+// planet. Selecting an avatar (gallery front card, chat, or a shared link)
+// flies the camera to that pin when the avatar has a location; without a pin
+// the planet keeps its idle spin.
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useLocation } from 'react-router-dom';
@@ -13,6 +14,11 @@ import { useLocation } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { isAdminAccount } from '../config/adminAccount';
 import { maySeeAdultOnlyAvatarInSearch } from '../services/adultOnlyAvatar';
+import {
+  avatarsVisibleOnGlobe,
+  readHiddenCarouselAvatarIds,
+  subscribeHiddenCarouselAvatarIds,
+} from '../services/avatarCarouselMembership';
 import { listGeoAvatars } from '../services/avatarService';
 import {
   avatarIdOf,
@@ -78,6 +84,7 @@ const WorldBackground = () => {
   const [globeReady, setGlobeReady] = useState(false);
   const [focusedAvatar, setFocusedAvatar] = useState(null);
   const [publicAvatars, setPublicAvatars] = useState([]);
+  const [hiddenCarouselIds, setHiddenCarouselIds] = useState([]);
   const [groupingDegrees, setGroupingDegrees] = useState(0.8);
   const holdStillRef = useRef(false);
   holdStillRef.current = Boolean(focusedAvatar?.pin);
@@ -87,15 +94,31 @@ const WorldBackground = () => {
     []
   );
 
+  useEffect(() => {
+    const userId = user?.id;
+    setHiddenCarouselIds(readHiddenCarouselAvatarIds(userId));
+    return subscribeHiddenCarouselAvatarIds((changedUserId, nextHiddenIds) => {
+      if (String(changedUserId) !== String(userId ?? '')) return;
+      setHiddenCarouselIds(nextHiddenIds);
+    });
+  }, [user?.id]);
+
   const pinnedAvatars = useMemo(
     () =>
-      mergePinnedAvatars(publicAvatars, userAvatars).filter((avatar) =>
-        maySeeAdultOnlyAvatarInSearch(avatar, {
-          ageVerified,
-          isAdmin: isAdminAccount(user),
-        })
+      avatarsVisibleOnGlobe(
+        mergePinnedAvatars(publicAvatars, userAvatars).filter((avatar) =>
+          maySeeAdultOnlyAvatarInSearch(avatar, {
+            ageVerified,
+            isAdmin: isAdminAccount(user),
+          })
+        ),
+        {
+          galleryAvatars: userAvatars,
+          hiddenCarouselIds,
+          hasSignedInAccount: Boolean(user?.id),
+        }
       ),
-    [ageVerified, publicAvatars, user, userAvatars]
+    [ageVerified, hiddenCarouselIds, publicAvatars, user, userAvatars]
   );
 
   const pinGroups = useMemo(
