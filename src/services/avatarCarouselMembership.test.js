@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import {
   avatarsOnCarousel,
+  avatarsVisibleOnGlobe,
   clampCarouselIndex,
   canHideAvatarOnCarousel,
   carouselCompanionAction,
@@ -9,6 +10,7 @@ import {
   isAvatarOnCarousel,
   readHiddenCarouselAvatarIds,
   showAvatarOnCarousel,
+  subscribeHiddenCarouselAvatarIds,
   writeHiddenCarouselAvatarIds,
 } from './avatarCarouselMembership.js';
 
@@ -101,4 +103,42 @@ test('the personal avatar opens inbox; other cards hide', () => {
   assert.equal(carouselCompanionAction(personal), 'inbox');
   assert.equal(carouselCompanionAction(guide), 'hide');
   assert.equal(carouselCompanionAction({ name: 'No Id' }), null);
+});
+
+test('signed-out visitors still see every public geo pin', () => {
+  const pinned = [publicAvatar, guide];
+  assert.deepEqual(
+    avatarsVisibleOnGlobe(pinned, {
+      galleryAvatars: [],
+      hiddenCarouselIds: ['pub'],
+      hasSignedInAccount: false,
+    }),
+    pinned
+  );
+});
+
+test('a signed-in account only keeps carousel pins on the globe', () => {
+  const geoOnly = { assistant_id: 'geo-only', name: 'Geo Only' };
+  const pinned = [personal, guide, publicAvatar, geoOnly];
+  const gallery = [personal, guide, publicAvatar];
+  assert.deepEqual(
+    avatarsVisibleOnGlobe(pinned, {
+      galleryAvatars: gallery,
+      hiddenCarouselIds: ['pub'],
+      hasSignedInAccount: true,
+    }),
+    [personal, guide]
+  );
+});
+
+test('writing hidden ids notifies globe subscribers', () => {
+  const storage = memoryStorage();
+  const seen = [];
+  const unsubscribe = subscribeHiddenCarouselAvatarIds((userId, hiddenIds) => {
+    seen.push({ userId, hiddenIds });
+  });
+  writeHiddenCarouselAvatarIds('user-1', ['pub'], storage);
+  unsubscribe();
+  writeHiddenCarouselAvatarIds('user-1', ['guide'], storage);
+  assert.deepEqual(seen, [{ userId: 'user-1', hiddenIds: ['pub'] }]);
 });
