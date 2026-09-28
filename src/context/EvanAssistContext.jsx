@@ -171,6 +171,9 @@ export function EvanAssistProvider({ children }) {
   const [micLevel, setMicLevel] = useState(0);
 
   const screenStreamRef = useRef(null);
+  // Whether the screen-share picker is open right now. A press on the share
+  // button while the picker is open must not open a second picker.
+  const screenSharePendingRef = useRef(false);
   const webcamStreamRef = useRef(null);
   const listenerRef = useRef(null);
   const threadIdRef = useRef(threadId);
@@ -850,6 +853,7 @@ export function EvanAssistProvider({ children }) {
   );
 
   const toggleScreenShare = useCallback(async () => {
+    if (screenSharePendingRef.current) return;
     if (screenStreamRef.current) {
       stopScreenShare();
       return;
@@ -860,6 +864,7 @@ export function EvanAssistProvider({ children }) {
       );
       return;
     }
+    screenSharePendingRef.current = true;
     try {
       await ensureEvan();
       const stream = await requestDisplayMedia();
@@ -879,6 +884,8 @@ export function EvanAssistProvider({ children }) {
         return;
       }
       toast.error('Could not share the screen.');
+    } finally {
+      screenSharePendingRef.current = false;
     }
   }, [ensureEvan, expand, stopScreenShare]);
 
