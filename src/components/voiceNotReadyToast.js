@@ -1,5 +1,5 @@
 // The missing-voice-model notice is only for a voice that has not yet been
-// uploaded or trained — not for a clone ElevenLabs has blocked. Shown at most
+// uploaded or trained — not for a clone the voice provider has blocked. Shown at most
 // once per conversation per avatar. Speak is retried on every live reply, and
 // without this the same sentence stacked on every turn. A new conversation
 // with the same avatar may show the notice again. An unminted thread

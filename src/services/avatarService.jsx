@@ -391,6 +391,9 @@ export const deleteAvatarDocument = async (assistantId, sourceDocumentName) => {
  * @param {boolean} [options.isReferenceMedia] Treat the upload as consultable
  *   reference material (a menu), not identity. The API accepts this only for
  *   avatars created by the administrator.
+ * @param {boolean} [options.isVoiceUpload] Media added from the Voice section:
+ *   the upload feeds the audible voice, and media the avatar already holds is
+ *   reused from the earlier processing instead of being skipped.
  * @param {AbortSignal} [options.signal] Abort the POST if the owner cancels before a job id exists.
  * @returns {Promise<Object>} `{job_id}` for the background processing job.
  */
@@ -401,6 +404,7 @@ export const uploadAvatarIdentityMedia = async ({
   isReferenceAudio = false,
   isReferenceImage = false,
   isReferenceMedia = false,
+  isVoiceUpload = false,
   signal,
 }) => {
   const formData = new FormData();
@@ -419,6 +423,9 @@ export const uploadAvatarIdentityMedia = async ({
     'reference_media',
     Boolean(isReferenceMedia) && !isReferenceImage && !isReferenceAudio
   );
+  if (isVoiceUpload) {
+    formData.append('voice_upload', true);
+  }
 
   return requestJson('/update_avatar_identity_with_media', {
     method: 'POST',
@@ -1395,9 +1402,23 @@ export const listStandardVoices = async (gender) => {
 };
 
 /**
- * Choose the standard voice the avatar speaks with while it has no usable
- * cloned voice. Owner-only. A cloned voice, once usable, always speaks ahead
- * of this choice.
+ * Fetch the sample of a standard voice whose vendor address needs the API key
+ * (a catalogue entry with `preview_requires_auth`, such as a Cartesia voice).
+ * GET /avatar_voice/standard_voices/{voiceId}/preview
+ *
+ * @param {string} voiceId A voice from listStandardVoices.
+ * @returns {Promise<Blob>} The sample audio.
+ */
+export const fetchStandardVoicePreview = async (voiceId) =>
+  requestBinary(
+    `/avatar_voice/standard_voices/${encodeURIComponent(voiceId)}/preview`
+  );
+
+/**
+ * Choose the standard voice the avatar speaks with. Owner-only. Picking a
+ * voice also makes the standard voice speak ahead of any cloned voice; switch
+ * back with setAvatarVoiceChoice(assistantId, 'custom'). Clearing the voice
+ * returns the avatar to its cloned voice.
  * POST /avatar_voice/standard_voice
  *
  * @param {string} assistantId The avatar.
@@ -1410,6 +1431,26 @@ export const setAvatarStandardVoice = async (assistantId, voiceId) => {
   formData.append('assistant_id', assistantId);
   formData.append('voice_id', voiceId ?? '');
   return requestJson('/avatar_voice/standard_voice', {
+    method: 'POST',
+    formData,
+  });
+};
+
+/**
+ * Choose which voice the avatar speaks with: the cloned (custom) voice or the
+ * chosen standard voice. Owner-only. `standard` needs a standard voice picked
+ * first; the picked standard voice stays stored when switching to `custom`.
+ * POST /avatar_voice/voice_choice
+ *
+ * @param {string} assistantId The avatar.
+ * @param {'custom'|'standard'} choice The voice to speak with.
+ * @returns {Promise<Object>} The updated voice status.
+ */
+export const setAvatarVoiceChoice = async (assistantId, choice) => {
+  const formData = new FormData();
+  formData.append('assistant_id', assistantId);
+  formData.append('choice', choice);
+  return requestJson('/avatar_voice/voice_choice', {
     method: 'POST',
     formData,
   });
@@ -1549,6 +1590,7 @@ export const speakText = async (
     returnHeaders: true,
   });
   blob.voiceKind = headers?.get?.('X-Voice-Kind') ?? null;
+  blob.voiceProvider = headers?.get?.('X-Voice-Provider') ?? null;
   return blob;
 };
 

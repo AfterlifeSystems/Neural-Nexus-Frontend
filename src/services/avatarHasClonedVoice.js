@@ -17,6 +17,9 @@ export function avatarHasClonedVoice(voice) {
   if (voice.instant_voice_blocked === true || voice.blocked === true) {
     return false;
   }
+  // The owner may choose a stock voice while a clone exists; the clone is
+  // still there to switch back to.
+  if (voice.custom_voice_available === true) return true;
   const activeVoice = voice.active_voice;
   if (activeVoice === 'instant' || activeVoice === 'professional') {
     return true;

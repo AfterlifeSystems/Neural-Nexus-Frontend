@@ -380,6 +380,7 @@ export const transferIdentityMediaJobLabels = (fromLocalId, ontoJobId) => {
       previewUrl: job.previewUrl || source.previewUrl,
       kind: job.kind === 'document' && source.kind !== 'document' ? source.kind : job.kind,
       isReferenceMedia: Boolean(job.isReferenceMedia || source.isReferenceMedia),
+      isVoiceUpload: Boolean(job.isVoiceUpload || source.isVoiceUpload),
     };
   });
   // The restored card now owns any object-URL preview. Clear them here so
