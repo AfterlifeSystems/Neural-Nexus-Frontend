@@ -63,6 +63,39 @@ export function voiceStageFlashBelongsToOpenAvatar(
   return stageFlash.assistantId === openAssistantId;
 }
 
+// Same sentinel MediaContext exports as NEW_CONVERSATION_ID. Kept here so
+// the caption helpers do not import the React provider.
+const UNSENT_CONVERSATION_ID = '__new__';
+
+const conversationIsUnsent = (conversationId) =>
+  !conversationId || conversationId === UNSENT_CONVERSATION_ID;
+
+/**
+ * Whether the captions-off latest line may stay on stage after the open
+ * conversation changes for the same avatar.
+ *
+ * LiveVoiceMode stays mounted across conversations and across message and
+ * voice modes, so a line spoken in an earlier conversation stayed on the
+ * stage of a new conversation. Any conversation change drops the line,
+ * except the server minting the thread id for a new conversation's first
+ * turn: the unsent placeholder becoming a real thread id is still the same
+ * conversation, and the first reply must stay.
+ *
+ * @param {string|null|undefined} previousConversationId
+ * @param {string|null|undefined} nextConversationId
+ * @returns {boolean}
+ */
+export function voiceStageFlashSurvivesConversationChange(
+  previousConversationId,
+  nextConversationId
+) {
+  if (previousConversationId === nextConversationId) return true;
+  return (
+    conversationIsUnsent(previousConversationId) &&
+    !conversationIsUnsent(nextConversationId)
+  );
+}
+
 /**
  * Whether a caption-hidden stage should paint a line.
  *

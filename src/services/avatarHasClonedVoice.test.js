@@ -55,3 +55,16 @@ test('a banned clone does not count even when a stock voice stands in', () => {
     false
   );
 });
+
+test('a clone behind a chosen standard voice is still a clone', () => {
+  // Readiness reports the voice that speaks, which is the standard voice when
+  // the owner chose one; the clone is still there to switch back to.
+  assert.equal(
+    avatarHasClonedVoice({
+      active_voice: 'standard',
+      has_voice: true,
+      custom_voice_available: true,
+    }),
+    true
+  );
+});

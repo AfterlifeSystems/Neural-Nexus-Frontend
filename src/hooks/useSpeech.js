@@ -45,7 +45,7 @@ import {
  * than showing a generic failure. A successful speak that used a standard
  * voice still shows the missing-clone toast: a stock voice is not a voice
  * added to this model. That is not the same as `voice_blocked` (a clone
- * ElevenLabs has banned): a banned voice was uploaded and then refused, and
+ * the voice provider has banned): a banned voice was uploaded and then refused, and
  * more recording will not clear it. Blocked is reported through `blocked` and
  * NOT toasted — a notice on every reply would repeat something the reader can
  * do nothing about, and live voice mode answers in text. The settings Voice
@@ -55,7 +55,7 @@ import {
  * not speak that message" is the wrong sentence for that case. A server that
  * has no voice stack at all (`unavailable`) is different: the avatar may
  * already have a clone, so the create-voice toast is wrong — that case gets a
- * plain unavailable notice. A refused ElevenLabs, OpenAI, or xAI key is not an
+ * plain unavailable notice. A refused voice provider, OpenAI, or xAI key is not an
  * empty vendor account: it is reported as a key refusal, not the Support
  * toast. A spent vendor account still uses the same Support toast as a chat
  * credit pause. Every other failure is toasted as a failed utterance — a speak

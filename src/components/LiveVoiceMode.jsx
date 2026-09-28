@@ -183,6 +183,7 @@ import {
   voiceExchangeHasGeneratingText,
   voiceMessageIsGenerating,
   voiceStageFlashBelongsToOpenAvatar,
+  voiceStageFlashSurvivesConversationChange,
 } from './voiceCaptionVisibility';
 import {
   collapsedVoiceBarIsSpeaking,
@@ -636,6 +637,28 @@ const LiveVoiceMode = ({
     pendingStageFlashRef.current = null;
     if (stageFlash != null) {
       setStageFlash(null);
+    }
+  }
+  // The captions-off latest line belongs to one conversation. Starting or
+  // opening another conversation for the same avatar drops the line so the
+  // earlier conversation's reply does not paint on the new stage. A newer
+  // turn generation keeps a reply still rendering for the earlier
+  // conversation from flashing onto the new stage afterwards.
+  const stageFlashConversationIdRef = useRef(activeConversation);
+  if (stageFlashConversationIdRef.current !== activeConversation) {
+    const previousConversationId = stageFlashConversationIdRef.current;
+    stageFlashConversationIdRef.current = activeConversation;
+    if (
+      !voiceStageFlashSurvivesConversationChange(
+        previousConversationId,
+        activeConversation
+      )
+    ) {
+      turnGenerationRef.current += 1;
+      pendingStageFlashRef.current = null;
+      if (stageFlash != null) {
+        setStageFlash(null);
+      }
     }
   }
   const holdNewCaptionsRef = useRef(false);

@@ -20,6 +20,7 @@ import {
   uploadAvatarIdentityMedia,
 } from './avatarService';
 import { resolveIdentityMediaUrls } from './identityMediaUrls.js';
+import { describeVoiceUploadFailure } from './voiceUploadOutcome.js';
 import { isBillingRefusal, showRequestFailureToast } from '../components/requestFailureToast';
 import {
   addIdentityMediaJob,
@@ -201,6 +202,13 @@ export const followIdentityMediaJob = async (
         }
         if (doneFrame.error) {
           failIdentityMediaJob(localId, doneFrame.error);
+          return false;
+        }
+        const voiceUploadFailure = job.isVoiceUpload
+          ? describeVoiceUploadFailure(doneFrame.result)
+          : null;
+        if (voiceUploadFailure) {
+          failIdentityMediaJob(localId, voiceUploadFailure);
           return false;
         }
         return finishOnStored(localId, kind, { confirmStored, onDocumentsChanged });
@@ -387,6 +395,9 @@ export const hydrateIdentityMediaJobs = async (
  *   explicit reference-audio upload.
  * @param {'portrait'|'voice'|'document'} [options.kind] Which card and steps
  *   to show. Defaults from the reference flags, else 'document'.
+ * @param {boolean} [options.isVoiceUpload] Media added from the Voice section.
+ *   The server reuses the earlier processing of media the avatar already holds,
+ *   and the card fails when no speech reached the voice.
  * @param {Function} [options.confirmStored]
  * @param {Function} [options.onDocumentsChanged]
  * @returns {Promise<boolean>}
@@ -398,6 +409,7 @@ export const startIdentityMediaUpload = async ({
   isReferenceImage = false,
   isReferenceAudio = false,
   isReferenceMedia = false,
+  isVoiceUpload = false,
   kind: explicitKind,
   confirmStored,
   onDocumentsChanged,
@@ -452,6 +464,7 @@ export const startIdentityMediaUpload = async ({
     // Shown on the card so the owner can see this upload is consultable
     // material (a menu), not identity, while the job is still running.
     isReferenceMedia: Boolean(isReferenceMedia),
+    isVoiceUpload: Boolean(isVoiceUpload),
     items,
     steps: stepsForMediaKind(kind),
     status: 'running',
@@ -473,6 +486,7 @@ export const startIdentityMediaUpload = async ({
       isReferenceImage,
       isReferenceAudio,
       isReferenceMedia,
+      isVoiceUpload,
       signal: abortController.signal,
     });
     const rejectedMessage = describeRejected(

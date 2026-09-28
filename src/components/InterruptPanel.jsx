@@ -24,6 +24,7 @@ import { useMedia } from '../context/MediaContext';
 import { useAuth } from '../context/AuthContext';
 import { resolveAssistantId } from './utils';
 import { interruptHeadingFor } from './interruptHeading';
+import { interruptNeedsPanel } from './interruptPanelKinds';
 import {
   DANGER_BUTTON_CLASSES,
   DEFAULT_ACTION_LABELS,
@@ -391,6 +392,13 @@ const InterruptPanel = () => {
   // outcome; see the note in ConnectAccountCard on why a credential must
   // never travel as an interrupt's resume value.
   if (interrupt.kind === 'connect_account' || interrupt.kind === 'computer_handoff') {
+    return null;
+  }
+
+  // A pause this panel cannot answer (a look_now the Minecraft companion
+  // took on a shared thread) or a fact review with nothing in it draws
+  // nothing; drawing the fact-review card for it showed "0 stored items".
+  if (!interruptNeedsPanel(interrupt)) {
     return null;
   }
 

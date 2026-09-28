@@ -165,6 +165,47 @@ const VoicePanel = ({
     refresh();
   }, [voiceJobs, refresh]);
 
+  // A voice job that failed says why, once. The card below the URL box keeps
+  // the reason too, but the card can sit below the fold, and an upload that
+  // ended with no word read as though nothing had happened.
+  // Failures already on screen when the panel mounts were announced when they
+  // happened, so only failures from here on raise a toast.
+  const failedJobIdsRef = useRef(
+    new Set(
+      voiceJobs.filter((job) => job.status === 'error').map((job) => job.localId)
+    )
+  );
+  useEffect(() => {
+    const newlyFailed = voiceJobs.filter(
+      (job) =>
+        job.status === 'error' && !failedJobIdsRef.current.has(job.localId)
+    );
+    for (const job of newlyFailed) {
+      failedJobIdsRef.current.add(job.localId);
+      toast.error(
+        `${job.title ?? 'The upload'} did not change the voice: ${
+          job.error || 'processing failed.'
+        }`,
+        { duration: 10000 }
+      );
+    }
+  }, [voiceJobs]);
+
+  // Bring a newly started voice job into view: the section scrolls to its
+  // top when an upload starts, which leaves the progress card off-screen on a
+  // tall panel.
+  const voiceJobListRef = useRef(null);
+  const voiceJobCountRef = useRef(voiceJobs.length);
+  useEffect(() => {
+    if (voiceJobs.length > voiceJobCountRef.current) {
+      voiceJobListRef.current?.scrollIntoView({
+        behavior: 'smooth',
+        block: 'nearest',
+      });
+    }
+    voiceJobCountRef.current = voiceJobs.length;
+  }, [voiceJobs.length]);
+
   // No toast for a blocked voice. The badge and the sentence below it state it
   // permanently and in the one place the owner can act on it; a notice that has
   // to be dismissed says the same thing about a fact that will not change.
@@ -257,12 +298,17 @@ const VoicePanel = ({
     const label = files.length === 1 ? files[0].name : `${files.length} files`;
     try {
       if (startUpload) {
-        const stored = await startUpload({ files, kind: 'voice' });
+        const stored = await startUpload({
+          files,
+          kind: 'voice',
+          isVoiceUpload: true,
+        });
         if (!stored) return;
       } else {
         const uploadResponse = await uploadAvatarIdentityMedia({
           assistantId,
           files,
+          isVoiceUpload: true,
         });
         const jobId = uploadResponse?.job_id;
         if (jobId) {
@@ -296,12 +342,17 @@ const VoicePanel = ({
     setReferenceUrl('');
     try {
       if (startUpload) {
-        const stored = await startUpload({ urls: [url], kind: 'voice' });
+        const stored = await startUpload({
+          urls: [url],
+          kind: 'voice',
+          isVoiceUpload: true,
+        });
         if (!stored) return;
       } else {
         const uploadResponse = await uploadAvatarIdentityMedia({
           assistantId,
           urls: [url],
+          isVoiceUpload: true,
         });
         const jobId = uploadResponse?.job_id;
         if (jobId) {
@@ -445,12 +496,15 @@ const VoicePanel = ({
   const instantMinimum = status?.instant_minimum_seconds ?? 60;
   const professionalMinimum = status?.professional_minimum_seconds ?? 1800;
   const professionalState = status?.professional_state ?? 'not_started';
-  // A voice ElevenLabs has banned still has an id and still has its seconds of
+  // A voice the vendor has banned still has an id and still has its seconds of
   // speech, so neither is evidence that the avatar can speak. Reporting the
   // model as available on the strength of the id alone is what let this panel
   // read "Voice model trained and available" while every speak attempt was
   // refused by the vendor.
   const voiceModelBlocked = Boolean(status?.instant_voice_blocked);
+  // The vendor that builds and speaks the instant voice (VOICE_PROVIDER on the
+  // server: ElevenLabs or Cartesia). Professional cloning stays on ElevenLabs.
+  const voiceProviderName = status?.voice_provider_display_name ?? 'The voice provider';
   // The reference clip the diarizer depends on, and whether the clip can do
   // the job. Computed once so the card and the badge agree.
   const referenceWarning = referenceAudioWarning(status, avatarName);
@@ -564,11 +618,11 @@ const VoicePanel = ({
               className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-red-500/20 border border-red-500/30 text-red-300"
               title={
                 status?.instant_voice_blocked_reason ??
-                'ElevenLabs has blocked this voice; it cannot be used.'
+                `${voiceProviderName} has blocked this voice; it cannot be used.`
               }
             >
               <ShieldAlert className="w-3.5 h-3.5" aria-hidden="true" />
-              Voice model blocked by ElevenLabs
+              Voice model blocked by {voiceProviderName}
             </span>
           ) : hasVoiceModel ? (
             <span
@@ -971,11 +1025,12 @@ const VoicePanel = ({
       <p className="mt-1.5 text-xs text-white/40">
         Speech in a YouTube video or a direct audio/video link is added to this
         avatar's voice model and to what the avatar knows. The first upload is
-        also the reference audio.
+        also the reference audio. Media the avatar already has is reused from
+        its earlier processing, and the voice is retrained to include it.
       </p>
 
       {voiceJobs.length > 0 && (
-        <div className="mt-3 space-y-3">
+        <div ref={voiceJobListRef} className="mt-3 space-y-3">
           {voiceJobs.map((job) => (
             <UploadProcessPanel
               key={job.localId}
@@ -1113,7 +1168,7 @@ const VoicePanel = ({
       {voiceModelBlocked && (
         <p className="mt-3 text-red-300 text-xs">
           {status?.instant_voice_blocked_reason ??
-            'ElevenLabs has blocked this voice model for violating its terms of service.'}
+            `${voiceProviderName} has blocked this voice model for violating its terms of service.`}
         </p>
       )}
       {status?.detail?.instant_error && (

@@ -103,6 +103,7 @@ import {
   resolvePendingCards,
   settlePendingCards,
 } from '../services/connectionCards';
+import { interruptNeedsPanel } from '../components/interruptPanelKinds';
 import {
   accountKeyOfRow,
   pollUntilConnected,
@@ -1079,7 +1080,12 @@ export const MediaProvider = ({ children }) => {
           restoredFromTranscript: true,
         })
       );
-    } else if (restoredInterrupt) {
+    } else if (restoredInterrupt && interruptNeedsPanel(restoredInterrupt)) {
+      // Only a pause this browser can answer is restored. Another client's
+      // pause on the same thread — the Minecraft companion's look_now, read
+      // back during the seconds the companion takes a screenshot — belongs to
+      // that client, and restoring it here raised an empty review card and
+      // held the composer as though a turn were waiting on this browser.
       interruptSequenceRef.current += 1;
       setPendingInterrupt(
         attachFactReviewDraft({

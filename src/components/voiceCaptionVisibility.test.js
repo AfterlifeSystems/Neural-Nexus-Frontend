@@ -8,6 +8,7 @@ import {
   voiceExchangeHasGeneratingText,
   voiceMessageIsGenerating,
   voiceStageFlashBelongsToOpenAvatar,
+  voiceStageFlashSurvivesConversationChange,
 } from './voiceCaptionVisibility.js';
 
 test('human lines stay visible while a reply is being staged', () => {
@@ -195,6 +196,50 @@ test('LiveVoiceMode drops the captions-off flash when the open avatar changes', 
   assert.match(
     liveVoiceSource,
     /dismissing:\s*false,\s*\n\s*assistantId,/
+  );
+});
+
+test('a captions-off flash from an earlier conversation does not survive a new conversation', () => {
+  // The defect: a new voice-mode conversation for the same avatar kept the
+  // previous conversation's last reply on stage while captions were off.
+  assert.equal(
+    voiceStageFlashSurvivesConversationChange('thread-a', '__new__'),
+    false
+  );
+  assert.equal(
+    voiceStageFlashSurvivesConversationChange('thread-a', null),
+    false
+  );
+  assert.equal(
+    voiceStageFlashSurvivesConversationChange('thread-a', 'thread-b'),
+    false
+  );
+});
+
+test('a captions-off flash stays while the first turn mints the thread id', () => {
+  assert.equal(
+    voiceStageFlashSurvivesConversationChange('__new__', 'thread-a'),
+    true
+  );
+  assert.equal(
+    voiceStageFlashSurvivesConversationChange(null, 'thread-a'),
+    true
+  );
+  assert.equal(
+    voiceStageFlashSurvivesConversationChange('thread-a', 'thread-a'),
+    true
+  );
+});
+
+test('LiveVoiceMode drops the captions-off flash when the open conversation changes', () => {
+  const liveVoiceSource = readFileSync(
+    new URL('./LiveVoiceMode.jsx', import.meta.url),
+    'utf8'
+  );
+  assert.match(liveVoiceSource, /stageFlashConversationIdRef/);
+  assert.match(
+    liveVoiceSource,
+    /voiceStageFlashSurvivesConversationChange\(\s*previousConversationId,\s*activeConversation\s*\)/
   );
 });
 
