@@ -64,8 +64,9 @@ createRoot(document.getElementById('root')).render(
             the only sign that an upload is under way.
           * A notice that never times out (`duration: Infinity`) is one the
             reader has to answer rather than read — the billing refusal, the
-            vendor-credit pause, the voice-not-ready notice, the
-            voice-ready notice, and the created-avatar stock-voice notice.
+            vendor-credit pause, the refused speech-key notice, the
+            voice-not-ready notice, the voice-ready notice, and the
+            created-avatar stock-voice notice.
             Each is closed by its own Close button.
             Dismissing it with a stray press would take away a notice the
             reader has not finished with.

@@ -32,7 +32,6 @@ import {
   LogOut,
   Edit,
   User,
-  UserPlus,
 } from 'lucide-react';
 import { FiCircle } from 'react-icons/fi';
 import CreateAvatarComponent from './CreateAvatarComponent';
@@ -73,6 +72,11 @@ import {
   showAvatarOnCarousel,
   writeHiddenCarouselAvatarIds,
 } from '../services/avatarCarouselMembership';
+import {
+  loadAccountHiddenCarouselAvatarIds,
+  saveAccountHiddenCarouselAvatarIds,
+} from '../services/hiddenCarouselAvatarSync';
+import { requestJson } from '../services/neuralNexusApiClient';
 import { buildAvatarSearchSuggestions } from './avatarSearchSuggestions';
 import { avatarSettingsPath } from './createdAvatarSettings';
 import {
@@ -765,9 +769,20 @@ const AvatarSelectionComponent = ({}) => {
   useEffect(() => {
     if (!user?.id) {
       setHiddenCarouselIds([]);
-      return;
+      return undefined;
     }
+    // This browser's cached list paints first; the account's list, which
+    // follows the account across browsers, replaces it once read.
     setHiddenCarouselIds(readHiddenCarouselAvatarIds(user.id));
+    let isCurrentAccount = true;
+    loadAccountHiddenCarouselAvatarIds(user.id, { requestJson }).then(
+      (accountHiddenIds) => {
+        if (isCurrentAccount) setHiddenCarouselIds(accountHiddenIds);
+      }
+    );
+    return () => {
+      isCurrentAccount = false;
+    };
   }, [user?.id]);
 
   useEffect(() => {
@@ -871,6 +886,7 @@ const AvatarSelectionComponent = ({}) => {
   const persistHiddenCarouselIds = (hiddenIds) => {
     setHiddenCarouselIds(hiddenIds);
     writeHiddenCarouselAvatarIds(user?.id, hiddenIds);
+    saveAccountHiddenCarouselAvatarIds(user?.id, hiddenIds, { requestJson });
     if (isDropdownOpen) {
       setSuggestions(listSearchSuggestions(searchQuery, hiddenIds));
     }
@@ -1261,7 +1277,9 @@ const AvatarSelectionComponent = ({}) => {
                     className="shrink-0 p-1 rounded-md"
                     aria-hidden="true"
                   >
-                    <UserPlus className="w-4 h-4" />
+                    {/* The Create Avatar card's own plus, so the row and the
+                        card read as the same action. */}
+                    <CirclePlus className="w-4 h-4" strokeWidth={1.25} />
                   </span>
                 </div>
               )}
