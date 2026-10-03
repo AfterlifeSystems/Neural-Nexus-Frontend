@@ -151,6 +151,45 @@ function showProviderCreditToast(toastOptions = {}) {
 }
 
 /**
+ * The refused-key notice: the sentence and a Close button divided off from
+ * it. The Toaster leaves `duration: Infinity` notices alone when pressed
+ * (see main.jsx), so without the Close button the notice could never go.
+ *
+ * @param {Object} [toastOptions] Passed through to react-hot-toast.
+ */
+function showProviderKeyRefusedToast(toastOptions = {}) {
+  toast.custom(
+    (keyRefusedToast) => (
+      <div
+        className={`${
+          keyRefusedToast.visible
+            ? 'opacity-100 translate-y-0'
+            : 'opacity-0 -translate-y-2'
+        } transition-all duration-200 max-w-md w-full flex pointer-events-auto rounded-lg shadow-lg backdrop-blur-lg bg-[rgba(0,0,0,0.92)] ring-1 ring-white/15`}
+      >
+        <div className="flex-1 w-0 p-4 rounded-l-lg">
+          <p className="text-sm text-neutral-200">{PROVIDER_KEY_REFUSED_MESSAGE}</p>
+        </div>
+        <div className="flex border-l border-white/10">
+          <button
+            type="button"
+            onClick={() => toast.dismiss(keyRefusedToast.id)}
+            className="w-full border border-transparent rounded-none rounded-r-lg p-4 flex items-center justify-center text-sm font-medium text-white/70 hover:text-neutral-100 focus:outline-none focus:ring-2 focus:ring-amber-400/50 transition-colors"
+          >
+            Close
+          </button>
+        </div>
+      </div>
+    ),
+    {
+      ...toastOptions,
+      id: PROVIDER_KEY_REFUSED_TOAST_ID,
+      duration: Infinity,
+    }
+  );
+}
+
+/**
  * Report a failed API request to the user.
  *
  * @param {Error} requestError The error thrown by the API client.
@@ -180,11 +219,7 @@ export function showRequestFailureToast(requestError, options = {}) {
   }
 
   if (isProviderKeyRefused(requestError)) {
-    toast.error(PROVIDER_KEY_REFUSED_MESSAGE, {
-      ...toastOptions,
-      id: PROVIDER_KEY_REFUSED_TOAST_ID,
-      duration: Infinity,
-    });
+    showProviderKeyRefusedToast(toastOptions);
     return;
   }
 
