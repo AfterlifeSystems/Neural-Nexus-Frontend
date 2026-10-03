@@ -340,6 +340,12 @@ export const listAvatarDocuments = async (assistantId) => {
           // model, so the list can show which uploads feed the voice.
           voiceSeconds: Number(documentEntry.voice_seconds ?? 0),
           inVoiceCorpus: documentEntry.in_voice_corpus === true,
+          // The upload's image was kept, so selectAvatarReferenceImage can make
+          // the upload the portrait without the image being uploaded again.
+          isPortraitSelectable: documentEntry.portrait_selectable === true,
+          // Generated stills, idle loops and lip-sync clips parked under this
+          // earlier portrait; choosing the portrait again brings them back.
+          parkedGeneratedMedia: Number(documentEntry.parked_generated_media ?? 0),
         }))
     );
   }
@@ -353,8 +359,38 @@ export const listAvatarDocuments = async (assistantId) => {
       isReferenceMedia: false,
       voiceSeconds: 0,
       inVoiceCorpus: false,
+      isPortraitSelectable: false,
+      parkedGeneratedMedia: 0,
     }))
   );
+};
+
+/**
+ * Make an image the owner already uploaded the avatar's portrait.
+ * POST /avatar_reference_image/select
+ *
+ * The portrait analysis (the reference description and the subject and
+ * moderation assessment) runs on the server only when the chosen image has
+ * never been analysed as a portrait; switching back to an earlier portrait
+ * costs no model call. Nothing is deleted: generated media of the previous
+ * portrait is parked and returns when the previous portrait is chosen again.
+ *
+ * @param {string} assistantId The avatar.
+ * @param {string} sourceDocumentName A label from listAvatarDocuments whose
+ *   `isPortraitSelectable` is true.
+ * @returns {Promise<{reference_image_data: string, changed: boolean, analysis_reused: boolean, generated_media_parked: number, generated_media_restored: number}>}
+ */
+export const selectAvatarReferenceImage = async (
+  assistantId,
+  sourceDocumentName
+) => {
+  return requestJson('/avatar_reference_image/select', {
+    method: 'POST',
+    body: {
+      assistant_id: assistantId,
+      source_document_name: sourceDocumentName,
+    },
+  });
 };
 
 /**
@@ -1574,17 +1610,22 @@ export const transcribeRecording = async (
  * @param {Object} [options]
  * @param {boolean} [options.asAnonymousIdentity] Public chat: withhold the credential.
  * @param {AbortSignal} [options.signal] Cancel the request.
+ * @param {'trained'} [options.voice] Owner-only: speak with the trained
+ *   (cloned) voice even while the standard voice speaks the replies. A 409
+ *   `voice_not_ready` means no trained voice is usable.
  * @returns {Promise<Blob>} MPEG audio. `voiceKind` is set from `X-Voice-Kind`
  *   (`instant` | `professional` | `standard`) when the server sends that header.
  */
 export const speakText = async (
   assistantId,
   text,
-  { asAnonymousIdentity = false, signal } = {}
+  { asAnonymousIdentity = false, signal, voice } = {}
 ) => {
   const { blob, headers } = await requestBinary('/speak', {
     method: 'POST',
-    body: { assistant_id: assistantId, text },
+    body: voice
+      ? { assistant_id: assistantId, text, voice }
+      : { assistant_id: assistantId, text },
     asAnonymousIdentity,
     signal,
     returnHeaders: true,

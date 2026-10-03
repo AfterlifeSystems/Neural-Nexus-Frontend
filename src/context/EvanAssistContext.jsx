@@ -39,7 +39,7 @@ import {
 } from '../services/liveShareRegistry';
 import {
   canCaptureDisplay,
-  requestDisplayMedia,
+  sharedScreenCapture,
 } from '../services/displayCapture';
 import { canCaptureMicrophone } from '../services/voiceSession';
 import {
@@ -171,6 +171,9 @@ export function EvanAssistProvider({ children }) {
   const [micLevel, setMicLevel] = useState(0);
 
   const screenStreamRef = useRef(null);
+  // The overlay's claim on `sharedScreenCapture`, which the sidebar share
+  // controls also hold.
+  const screenCaptureHolderRef = useRef(Symbol('evan assist screen capture'));
   // Whether the screen-share picker is open right now. A press on the share
   // button while the picker is open must not open a second picker.
   const screenSharePendingRef = useRef(false);
@@ -266,7 +269,7 @@ export function EvanAssistProvider({ children }) {
   }, [asAnonymousIdentity]);
 
   const stopScreenShare = useCallback(() => {
-    screenStreamRef.current?.getTracks().forEach((track) => track.stop());
+    sharedScreenCapture.release(screenCaptureHolderRef.current);
     screenStreamRef.current = null;
     setScreenStream(null);
   }, []);
@@ -298,7 +301,7 @@ export function EvanAssistProvider({ children }) {
   useEffect(
     () => () => {
       listenerRef.current?.stop();
-      screenStreamRef.current?.getTracks().forEach((track) => track.stop());
+      sharedScreenCapture.release(screenCaptureHolderRef.current);
       webcamStreamRef.current?.getTracks().forEach((track) => track.stop());
     },
     []
@@ -867,8 +870,12 @@ export function EvanAssistProvider({ children }) {
     screenSharePendingRef.current = true;
     try {
       await ensureEvan();
-      const stream = await requestDisplayMedia();
+      // A screen the sidebar is already sharing is reused without a picker.
+      const stream = await sharedScreenCapture.acquire(
+        screenCaptureHolderRef.current
+      );
       stream.getVideoTracks()[0]?.addEventListener('ended', () => {
+        if (screenStreamRef.current !== stream) return;
         screenStreamRef.current = null;
         setScreenStream(null);
       });

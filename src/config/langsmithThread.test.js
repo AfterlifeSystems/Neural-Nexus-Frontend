@@ -154,37 +154,17 @@ test('the run falls back to the live done frame run id', () => {
   assert.equal(langsmithLocationOf(liveReply).runId, RUN_ID);
 });
 
-test('the debug link is only for the administrator in development', () => {
+test('the debug link is offered to every account in development only', () => {
   assert.equal(
-    shouldOfferLangsmithThreadLink({
-      isDev: true,
-      isAdmin: true,
-      threadId: THREAD_ID,
-    }),
+    shouldOfferLangsmithThreadLink({ isDev: true, threadId: THREAD_ID }),
     true
   );
   assert.equal(
-    shouldOfferLangsmithThreadLink({
-      isDev: false,
-      isAdmin: true,
-      threadId: THREAD_ID,
-    }),
+    shouldOfferLangsmithThreadLink({ isDev: false, threadId: THREAD_ID }),
     false
   );
   assert.equal(
-    shouldOfferLangsmithThreadLink({
-      isDev: true,
-      isAdmin: false,
-      threadId: THREAD_ID,
-    }),
-    false
-  );
-  assert.equal(
-    shouldOfferLangsmithThreadLink({
-      isDev: true,
-      isAdmin: true,
-      threadId: '__new__',
-    }),
+    shouldOfferLangsmithThreadLink({ isDev: true, threadId: '__new__' }),
     false
   );
 });

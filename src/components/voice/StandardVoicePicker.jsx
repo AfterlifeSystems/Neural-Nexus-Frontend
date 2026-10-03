@@ -4,7 +4,8 @@
 // pick the gender that matches the avatar, listen to a sample, and use the
 // voice. Using a standard voice makes the standard voice speak even when a
 // cloned voice exists; when a cloned voice exists, a switch lets the owner
-// choose between the custom (cloned) voice and the standard voice.
+// choose between the trained (cloned) voice and the standard voice, and to
+// play a sample of the trained voice.
 import React, { useEffect, useRef, useState } from 'react';
 import { toast } from 'react-hot-toast';
 import { Check, Loader2, Play, Square, Volume2 } from 'lucide-react';
@@ -13,6 +14,7 @@ import {
   listStandardVoices,
   setAvatarStandardVoice,
   setAvatarVoiceChoice,
+  speakText,
 } from '../../services/avatarService';
 import { inferAvatarGenderFromName } from '../../services/avatarGenderFromName';
 import { showRequestFailureToast } from '../requestFailureToast';
@@ -21,6 +23,15 @@ const GENDER_OPTIONS = [
   { value: 'female', label: 'Female' },
   { value: 'male', label: 'Male' },
 ];
+
+// The preview key the trained-voice sample plays under; no vendor voice id
+// matches the key.
+const TRAINED_VOICE_PREVIEW_KEY = '__trained_voice__';
+
+const trainedVoiceSampleText = (avatarName) =>
+  avatarName
+    ? `Hi, I'm ${avatarName}. This is how my trained voice sounds.`
+    : 'Hi. This is how my trained voice sounds.';
 
 const capitalize = (text) =>
   typeof text === 'string' && text.length > 0
@@ -31,7 +42,9 @@ const describeVoice = (voice) => {
   const traits = [voice.accent, voice.age, voice.description]
     .map(capitalize)
     .filter(Boolean);
-  return traits.length > 0 ? `${voice.name} · ${traits.join(', ')}` : voice.name;
+  return traits.length > 0
+    ? `${voice.name} · ${traits.join(', ')}`
+    : voice.name;
 };
 
 /**
@@ -52,7 +65,8 @@ const StandardVoicePicker = ({
   avatarName,
 }) => {
   const chosen = status?.standard_voice ?? null;
-  const standardIsSpeaking = Boolean(chosen) && status?.voice_choice === 'standard';
+  const standardIsSpeaking =
+    Boolean(chosen) && status?.voice_choice === 'standard';
   const customVoiceAvailable =
     hasUsableCloneVoice || status?.custom_voice_available === true;
   const [isSwitchingVoice, setIsSwitchingVoice] = useState(false);
@@ -62,7 +76,9 @@ const StandardVoicePicker = ({
   const [voices, setVoices] = useState([]);
   const [isLoadingVoices, setIsLoadingVoices] = useState(false);
   const [loadError, setLoadError] = useState('');
-  const [selectedVoiceId, setSelectedVoiceId] = useState(chosen?.voice_id ?? '');
+  const [selectedVoiceId, setSelectedVoiceId] = useState(
+    chosen?.voice_id ?? ''
+  );
   const [previewingVoiceId, setPreviewingVoiceId] = useState('');
   const [isSaving, setIsSaving] = useState(false);
   const previewAudioRef = useRef(null);
@@ -136,6 +152,34 @@ const StandardVoicePicker = ({
 
   useEffect(() => stopPreview, []);
 
+  // Synthesize a short line with the trained voice, whichever voice speaks the
+  // replies. The line is billed like any other spoken reply.
+  const previewTrainedVoice = () => {
+    if (previewingVoiceId === TRAINED_VOICE_PREVIEW_KEY) {
+      stopPreview();
+      return;
+    }
+    stopPreview();
+    setPreviewingVoiceId(TRAINED_VOICE_PREVIEW_KEY);
+    const previewRequestNumber = previewRequestNumberRef.current;
+    speakText(assistantId, trainedVoiceSampleText(avatarName), {
+      voice: 'trained',
+    })
+      .then((sampleBlob) => {
+        if (previewRequestNumber !== previewRequestNumberRef.current) return;
+        const sampleObjectUrl = URL.createObjectURL(sampleBlob);
+        previewObjectUrlRef.current = sampleObjectUrl;
+        playPreviewFrom(TRAINED_VOICE_PREVIEW_KEY, sampleObjectUrl);
+      })
+      .catch((sampleError) => {
+        if (previewRequestNumber !== previewRequestNumberRef.current) return;
+        stopPreview();
+        showRequestFailureToast(sampleError, {
+          fallbackMessage: 'Could not play the trained voice.',
+        });
+      });
+  };
+
   const previewVoice = (voice) => {
     if (previewingVoiceId === voice.voice_id) {
       stopPreview();
@@ -199,7 +243,7 @@ const StandardVoicePicker = ({
       onStatus?.(nextStatus);
       toast.success(
         choice === 'custom'
-          ? 'The avatar now speaks with its custom voice.'
+          ? 'The avatar now speaks with its trained voice.'
           : `The avatar now speaks with ${chosen?.name ?? 'the standard voice'}.`
       );
     } catch (choiceError) {
@@ -236,44 +280,91 @@ const StandardVoicePicker = ({
       <p className="text-xs text-white/60 mb-2">
         {customVoiceAvailable
           ? standardIsSpeaking
-            ? `The avatar speaks with the standard voice ${chosen.name ?? ''}. Choose the custom voice to hear the cloned voice again.`
-            : 'The avatar speaks with its custom (cloned) voice. Use a standard voice here to speak with that voice instead.'
+            ? `The avatar speaks with the standard voice ${chosen.name ?? ''}. Choose Trained voice to hear the voice trained from the uploads again.`
+            : 'The avatar speaks with the voice trained from the uploads. Choose Standard to speak with the standard voice picked below instead.'
           : 'Until a cloned voice is ready, the avatar can speak with a stock voice. Pick the gender that matches the avatar, then a voice.'}
       </p>
 
-      {customVoiceAvailable && chosen ? (
-        <div
-          className="mb-2 inline-flex rounded-lg border border-white/15 bg-black/30 p-0.5"
-          role="radiogroup"
-          aria-label="Voice the avatar speaks with"
-        >
-          {[
-            { value: 'custom', label: 'Custom voice' },
-            { value: 'standard', label: `Standard · ${chosen.name ?? 'voice'}` },
-          ].map((option) => {
-            const isActive =
-              option.value === 'standard' ? standardIsSpeaking : !standardIsSpeaking;
-            return (
-              <button
-                key={option.value}
-                type="button"
-                role="radio"
-                aria-checked={isActive}
-                disabled={isSwitchingVoice || isActive}
-                onClick={() => chooseVoice(option.value)}
-                className={`px-2.5 py-1 text-xs rounded-md transition inline-flex items-center gap-1 ${
-                  isActive
-                    ? 'bg-amber-400/20 text-amber-200'
-                    : 'text-white/60 hover:text-white'
-                } disabled:cursor-default`}
-              >
-                {isSwitchingVoice && !isActive ? (
-                  <Loader2 size={12} className="animate-spin" aria-hidden="true" />
-                ) : null}
-                {option.label}
-              </button>
-            );
-          })}
+      {customVoiceAvailable ? (
+        <div className="mb-2 flex flex-wrap items-center gap-2">
+          <div
+            className="inline-flex rounded-lg border border-white/15 bg-black/30 p-0.5"
+            role="radiogroup"
+            aria-label="Voice the avatar speaks with"
+          >
+            {[
+              { value: 'custom', label: 'Trained voice' },
+              {
+                value: 'standard',
+                label: chosen
+                  ? `Standard · ${chosen.name ?? 'voice'}`
+                  : selectedVoice
+                    ? `Standard · ${selectedVoice.name}`
+                    : 'Standard voice',
+              },
+            ].map((option) => {
+              const isActive =
+                option.value === 'standard'
+                  ? standardIsSpeaking
+                  : !standardIsSpeaking;
+              // With no standard voice saved yet, pressing Standard saves the
+              // voice picked in the list below, which also makes that voice speak.
+              const needsStandardVoiceSaved =
+                option.value === 'standard' && !chosen;
+              return (
+                <button
+                  key={option.value}
+                  type="button"
+                  role="radio"
+                  aria-checked={isActive}
+                  disabled={
+                    isSwitchingVoice ||
+                    isSaving ||
+                    isActive ||
+                    (needsStandardVoiceSaved && !selectedVoice)
+                  }
+                  onClick={() =>
+                    needsStandardVoiceSaved
+                      ? save(selectedVoiceId)
+                      : chooseVoice(option.value)
+                  }
+                  className={`px-2.5 py-1 text-xs rounded-md transition inline-flex items-center gap-1 ${
+                    isActive
+                      ? 'bg-amber-400/20 text-amber-200'
+                      : 'text-white/60 hover:text-white'
+                  } disabled:cursor-default`}
+                >
+                  {(isSwitchingVoice || isSaving) && !isActive ? (
+                    <Loader2
+                      size={12}
+                      className="animate-spin"
+                      aria-hidden="true"
+                    />
+                  ) : null}
+                  {option.label}
+                </button>
+              );
+            })}
+          </div>
+          <button
+            type="button"
+            onClick={previewTrainedVoice}
+            aria-label={
+              previewingVoiceId === TRAINED_VOICE_PREVIEW_KEY
+                ? 'Stop the trained voice sample'
+                : 'Play a sample of the trained voice'
+            }
+            className="inline-flex items-center gap-1 rounded-lg border border-white/20 px-2.5 py-1.5 text-xs text-white/80 transition hover:bg-white/10"
+          >
+            {previewingVoiceId === TRAINED_VOICE_PREVIEW_KEY ? (
+              <Square size={12} aria-hidden="true" />
+            ) : (
+              <Play size={12} aria-hidden="true" />
+            )}
+            {previewingVoiceId === TRAINED_VOICE_PREVIEW_KEY
+              ? 'Stop'
+              : 'Sample trained voice'}
+          </button>
         </div>
       ) : null}
 

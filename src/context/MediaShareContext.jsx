@@ -11,7 +11,7 @@ import { toast } from 'react-hot-toast';
 import {
   canCaptureDisplay,
   createSingleFlightRequest,
-  requestDisplayMedia,
+  sharedScreenCapture,
 } from '../services/displayCapture';
 import { useAuth } from './AuthContext';
 import { useMedia } from './MediaContext';
@@ -228,6 +228,9 @@ export function MediaShareProvider({
   const [isFlippingWebcam, setIsFlippingWebcam] = useState(false);
   const webcamStreamRef = useRef(null);
   const screenStreamRef = useRef(null);
+  // This provider's claim on `sharedScreenCapture`, which the help avatar
+  // overlay also holds.
+  const screenCaptureHolderRef = useRef(Symbol('media share screen capture'));
   // Whether the screen capture that is running is WATCHED.
   //
   // There is one screen capture and two things the person can be doing with
@@ -396,7 +399,7 @@ export function MediaShareProvider({
   useEffect(
     () => () => {
       webcamStreamRef.current?.getTracks().forEach((track) => track.stop());
-      screenStreamRef.current?.getTracks().forEach((track) => track.stop());
+      sharedScreenCapture.release(screenCaptureHolderRef.current);
     },
     []
   );
@@ -607,7 +610,7 @@ export function MediaShareProvider({
   }, [webcamStream]);
 
   const stopScreenCapture = useCallback(() => {
-    screenStreamRef.current?.getTracks().forEach((track) => track.stop());
+    sharedScreenCapture.release(screenCaptureHolderRef.current);
     screenStreamRef.current = null;
     screenWatchedRef.current = false;
     setScreenWatched(false);
@@ -622,14 +625,18 @@ export function MediaShareProvider({
 
   // One browser picker at a time. Every press made while the picker is still
   // open shares the same pending request, so one gesture never shows the
-  // person the screen-share picker twice.
+  // person the screen-share picker twice. A screen the help avatar overlay is
+  // already sharing is reused without a picker.
   const openScreenCaptureOnce = useMemo(
     () =>
       createSingleFlightRequest(async () => {
         try {
-          const stream = await requestDisplayMedia();
+          const stream = await sharedScreenCapture.acquire(
+            screenCaptureHolderRef.current
+          );
           stream.getVideoTracks()[0]?.addEventListener('ended', () => {
             // The person pressed the browser's own "Stop sharing".
+            if (screenStreamRef.current !== stream) return;
             screenStreamRef.current = null;
             screenWatchedRef.current = false;
             setScreenWatched(false);

@@ -24,6 +24,7 @@ import SpeakButton from './SpeakButton';
 import MessageStamp from './MessageStamp';
 import { editableScriptText } from '../speakerScript';
 import {
+  formatMessageCostBreakdown,
   formatMessageMetrics,
   formatTextInferenceModel,
 } from '../../services/messageResponseMetrics';
@@ -66,7 +67,7 @@ export function reactionButtonClasses(reaction, pressed) {
 
 /**
  * Copy, regenerate, rate, speak, edit, and retry — the same controls the
- * message list shows under a bubble. In Vite development, the administrator
+ * message list shows under a bubble. In Vite development, every signed-in account
  * also gets a LangSmith link to this conversation's thread.
  *
  * @param {Object} parameters
@@ -199,6 +200,9 @@ const MessageActionBar = ({
   if (!actionText && !stampLabel) return null;
 
   const metrics = isFromAvatar ? formatMessageMetrics(message) : null;
+  // The reply's cost includes the image descriptions and triage calls made
+  // since the previous reply; the hover text says how that total splits.
+  const costBreakdown = isFromAvatar ? formatMessageCostBreakdown(message) : null;
   const textModelLabel =
     import.meta.env.DEV && isFromAvatar
       ? formatTextInferenceModel(message)
@@ -221,6 +225,7 @@ const MessageActionBar = ({
           className={`mt-2 text-xs text-right select-none ${
             overlay ? 'text-white/55 drop-shadow' : 'text-white/40'
           }`}
+          title={costBreakdown ?? undefined}
         >
           {[textModelLabel, metrics].filter(Boolean).join(' • ')}
         </p>

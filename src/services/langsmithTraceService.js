@@ -8,8 +8,8 @@ import { requestJson } from './neuralNexusApiClient';
 
 /**
  * Find the LangSmith workspace, project, and run of the reply to a human turn.
- * GET /conversations/{thread_id}/langsmith_trace — development API and the
- * administrator only; any other caller, and a turn with no run, receives 404.
+ * GET /conversations/{thread_id}/langsmith_trace — development API only, for
+ * any signed-in account; a production API, and a turn with no run, answers 404.
  *
  * @param {Object} parameters
  * @param {string} parameters.threadId The conversation's thread id.

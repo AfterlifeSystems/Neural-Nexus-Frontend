@@ -1483,6 +1483,8 @@ export const MediaProvider = ({ children }) => {
                         fact: streamEvent.fact,
                         kind: streamEvent.kind,
                         source: streamEvent.source,
+                        status: streamEvent.status,
+                        previous_fact: streamEvent.previous_fact,
                       }),
                     }
                   : message

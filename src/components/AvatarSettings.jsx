@@ -46,6 +46,7 @@ import {
   listAvatarDocuments,
   listUserAvatars,
   getAvatarReferenceImage,
+  selectAvatarReferenceImage,
   shareAvatar,
   deleteAvatarEmotionMedia,
 } from '../services/avatarService';
@@ -64,7 +65,10 @@ import UploadProcessPanel from './media/UploadProcessPanel';
 import ResearchPanel from './research/ResearchPanel';
 import VoicePanel from './voice/VoicePanel';
 import useEmotionMedia, { forgetEmotionMedia } from '../hooks/useEmotionMedia';
-import { subscribeAvatarPortraitChanged } from '../services/avatarPortraitEvents';
+import {
+  notifyAvatarPortraitChanged,
+  subscribeAvatarPortraitChanged,
+} from '../services/avatarPortraitEvents';
 import { emotionMediaRows } from '../hooks/emotionMediaRows';
 import AvatarIdentityFacts from './AvatarIdentityFacts';
 import AvatarPlaceCard from './geo/AvatarPlaceCard';
@@ -223,6 +227,9 @@ const AvatarSettings = ({ avatarId, onPortraitChanged }) => {
   const [avatarIcon, setAvatarIcon] = useState(
     () => readCachedAvatarIcons()[assistantId] ?? null
   );
+  // The label of the upload being made the portrait, while the switch is in
+  // flight; one switch at a time, since a first switch may run a paid analysis.
+  const [portraitSelectionLabel, setPortraitSelectionLabel] = useState(null);
 
   // Every control on this screen writes to the avatar, and the API refuses all
   // of them for an avatar the caller did not create. Sharing is the one
@@ -787,6 +794,55 @@ const AvatarSettings = ({ avatarId, onPortraitChanged }) => {
       showRequestFailureToast(err, {
         fallbackMessage: `${documentEntry.label} could not be made the reference.`,
       });
+    }
+  };
+
+  /**
+   * Make an uploaded image the avatar's portrait. The server reuses a portrait
+   * analysis made earlier for the same image, so switching back to an earlier
+   * portrait costs no model call, and parks — never deletes — the generated
+   * media of the current portrait.
+   */
+  const handleSetPortrait = async (documentEntry) => {
+    if (portraitSelectionLabel) return;
+    setPortraitSelectionLabel(documentEntry.label);
+    try {
+      if (!user) throw new Error('Not logged in');
+      const selection = await selectAvatarReferenceImage(
+        assistantId,
+        documentEntry.label
+      );
+      const storedPortrait = selection?.reference_image_data ?? null;
+      if (storedPortrait) {
+        setAvatarIcon(storedPortrait);
+        writeCachedAvatarIcon(assistantId, storedPortrait);
+        onPortraitChanged?.(storedPortrait);
+      }
+      // Every other screen showing this avatar re-reads the portrait, and the
+      // emotion media cache drops the previous face's manifest.
+      notifyAvatarPortraitChanged(assistantId);
+      const restoredCount = Number(selection?.generated_media_restored ?? 0);
+      const parkedCount = Number(selection?.generated_media_parked ?? 0);
+      const mediaNote = [
+        restoredCount > 0 &&
+          `${restoredCount} generated media restored for this portrait`,
+        parkedCount > 0 &&
+          `${parkedCount} generated media from the previous portrait kept`,
+      ]
+        .filter(Boolean)
+        .join('; ');
+      toast.success(
+        selection?.changed === false
+          ? `${documentEntry.label} is already the portrait.`
+          : `${documentEntry.label} is now the portrait.${mediaNote ? ` ${mediaNote}.` : ''}`
+      );
+      await Promise.all([refreshAvatarDocuments(), refreshEmotionManifest()]);
+    } catch (err) {
+      showRequestFailureToast(err, {
+        fallbackMessage: `${documentEntry.label} could not be made the portrait.`,
+      });
+    } finally {
+      setPortraitSelectionLabel(null);
     }
   };
 
@@ -1970,47 +2026,6 @@ const AvatarSettings = ({ avatarId, onPortraitChanged }) => {
           />
         </div>
       </div>
-      {/* Sharing. Publishing is for your own likeness, so this is the personal
-          avatar's control — except for the administrator, who may publish any
-          avatar and therefore sees it on all of them. */}
-      {canChangeSharing && renderSharingCard()}
-      {/* Inert for public demos — restore with ADULT_ONLY_FEATURES_ENABLED.
-      {isAdministrator && renderAdultOnlyCard()}
-      */}
-      <AvatarPlaceCard
-        assistantId={assistantId}
-        activeAvatar={activeAvatar}
-        onAvatarChanged={applyAvatarChangeLocally}
-        canClearDeviceLocation={isPersonalAvatar}
-      />
-
-      {/* Connections — mailboxes, custom connectors, and machines — reached
-          through the personal avatar, so they are not a property of any other
-          avatar. One section, one row shape; the catalog and the connect card
-          are read from the API so a new provider needs no change here. */}
-      {isPersonalAvatar && <ConnectionsSection />}
-
-      {/* The reports the personal avatar has written — scheduled analytics,
-          website audits, saved analyses. `?section=reports` scrolls here the
-          way `?section=connections` scrolls to the connectors. */}
-      {isPersonalAvatar && (
-        <ReportsSection
-          assistantId={assistantId}
-          avatarName={activeAvatar?.name}
-        />
-      )}
-
-      {/* What the avatar has learned about itself. Creator-only by
-          construction (this whole return is behind canAdministerAvatar) and
-          by the API, which answers 403 for anyone else. */}
-      <div id="avatar-facts" ref={factsSectionRef}>
-        <AvatarIdentityFacts
-          assistantId={assistantId}
-          avatarName={activeAvatar?.name}
-          reloadToken={learnedFactsReloadToken}
-        />
-      </div>
-
       {/* Documents Section */}
 
       <div className="bg-black/60 backdrop-blur-lg rounded-2xl border border-white/10 p-6">
@@ -2112,6 +2127,12 @@ const AvatarSettings = ({ avatarId, onPortraitChanged }) => {
                       portraitDataUri={avatarIcon}
                       onDelete={handleDeleteDocument}
                       onSetVoiceReference={handleSetVoiceReference}
+                      onSetPortrait={
+                        canAdministerAvatar ? handleSetPortrait : undefined
+                      }
+                      isSettingPortrait={
+                        portraitSelectionLabel === documentEntry.label
+                      }
                     />
                   ))
                 ) : (
@@ -2142,6 +2163,47 @@ const AvatarSettings = ({ avatarId, onPortraitChanged }) => {
           </div>
         )}
       </div>
+      {/* What the avatar has learned about itself. Creator-only by
+          construction (this whole return is behind canAdministerAvatar) and
+          by the API, which answers 403 for anyone else. */}
+      <div id="avatar-facts" ref={factsSectionRef}>
+        <AvatarIdentityFacts
+          assistantId={assistantId}
+          avatarName={activeAvatar?.name}
+          reloadToken={learnedFactsReloadToken}
+        />
+      </div>
+
+      {/* Sharing. Publishing is for your own likeness, so this is the personal
+          avatar's control — except for the administrator, who may publish any
+          avatar and therefore sees it on all of them. */}
+      {canChangeSharing && renderSharingCard()}
+      {/* Inert for public demos — restore with ADULT_ONLY_FEATURES_ENABLED.
+      {isAdministrator && renderAdultOnlyCard()}
+      */}
+      <AvatarPlaceCard
+        assistantId={assistantId}
+        activeAvatar={activeAvatar}
+        onAvatarChanged={applyAvatarChangeLocally}
+        canClearDeviceLocation={isPersonalAvatar}
+      />
+
+      {/* Connections — mailboxes, custom connectors, and machines — reached
+          through the personal avatar, so they are not a property of any other
+          avatar. One section, one row shape; the catalog and the connect card
+          are read from the API so a new provider needs no change here. */}
+      {isPersonalAvatar && <ConnectionsSection />}
+
+      {/* The reports the personal avatar has written — scheduled analytics,
+          website audits, saved analyses. `?section=reports` scrolls here the
+          way `?section=connections` scrolls to the connectors. */}
+      {isPersonalAvatar && (
+        <ReportsSection
+          assistantId={assistantId}
+          avatarName={activeAvatar?.name}
+        />
+      )}
+
       {/* Opt-in usage analytics. Consent belongs to the account, and the
           personal avatar is the account's own avatar, so the switch lives
           here (and in account settings) rather than on every avatar. */}

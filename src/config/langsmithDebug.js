@@ -1,10 +1,9 @@
 // src/config/langsmithDebug.js
 //
-// The Vite-facing half of the administrator-in-dev LangSmith link. The URL
+// The Vite-facing half of the development LangSmith link. The URL
 // itself is built in langsmithThread.js so it can be tested without
 // import.meta.env.
 
-import { isAdminAccount } from './adminAccount';
 import {
   buildLangsmithThreadUrl,
   langsmithLocationOf,
@@ -18,9 +17,8 @@ export { shortenThreadId } from './langsmithThread';
  * The LangSmith Threads URL for this reply, or null when the link must stay
  * hidden.
  *
- * Shown only while Vite is in development AND the signed-in account is the
- * administrator (VITE_ADMIN_ACCOUNT_EMAIL, default e.woods.business@icloud.com)
- * AND the conversation has a real thread id AND the reply records the
+ * Shown to any signed-in account while Vite is in development AND the
+ * conversation has a real thread id AND the reply records the
  * LangSmith workspace and project the reply was traced to. Production builds
  * never offer the link.
  *
@@ -33,7 +31,6 @@ export function langsmithDebugLinkFor(user, threadId, message) {
   if (
     !shouldOfferLangsmithThreadLink({
       isDev: import.meta.env.DEV,
-      isAdmin: isAdminAccount(user),
       threadId,
     })
   ) {
@@ -65,7 +62,6 @@ export function langsmithLookupFor(user, threadId, message) {
   if (
     !shouldOfferLangsmithThreadLink({
       isDev: import.meta.env.DEV,
-      isAdmin: isAdminAccount(user),
       threadId,
     })
   ) {

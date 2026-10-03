@@ -1,6 +1,6 @@
 // src/config/langsmithThread.js
 //
-// The pure half of the administrator-in-dev LangSmith link: how a reply's
+// The pure half of the development LangSmith link: how a reply's
 // recorded trace location becomes a Threads-view URL on smith.langchain.com.
 // Kept free of import.meta.env so the Node test runner can load it.
 
@@ -132,19 +132,16 @@ export function buildLangsmithThreadUrl({
 /**
  * Whether the LangSmith debug link should be offered at all.
  *
- * The link is a developer tool: only the administrator, only while Vite is in
- * development, and only once a real thread exists.
+ * The link is a developer tool: offered to every signed-in account while Vite
+ * is in development, so a test account sees the same trace link as the
+ * administrator, and only once a real thread exists. Production builds never
+ * offer the link.
  *
  * @param {Object} parameters
  * @param {boolean} parameters.isDev
- * @param {boolean} parameters.isAdmin
  * @param {string|null|undefined} parameters.threadId
  * @returns {boolean}
  */
-export function shouldOfferLangsmithThreadLink({
-  isDev = false,
-  isAdmin = false,
-  threadId,
-} = {}) {
-  return Boolean(isDev && isAdmin && isRealConversationThread(threadId));
+export function shouldOfferLangsmithThreadLink({ isDev = false, threadId } = {}) {
+  return Boolean(isDev && isRealConversationThread(threadId));
 }
