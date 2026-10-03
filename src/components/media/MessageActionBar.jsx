@@ -1,5 +1,5 @@
 // src/components/media/MessageActionBar.jsx
-import React from 'react';
+import React, { useState } from 'react';
 import {
   Check,
   Copy,
@@ -16,12 +16,15 @@ import { useAuth } from '../../context/AuthContext';
 import { useMedia } from '../../context/MediaContext';
 import {
   langsmithDebugLinkFor,
+  langsmithLookupFor,
   shortenThreadId,
 } from '../../config/langsmithDebug';
+import { findLangsmithTrace } from '../../services/langsmithTraceService';
 import SpeakButton from './SpeakButton';
 import MessageStamp from './MessageStamp';
 import { editableScriptText } from '../speakerScript';
 import {
+  formatMessageCostBreakdown,
   formatMessageMetrics,
   formatTextInferenceModel,
 } from '../../services/messageResponseMetrics';
@@ -64,7 +67,7 @@ export function reactionButtonClasses(reaction, pressed) {
 
 /**
  * Copy, regenerate, rate, speak, edit, and retry — the same controls the
- * message list shows under a bubble. In Vite development, the administrator
+ * message list shows under a bubble. In Vite development, every signed-in account
  * also gets a LangSmith link to this conversation's thread.
  *
  * @param {Object} parameters
@@ -129,13 +132,65 @@ const MessageActionBar = ({
 }) => {
   const { user } = useAuth();
   const { activeConversation } = useMedia();
-  // The reply's own run when the API reported one, so the link lands on this
-  // turn inside the thread rather than on the thread's newest run.
+  // A reply stored before replies recorded their LangSmith location (a
+  // production reply read through the shared database) is resolved by the
+  // development API on click; the resolved record then links directly.
+  const [resolvedLangsmithRecord, setResolvedLangsmithRecord] = useState(null);
+  const [langsmithLookupStatus, setLangsmithLookupStatus] = useState('idle');
+  const langsmithMessage = resolvedLangsmithRecord
+    ? {
+        ...message,
+        response_metadata: {
+          ...(message?.response_metadata ?? {}),
+          langsmith: resolvedLangsmithRecord,
+        },
+      }
+    : message;
+  // The LangSmith workspace, project, and run the API recorded on this reply,
+  // so the link opens the project the reply was traced to (production or
+  // local testing) and lands on this turn inside the thread.
   const langsmithHref = langsmithDebugLinkFor(
     user,
     activeConversation,
-    message?.run_id ?? null
+    langsmithMessage
   );
+  const langsmithLookup = langsmithHref
+    ? null
+    : langsmithLookupFor(user, activeConversation, langsmithMessage);
+  const langsmithProjectName =
+    langsmithMessage?.response_metadata?.langsmith?.project_name || 'LangSmith';
+
+  const openLookedUpLangsmithTrace = async () => {
+    // Opened before the request, inside the click, so the popup blocker
+    // allows the tab; the tab is pointed at LangSmith once the run is found.
+    const langsmithWindow = window.open('about:blank', '_blank');
+    if (langsmithWindow) langsmithWindow.opener = null;
+    setLangsmithLookupStatus('searching');
+    try {
+      const langsmithRecord = await findLangsmithTrace({
+        threadId: activeConversation,
+        humanMessageId: langsmithLookup.humanMessageId,
+        humanCreatedAt: langsmithLookup.humanCreatedAt,
+      });
+      const lookedUpHref =
+        langsmithRecord &&
+        langsmithDebugLinkFor(user, activeConversation, {
+          response_metadata: { langsmith: langsmithRecord },
+        });
+      if (!lookedUpHref) throw new Error('No LangSmith run for this reply');
+      setResolvedLangsmithRecord(langsmithRecord);
+      setLangsmithLookupStatus('idle');
+      if (langsmithWindow) {
+        langsmithWindow.location.href = lookedUpHref;
+      } else {
+        window.open(lookedUpHref, '_blank', 'noopener,noreferrer');
+      }
+    } catch (lookupError) {
+      langsmithWindow?.close();
+      console.warn("[LangSmith] Could not find this reply's run", lookupError);
+      setLangsmithLookupStatus('not_found');
+    }
+  };
 
   const actionText = editableScriptText(message, {
     humanTurn: isFromUser,
@@ -145,6 +200,9 @@ const MessageActionBar = ({
   if (!actionText && !stampLabel) return null;
 
   const metrics = isFromAvatar ? formatMessageMetrics(message) : null;
+  // The reply's cost includes the image descriptions and triage calls made
+  // since the previous reply; the hover text says how that total splits.
+  const costBreakdown = isFromAvatar ? formatMessageCostBreakdown(message) : null;
   const textModelLabel =
     import.meta.env.DEV && isFromAvatar
       ? formatTextInferenceModel(message)
@@ -167,6 +225,7 @@ const MessageActionBar = ({
           className={`mt-2 text-xs text-right select-none ${
             overlay ? 'text-white/55 drop-shadow' : 'text-white/40'
           }`}
+          title={costBreakdown ?? undefined}
         >
           {[textModelLabel, metrics].filter(Boolean).join(' • ')}
         </p>
@@ -330,23 +389,46 @@ const MessageActionBar = ({
           <span />
         )}
         <div className="flex items-center gap-2 ml-auto">
-          {langsmithHref && (
-            <a
-              href={langsmithHref}
-              target="_blank"
-              rel="noopener noreferrer"
+          {langsmithLookup && (
+            <button
+              type="button"
+              onClick={openLookedUpLangsmithTrace}
+              disabled={langsmithLookupStatus === 'searching'}
               title={
-                message?.run_id
-                  ? `Open this reply's run in LangSmith`
-                  : `Open thread ${activeConversation} in LangSmith`
+                langsmithLookupStatus === 'not_found'
+                  ? 'No LangSmith run was found for this reply. Click to search again.'
+                  : "Find this reply's run in LangSmith"
               }
-              aria-label={`Open conversation thread ${activeConversation} in LangSmith`}
+              aria-label={`Find this reply's run in LangSmith for conversation thread ${activeConversation}`}
               className={`${ACTION_BUTTON_CLASSES} gap-1 text-[11px] font-mono ${
                 overlay ? 'text-amber-200/80' : 'text-amber-300/80'
               }`}
             >
               <ExternalLink className="w-3 h-3" aria-hidden="true" />
-              <span>LangSmith · {shortenThreadId(activeConversation)}</span>
+              <span>
+                {langsmithLookupStatus === 'searching'
+                  ? 'LangSmith · finding…'
+                  : langsmithLookupStatus === 'not_found'
+                    ? 'LangSmith · not found'
+                    : `LangSmith · ${shortenThreadId(activeConversation)}`}
+              </span>
+            </button>
+          )}
+          {langsmithHref && (
+            <a
+              href={langsmithHref}
+              target="_blank"
+              rel="noopener noreferrer"
+              title={`Open this reply's run in the LangSmith project ${langsmithProjectName}`}
+              aria-label={`Open conversation thread ${activeConversation} in the LangSmith project ${langsmithProjectName}`}
+              className={`${ACTION_BUTTON_CLASSES} gap-1 text-[11px] font-mono ${
+                overlay ? 'text-amber-200/80' : 'text-amber-300/80'
+              }`}
+            >
+              <ExternalLink className="w-3 h-3" aria-hidden="true" />
+              <span>
+                {langsmithProjectName} · {shortenThreadId(activeConversation)}
+              </span>
             </a>
           )}
           <MessageStamp message={message} overlay={overlay} />

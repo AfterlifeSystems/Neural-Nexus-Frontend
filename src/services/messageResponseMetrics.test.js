@@ -4,6 +4,7 @@ import {
   applyRememberedAvatarResponseMetrics,
   attachResponseTimeMs,
   fingerprintMessageContent,
+  formatMessageCostBreakdown,
   formatMessageMetrics,
   formatTextInferenceModel,
   rememberAvatarResponseMetrics,
@@ -134,4 +135,43 @@ test('fingerprint ignores surrounding whitespace', () => {
     fingerprintMessageContent('  Hey.  \n'),
     fingerprintMessageContent('Hey.')
   );
+});
+
+const TURN_COST_MESSAGE = {
+  role: 'assistant',
+  total_response_time_ms: 4200,
+  usage: { total_tokens: 40120, cost_usd: 0.004 },
+  response_metadata: {
+    total_cost: 0.004,
+    token_usage: { total_tokens: 40120 },
+    turn_cost: {
+      total_cost_usd: 0.0114,
+      total_tokens: 58432,
+      reply: { cost_usd: 0.004 },
+      image_descriptions: { count: 3, cost_usd: 0.0075 },
+      ambient_triage: { count: 1, cost_usd: 0.0019 },
+      items: [],
+    },
+  },
+};
+
+test('the metrics line shows the turn total, image descriptions and triage included', () => {
+  assert.equal(formatMessageMetrics(TURN_COST_MESSAGE), '4.2s • 58k tokens • $0.011');
+});
+
+test('a reply without a turn_cost record still shows the reply cost', () => {
+  const { turn_cost: _turnCost, ...replyOnlyMetadata } =
+    TURN_COST_MESSAGE.response_metadata;
+  assert.equal(
+    formatMessageMetrics({ ...TURN_COST_MESSAGE, response_metadata: replyOnlyMetadata }),
+    '4.2s • 40k tokens • $0.0040'
+  );
+});
+
+test('the cost breakdown names the reply, the image descriptions and the triage calls', () => {
+  assert.equal(
+    formatMessageCostBreakdown(TURN_COST_MESSAGE),
+    'reply $0.0040 · 3 image descriptions $0.0075 · 1 triage call $0.0019'
+  );
+  assert.equal(formatMessageCostBreakdown({ response_metadata: {} }), null);
 });

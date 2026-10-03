@@ -241,6 +241,11 @@ export const summarizeUrlForDisplay = (sourceUrl) => {
  * @param {Function} [props.onSetVoiceReference] Called with the row's entry
  *   to make that upload the avatar's reference audio; shown only for uploads
  *   whose speech is in the voice model.
+ * @param {Function} [props.onSetPortrait] Called with the row's entry to make
+ *   that uploaded image the avatar's portrait; shown only for images the API
+ *   kept (`isPortraitSelectable`) that are not the portrait already.
+ * @param {boolean} [props.isSettingPortrait] True while this row's portrait
+ *   switch is in flight, so the button cannot start a second paid analysis.
  * @param {Function} props.onDelete Called with the document's label for an
  *   upload, and with the whole row for generated media (which has no label the
  *   document delete endpoint would recognise — the caller deletes by asset id).
@@ -250,6 +255,8 @@ const AvatarDocumentRow = ({
   portraitDataUri,
   onDelete,
   onSetVoiceReference,
+  onSetPortrait,
+  isSettingPortrait = false,
 }) => {
   // Generated media (emotion portraits and idle loops) is marked and previewed
   // differently from uploads; see the header comment.
@@ -316,6 +323,17 @@ const AvatarDocumentRow = ({
     !isGeneratedMedia &&
     documentEntry.inVoiceCorpus &&
     !documentEntry.isReferenceAudio;
+  // An uploaded image the API kept can replace the portrait. Generated media
+  // parked under an earlier portrait comes back with that portrait, so the
+  // count is shown before the owner switches.
+  const canBecomePortrait =
+    Boolean(onSetPortrait) &&
+    !isGeneratedMedia &&
+    documentEntry.isPortraitSelectable &&
+    !documentEntry.isReferenceImage;
+  const parkedGeneratedMedia = isGeneratedMedia
+    ? 0
+    : Number(documentEntry.parkedGeneratedMedia ?? 0);
   // A reference mark says what the upload is FOR; the kind says what it IS.
   // The mark wins the icon when there is one, because which upload is the
   // portrait matters more to the user than that the portrait is a .jpg.
@@ -576,6 +594,15 @@ const AvatarDocumentRow = ({
                   {voiceCorpusMark.label}
                 </span>
               )}
+              {parkedGeneratedMedia > 0 && (
+                <span
+                  className="inline-flex items-center gap-1 px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wide rounded-full border bg-amber-400/10 text-amber-200 border-amber-400/30"
+                  title="Generated media kept from when this image was the portrait. The media comes back when this image is the portrait again."
+                >
+                  <Sparkles size={11} aria-hidden="true" />
+                  {parkedGeneratedMedia} generated kept
+                </span>
+              )}
             </div>
             {isGeneratedMedia ? (
               <p className="text-white/50 text-xs mt-0.5">
@@ -610,6 +637,22 @@ const AvatarDocumentRow = ({
               className="text-emerald-300/80 hover:text-emerald-200 transition-colors"
             >
               <Mic size={18} />
+            </button>
+          )}
+          {/* Promote a kept upload to the portrait. The server reuses a
+              portrait analysis made earlier for the same image, and parks
+              (never deletes) the generated media of the current portrait. */}
+          {canBecomePortrait && (
+            <button
+              type="button"
+              onClick={() => onSetPortrait(documentEntry)}
+              disabled={isSettingPortrait}
+              title="Use this image as the avatar's portrait"
+              aria-label="Use this image as the portrait"
+              aria-busy={isSettingPortrait}
+              className="text-amber-300/80 hover:text-amber-200 disabled:opacity-40 disabled:cursor-wait transition-colors"
+            >
+              <Camera size={18} />
             </button>
           )}
           <button

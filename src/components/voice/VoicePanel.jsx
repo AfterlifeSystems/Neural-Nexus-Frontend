@@ -549,6 +549,8 @@ const VoicePanel = ({
   const hasVoiceModel = Boolean(status?.instant_voice_id) && !voiceModelBlocked;
   // The stock voice the owner chose for when no cloned voice can speak.
   const standardVoice = status?.standard_voice ?? null;
+  const standardVoiceIsSpeaking =
+    Boolean(standardVoice) && status?.voice_choice === 'standard';
   const barMax = isPersonalAvatar ? professionalMinimum : instantMinimum;
   // The voice model is trained once, at the minimum, and never rebuilt; the
   // personal avatar keeps collecting only toward the professional voice model.
@@ -638,12 +640,26 @@ const VoicePanel = ({
               {describeSeconds(instantMinimum)}
             </span>
           )}
-          {standardVoice && !hasVoiceModel ? (
+          {/* Which voice speaks the replies right now: the trained (cloned)
+              voice or the standard sample voice. The switch lives in the
+              Standard voice section below. */}
+          {standardVoice && (!hasVoiceModel || standardVoiceIsSpeaking) ? (
             <span
               className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-amber-400/15 border border-amber-400/30 text-amber-300"
-              title="Replies are spoken with this stock voice until a cloned voice is ready."
+              title={
+                hasVoiceModel
+                  ? 'Replies are spoken with this standard voice instead of the trained voice.'
+                  : 'Replies are spoken with this standard voice until a trained voice is ready.'
+              }
             >
-              Speaks with {standardVoice.name ?? 'a standard voice'}
+              Speaks with standard voice · {standardVoice.name ?? 'Standard'}
+            </span>
+          ) : hasVoiceModel && !voiceModelBlocked ? (
+            <span
+              className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-amber-400/15 border border-amber-400/30 text-amber-300"
+              title="Replies are spoken with the voice trained from the uploads."
+            >
+              Speaks with trained voice
             </span>
           ) : null}
           {isPersonalAvatar && (

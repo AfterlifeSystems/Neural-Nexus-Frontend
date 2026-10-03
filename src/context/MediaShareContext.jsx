@@ -3,13 +3,15 @@ import React, {
   useCallback,
   useContext,
   useEffect,
+  useMemo,
   useRef,
   useState,
 } from 'react';
 import { toast } from 'react-hot-toast';
 import {
   canCaptureDisplay,
-  requestDisplayMedia,
+  createSingleFlightRequest,
+  sharedScreenCapture,
 } from '../services/displayCapture';
 import { useAuth } from './AuthContext';
 import { useMedia } from './MediaContext';
@@ -226,6 +228,9 @@ export function MediaShareProvider({
   const [isFlippingWebcam, setIsFlippingWebcam] = useState(false);
   const webcamStreamRef = useRef(null);
   const screenStreamRef = useRef(null);
+  // This provider's claim on `sharedScreenCapture`, which the help avatar
+  // overlay also holds.
+  const screenCaptureHolderRef = useRef(Symbol('media share screen capture'));
   // Whether the screen capture that is running is WATCHED.
   //
   // There is one screen capture and two things the person can be doing with
@@ -394,7 +399,7 @@ export function MediaShareProvider({
   useEffect(
     () => () => {
       webcamStreamRef.current?.getTracks().forEach((track) => track.stop());
-      screenStreamRef.current?.getTracks().forEach((track) => track.stop());
+      sharedScreenCapture.release(screenCaptureHolderRef.current);
     },
     []
   );
@@ -605,12 +610,57 @@ export function MediaShareProvider({
   }, [webcamStream]);
 
   const stopScreenCapture = useCallback(() => {
-    screenStreamRef.current?.getTracks().forEach((track) => track.stop());
+    sharedScreenCapture.release(screenCaptureHolderRef.current);
     screenStreamRef.current = null;
     screenWatchedRef.current = false;
     setScreenWatched(false);
     setScreenStream(null);
   }, []);
+
+  // The mode the most recent press asked for while the picker is open. A
+  // press on "Share screen" after a press on "Let it look" (or the reverse)
+  // joins the picker that is already open instead of opening a second picker,
+  // and the capture starts in the mode of the latest press.
+  const requestedScreenWatchedRef = useRef(false);
+
+  // One browser picker at a time. Every press made while the picker is still
+  // open shares the same pending request, so one gesture never shows the
+  // person the screen-share picker twice. A screen the help avatar overlay is
+  // already sharing is reused without a picker.
+  const openScreenCaptureOnce = useMemo(
+    () =>
+      createSingleFlightRequest(async () => {
+        try {
+          const stream = await sharedScreenCapture.acquire(
+            screenCaptureHolderRef.current
+          );
+          stream.getVideoTracks()[0]?.addEventListener('ended', () => {
+            // The person pressed the browser's own "Stop sharing".
+            if (screenStreamRef.current !== stream) return;
+            screenStreamRef.current = null;
+            screenWatchedRef.current = false;
+            setScreenWatched(false);
+            setScreenStream(null);
+          });
+          const watched = requestedScreenWatchedRef.current;
+          screenStreamRef.current = stream;
+          screenWatchedRef.current = watched;
+          setScreenWatched(watched);
+          setScreenStream(stream);
+          return true;
+        } catch (screenError) {
+          if (
+            screenError?.name === 'NotAllowedError' ||
+            screenError?.name === 'AbortError'
+          ) {
+            return false;
+          }
+          toast.error('Could not share the screen.');
+          return false;
+        }
+      }),
+    []
+  );
 
   /**
    * Run the screen capture in the given mode, opening one if none is running.
@@ -621,48 +671,30 @@ export function MediaShareProvider({
    * choose in the browser's own picker is exactly what can ever be seen.
    * Changing the mode of a capture that is ALREADY running asks the browser
    * for nothing — it only changes whether the ambient loop reads it — so
-   * moving between peeking and sharing never costs a second picker.
+   * moving between peeking and sharing never costs a second picker. A press
+   * made while the picker is still open joins the open picker.
    *
    * @param {boolean} watched Whether the ambient loop may read this capture.
    * @returns {Promise<boolean>} Whether a capture is now running in that mode.
    */
-  const runScreenCapture = useCallback(async (watched) => {
-    if (screenStreamRef.current) {
-      screenWatchedRef.current = watched;
-      setScreenWatched(watched);
-      return true;
-    }
-    if (!canCaptureDisplay()) {
-      toast.error(
-        'This browser cannot share the screen. On a phone, try Safari (iOS) or Chrome (Android).'
-      );
-      return false;
-    }
-    try {
-      const stream = await requestDisplayMedia();
-      stream.getVideoTracks()[0]?.addEventListener('ended', () => {
-        // The person pressed the browser's own "Stop sharing".
-        screenStreamRef.current = null;
-        screenWatchedRef.current = false;
-        setScreenWatched(false);
-        setScreenStream(null);
-      });
-      screenStreamRef.current = stream;
-      screenWatchedRef.current = watched;
-      setScreenWatched(watched);
-      setScreenStream(stream);
-      return true;
-    } catch (screenError) {
-      if (
-        screenError?.name === 'NotAllowedError' ||
-        screenError?.name === 'AbortError'
-      ) {
+  const runScreenCapture = useCallback(
+    async (watched) => {
+      if (screenStreamRef.current) {
+        screenWatchedRef.current = watched;
+        setScreenWatched(watched);
+        return true;
+      }
+      if (!canCaptureDisplay()) {
+        toast.error(
+          'This browser cannot share the screen. On a phone, try Safari (iOS) or Chrome (Android).'
+        );
         return false;
       }
-      toast.error('Could not share the screen.');
-      return false;
-    }
-  }, []);
+      requestedScreenWatchedRef.current = watched;
+      return openScreenCaptureOnce();
+    },
+    [openScreenCaptureOnce]
+  );
 
   /**
    * Let the avatar take single looks at the screen, without watching it.

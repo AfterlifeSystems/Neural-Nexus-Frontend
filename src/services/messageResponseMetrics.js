@@ -63,14 +63,38 @@ export function formatTextInferenceModel(message) {
   return usedFallback ? `${label} (NVIDIA NIM fallback)` : label;
 }
 
+/**
+ * Format a dollar amount the way the metrics line shows dollar amounts.
+ *
+ * @param {number} costUsd Cost in United States dollars.
+ * @returns {string} `$0.0040` below one cent, `$0.012` from one cent up.
+ */
+const formatCostUsd = (costUsd) =>
+  `$${costUsd < 0.01 ? costUsd.toFixed(4) : costUsd.toFixed(3)}`;
+
+/**
+ * The reply's full cost record: the reply plus every image description and
+ * ambient triage call made since the previous reply, pictures judged `ignore`
+ * included. Written by the API as `response_metadata.turn_cost`.
+ *
+ * @param {object} message Chat message.
+ * @returns {object|null} The `turn_cost` record, or null for an older reply.
+ */
+const turnCostOf = (message) => {
+  const turnCost = message?.response_metadata?.turn_cost;
+  return turnCost && typeof turnCost === 'object' ? turnCost : null;
+};
+
 export const formatMessageMetrics = (message) => {
   const parts = [];
   const timeMs = resolveMessageResponseTimeMs(message);
   if (timeMs != null) {
     parts.push(`${(timeMs / 1000).toFixed(1)}s`);
   }
+  const turnCost = turnCostOf(message);
   const tokens = Number(
-    message?.usage?.total_tokens ??
+    turnCost?.total_tokens ??
+      message?.usage?.total_tokens ??
       message?.response_metadata?.token_usage?.total_tokens ??
       0
   );
@@ -82,12 +106,46 @@ export const formatMessageMetrics = (message) => {
     );
   }
   const cost = Number(
-    message?.response_metadata?.total_cost ?? message?.usage?.cost_usd ?? NaN
+    turnCost?.total_cost_usd ??
+      message?.response_metadata?.total_cost ??
+      message?.usage?.cost_usd ??
+      NaN
   );
   if (Number.isFinite(cost) && cost > 0) {
-    parts.push(`$${cost < 0.01 ? cost.toFixed(4) : cost.toFixed(3)}`);
+    parts.push(formatCostUsd(cost));
   }
   return parts.length ? parts.join(' • ') : null;
+};
+
+/**
+ * Describe what the reply's total cost is made of, for the metrics line's
+ * hover text: `reply $0.0040 · 3 image descriptions $0.0075 · 3 triage calls
+ * $0.0021`. Returns null for a reply without a `turn_cost` record.
+ *
+ * @param {object} message Chat message.
+ * @returns {string|null} Breakdown text.
+ */
+export const formatMessageCostBreakdown = (message) => {
+  const turnCost = turnCostOf(message);
+  if (!turnCost) return null;
+  const parts = [`reply ${formatCostUsd(Number(turnCost.reply?.cost_usd ?? 0))}`];
+  const imageDescriptionCount = Number(turnCost.image_descriptions?.count ?? 0);
+  if (imageDescriptionCount > 0) {
+    parts.push(
+      `${imageDescriptionCount} image description${
+        imageDescriptionCount === 1 ? '' : 's'
+      } ${formatCostUsd(Number(turnCost.image_descriptions.cost_usd ?? 0))}`
+    );
+  }
+  const triageCallCount = Number(turnCost.ambient_triage?.count ?? 0);
+  if (triageCallCount > 0) {
+    parts.push(
+      `${triageCallCount} triage call${
+        triageCallCount === 1 ? '' : 's'
+      } ${formatCostUsd(Number(turnCost.ambient_triage.cost_usd ?? 0))}`
+    );
+  }
+  return parts.join(' · ');
 };
 
 /**
