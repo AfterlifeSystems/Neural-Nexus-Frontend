@@ -8,6 +8,7 @@ import {
   isQuotaExceededError,
   readCachedAvatarIcons,
   writeCachedAvatarIcon,
+  writeStorageItemEvictingAvatarIcons,
 } from './avatarIconCache.js';
 
 function memoryStorage(initial = {}) {
@@ -169,4 +170,29 @@ test('quota exceeded is recognised across browsers', () => {
   firefox.code = 1014;
   assert.equal(isQuotaExceededError(firefox), true);
   assert.equal(isQuotaExceededError(new Error('blocked')), false);
+});
+
+test('a sign-in write evicts cached portraits instead of throwing on a full quota', () => {
+  const storage = quotaStorage(20, {
+    [`${AVATAR_ICON_KEY_PREFIX}first`]: 'aaaaaaaa',
+    [`${AVATAR_ICON_KEY_PREFIX}second`]: 'bbbbbbbbbb',
+  });
+  const written = writeStorageItemEvictingAvatarIcons(
+    'neural_nexus_session_credential',
+    'credential-xyz',
+    storage
+  );
+  assert.equal(written, true);
+  const snapshot = storage.snapshot();
+  assert.equal(snapshot.neural_nexus_session_credential, 'credential-xyz');
+  assert.equal(snapshot[`${AVATAR_ICON_KEY_PREFIX}second`], undefined);
+});
+
+test('a write that cannot fit after every portrait is evicted returns false without throwing', () => {
+  const storage = quotaStorage(4, { [`${AVATAR_ICON_KEY_PREFIX}first`]: 'aa' });
+  assert.equal(
+    writeStorageItemEvictingAvatarIcons('user', 'too-long-to-fit', storage),
+    false
+  );
+  assert.deepEqual(storage.snapshot(), {});
 });
