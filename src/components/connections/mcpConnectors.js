@@ -6,6 +6,7 @@
 
 import { connectMcpDevice } from '../../services/avatarService';
 import { selectMcpDeviceToBind } from './mcpBindTarget';
+import { writeStorageItemEvictingAvatarIcons } from '../avatarIconCache.js';
 
 export { selectMcpDeviceToBind } from './mcpBindTarget';
 
@@ -166,7 +167,7 @@ export function loadPendingMcpConnections() {
 }
 
 export function savePendingMcpConnections(rows) {
-  localStorage.setItem(PENDING_STORAGE_KEY, JSON.stringify(rows));
+  writeStorageItemEvictingAvatarIcons(PENDING_STORAGE_KEY, JSON.stringify(rows));
 }
 
 /**

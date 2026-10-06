@@ -6,6 +6,8 @@
 // flag lives at `metadata.pinned` instead. A local overlay keeps the sidebar
 // truthful if the PATCH is refused or a later message update omits the key.
 
+import { writeStorageItemEvictingAvatarIcons } from '../components/avatarIconCache.js';
+
 const PINNED_CONVERSATIONS_STORAGE_KEY = 'neural_nexus_pinned_conversations';
 
 /**
@@ -37,7 +39,7 @@ export function setConversationPinnedLocally(threadId, pinned) {
     ...readPinnedConversationState(),
     [threadId]: Boolean(pinned),
   };
-  localStorage.setItem(
+  writeStorageItemEvictingAvatarIcons(
     PINNED_CONVERSATIONS_STORAGE_KEY,
     JSON.stringify(nextState)
   );

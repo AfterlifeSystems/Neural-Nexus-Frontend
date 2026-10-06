@@ -77,6 +77,7 @@ import {
   saveAccountHiddenCarouselAvatarIds,
 } from '../services/hiddenCarouselAvatarSync';
 import { requestJson } from '../services/neuralNexusApiClient';
+import { writeStorageItemEvictingAvatarIcons } from './avatarIconCache';
 import { buildAvatarSearchSuggestions } from './avatarSearchSuggestions';
 import { avatarSettingsPath } from './createdAvatarSettings';
 import {
@@ -445,11 +446,11 @@ const AvatarSelectionComponent = ({}) => {
         const positionData = {
           avatarIndex,
         };
-        localStorage.setItem(
+        writeStorageItemEvictingAvatarIcons(
           `avatar_position_${avatarId}`,
           JSON.stringify(positionData)
         );
-        localStorage.setItem(
+        writeStorageItemEvictingAvatarIcons(
           'last_avatar_position',
           JSON.stringify(positionData)
         );
@@ -501,9 +502,12 @@ const AvatarSelectionComponent = ({}) => {
         if (galleryRef.current) {
           galleryRef.current.setCurrentIndex(avatarIndex);
         }
-        localStorage.setItem('last_used_avatar_index', avatarIndex);
+        writeStorageItemEvictingAvatarIcons(
+          'last_used_avatar_index',
+          String(avatarIndex)
+        );
       }
-      localStorage.setItem('last_used_avatar_id', avatarId);
+      writeStorageItemEvictingAvatarIcons('last_used_avatar_id', avatarId);
 
       const selectedAvatar =
         carouselAvatars.find(
@@ -824,7 +828,7 @@ const AvatarSelectionComponent = ({}) => {
   const handleDotClick = (index) => {
     const selectedCard = authenticatedCards[index];
     setCurrentCardIndex(index);
-    localStorage.setItem('current_card_index', String(index));
+    writeStorageItemEvictingAvatarIcons('current_card_index', String(index));
     if (galleryRef.current) {
       galleryRef.current.setCurrentIndex(index);
     }
@@ -836,7 +840,7 @@ const AvatarSelectionComponent = ({}) => {
   const handleJumpLeft = () => {
     const newIndex = Math.max(0, currentCardIndex - 5);
     setCurrentCardIndex(newIndex);
-    localStorage.setItem('current_card_index', String(newIndex));
+    writeStorageItemEvictingAvatarIcons('current_card_index', String(newIndex));
     galleryRef.current?.setCurrentIndex(newIndex);
   };
 
@@ -846,7 +850,7 @@ const AvatarSelectionComponent = ({}) => {
       currentCardIndex + 5
     );
     setCurrentCardIndex(newIndex);
-    localStorage.setItem('current_card_index', String(newIndex));
+    writeStorageItemEvictingAvatarIcons('current_card_index', String(newIndex));
     galleryRef.current?.setCurrentIndex(newIndex);
   };
 

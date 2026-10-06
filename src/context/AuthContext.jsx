@@ -17,6 +17,7 @@ import {
 import { restoreSignedInUser } from './authSession';
 import { listUserAvatars } from '../services/avatarService';
 import { getAgeVerification } from '../services/ageVerification';
+import { writeStorageItemEvictingAvatarIcons } from '../components/avatarIconCache';
 
 const AuthContext = createContext();
 
@@ -128,7 +129,10 @@ export const AuthProvider = ({ children }) => {
     };
     setUser(authenticatedUser);
     setProfile(authenticatedUser);
-    localStorage.setItem('user', JSON.stringify(authenticatedUser));
+    writeStorageItemEvictingAvatarIcons(
+      'user',
+      JSON.stringify(authenticatedUser)
+    );
     return authenticatedUser;
   };
 
@@ -259,7 +263,10 @@ export const AuthProvider = ({ children }) => {
         if (restoredUser) {
           setUser(restoredUser);
           setProfile(restoredUser);
-          localStorage.setItem('user', JSON.stringify(restoredUser));
+          writeStorageItemEvictingAvatarIcons(
+            'user',
+            JSON.stringify(restoredUser)
+          );
           try {
             setUserAvatars((await listUserAvatars()) ?? []);
           } catch (listError) {

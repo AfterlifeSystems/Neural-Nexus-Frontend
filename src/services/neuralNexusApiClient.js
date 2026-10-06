@@ -15,6 +15,7 @@
 // function changes.
 
 import { notifyApiRequest } from './apiRequestObservers.js';
+import { writeStorageItemEvictingAvatarIcons } from '../components/avatarIconCache.js';
 
 export const NEURAL_NEXUS_API_BASE_URL =
   import.meta.env.VITE_NEURAL_NEXUS_API_BASE_URL ?? 'http://localhost:8080';
@@ -26,7 +27,10 @@ export function getSessionCredential() {
 }
 
 export function setSessionCredential(sessionCredential) {
-  localStorage.setItem(SESSION_CREDENTIAL_STORAGE_KEY, sessionCredential);
+  writeStorageItemEvictingAvatarIcons(
+    SESSION_CREDENTIAL_STORAGE_KEY,
+    sessionCredential
+  );
 }
 
 export function clearSessionCredential() {

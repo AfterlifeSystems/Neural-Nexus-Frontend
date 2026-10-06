@@ -229,3 +229,53 @@ export const forgetCachedAvatarIconsExcept = (avatarIds, storage) => {
     console.error('Failed to drop leftover avatar portraits:', cacheError);
   }
 };
+
+/**
+ * Write any localStorage entry, freeing room from the portrait cache when the
+ * origin quota is full.
+ *
+ * Portraits are the only bulky, rebuildable entries on the origin, so a full
+ * quota is resolved by dropping portraits (the leftover last-icon duplicate,
+ * then the largest portrait) until the write fits. Session state such as the
+ * sign-in credential must never fail because the portrait cache grew: a
+ * QuotaExceededError thrown from sign-in shows "The quota has been exceeded."
+ * and blocks the account.
+ *
+ * @param {string} storageKey
+ * @param {string} storageValue
+ * @param {Storage|null|undefined} [storage]
+ * @returns {boolean} Whether the entry was written.
+ */
+export const writeStorageItemEvictingAvatarIcons = (
+  storageKey,
+  storageValue,
+  storage
+) => {
+  const resolvedStorage = resolveStorage(storage);
+  if (!resolvedStorage) return false;
+  try {
+    resolvedStorage.setItem(storageKey, storageValue);
+    return true;
+  } catch (storageError) {
+    if (!isQuotaExceededError(storageError)) {
+      console.error(`Failed to write ${storageKey} to storage:`, storageError);
+      return false;
+    }
+  }
+
+  while (evictOneCachedAvatarIcon(resolvedStorage, undefined)) {
+    try {
+      resolvedStorage.setItem(storageKey, storageValue);
+      return true;
+    } catch (retryError) {
+      if (!isQuotaExceededError(retryError)) {
+        console.error(`Failed to write ${storageKey} to storage:`, retryError);
+        return false;
+      }
+    }
+  }
+  console.error(
+    `Failed to write ${storageKey} to storage: the quota is full and no cached portraits remain to evict.`
+  );
+  return false;
+};
