@@ -15,6 +15,7 @@
 // function changes.
 
 import { notifyApiRequest } from './apiRequestObservers.js';
+import { describeErrorBody } from './apiErrorDescription.js';
 import { writeStorageItemEvictingAvatarIcons } from '../components/avatarIconCache.js';
 
 export const NEURAL_NEXUS_API_BASE_URL =
@@ -93,43 +94,6 @@ export class ApiError extends Error {
     // Response headers, so a 429/409 can honour Retry-After.
     this.headers = headers;
   }
-}
-
-/**
- * Turn an error body into a single readable sentence.
- *
- * A FastAPI validation failure returns `detail` as an ARRAY of per-field
- * objects rather than a string. Rendering that array directly puts
- * "[object Object]" in front of the user, so each entry is flattened into
- * "field: message" form here.
- *
- * @param {*} errorBody Parsed error response body, or null when unparseable.
- * @param {number} status HTTP status code, used for the fallback message.
- * @returns {string} A human-readable description of the failure.
- */
-function describeErrorBody(errorBody, status) {
-  const detail = errorBody?.detail;
-  if (typeof detail === 'string') {
-    return detail;
-  }
-  if (Array.isArray(detail)) {
-    return detail
-      .map((validationError) => {
-        const fieldPath = Array.isArray(validationError.loc)
-          ? validationError.loc
-              .filter((pathSegment) => pathSegment !== 'body')
-              .join('.')
-          : '';
-        return fieldPath
-          ? `${fieldPath}: ${validationError.msg}`
-          : validationError.msg;
-      })
-      .join('; ');
-  }
-  if (typeof errorBody === 'string' && errorBody) {
-    return errorBody;
-  }
-  return `Request failed (${status})`;
 }
 
 /**
