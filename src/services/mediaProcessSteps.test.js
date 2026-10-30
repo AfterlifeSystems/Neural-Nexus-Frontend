@@ -5,7 +5,10 @@ import {
   applyMediaProgress,
   finalizePipelineSteps,
   isGenericMediaLabel,
+  isUploadIngestionFinished,
+  isUploadJobComplete,
   mergeUploadItems,
+  partitionUploadJobsByCompletion,
   pipelineProgress,
   stepsForMediaKind,
   titleFromUploadItems,
@@ -264,4 +267,85 @@ test('a withheld run marks stills in error with the warning, nothing done', () =
     stills: 'error:0/6',
   });
   assert.match(steps.find((step) => step.id === 'stills').detail, /nothing was charged/);
+});
+
+const documentCard = (localId, status, finishedStepCount) => {
+  const steps = stepsForMediaKind('document');
+  steps.forEach((step, index) => {
+    step.state = index < finishedStepCount ? 'done' : 'pending';
+  });
+  return { localId, status, steps };
+};
+
+test('a running card whose checklist is all done counts as complete', () => {
+  assert.equal(isUploadJobComplete(documentCard('checked', 'running', 3)), true);
+  assert.equal(isUploadJobComplete(documentCard('partway', 'running', 1)), false);
+});
+
+test('a succeeded card is complete; failed and cancelled cards are not', () => {
+  assert.equal(isUploadJobComplete(documentCard('succeeded', 'success', 0)), true);
+  assert.equal(isUploadJobComplete(documentCard('failed', 'error', 3)), false);
+  assert.equal(isUploadJobComplete(documentCard('cancelled', 'cancelled', 3)), false);
+});
+
+test('upload cards split into in-progress and completed, keeping store order', () => {
+  const { inProgressJobs, completedJobs } = partitionUploadJobsByCompletion([
+    documentCard('first-done', 'running', 3),
+    documentCard('uploading', 'running', 0),
+    documentCard('second-done', 'success', 3),
+    documentCard('failed', 'error', 1),
+  ]);
+  assert.deepEqual(
+    completedJobs.map((job) => job.localId),
+    ['first-done', 'second-done']
+  );
+  assert.deepEqual(
+    inProgressJobs.map((job) => job.localId),
+    ['uploading', 'failed']
+  );
+});
+
+const indexedDocumentSteps = () => {
+  const steps = stepsForMediaKind('document');
+  applyMediaProgress(steps, { stage: 'indexing', current: 1, total: 1 });
+  return steps;
+};
+
+test('a fact verification frame adds an active Verifying step after indexing', () => {
+  const steps = indexedDocumentSteps();
+  assert.equal(pipelineProgress(steps).label, 'Complete');
+  applyMediaProgress(steps, { stage: 'verifying_facts', documents: 40 });
+  applyMediaProgress(steps, { stage: 'extracting', documents: 40 });
+  applyMediaProgress(steps, { stage: 'verifying', facts: 7, known_facts: 200 });
+  assert.deepEqual(
+    steps.map((step) => `${step.id}:${step.state}`),
+    ['upload:done', 'convert:done', 'index:done', 'verify:active']
+  );
+  assert.equal(pipelineProgress(steps).label, 'Verifying');
+});
+
+test('the verified frame closes the Verifying step', () => {
+  const steps = indexedDocumentSteps();
+  applyMediaProgress(steps, { stage: 'verifying', facts: 7, known_facts: 200 });
+  applyMediaProgress(steps, { stage: 'verified', applied: 2, proposals: 0 });
+  assert.equal(steps.find((step) => step.id === 'verify').state, 'done');
+  assert.equal(pipelineProgress(steps).label, 'Complete');
+});
+
+test('a verifying card stays in progress but is no longer cancellable', () => {
+  const steps = indexedDocumentSteps();
+  applyMediaProgress(steps, { stage: 'verifying', facts: 7, known_facts: 200 });
+  const card = { localId: 'verifying', status: 'running', steps };
+  assert.equal(isUploadJobComplete(card), false);
+  assert.equal(isUploadIngestionFinished(card), true);
+  assert.equal(
+    isUploadIngestionFinished(documentCard('partway', 'running', 1)),
+    false
+  );
+});
+
+test('a batch that skips verification never shows a Verifying step', () => {
+  const steps = indexedDocumentSteps();
+  finalizePipelineSteps(steps, 'document');
+  assert.equal(steps.some((step) => step.id === 'verify'), false);
 });

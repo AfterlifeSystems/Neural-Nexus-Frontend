@@ -294,7 +294,7 @@ const AuthComponent = ({ initialView = 'login' }) => {
           HTML pins live inside the z-0 world background. The WebGL Earth still
           showed through; the pinned avatars did not. */}
       <div
-        className="fixed left-1/2 top-1/2 z-10 w-[calc(100%-2rem)] max-w-md -translate-x-1/2 -translate-y-1/2 p-8 rounded-xl shadow-2xl bg-black/25 backdrop-blur-md border border-white/10"
+        className="fixed left-1/2 top-1/2 z-10 w-[calc(100%-2rem)] max-w-md -translate-x-1/2 -translate-y-1/2 p-8 rounded-xl shadow-2xl bg-black/25 border border-white/10"
         onClick={(e) => e.stopPropagation()}
       >
           {/* Header */}

@@ -1304,7 +1304,7 @@ const AvatarSelectionComponent = ({}) => {
         <div
           ref={galleryStageRef}
           data-gallery-stage
-          className="relative flex w-full shrink-0 flex-col overflow-hidden rounded-2xl border border-white/10 bg-black/25 backdrop-blur-md py-3"
+          className="relative flex w-full shrink-0 flex-col overflow-hidden rounded-2xl border border-white/10 bg-black/25 py-3"
         >
         <div
           ref={galleryFrameRef}

@@ -156,7 +156,10 @@ import { focusComposer } from '../services/composerFocus';
 import { composerHasSendableDraft } from './composerSendState';
 import { canCaptureMicrophone, recordOneTurn } from '../services/voiceSession';
 import {
+  MICROPHONE_TAP_EXEMPT_ATTRIBUTE,
   isMicrophoneAccessRefused,
+  microphonePromptCoversPage,
+  pressMayAskForMicrophone,
   watchMicrophonePermission,
 } from '../services/microphonePermission';
 import { startVoiceActivityListening } from '../services/voiceActivity';
@@ -503,6 +506,19 @@ const LiveVoiceMode = ({
   const markMicrophoneBlocked = useCallback((blocked) => {
     microphoneBlockedByBrowserRef.current = blocked;
     setIsMicrophoneBlocked(blocked);
+  }, []);
+  // On a phone the microphone prompt covers the page until answered, so
+  // asking the moment the stage opens leaves no way to reach "Switch to
+  // messages" without first answering the prompt. There the microphone waits
+  // for a press on the stage (or for permission already being granted)
+  // before asking. A press on an exempt control — leaving, the workspace
+  // tabs, the text box — never asks.
+  const microphoneAwaitsStagePressRef = useRef(microphonePromptCoversPage());
+  const [isMicrophoneAwaitingStagePress, setIsMicrophoneAwaitingStagePress] =
+    useState(microphoneAwaitsStagePressRef.current);
+  const markMicrophoneAwaitingStagePress = useCallback((awaiting) => {
+    microphoneAwaitsStagePressRef.current = awaiting;
+    setIsMicrophoneAwaitingStagePress(awaiting);
   }, []);
   // Whether the avatar is audible now, and until when it counts as having
   // just been audible. Read inside the listener callbacks, which outlive the
@@ -1604,6 +1620,8 @@ const LiveVoiceMode = ({
     if (sharedSpeechSession.isSpeaking || sharedSpeechSession.speakingKey) {
       return;
     }
+    // Waiting for a press on a phone: see `markMicrophoneAwaitingStagePress`.
+    if (microphoneAwaitsStagePressRef.current) return;
     primeAvatarSpeechPlayback();
     if (!canDictate) {
       toast.error(speechInputUnavailableMessage);
@@ -1729,6 +1747,13 @@ const LiveVoiceMode = ({
   useEffect(() => {
     return watchMicrophonePermission((state) => {
       if (state !== 'granted') return;
+      // Permission already granted means no prompt will cover the page.
+      if (microphoneAwaitsStagePressRef.current) {
+        markMicrophoneAwaitingStagePress(false);
+        if (canDictate && !microphoneBlockedByBrowserRef.current) {
+          startLiveListening();
+        }
+      }
       if (!microphoneBlockedByBrowserRef.current) return;
       markMicrophoneBlocked(false);
       if (!canDictate) return;
@@ -1736,35 +1761,58 @@ const LiveVoiceMode = ({
       setLiveListeningPreferred(true);
       startLiveListening();
     });
-  }, [canDictate, markMicrophoneBlocked, setMicMuted, startLiveListening]);
+  }, [
+    canDictate,
+    markMicrophoneAwaitingStagePress,
+    markMicrophoneBlocked,
+    setMicMuted,
+    startLiveListening,
+  ]);
 
   // Phones often refuse a microphone request that no tap led to, and iOS
   // cannot report permission changes, so the watcher above never fires
   // there. The first tap anywhere on the stage after a refusal asks again,
   // once — the tap is the gesture the browser wanted. The person's own mute
   // still wins; only a browser refusal is retried.
+  //
+  // The same press is what first asks on a phone (see
+  // `markMicrophoneAwaitingStagePress`). A press on an exempt control —
+  // Messages, the workspace tabs, the text box — is ignored and keeps
+  // waiting, so leaving voice mode never raises the prompt.
   const retriedMicrophoneAfterTapRef = useRef(false);
+  const microphoneWantsStagePress =
+    isMicrophoneBlocked || isMicrophoneAwaitingStagePress;
   useEffect(() => {
-    if (!isMicrophoneBlocked) {
+    if (!microphoneWantsStagePress) {
       retriedMicrophoneAfterTapRef.current = false;
       return undefined;
     }
-    if (isMicMuted || !canDictate || retriedMicrophoneAfterTapRef.current) {
+    if (
+      !stageIsShowing ||
+      isMicMuted ||
+      !canDictate ||
+      retriedMicrophoneAfterTapRef.current
+    ) {
       return undefined;
     }
-    const retryOnTap = () => {
+    const retryOnTap = (event) => {
+      if (!pressMayAskForMicrophone(event.target)) return;
+      document.removeEventListener('pointerdown', retryOnTap);
       retriedMicrophoneAfterTapRef.current = true;
+      markMicrophoneAwaitingStagePress(false);
       markMicrophoneBlocked(false);
       setLiveListeningPreferred(true);
       startLiveListening();
     };
-    document.addEventListener('pointerdown', retryOnTap, { once: true });
+    document.addEventListener('pointerdown', retryOnTap);
     return () => document.removeEventListener('pointerdown', retryOnTap);
   }, [
     canDictate,
     isMicMuted,
-    isMicrophoneBlocked,
+    markMicrophoneAwaitingStagePress,
     markMicrophoneBlocked,
+    microphoneWantsStagePress,
+    stageIsShowing,
     startLiveListening,
   ]);
 
@@ -1913,6 +1961,7 @@ const LiveVoiceMode = ({
       toast.error(speechInputUnavailableMessage);
       return;
     }
+    markMicrophoneAwaitingStagePress(false);
     markMicrophoneBlocked(false);
     setMicMuted(false);
     setLiveListeningPreferred(true);
@@ -1925,6 +1974,7 @@ const LiveVoiceMode = ({
     wasMicMutedRef.current = isMicMuted;
     if (!wasMuted || isMicMuted) return;
     if (isLiveListening || !canDictate) return;
+    markMicrophoneAwaitingStagePress(false);
     markMicrophoneBlocked(false);
     setLiveListeningPreferred(true);
     startLiveListening();
@@ -1932,6 +1982,7 @@ const LiveVoiceMode = ({
     isMicMuted,
     isLiveListening,
     canDictate,
+    markMicrophoneAwaitingStagePress,
     markMicrophoneBlocked,
     startLiveListening,
   ]);
@@ -2035,6 +2086,9 @@ const LiveVoiceMode = ({
     }
     if (isMicMuted) return 'Mic muted';
     if (isMicrophoneBlocked) return 'Microphone blocked — tap to allow';
+    if (isMicrophoneAwaitingStagePress && canDictate) {
+      return 'Tap to turn on the microphone';
+    }
     if (isLiveListening) return 'Listening';
     if (ambientEnabled)
       return describeAmbientStatus(ambientStatus, ambientNextInMs);
@@ -2139,6 +2193,7 @@ const LiveVoiceMode = ({
     <button
       type="button"
       onClick={leaveVoiceMode}
+      {...{ [MICROPHONE_TAP_EXEMPT_ATTRIBUTE]: '' }}
       title={leaveLabel}
       aria-label={leaveLabel}
       className={`${CLOSE_BUTTON_CLASSES} shrink-0`}
@@ -2351,6 +2406,7 @@ const LiveVoiceMode = ({
       <div
         ref={stageHeaderRef}
         data-voice-stage-header
+        {...{ [MICROPHONE_TAP_EXEMPT_ATTRIBUTE]: '' }}
         className="absolute top-0 left-0 right-0 z-20 bg-black/45 backdrop-blur-md"
       >
         {showWorkspaceTabs ? (
@@ -2935,6 +2991,7 @@ const LiveVoiceMode = ({
                 <input
                   ref={composerInputRef}
                   data-composer-input
+                  {...{ [MICROPHONE_TAP_EXEMPT_ATTRIBUTE]: '' }}
                   type="text"
                   value={draft}
                   onChange={(event) => setDraft(event.target.value)}

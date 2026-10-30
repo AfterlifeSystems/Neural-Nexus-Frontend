@@ -53,6 +53,30 @@ export const STAGE_TO_STEP = {
   emotion_media_complete: 'stills',
   voice_clip_collected: 'voice',
   instant_clone_created: 'voice',
+  // Fact verification runs on the batch after every item is indexed, and can
+  // take many minutes; the card names the verification step instead of
+  // reading "Complete" while the server job is still running.
+  verifying_facts: 'verify',
+  extracting: 'verify',
+  verifying: 'verify',
+  verified: 'verify',
+};
+
+export const VERIFY_STEP_LABEL = 'Verifying';
+
+/** The verification step joins a checklist only when the server reports a
+ *  verification stage, because a batch with nothing new to check skips the
+ *  verification entirely. */
+const ensureVerifyStep = (steps) => {
+  if (steps.some((step) => step.id === 'verify')) return;
+  steps.push({
+    id: 'verify',
+    label: VERIFY_STEP_LABEL,
+    state: 'pending',
+    current: null,
+    total: null,
+    expectedTotal: null,
+  });
 };
 
 /** Steps that finish when their own count reaches total. Convert is not in
@@ -155,12 +179,20 @@ export const applyMediaProgress = (steps, progressEvent) => {
   const stage = progressEvent.stage ?? progressEvent.type;
   const stepId = STAGE_TO_STEP[stage];
   if (!stepId) return;
-  const current = progressEvent.current ?? progressEvent.documents_indexed;
-  const total = progressEvent.total ?? progressEvent.documents_total;
+  const isVerifyStep = stepId === 'verify';
+  if (isVerifyStep) ensureVerifyStep(steps);
+  // Verification frames carry document and fact counts, not a step count.
+  const current = isVerifyStep
+    ? undefined
+    : progressEvent.current ?? progressEvent.documents_indexed;
+  const total = isVerifyStep
+    ? undefined
+    : progressEvent.total ?? progressEvent.documents_total;
   const closesStage =
     stage === 'emotion_media_complete' ||
     stage === 'instant_clone_created' ||
-    stage === 'converting_complete';
+    stage === 'converting_complete' ||
+    stage === 'verified';
   activateStep(steps, stepId, { current, total });
   if (stage === 'emotion_media_complete' && failedEmotionMedia(progressEvent)) {
     // Refused portraits or videos are not done ones: the step they belong to
@@ -280,6 +312,61 @@ export const pipelineProgress = (steps) => {
     label = 'Complete';
   }
   return { ratio, percent: Math.round(ratio * 100), label };
+};
+
+/**
+ * An upload card is complete once the job succeeded, or once every checklist
+ * step is done while the server job keeps running. A card whose "Verifying"
+ * step is still active is not complete. Failed and cancelled cards are not
+ * complete.
+ *
+ * @param {Object} job A stored upload card.
+ * @returns {boolean}
+ */
+export const isUploadJobComplete = (job) => {
+  if (job?.status === 'success') return true;
+  if (job?.status !== 'running') return false;
+  const steps = job.steps;
+  return (
+    Array.isArray(steps) &&
+    steps.length > 0 &&
+    steps.every((step) => step.state === 'done')
+  );
+};
+
+/**
+ * Every item of the upload is indexed: each checklist step other than
+ * "Verifying" is done. Fact verification after that point is dismissed, not
+ * cancelled, because cancelling would tear down media that is already saved.
+ *
+ * @param {Object} job A stored upload card.
+ * @returns {boolean}
+ */
+export const isUploadIngestionFinished = (job) => {
+  if (isUploadJobComplete(job)) return true;
+  if (job?.status !== 'running') return false;
+  const ingestionSteps = (job.steps ?? []).filter((step) => step.id !== 'verify');
+  return (
+    ingestionSteps.length > 0 &&
+    ingestionSteps.every((step) => step.state === 'done')
+  );
+};
+
+/**
+ * @param {Array<Object>} jobs Upload cards in store order.
+ * @returns {{inProgressJobs: Array<Object>, completedJobs: Array<Object>}}
+ */
+export const partitionUploadJobsByCompletion = (jobs) => {
+  const inProgressJobs = [];
+  const completedJobs = [];
+  for (const job of jobs ?? []) {
+    if (isUploadJobComplete(job)) {
+      completedJobs.push(job);
+    } else {
+      inProgressJobs.push(job);
+    }
+  }
+  return { inProgressJobs, completedJobs };
 };
 
 const GENERIC_MEDIA_LABELS = new Set([

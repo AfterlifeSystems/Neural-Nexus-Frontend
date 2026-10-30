@@ -96,6 +96,8 @@ import {
   isFileOrUrlDrag,
 } from './documentDropOverlay';
 import { splitVoiceMedia } from '../services/voiceMedia';
+import { partitionUploadJobsByCompletion } from '../services/mediaProcessSteps';
+import { isDirectImageUrl } from './documentKind';
 import useIdentityMediaJobs from '../hooks/useIdentityMediaJobs';
 import AvatarDocumentRow, {
   describeDocumentKind,
@@ -267,6 +269,8 @@ const AvatarSettings = ({ avatarId, onPortraitChanged }) => {
     if (documentEntry.isReferenceAudio) return 'reference_audio';
     if (documentEntry.isReferenceMedia) return 'reference_media';
     const sourceUrl = parseDocumentSourceUrl(documentEntry.label);
+    // A link straight to a picture is filtered with the uploaded images.
+    if (isDirectImageUrl(sourceUrl)) return 'image';
     if (sourceUrl) {
       // Links are bucketed by where they point — YouTube, Instagram, X — so a
       // pull from one platform can be reviewed on its own.
@@ -489,6 +493,15 @@ const AvatarSettings = ({ avatarId, onPortraitChanged }) => {
         (job) => job.kind !== 'voice' && job.kind !== 'portrait'
       ),
     [sectionJobs]
+  );
+  const [isCompletedUploadsExpanded, setIsCompletedUploadsExpanded] =
+    useState(true);
+  const {
+    inProgressJobs: inProgressUploadJobs,
+    completedJobs: completedUploadJobs,
+  } = useMemo(
+    () => partitionUploadJobsByCompletion(uploadSectionJobs),
+    [uploadSectionJobs]
   );
   // The document endpoints name their avatar in the request, so opening this
   // screen is a plain read: there is no per-account "selected avatar" to
@@ -1991,9 +2004,9 @@ const AvatarSettings = ({ avatarId, onPortraitChanged }) => {
             Images • Videos • Audio • PDFs • Text • URLs
           </p>
         </div>
-        {uploadSectionJobs.length > 0 && (
+        {inProgressUploadJobs.length > 0 && (
           <div className="mt-4 space-y-3">
-            {uploadSectionJobs.map((job) => (
+            {inProgressUploadJobs.map((job) => (
               <UploadProcessPanel
                 key={job.localId}
                 job={job}
@@ -2004,6 +2017,52 @@ const AvatarSettings = ({ avatarId, onPortraitChanged }) => {
                 onDismiss={() => dismissSectionJob(job.localId)}
               />
             ))}
+          </div>
+        )}
+        {completedUploadJobs.length > 0 && (
+          <div className="mt-4 space-y-3" data-testid="upload-completed-jobs">
+            <div className="flex items-center gap-3">
+              <button
+                type="button"
+                onClick={() =>
+                  setIsCompletedUploadsExpanded((expanded) => !expanded)
+                }
+                aria-expanded={isCompletedUploadsExpanded}
+                aria-controls="upload-completed-job-list"
+                className="flex items-center gap-1.5 text-xs font-medium uppercase tracking-wide text-white/45 hover:text-white/70 transition-colors"
+              >
+                {isCompletedUploadsExpanded ? (
+                  <ChevronUp size={14} aria-hidden="true" />
+                ) : (
+                  <ChevronDown size={14} aria-hidden="true" />
+                )}
+                Completed · {completedUploadJobs.length}
+              </button>
+              <div className="flex-1 h-px bg-white/10" aria-hidden="true" />
+              <button
+                type="button"
+                onClick={() => {
+                  for (const job of completedUploadJobs) {
+                    dismissSectionJob(job.localId);
+                  }
+                }}
+                className="shrink-0 inline-flex items-center gap-1 text-xs font-medium text-white/45 hover:text-neutral-200 transition-colors"
+              >
+                <X size={14} aria-hidden="true" />
+                Dismiss all
+              </button>
+            </div>
+            {isCompletedUploadsExpanded && (
+              <div id="upload-completed-job-list" className="space-y-3">
+                {completedUploadJobs.map((job) => (
+                  <UploadProcessPanel
+                    key={job.localId}
+                    job={job}
+                    onDismiss={() => dismissSectionJob(job.localId)}
+                  />
+                ))}
+              </div>
+            )}
           </div>
         )}
         {/* The other way to feed this avatar: research the subject on the web

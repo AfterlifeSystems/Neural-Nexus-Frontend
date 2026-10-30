@@ -66,9 +66,12 @@ export function matchPercentOf(match) {
  * @returns {string} A phrase for the caption.
  */
 export function describeMatchKind(match) {
-  return match?.kind === 'sentence'
-    ? 'sentence in quote/long text'
-    : 'fact';
+  if (match?.kind === 'sentence') return 'sentence in quote/long text';
+  // A sentence in the background context shared by a fact; the fact itself is kept.
+  if (match?.kind === 'context_sentence') return "sentence in a fact's context";
+  // A link the fact was researched from; only the link changes.
+  if (match?.kind === 'source_url') return 'source link';
+  return 'fact';
 }
 
 /**
