@@ -72,3 +72,45 @@ export function watchMicrophonePermission(onChange, queryResult) {
     status?.removeEventListener?.('change', handleChange);
   };
 }
+
+/**
+ * Whether a browser microphone prompt covers the page until answered.
+ *
+ * On a phone or tablet the prompt is a sheet or modal over the page: nothing
+ * behind the prompt can be pressed, including "Switch to messages". Asking
+ * for the microphone the moment the voice stage opens therefore traps a
+ * person who only wanted to type. A desktop prompt hangs off the address bar
+ * and leaves the page usable.
+ *
+ * @param {(query: string) => {matches: boolean}} [matchMedia]
+ * @returns {boolean}
+ */
+export function microphonePromptCoversPage(
+  matchMedia = typeof window !== 'undefined' && window.matchMedia
+    ? window.matchMedia.bind(window)
+    : null
+) {
+  if (typeof matchMedia !== 'function') return false;
+  try {
+    return Boolean(matchMedia('(pointer: coarse)')?.matches);
+  } catch {
+    return false;
+  }
+}
+
+/** Attribute on controls whose press must not ask for the microphone. */
+export const MICROPHONE_TAP_EXEMPT_ATTRIBUTE = 'data-microphone-tap-exempt';
+
+/**
+ * Whether a press on `target` may ask for the microphone.
+ *
+ * Leaving voice mode, the workspace tabs, and the text box are ways of NOT
+ * talking; a press there must never raise the microphone prompt.
+ *
+ * @param {Element|null|undefined} target
+ * @returns {boolean}
+ */
+export function pressMayAskForMicrophone(target) {
+  if (!target || typeof target.closest !== 'function') return true;
+  return !target.closest(`[${MICROPHONE_TAP_EXEMPT_ATTRIBUTE}]`);
+}

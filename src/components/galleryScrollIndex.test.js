@@ -434,7 +434,7 @@ test('Create overlay and hide controls follow the painted disc size', () => {
   assert.match(carouselSource, /shrink-0 flex-col overflow-hidden rounded-2xl/);
   assert.match(
     carouselSource,
-    /rounded-2xl border border-white\/10 bg-black\/25 backdrop-blur-md/
+    /rounded-2xl border border-white\/10 bg-black\/25 py-3/
   );
   const chatSource = readFileSync(
     join(componentsDirectory, 'ChatArea.jsx'),

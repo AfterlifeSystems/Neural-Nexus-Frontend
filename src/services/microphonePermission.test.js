@@ -1,7 +1,10 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import {
+  MICROPHONE_TAP_EXEMPT_ATTRIBUTE,
   isMicrophoneAccessRefused,
+  microphonePromptCoversPage,
+  pressMayAskForMicrophone,
   watchMicrophonePermission,
 } from './microphonePermission.js';
 
@@ -50,4 +53,26 @@ test('watchMicrophonePermission is a no-op when the query is missing', () => {
   const stop = watchMicrophonePermission((state) => seen.push(state), null);
   stop();
   assert.deepEqual(seen, []);
+});
+
+test('a coarse pointer means the microphone prompt covers the page', () => {
+  assert.equal(
+    microphonePromptCoversPage((query) => ({
+      matches: query === '(pointer: coarse)',
+    })),
+    true
+  );
+  assert.equal(microphonePromptCoversPage(() => ({ matches: false })), false);
+  assert.equal(microphonePromptCoversPage(null), false);
+});
+
+test('a press inside an exempt control does not ask for the microphone', () => {
+  const exemptTarget = {
+    closest: (selector) =>
+      selector === `[${MICROPHONE_TAP_EXEMPT_ATTRIBUTE}]` ? {} : null,
+  };
+  const stageTarget = { closest: () => null };
+  assert.equal(pressMayAskForMicrophone(exemptTarget), false);
+  assert.equal(pressMayAskForMicrophone(stageTarget), true);
+  assert.equal(pressMayAskForMicrophone(null), true);
 });

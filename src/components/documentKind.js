@@ -57,6 +57,40 @@ export const EXTENSIONS_BY_KIND = {
   text: ['txt', 'md', 'markdown', 'html', 'htm', 'vtt', 'srt'],
 };
 
+// Image formats a browser draws in an <img>. HEIC and TIFF are images too, but
+// most browsers cannot render them, so a link to one gets no preview.
+const BROWSER_RENDERABLE_IMAGE_EXTENSIONS = new Set([
+  'jpg',
+  'jpeg',
+  'png',
+  'gif',
+  'webp',
+  'bmp',
+  'svg',
+  'avif',
+]);
+
+/**
+ * Whether a link points straight at an image the browser can draw. The path
+ * extension decides (`/photo.png`), or a `format` query parameter for hosts
+ * that serve images from an extensionless path
+ * (`pbs.twimg.com/media/…?format=jpg`).
+ *
+ * @param {URL|null} sourceUrl A parsed source address.
+ * @returns {boolean}
+ */
+export function isDirectImageUrl(sourceUrl) {
+  if (!sourceUrl) return false;
+  const lastPathSegment = sourceUrl.pathname.split('/').pop() ?? '';
+  const pathExtension = lastPathSegment.includes('.')
+    ? lastPathSegment.split('.').pop().toLowerCase()
+    : '';
+  if (BROWSER_RENDERABLE_IMAGE_EXTENSIONS.has(pathExtension)) return true;
+  const formatParameter =
+    sourceUrl.searchParams.get('format')?.toLowerCase() ?? '';
+  return BROWSER_RENDERABLE_IMAGE_EXTENSIONS.has(formatParameter);
+}
+
 /**
  * Name what kind of upload a label describes, from its extension.
  *

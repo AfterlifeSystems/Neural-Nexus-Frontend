@@ -48,7 +48,7 @@ import {
 import LoopingVideo from './ui/LoopingVideo';
 import ImageViewport from './ImageViewport';
 import { titleCaseEmotion } from '../hooks/emotionMediaRows';
-import { describeDocumentKind } from './documentKind';
+import { describeDocumentKind, isDirectImageUrl } from './documentKind';
 
 export { describeDocumentKind };
 
@@ -207,6 +207,8 @@ export const extractYouTubeVideoId = (sourceUrl) => {
  * @returns {string} A short human name for where the link points.
  */
 export const describeUrlKind = (sourceUrl) => {
+  // A link straight to a picture is an image wherever the picture is hosted.
+  if (isDirectImageUrl(sourceUrl)) return 'Image';
   const host = sourceUrl.hostname.replace(/^www\./i, '').toLowerCase();
   if (host.endsWith('youtube.com') || host === 'youtu.be') return 'YouTube';
   if (host === 'x.com' || host.endsWith('twitter.com')) return 'X';
@@ -271,6 +273,9 @@ const AvatarDocumentRow = ({
   // back to a generic globe keeps the row's leading column the same size either
   // way, so a list of links does not sit at ragged indentation.
   const [hasFaviconFailed, setHasFaviconFailed] = useState(false);
+  // An image link that no longer loads (deleted, or the host refuses
+  // embedding) falls back to the favicon and offers no preview.
+  const [hasImageLinkFailed, setHasImageLinkFailed] = useState(false);
 
   // The two reference assets are marked so the user can tell which upload is the
   // avatar's portrait and which one is the voice sample: both are
@@ -356,19 +361,26 @@ const AvatarDocumentRow = ({
     ? null
     : parseDocumentSourceUrl(documentEntry.label);
   const youTubeVideoId = extractYouTubeVideoId(sourceUrl);
-  // Generated rows and the reference image open a larger preview the same
-  // way a YouTube row opens its player: the thumbnail, or the row itself,
-  // toggles it. The reference image is the one still the API actually keeps.
-  const canOpenPreview =
-    Boolean(youTubeVideoId) ||
-    isGeneratedMedia ||
-    Boolean(documentEntry.isReferenceImage && portraitDataUri);
   // The portrait is fetched for the avatar as a whole, so the reference-image
   // row can show it without a second request. Ordinary image uploads are not
   // retained by the API and therefore have no thumbnail to show.
   const referenceImageThumbnail = documentEntry.isReferenceImage
     ? portraitDataUri
     : null;
+  // A link straight to an image is its own preview: the host still serves the
+  // picture the avatar was given.
+  const imageLinkUrl =
+    !youTubeVideoId && !hasImageLinkFailed && isDirectImageUrl(sourceUrl)
+      ? sourceUrl.href
+      : null;
+  const expandableStillUrl = referenceImageThumbnail ?? imageLinkUrl;
+  // Generated rows, the reference image, and image links open a larger
+  // preview the same way a YouTube row opens its player: the thumbnail, or
+  // the row itself, toggles it.
+  const canOpenPreview =
+    Boolean(youTubeVideoId) ||
+    isGeneratedMedia ||
+    Boolean(expandableStillUrl);
   const displayLabel = sourceUrl
     ? summarizeUrlForDisplay(sourceUrl)
     : documentEntry.label;
@@ -480,6 +492,38 @@ const AvatarDocumentRow = ({
             src={referenceImageThumbnail}
             alt={`Preview of ${documentEntry.label}`}
             className="w-full h-full object-cover"
+          />
+          {isPlayerOpen && (
+            <span className="absolute inset-0 flex items-center justify-center bg-black/30">
+              <X size={20} className="text-neutral-200 drop-shadow" />
+            </span>
+          )}
+        </button>
+      );
+    }
+
+    if (imageLinkUrl) {
+      return (
+        <button
+          type="button"
+          onClick={() => setIsPlayerOpen((wasOpen) => !wasOpen)}
+          aria-expanded={isPlayerOpen}
+          aria-controls={isPlayerOpen ? previewRegionId : undefined}
+          aria-label={
+            isPlayerOpen ? 'Close this preview' : 'Preview this image'
+          }
+          className="group relative shrink-0 w-16 h-16 rounded-md overflow-hidden border border-white/10 bg-black/30"
+        >
+          <img
+            src={imageLinkUrl}
+            alt={`Preview of ${displayLabel}`}
+            className="w-full h-full object-cover"
+            loading="lazy"
+            referrerPolicy="no-referrer"
+            onError={() => {
+              setHasImageLinkFailed(true);
+              setIsPlayerOpen(false);
+            }}
           />
           {isPlayerOpen && (
             <span className="absolute inset-0 flex items-center justify-center bg-black/30">
@@ -668,7 +712,7 @@ const AvatarDocumentRow = ({
         </div>
       </div>
 
-      {isPlayerOpen && referenceImageThumbnail && !isGeneratedMedia && (
+      {isPlayerOpen && expandableStillUrl && !isGeneratedMedia && (
         <div id={previewRegionId} data-video-preview className="mt-3 space-y-2">
           <div className="flex justify-end">
             <button
@@ -682,13 +726,16 @@ const AvatarDocumentRow = ({
           </div>
           <ImageViewport
             className="w-full max-w-sm mx-auto h-80 rounded-lg border border-white/10 bg-black"
-            label="Original reference image"
-            resetKey={referenceImageThumbnail}
+            label={
+              referenceImageThumbnail ? 'Original reference image' : displayLabel
+            }
+            resetKey={expandableStillUrl}
           >
             <img
-              src={referenceImageThumbnail}
+              src={expandableStillUrl}
               alt={`Preview of ${documentEntry.label}`}
               draggable={false}
+              referrerPolicy="no-referrer"
               className="h-full w-full object-contain"
             />
           </ImageViewport>

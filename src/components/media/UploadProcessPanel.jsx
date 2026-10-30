@@ -3,7 +3,7 @@
 // In-place progress for an identity-media job started from the settings
 // Upload section. The same checklist the toast used, plus a bar and a cancel
 // that hits POST /media_job/{job_id}/cancel.
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useId, useState } from 'react';
 import {
   Ban,
   Check,
@@ -19,6 +19,7 @@ import {
 } from 'lucide-react';
 import {
   isGenericMediaLabel,
+  isUploadIngestionFinished,
   pipelineProgress,
 } from '../../services/mediaProcessSteps.js';
 import { describeMediaJobTiming } from '../../services/mediaJobTiming.js';
@@ -28,6 +29,7 @@ import {
   parseDocumentSourceUrl,
   summarizeUrlForDisplay,
 } from '../AvatarDocumentRow';
+import { isDirectImageUrl } from '../documentKind';
 
 const KIND_CHIP = {
   portrait: { label: 'Portrait', Icon: ImageIcon, iconClassName: 'text-purple-300' },
@@ -69,6 +71,7 @@ const kindChipForJob = (job) => {
   if (job.kind === 'voice') return KIND_CHIP.voice;
   const label = namedItemLabels(job)[0] || job.title;
   const sourceUrl = parseDocumentSourceUrl(label);
+  if (isDirectImageUrl(sourceUrl)) return KIND_CHIP.image;
   if (sourceUrl) {
     return {
       label: describeUrlKind(sourceUrl),
@@ -82,6 +85,18 @@ const kindChipForJob = (job) => {
 };
 
 const shouldListItems = (job) => namedItemLabels(job).length > 1;
+
+/**
+ * @param {Object} job A stored upload card.
+ * @returns {string|null} The first item that links straight to an image.
+ */
+const firstImageLinkOfJob = (job) => {
+  for (const itemLabel of namedItemLabels(job)) {
+    const sourceUrl = parseDocumentSourceUrl(itemLabel);
+    if (isDirectImageUrl(sourceUrl)) return sourceUrl.href;
+  }
+  return null;
+};
 
 /**
  * "Running 11 min · about 39 min total · 28 min left" for a running upload,
@@ -115,26 +130,58 @@ const UploadProcessPanel = ({ job, onCancel, onCancelItem, onDismiss }) => {
   const { percent, label } = pipelineProgress(job.steps);
   const timingLine = useJobTimingLine(job);
   const isRunning = job.status === 'running';
+  // Once every item is indexed the card is dismissed, not cancelled, even
+  // while the server job is still verifying facts.
+  const isCancellable = isRunning && !isUploadIngestionFinished(job);
   const barWidth = job.status === 'success' ? 100 : percent;
   const title = displayTitleForUploadJob(job);
   const fullTitle = namedItemLabels(job)[0] || job.title || title;
   const chip = kindChipForJob(job);
   const ChipIcon = chip.Icon;
+  const [isPreviewExpanded, setIsPreviewExpanded] = useState(false);
+  // An image link that no longer loads falls back to the kind icon.
+  const [hasImageLinkFailed, setHasImageLinkFailed] = useState(false);
+  const imageLinkUrl = hasImageLinkFailed ? null : firstImageLinkOfJob(job);
   const previewUrl =
     job.previewUrl ||
     job.items?.find((item) => item.previewUrl)?.previewUrl ||
+    imageLinkUrl ||
     null;
   const showItemList = shouldListItems(job);
+  const previewRegionId = useId();
+  const handlePreviewError = () => {
+    if (previewUrl !== imageLinkUrl) return;
+    setHasImageLinkFailed(true);
+    setIsPreviewExpanded(false);
+  };
 
   return (
     <div className="rounded-xl border border-white/10 bg-black/50 p-3 sm:p-4 space-y-3">
       <div className="flex items-start gap-3">
         {previewUrl ? (
-          <img
-            src={previewUrl}
-            alt=""
-            className="w-12 h-12 rounded-md object-cover border border-white/10 shrink-0 bg-black/40"
-          />
+          <button
+            type="button"
+            onClick={() => setIsPreviewExpanded((wasExpanded) => !wasExpanded)}
+            aria-expanded={isPreviewExpanded}
+            aria-controls={isPreviewExpanded ? previewRegionId : undefined}
+            aria-label={
+              isPreviewExpanded ? 'Collapse the image preview' : 'Expand the image preview'
+            }
+            className="group relative w-12 h-12 rounded-md overflow-hidden border border-white/10 shrink-0 bg-black/40"
+          >
+            <img
+              src={previewUrl}
+              alt=""
+              referrerPolicy="no-referrer"
+              onError={handlePreviewError}
+              className="w-full h-full object-cover"
+            />
+            {isPreviewExpanded && (
+              <span className="absolute inset-0 flex items-center justify-center bg-black/30">
+                <X size={16} className="text-neutral-200 drop-shadow" aria-hidden="true" />
+              </span>
+            )}
+          </button>
         ) : (
           <div className="w-12 h-12 rounded-md border border-white/10 bg-black/40 flex items-center justify-center shrink-0">
             <ChipIcon
@@ -179,7 +226,7 @@ const UploadProcessPanel = ({ job, onCancel, onCancelItem, onDismiss }) => {
             </p>
           )}
         </div>
-        {isRunning ? (
+        {isCancellable ? (
           <button
             type="button"
             onClick={onCancel}
@@ -200,6 +247,24 @@ const UploadProcessPanel = ({ job, onCancel, onCancelItem, onDismiss }) => {
           </button>
         )}
       </div>
+
+      {isPreviewExpanded && previewUrl && (
+        <button
+          type="button"
+          id={previewRegionId}
+          onClick={() => setIsPreviewExpanded(false)}
+          aria-label="Collapse the image preview"
+          className="block w-full rounded-lg overflow-hidden border border-white/10 bg-black"
+        >
+          <img
+            src={previewUrl}
+            alt={`Preview of ${fullTitle}`}
+            referrerPolicy="no-referrer"
+            onError={handlePreviewError}
+            className="mx-auto max-h-80 w-auto object-contain"
+          />
+        </button>
+      )}
 
       <div
         className="h-1.5 rounded-full bg-white/10 overflow-hidden"
@@ -276,7 +341,7 @@ const UploadProcessPanel = ({ job, onCancel, onCancelItem, onDismiss }) => {
                 <span className="flex-1 min-w-0 truncate" title={item.label}>
                   {item.label}
                 </span>
-                {isRunning && item.itemJobId && onCancelItem && (
+                {isCancellable && item.itemJobId && onCancelItem && (
                   <button
                     type="button"
                     onClick={() => onCancelItem(item.itemJobId)}
